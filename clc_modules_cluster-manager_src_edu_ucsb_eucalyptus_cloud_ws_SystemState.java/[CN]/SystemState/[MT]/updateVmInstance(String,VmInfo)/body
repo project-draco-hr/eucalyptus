@@ -1,0 +1,39 @@
+{
+  VmInstance vm=null;
+  try {
+    vm=VmInstances.getInstance().lookup(runVm.getInstanceId());
+    if (VmState.SHUTTING_DOWN.equals(vm.getState())) {
+      long splitTime=vm.getSplitTime();
+      if (splitTime > SHUT_DOWN_TIME) {
+        VmInstances.getInstance().disable(vm.getName());
+        vm.setState(VmState.TERMINATED);
+        vm.resetStopWatch();
+        vm.setReason(INSTANCE_EXPIRED);
+        SystemState.cleanUp(vm);
+      }
+ else       if (VmState.SHUTTING_DOWN.equals(VmState.Mapper.get(runVm.getStateName()))) {
+        VmInstances.getInstance().disable(vm.getName());
+        vm.setState(VmState.TERMINATED);
+        vm.resetStopWatch();
+        vm.setReason(INSTANCE_TERMINATED);
+        SystemState.cleanUp(vm);
+      }
+ else       return;
+    }
+ else {
+      vm.resetStopWatch();
+      vm.getNetworkConfig().setIpAddress(runVm.getNetParams().getIpAddress());
+      vm.setState(VmState.Mapper.get(runVm.getStateName()));
+    }
+  }
+ catch (  NoSuchElementException e) {
+    try {
+      vm=VmInstances.getInstance().lookupDisabled(runVm.getInstanceId());
+      long splitTime=vm.getSplitTime();
+      if (splitTime > BURY_TIME)       vm.setState(VmState.BURIED);
+    }
+ catch (    NoSuchElementException e1) {
+      SystemState.restoreInstance(originCluster,runVm);
+    }
+  }
+}

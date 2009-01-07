@@ -1,0 +1,60 @@
+{
+  DescribeImagesResponseType reply=(DescribeImagesResponseType)request.getReply();
+  ArrayList<String> remList=Lists.newArrayList();
+  EntityWrapper<ImageInfo> db=new EntityWrapper<ImageInfo>();
+  List<ImageInfo> imgList=db.query(ImageInfo.deregistered());
+  for (  ImageInfo deregImg : imgList)   db.delete(deregImg);
+  db.commit();
+  db=new EntityWrapper<ImageInfo>();
+  String userId=request.getUserId();
+  Boolean isAdmin=request.isAdministrator();
+  UserInfo user=null;
+  try {
+    user=db.recast(UserInfo.class).getUnique(new UserInfo(userId));
+  }
+ catch (  EucalyptusCloudException e) {
+    db.commit();
+    throw new EucalyptusCloudException("Failed to find user information for: " + userId);
+  }
+  ArrayList<String> imageList=request.getImagesSet();
+  if (imageList == null)   imageList=Lists.newArrayList();
+  ArrayList<String> owners=request.getOwnersSet();
+  if (owners == null)   owners=Lists.newArrayList();
+  ArrayList<String> executable=request.getExecutableBySet();
+  if (executable == null)   executable=Lists.newArrayList();
+  List<ImageDetails> repList=reply.getImagesSet();
+  if (imageList.isEmpty() && owners.isEmpty() && executable.isEmpty())   executable.add("self");
+  if (!owners.isEmpty()) {
+    if (owners.remove("self"))     owners.add(user.getUserName());
+    for (    String userName : owners) {
+      List<ImageInfo> results=db.query(ImageInfo.byOwnerId(userName));
+      for (      ImageInfo img : results) {
+        ImageDetails imgDetails=img.getAsImageDetails();
+        if (img.isAllowed(user) && !repList.contains(imgDetails) && (imgList.isEmpty() || imgList.contains(imgDetails.getImageId())))         repList.add(imgDetails);
+      }
+    }
+  }
+  if (!executable.isEmpty()) {
+    if (executable.remove("self")) {
+      List<ImageInfo> results=db.query(new ImageInfo());
+      for (      ImageInfo img : results) {
+        ImageDetails imgDetails=img.getAsImageDetails();
+        if (img.isAllowed(user) && !repList.contains(imgDetails) && (imgList.isEmpty() || imgList.contains(imgDetails.getImageId())))         repList.add(imgDetails);
+      }
+    }
+    for (    String execUserId : executable) {
+      try {
+        UserInfo execUser=db.recast(UserInfo.class).getUnique(new UserInfo(execUserId));
+        List<ImageInfo> results=db.query(new ImageInfo());
+        for (        ImageInfo img : results) {
+          ImageDetails imgDetails=img.getAsImageDetails();
+          if (img.isAllowed(execUser) && img.getImageOwnerId().equals(user.getUserName()) && !repList.contains(imgDetails))           repList.add(imgDetails);
+        }
+      }
+ catch (      Exception e) {
+      }
+    }
+  }
+  db.commit();
+  return reply;
+}

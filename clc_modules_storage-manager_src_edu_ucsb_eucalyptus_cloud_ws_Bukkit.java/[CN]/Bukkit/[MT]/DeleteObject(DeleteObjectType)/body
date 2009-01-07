@@ -1,0 +1,51 @@
+{
+  DeleteObjectResponseType reply=(DeleteObjectResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  String objectName=request.getKey();
+  String userId=request.getUserId();
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfos=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfos);
+  if (bucketList.size() > 0) {
+    BucketInfo bucketInfo=bucketList.get(0);
+    ObjectInfo foundObject=null;
+    for (    ObjectInfo objectInfo : bucketInfo.getObjects()) {
+      if (objectInfo.getObjectName().equals(objectName)) {
+        foundObject=objectInfo;
+      }
+    }
+    if (foundObject != null) {
+      if (foundObject.canWrite(userId)) {
+        bucketInfo.getObjects().remove(foundObject);
+        for (        GrantInfo grantInfo : foundObject.getGrants()) {
+          db.getEntityManager().remove(grantInfo);
+        }
+        Long size=foundObject.getSize();
+        bucketInfo.setBucketSize(bucketInfo.getBucketSize() - size);
+        db.getEntityManager().remove(foundObject);
+        try {
+          storageManager.deleteObject(bucketName,objectName);
+        }
+ catch (        IOException ex) {
+          LOG.warn(ex,ex);
+        }
+        reply.setCode("200");
+        reply.setDescription("OK");
+      }
+ else {
+        db.rollback();
+        throw new AccessDeniedException(objectName);
+      }
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException(objectName);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  return reply;
+}

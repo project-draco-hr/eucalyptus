@@ -1,0 +1,35 @@
+{
+  EntityWrapper<SystemConfiguration> db=new EntityWrapper<SystemConfiguration>();
+  try {
+    SystemConfiguration sysConf=db.getUnique(new SystemConfiguration());
+    return new SystemConfigWeb(sysConf.getStorageUrl(),sysConf.getStorageDir(),sysConf.getStorageMaxBucketsPerUser(),sysConf.getStorageMaxBucketSizeInMB(),sysConf.getStorageMaxCacheSizeInMB(),sysConf.getDefaultKernel(),sysConf.getDefaultRamdisk());
+  }
+ catch (  EucalyptusCloudException e) {
+    String ipAddr="127.0.0.1";
+    List<NetworkInterface> ifaces=null;
+    try {
+      ifaces=Collections.list(NetworkInterface.getNetworkInterfaces());
+    }
+ catch (    SocketException e1) {
+    }
+    for (    NetworkInterface iface : ifaces)     try {
+      if (!iface.isLoopback() && !iface.isVirtual() && iface.isUp())       for (      InetAddress iaddr : Collections.list(iface.getInetAddresses()))       if (!iaddr.isSiteLocalAddress() && !(iaddr instanceof Inet6Address))       ipAddr=iaddr.getHostAddress();
+    }
+ catch (    SocketException e1) {
+    }
+    String wUrl=String.format("http://%s:8773/services/" + WalrusProperties.SERVICE_NAME,ipAddr);
+    String defKernel="", defRamdisk="";
+    ImageInfo q=new ImageInfo();
+    EntityWrapper<ImageInfo> db2=new EntityWrapper<ImageInfo>();
+    q.setImageType(EucalyptusProperties.IMAGE_KERNEL);
+    List<ImageInfo> res=db2.query(q);
+    if (res.size() > 0)     defKernel=res.get(0).getImageId();
+    q.setImageType(EucalyptusProperties.IMAGE_RAMDISK);
+    res=db2.query(q);
+    if (res.size() > 0)     defRamdisk=res.get(0).getImageId();
+    return new SystemConfigWeb(wUrl,WalrusProperties.bucketRootDirectory.replaceAll("//","/"),WalrusProperties.MAX_BUCKETS_PER_USER,(int)(WalrusProperties.MAX_BUCKET_SIZE / WalrusProperties.M),(int)(WalrusProperties.IMAGE_CACHE_SIZE / WalrusProperties.M),defKernel,defRamdisk);
+  }
+ finally {
+    db.commit();
+  }
+}

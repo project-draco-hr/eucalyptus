@@ -1,0 +1,76 @@
+{
+  load_props();
+  if (action == null || param == null) {
+    throw new SerializableException("Invalid RPC arguments: action or param are missing");
+  }
+  if (action.equals("recover") || action.equals("confirm")) {
+    UserInfoWeb user=EucalyptusManagement.getWebUserByCode(param);
+    String response;
+    if (action.equals("confirm")) {
+      user.setIsConfirmed(true);
+      EucalyptusManagement.commitWebUser(user);
+      response="Your account is now active.";
+    }
+ else {
+      user.setBCryptedPassword(user.getTemporaryPassword());
+      long now=System.currentTimeMillis();
+      user.setPasswordExpires(new Long(now + pass_expiration_ms));
+      EucalyptusManagement.commitWebUser(user);
+      response="Your password has been reset.";
+    }
+    return response;
+  }
+  final SessionInfo session=verifySession(sessionId);
+  final UserInfoWeb user=verifyUser(session,session.getUserId(),false);
+  String response="Your `" + action + "` request succeeded, thank you.";
+  if (action.equals("approve") || action.equals("reject") || action.equals("delete")|| action.equals("disable")|| action.equals("enable")) {
+    String userName=param;
+    if (!user.isAdministrator()) {
+      throw new SerializableException("Administrative privileges required");
+    }
+    UserInfoWeb new_user=EucalyptusManagement.getWebUser(userName);
+    if (action.equals("approve")) {
+      new_user.setIsApproved(true);
+      new_user.setIsEnabled(true);
+      new_user.setIsConfirmed(false);
+      EucalyptusManagement.commitWebUser(new_user);
+      response=notifyUserApproved(new_user);
+    }
+ else     if (action.equals("reject")) {
+      EucalyptusManagement.deleteWebUser(new_user);
+      response=notifyUserRejected(new_user);
+    }
+ else     if (action.equals("delete")) {
+      EucalyptusManagement.deleteWebUser(new_user);
+    }
+ else     if (action.equals("disable")) {
+      new_user.setIsEnabled(false);
+      EucalyptusManagement.commitWebUser(new_user);
+    }
+ else     if (action.equals("enable")) {
+      new_user.setIsEnabled(true);
+      EucalyptusManagement.commitWebUser(new_user);
+    }
+    response="Your request to " + action + " user '"+ userName+ "' succeeded, thank you.";
+  }
+ else   if (action.equals("delete_image") || action.equals("enable_image") || action.equals("disable_image")) {
+    String imageId=param;
+    if (!user.isAdministrator()) {
+      throw new SerializableException("Administrative privileges required");
+    }
+    if (action.equals("delete_image")) {
+      EucalyptusManagement.deleteImage(imageId);
+    }
+ else     if (action.equals("disable_image")) {
+      EucalyptusManagement.disableImage(imageId);
+    }
+ else     if (action.equals("enable_image")) {
+      EucalyptusManagement.enableImage(imageId);
+    }
+    response="Your request succeeded, thank you.";
+  }
+ else {
+    throw new SerializableException("Action '" + action + "' is not implemented.");
+  }
+  return response;
+}

@@ -1,0 +1,34 @@
+{
+  WalrusSemaphore semaphore=imageMessenger.getSemaphore(bucketName + "/" + objectName);
+  while (semaphore.inUse()) {
+    try {
+synchronized (semaphore) {
+        semaphore.wait();
+      }
+    }
+ catch (    InterruptedException ex) {
+      LOG.warn(ex,ex);
+    }
+  }
+  imageMessenger.removeSemaphore(bucketName + "/" + objectName);
+  try {
+    EntityWrapper<ImageCacheInfo> db=new EntityWrapper<ImageCacheInfo>();
+    ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,objectName);
+    List<ImageCacheInfo> foundImageCacheInfos=db.query(searchImageCacheInfo);
+    if (foundImageCacheInfos.size() > 0) {
+      ImageCacheInfo foundImageCacheInfo=foundImageCacheInfos.get(0);
+      if (foundImageCacheInfo.getInCache() && !foundImageCacheInfo.getCaching()) {
+        db.delete(foundImageCacheInfo);
+        storageManager.deleteObject(bucketName,foundImageCacheInfo.getImageName());
+      }
+      db.commit();
+    }
+ else {
+      db.rollback();
+      LOG.warn("Cannot find image in cache" + bucketName + "/"+ objectName);
+    }
+  }
+ catch (  Exception ex) {
+    LOG.warn(ex,ex);
+  }
+}

@@ -1,0 +1,108 @@
+{
+  ListBucketResponseType reply=(ListBucketResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  String userId=request.getUserId();
+  String prefix=request.getPrefix();
+  String marker=request.getMarker();
+  int maxKeys=-1;
+  String maxKeysString=request.getMaxKeys();
+  if (maxKeysString != null)   maxKeys=Integer.parseInt(maxKeysString);
+  String delimiter=request.getDelimiter();
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  ArrayList<PrefixEntry> prefixes=new ArrayList<PrefixEntry>();
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    if (bucket.canRead(userId)) {
+      reply.setName(bucketName);
+      reply.setIsTruncated(false);
+      if (maxKeys >= 0)       reply.setMaxKeys(maxKeys);
+      if (prefix != null) {
+        reply.setPrefix(prefix);
+      }
+      if (marker != null)       reply.setMarker(marker);
+      if (delimiter != null)       reply.setDelimiter(delimiter);
+      List<ObjectInfo> objectInfos=bucket.getObjects();
+      if (objectInfos.size() > 0) {
+        int howManyProcessed=0;
+        ArrayList<ListEntry> contents=new ArrayList<ListEntry>();
+        for (        ObjectInfo objectInfo : objectInfos) {
+          String objectName=objectInfo.getObjectName();
+          if (marker != null) {
+            if (objectName.compareTo(marker) < 0)             continue;
+          }
+          if (prefix != null) {
+            if (!objectName.startsWith(prefix)) {
+              continue;
+            }
+ else {
+              if (delimiter != null) {
+                String[] parts=objectName.substring(prefix.length()).split(delimiter);
+                if (parts.length > 1) {
+                  String prefixString=parts[0] + delimiter;
+                  boolean foundPrefix=false;
+                  for (                  PrefixEntry prefixEntry : prefixes) {
+                    if (prefixEntry.getPrefix().equals(prefixString)) {
+                      foundPrefix=true;
+                      break;
+                    }
+                  }
+                  if (!foundPrefix) {
+                    prefixes.add(new PrefixEntry(prefixString));
+                    if (maxKeys >= 0) {
+                      if (howManyProcessed++ > maxKeys) {
+                        reply.setIsTruncated(true);
+                        break;
+                      }
+                    }
+                  }
+                  continue;
+                }
+              }
+            }
+          }
+          if (maxKeys >= 0) {
+            if (howManyProcessed++ > maxKeys) {
+              reply.setIsTruncated(true);
+              break;
+            }
+          }
+          ListEntry listEntry=new ListEntry();
+          listEntry.setKey(objectName);
+          listEntry.setEtag(objectInfo.getEtag());
+          listEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+          listEntry.setStorageClass(objectInfo.getStorageClass());
+          String displayName=objectInfo.getOwnerId();
+          EntityWrapper<UserInfo> db2=new EntityWrapper<UserInfo>();
+          UserInfo userInfo=new UserInfo(displayName);
+          List<UserInfo> ownerInfos=db2.query(userInfo);
+          db2.commit();
+          if (ownerInfos.size() > 0) {
+            listEntry.setOwner(new CanonicalUserType(ownerInfos.get(0).getQueryId(),displayName));
+          }
+          ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
+          objectInfo.getMetaData(metaData);
+          reply.setMetaData(metaData);
+          listEntry.setSize(objectInfo.getSize());
+          listEntry.setStorageClass(objectInfo.getStorageClass());
+          contents.add(listEntry);
+        }
+        reply.setContents(contents);
+        if (prefix != null) {
+          reply.setCommonPrefixes(prefixes);
+        }
+      }
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException(bucketName);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  return reply;
+}

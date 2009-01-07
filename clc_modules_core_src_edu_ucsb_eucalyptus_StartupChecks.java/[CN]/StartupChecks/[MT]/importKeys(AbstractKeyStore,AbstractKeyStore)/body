@@ -1,0 +1,34 @@
+{
+  for (  String alias : ks.getAliases())   if (!newKs.containsEntry(alias) && !EucalyptusProperties.NAME.equals(alias)) {
+    LOG.info(String.format("Importing -> alias=%10s",alias));
+    newKs.addCertificate(alias,ks.getCertificate(alias));
+  }
+ else   if (!newKs.containsEntry("v13-" + alias) && EucalyptusProperties.NAME.equals(alias)) {
+    LOG.info(String.format("Importing -> alias=%10s",alias));
+    newKs.addKeyPair("v13-" + EucalyptusProperties.NAME,ks.getCertificate(alias),(PrivateKey)ks.getKey(alias,EucalyptusProperties.NAME),EucalyptusProperties.NAME);
+  }
+  newKs.store();
+  LOG.info("Backporting keys into database");
+  EntityWrapper<UserInfo> db=new EntityWrapper<UserInfo>();
+  try {
+    for (    UserInfo user : db.query(new UserInfo())) {
+      for (      CertificateInfo certInfo : user.getCertificates()) {
+        LOG.info(String.format("- Trying for user %s with alias %s",user.getUserName(),certInfo.getCertAlias()));
+        if (newKs.containsEntry(certInfo.getCertAlias())) {
+          try {
+            X509Certificate cert=newKs.getCertificate(certInfo.getCertAlias());
+            certInfo.setValue(new String(UrlBase64.encode(Hashes.getPemBytes(cert))));
+            db.recast(CertificateInfo.class).merge(certInfo);
+            LOG.info(String.format("- Backedup for user %s with alias %s",user.getUserName(),certInfo.getCertAlias()));
+          }
+ catch (          Exception e) {
+            LOG.error(String.format("- Failed for user %s with alias %s: %s",user.getUserName(),certInfo.getCertAlias(),e));
+          }
+        }
+      }
+    }
+  }
+ catch (  Exception e) {
+  }
+  db.commit();
+}

@@ -1,0 +1,34 @@
+{
+  SetBucketAccessControlPolicyResponseType reply=(SetBucketAccessControlPolicyResponseType)request.getReply();
+  String userId=request.getUserId();
+  AccessControlPolicyType accessControlPolicy=request.getAccessControlPolicy();
+  if (accessControlPolicy == null) {
+    throw new AccessDeniedException(userId);
+  }
+  String bucketName=request.getBucket();
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    if (bucket.canWriteACP(userId) && accessControlPolicy.getOwner().getDisplayName().equals(bucket.getOwnerId())) {
+      List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+      AccessControlListType accessControlList=accessControlPolicy.getAccessControlList();
+      bucket.resetGlobalGrants();
+      bucket.addGrants(bucket.getOwnerId(),grantInfos,accessControlList);
+      bucket.setGrants(grantInfos);
+      reply.setCode("204");
+      reply.setDescription("OK");
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException(bucketName);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  return reply;
+}

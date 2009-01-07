@@ -1,0 +1,56 @@
+{
+  String methodName=this.findOperation(msgContext);
+  Class serviceMethodArgType=this.findArgumentClass(methodName);
+  SOAPFactory factory=this.getSOAPFactory(msgContext);
+  OMElement msgBodyOm=msgContext.getEnvelope().getBody().getFirstElement();
+  String bindingName=this.findBindingName(msgBodyOm);
+  EucalyptusMessage wrappedParam=this.bindMessage(methodName,serviceMethodArgType,msgBodyOm,bindingName);
+  HttpRequest httprequest=(HttpRequest)msgContext.getProperty(GenericHttpDispatcher.HTTP_REQUEST);
+  if (httprequest == null) {
+    this.verifyUser(msgContext,wrappedParam);
+  }
+ else {
+    bindingName=httprequest.getBindingName();
+    Policy p=new Policy();
+    newMsgContext.setProperty(RampartMessageData.KEY_RAMPART_POLICY,p);
+  }
+  MuleMessage message=this.invokeService(methodName,wrappedParam);
+  if (message == null)   throw new AxisFault("Received a NULL response. This is a bug -- it should NEVER happen.");
+  this.checkException(message);
+  if (newMsgContext != null) {
+    SOAPEnvelope envelope=generateMessage(methodName,factory,bindingName,message.getPayload());
+    newMsgContext.setEnvelope(envelope);
+  }
+  newMsgContext.setProperty(Axis2HttpWorker.REAL_HTTP_REQUEST,msgContext.getProperty(Axis2HttpWorker.REAL_HTTP_REQUEST));
+  newMsgContext.setProperty(Axis2HttpWorker.REAL_HTTP_RESPONSE,msgContext.getProperty(Axis2HttpWorker.REAL_HTTP_RESPONSE));
+  if (message.getPayload() instanceof WalrusErrorMessageType) {
+    WalrusErrorMessageType errorMessage=(WalrusErrorMessageType)message.getPayload();
+    msgContext.setProperty(Axis2HttpWorker.HTTP_STATUS,errorMessage.getHttpCode());
+    newMsgContext.setProperty(Axis2HttpWorker.HTTP_STATUS,errorMessage.getHttpCode());
+    newMsgContext.setProperty("messageType","application/walrus");
+    return;
+  }
+  Boolean putType=(Boolean)msgContext.getProperty(WalrusProperties.STREAMING_HTTP_PUT);
+  Boolean getType=(Boolean)msgContext.getProperty(WalrusProperties.STREAMING_HTTP_GET);
+  if (getType != null || putType != null) {
+    WalrusDataResponseType reply=(WalrusDataResponseType)message.getPayload();
+    AxisHttpResponse response=(AxisHttpResponse)msgContext.getProperty(Axis2HttpWorker.REAL_HTTP_RESPONSE);
+    response.addHeader(new BasicHeader("Last-Modified",reply.getLastModified()));
+    response.addHeader(new BasicHeader("ETag",reply.getEtag()));
+    if (getType != null) {
+      newMsgContext.setProperty(WalrusProperties.STREAMING_HTTP_GET,getType);
+      Long contentLength=reply.getSize();
+      response.addHeader(new BasicHeader(HTTP.CONTENT_LEN,String.valueOf(contentLength)));
+      List<MetaDataEntry> metaData=reply.getMetaData();
+      for (      MetaDataEntry metaDataEntry : metaData) {
+        response.addHeader(new BasicHeader(WalrusProperties.AMZ_META_HEADER_PREFIX + metaDataEntry.getName(),metaDataEntry.getValue()));
+      }
+      if (getType.equals(Boolean.TRUE)) {
+        WalrusDataRequestType request=(WalrusDataRequestType)wrappedParam;
+        newMsgContext.setProperty("GET_KEY",request.getBucket() + "." + request.getKey());
+        newMsgContext.setProperty("GET_RANDOM_KEY",request.getRandomKey());
+      }
+      newMsgContext.setProperty("messageType","application/walrus");
+    }
+  }
+}

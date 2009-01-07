@@ -1,0 +1,31 @@
+{
+  EntityWrapper<UserInfo> db=new EntityWrapper<UserInfo>();
+  RevokeSecurityGroupIngressResponseType reply=(RevokeSecurityGroupIngressResponseType)request.getReply();
+  UserInfo user=db.getUnique(new UserInfo(request.getUserId()));
+  boolean foundAll=false;
+  int groupIndex=-1;
+  NetworkRulesGroup ruleGroup=null;
+  if ((groupIndex=user.getNetworkRulesGroup().indexOf(new NetworkRulesGroup(request.getGroupName()))) >= 0) {
+    ruleGroup=user.getNetworkRulesGroup().get(groupIndex);
+    for (    IpPermissionType ipPerm : request.getIpPermissions()) {
+      List<NetworkRule> ruleList=getNetworkRules(ipPerm);
+      if (ruleGroup.getNetworkRules().containsAll(getNetworkRules(ipPerm))) {
+        for (        NetworkRule delRule : ruleList) {
+          int index=ruleGroup.getNetworkRules().indexOf(delRule);
+          ruleGroup.getNetworkRules().remove(index);
+          db.getEntityManager().persist(ruleGroup);
+        }
+        foundAll=true;
+      }
+ else       foundAll=false;
+    }
+  }
+  if (foundAll) {
+    db.commit();
+    Network changedNetwork=ruleGroup.getVmNetwork(user.getUserName());
+    Messaging.dispatch(EucalyptusProperties.CLUSTERSINK_REF,changedNetwork);
+  }
+ else   db.rollback();
+  reply.set_return(foundAll);
+  return reply;
+}

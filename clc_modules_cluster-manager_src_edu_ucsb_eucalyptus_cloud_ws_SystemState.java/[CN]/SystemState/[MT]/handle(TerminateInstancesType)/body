@@ -1,0 +1,39 @@
+{
+  TerminateInstancesResponseType reply=(TerminateInstancesResponseType)request.getReply();
+  reply.set_return(true);
+  if (request.isAdministrator()) {
+    for (    String instanceId : request.getInstancesSet()) {
+      try {
+        VmInstance v=VmInstances.getInstance().lookup(instanceId);
+        reply.getInstancesSet().add(new TerminateInstancesItemType(v.getInstanceId(),v.getState().getCode(),v.getState().getName(),VmState.SHUTTING_DOWN.getCode(),VmState.SHUTTING_DOWN.getName()));
+        v.setState(VmState.SHUTTING_DOWN);
+        v.resetStopWatch();
+        SystemState.cleanUp(v);
+      }
+ catch (      NoSuchElementException e) {
+        throw new EucalyptusCloudException(e);
+      }
+    }
+    return reply;
+  }
+  StateSnapshot state=SystemState.getSnapshot(RULE_FILE);
+  try {
+    QueryResults res=state.findInstances(request.getUserId(),request.getInstancesSet());
+    if (res.size() == 0)     reply.set_return(false);
+ else {
+      Iterator iter=res.iterator();
+      while (iter.hasNext()) {
+        QueryResult result=(QueryResult)iter.next();
+        VmInstance v=(VmInstance)result.get("vm");
+        reply.getInstancesSet().add(new TerminateInstancesItemType(v.getInstanceId(),v.getState().getCode(),v.getState().getName(),VmState.SHUTTING_DOWN.getCode(),VmState.SHUTTING_DOWN.getName()));
+        v.setState(VmState.SHUTTING_DOWN);
+        v.resetStopWatch();
+        SystemState.cleanUp(v);
+      }
+    }
+  }
+  finally {
+    state.destroy();
+  }
+  return reply;
+}

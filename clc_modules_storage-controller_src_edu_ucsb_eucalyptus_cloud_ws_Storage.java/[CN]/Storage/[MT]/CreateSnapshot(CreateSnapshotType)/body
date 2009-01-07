@@ -1,0 +1,34 @@
+{
+  CreateSnapshotResponseType reply=(CreateSnapshotResponseType)request.getReply();
+  String volumeId=request.getVolumeId();
+  EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
+  VolumeInfo volumeInfo=new VolumeInfo(volumeId);
+  VolumeInfo foundVolumeInfo=db.getUnique(volumeInfo);
+  String snapshotId="snap-" + Hashes.getRandom(8);
+  if (foundVolumeInfo != null) {
+    if (foundVolumeInfo.getStatus().equals(StorageProperties.Status.available.toString())) {
+      EntityWrapper<SnapshotInfo> db2=new EntityWrapper<SnapshotInfo>();
+      edu.ucsb.eucalyptus.cloud.entities.SnapshotInfo snapshotInfo=new edu.ucsb.eucalyptus.cloud.entities.SnapshotInfo(snapshotId);
+      snapshotInfo.setUserName(foundVolumeInfo.getUserName());
+      snapshotInfo.setVolumeId(volumeId);
+      snapshotInfo.setStartTime(new Date());
+      snapshotInfo.setProgress("0%");
+      snapshotInfo.setStatus(StorageProperties.Status.creating.toString());
+      db2.add(snapshotInfo);
+      db2.commit();
+      db.commit();
+      ebsManager.createSnapshot(volumeId,snapshotId);
+      Snapshotter snapshotter=new Snapshotter(volumeId,snapshotId);
+      snapshotter.run();
+      reply.setSnapshot(convertSnapshotInfo(snapshotInfo));
+    }
+ else {
+      db.rollback();
+      throw new EucalyptusCloudException();
+    }
+  }
+ else {
+    throw new EucalyptusCloudException();
+  }
+  return reply;
+}

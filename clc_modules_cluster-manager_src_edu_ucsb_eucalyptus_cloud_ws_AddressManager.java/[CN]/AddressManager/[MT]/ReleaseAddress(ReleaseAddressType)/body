@@ -1,0 +1,31 @@
+{
+  ReleaseAddressResponseType reply=(ReleaseAddressResponseType)request.getReply();
+  reply.set_return(false);
+  Address address=null;
+  try {
+    address=Addresses.getInstance().lookup(request.getPublicIp());
+    if (!request.isAdministrator() && !address.getUserId().equals(request.getUserId()))     return reply;
+    if (address.isAssigned()) {
+      UnassignAddressType unassignMsg=new UnassignAddressType(request,address.getName(),address.getInstanceAddress());
+      UnassignAddressCallback unassignHandler=new UnassignAddressCallback(address);
+      QueuedEvent<UnassignAddressType> event=new QueuedEvent<UnassignAddressType>(unassignHandler,unassignMsg);
+      Messaging.dispatch(EucalyptusProperties.CLUSTERSINK_REF,new ClusterEnvelope(address.getCluster(),event));
+    }
+    EntityWrapper<Address> db=new EntityWrapper<Address>();
+    try {
+      Address dbAddr=db.getUnique(address);
+      db.delete(dbAddr);
+      db.commit();
+    }
+ catch (    EucalyptusCloudException e) {
+      db.rollback();
+    }
+    address.release();
+    Addresses.getInstance().disable(address.getName());
+    reply.set_return(true);
+  }
+ catch (  NoSuchElementException e) {
+    return reply;
+  }
+  return reply;
+}

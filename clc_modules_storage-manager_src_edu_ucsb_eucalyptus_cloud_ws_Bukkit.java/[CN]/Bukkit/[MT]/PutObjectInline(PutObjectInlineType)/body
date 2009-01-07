@@ -1,0 +1,85 @@
+{
+  PutObjectInlineResponseType reply=(PutObjectInlineResponseType)request.getReply();
+  String userId=request.getUserId();
+  String bucketName=request.getBucket();
+  String objectName=request.getKey();
+  String md5="";
+  Long oldBucketSize=0L;
+  Date lastModified=null;
+  AccessControlListType accessControlList=request.getAccessControlList();
+  if (accessControlList == null) {
+    accessControlList=new AccessControlListType();
+  }
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    if (bucket.canWrite(userId)) {
+      ObjectInfo foundObject=null;
+      List<ObjectInfo> objectInfos=bucket.getObjects();
+      for (      ObjectInfo objectInfo : objectInfos) {
+        if (objectInfo.getObjectName().equals(objectName)) {
+          if (!objectInfo.canWrite(userId)) {
+            db.rollback();
+            throw new AccessDeniedException(objectName);
+          }
+          foundObject=objectInfo;
+          oldBucketSize=-foundObject.getSize();
+          break;
+        }
+      }
+      if (foundObject == null) {
+        foundObject=new ObjectInfo(objectName);
+        List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+        foundObject.addGrants(userId,grantInfos,accessControlList);
+        foundObject.setGrants(grantInfos);
+        objectInfos.add(foundObject);
+      }
+ else {
+        if (foundObject.canWriteACP(userId)) {
+          List<GrantInfo> grantInfos=foundObject.getGrants();
+          foundObject.addGrants(userId,grantInfos,accessControlList);
+        }
+      }
+      foundObject.setObjectName(objectName);
+      foundObject.setOwnerId(userId);
+      try {
+        byte[] base64Data=request.getBase64Data().getBytes();
+        storageManager.putObject(bucketName,objectName,base64Data,false);
+        md5=Hashes.getHexString(Hashes.Digest.MD5.get().digest(base64Data));
+        foundObject.setEtag(md5);
+        Long size=Long.parseLong(request.getContentLength());
+        foundObject.setSize(size);
+        if (shouldEnforceUsageLimits && !request.isAdministrator()) {
+          Long bucketSize=bucket.getBucketSize();
+          long newSize=bucketSize + oldBucketSize + size;
+          if (newSize > WalrusProperties.MAX_BUCKET_SIZE) {
+            db.rollback();
+            throw new EntityTooLargeException(objectName);
+          }
+          bucket.setBucketSize(newSize);
+        }
+        foundObject.addMetaData(request.getMetaData());
+        foundObject.setStorageClass("STANDARD");
+        lastModified=new Date();
+        foundObject.setLastModified(lastModified);
+      }
+ catch (      IOException ex) {
+        LOG.warn(ex,ex);
+      }
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException(bucketName);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  reply.setEtag(md5);
+  reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+  return reply;
+}

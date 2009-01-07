@@ -1,0 +1,40 @@
+{
+  AbstractKeyStore keyStore=null;
+  try {
+    keyStore=ServiceKeyStore.getInstance();
+  }
+ catch (  Exception ex) {
+    LOG.warn(ex,ex);
+  }
+  String date=new Date().toString();
+  String httpVerb=verb;
+  String data=httpVerb + "\n" + date+ "\n"+ addr+ "\n";
+  HttpMethodBase method=null;
+  if (httpVerb.equals("PUT")) {
+    method=new PutMethodWithProgress(addr);
+  }
+ else   if (httpVerb.equals("GET")) {
+    method=new GetMethod(addr);
+  }
+  method.setRequestHeader("Authorization","Euca");
+  method.setRequestHeader("Date",date);
+  method.setRequestHeader(StorageProperties.EUCALYPTUS_OPERATION,eucaOperation);
+  if (eucaHeader != null) {
+    method.setRequestHeader(StorageProperties.EUCALYPTUS_HEADER,eucaHeader);
+  }
+  try {
+    PrivateKey ccPrivateKey=(PrivateKey)keyStore.getKey(EucalyptusProperties.NAME,EucalyptusProperties.NAME);
+    X509Certificate cert=keyStore.getCertificate(EucalyptusProperties.NAME);
+    PublicKey ccPublicKey=cert.getPublicKey();
+    Signature sign=Signature.getInstance("SHA1withRSA");
+    sign.initSign(ccPrivateKey);
+    sign.update(data.getBytes());
+    byte[] sig=sign.sign();
+    method.setRequestHeader("EucaCert",new String(Base64.encode(ccPublicKey.toString().getBytes())));
+    method.setRequestHeader("EucaSignature",new String(Base64.encode(sig)));
+  }
+ catch (  Exception ex) {
+    ex.printStackTrace();
+  }
+  return method;
+}

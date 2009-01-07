@@ -1,0 +1,50 @@
+{
+  String code=request.getParameter(PARAMETER_CODE);
+  String userName=request.getParameter(PARAMETER_USERNAME);
+  String keyName=request.getParameter(PARAMETER_KEYNAME);
+  String mimetype="application/zip";
+  Calendar now=Calendar.getInstance();
+  keyName=(keyName == null || "".equals(keyName)) ? "default" : keyName;
+  keyName=userName + String.format("-%1$ty%1$tm%1$te%1$tk%1$tM%1$tS",now);
+  if (userName == null || "".equals(userName)) {
+    hasError("No user name provided",response);
+    return;
+  }
+  if (code == null || "".equals(code)) {
+    hasError("Wrong confirmation code",response);
+    return;
+  }
+  UserInfoWeb user=null;
+  try {
+    user=EucalyptusManagement.getWebUser(userName);
+    String[] certs=EucalyptusManagement.getUserCertificateAliases(userName);
+    for (    String s : certs)     if (s.equals(keyName)) {
+      hasError("Certificate name already exists",response);
+      return;
+    }
+  }
+ catch (  Exception e) {
+    hasError("User does not exist",response);
+    return;
+  }
+  if (!user.getCertificateCode().equals(code)) {
+    hasError("Confirmation code is invalid",response);
+    return;
+  }
+  response.setContentType(mimetype);
+  response.setHeader("Content-Disposition","attachment; filename=\"" + EucalyptusProperties.NAME_SHORT + "-"+ userName+ "-x509.zip\"");
+  LOG.info("pushing out the X509 certificate for user " + userName);
+  try {
+    byte[] x509zip=getX509Zip(userName,keyName);
+    ServletOutputStream op=response.getOutputStream();
+    response.setContentLength(x509zip.length);
+    op.write(x509zip);
+    op.flush();
+  }
+ catch (  GeneralSecurityException e) {
+    e.printStackTrace();
+  }
+catch (  IOException e) {
+    e.printStackTrace();
+  }
+}

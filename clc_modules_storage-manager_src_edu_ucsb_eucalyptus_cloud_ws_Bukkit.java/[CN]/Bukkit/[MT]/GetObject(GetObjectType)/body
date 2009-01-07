@@ -1,0 +1,65 @@
+{
+  GetObjectResponseType reply=(GetObjectResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  String objectName=request.getKey();
+  String userId=request.getUserId();
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    for (    ObjectInfo objectInfo : bucket.getObjects()) {
+      if (objectInfo.getObjectName().equals(objectName)) {
+        if (objectInfo.canRead(userId)) {
+          if (request.getGetMetaData()) {
+            ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
+            objectInfo.getMetaData(metaData);
+            reply.setMetaData(metaData);
+          }
+          if (request.getGetData()) {
+            if (request.getInlineData()) {
+              try {
+                byte[] bytes=new byte[WalrusQueryDispatcher.DATA_MESSAGE_SIZE];
+                int bytesRead=0;
+                String base64Data="";
+                while ((bytesRead=storageManager.readObject(bucketName,objectName,bytes,bytesRead)) > 0) {
+                  base64Data+=new String(bytes,0,bytesRead);
+                }
+                reply.setBase64Data(base64Data);
+              }
+ catch (              IOException ex) {
+                db.rollback();
+                return reply;
+              }
+            }
+ else {
+              String key=bucketName + "." + objectName;
+              String randomKey=key + "." + Hashes.getRandom(10);
+              request.setRandomKey(randomKey);
+              LinkedBlockingQueue<WalrusDataMessage> getQueue=WalrusQueryDispatcher.getReadMessenger().getQueue(key,randomKey);
+              Reader reader=new Reader(bucketName,objectName,objectInfo.getSize(),getQueue);
+              reader.start();
+            }
+          }
+          reply.setEtag(objectInfo.getEtag());
+          reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+          reply.setSize(objectInfo.getSize());
+          Status status=new Status();
+          status.setCode(200);
+          status.setDescription("OK");
+          reply.setStatus(status);
+        }
+ else {
+          db.rollback();
+          throw new AccessDeniedException(objectName);
+        }
+      }
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  return reply;
+}

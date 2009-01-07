@@ -1,0 +1,54 @@
+{
+  if (snapshotId != null) {
+    EntityWrapper<SnapshotInfo> db=new EntityWrapper<SnapshotInfo>();
+    try {
+      SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
+      SnapshotInfo foundSnapshotInfo=db.getUnique(snapshotInfo);
+      if (foundSnapshotInfo == null) {
+        ArrayList<String> snapshotFileNames=new ArrayList<String>();
+        List<String> snapshotSet=getSnapshots(snapshotId,snapshotFileNames);
+        ebsManager.loadSnapshots(snapshotSet,snapshotFileNames);
+      }
+ else {
+        if (!foundSnapshotInfo.getStatus().equals(StorageProperties.Status.available.toString())) {
+          db.rollback();
+          throw new EucalyptusCloudException();
+        }
+      }
+      size=ebsManager.createVolume(volumeId,snapshotId,size);
+      db.commit();
+    }
+ catch (    Exception ex) {
+      db.rollback();
+      ex.printStackTrace();
+    }
+  }
+ else {
+    try {
+      assert(size > 0);
+      ebsManager.createVolume(volumeId,size);
+    }
+ catch (    Exception ex) {
+      ex.printStackTrace();
+    }
+  }
+  try {
+    EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
+    VolumeInfo volumeInfo=new VolumeInfo(volumeId);
+    VolumeInfo foundVolumeInfo=db.getUnique(volumeInfo);
+    if (foundVolumeInfo != null) {
+      foundVolumeInfo.setStatus(StorageProperties.Status.available.toString());
+      if (snapshotId != null) {
+        foundVolumeInfo.setSize(size);
+      }
+    }
+ else {
+      db.rollback();
+      throw new EucalyptusCloudException();
+    }
+    db.commit();
+  }
+ catch (  EucalyptusCloudException ex) {
+    ex.printStackTrace();
+  }
+}

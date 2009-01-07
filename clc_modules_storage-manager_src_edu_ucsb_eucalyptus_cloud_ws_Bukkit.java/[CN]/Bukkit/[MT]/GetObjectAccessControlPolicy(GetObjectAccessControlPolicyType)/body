@@ -1,0 +1,55 @@
+{
+  GetObjectAccessControlPolicyResponseType reply=(GetObjectAccessControlPolicyResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  String objectName=request.getKey();
+  String userId=request.getUserId();
+  String ownerId=null;
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  AccessControlListType accessControlList=new AccessControlListType();
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    for (    ObjectInfo objectInfo : bucket.getObjects()) {
+      if (objectInfo.getObjectName().equals(objectName)) {
+        if (objectInfo.canReadACP(userId)) {
+          ownerId=objectInfo.getOwnerId();
+          ArrayList<Grant> grants=new ArrayList<Grant>();
+          List<GrantInfo> grantInfos=objectInfo.getGrants();
+          for (          GrantInfo grantInfo : grantInfos) {
+            String uId=grantInfo.getUserId();
+            UserInfo userInfo=new UserInfo(uId);
+            EntityWrapper<UserInfo> db2=new EntityWrapper<UserInfo>();
+            List<UserInfo> grantUserInfos=db2.query(userInfo);
+            db2.commit();
+            if (grantUserInfos.size() > 0) {
+              addPermission(grants,grantUserInfos.get(0),grantInfo);
+            }
+          }
+          accessControlList.setGrants(grants);
+        }
+ else {
+          db.rollback();
+          throw new AccessDeniedException(objectName);
+        }
+      }
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  UserInfo userInfo=new UserInfo(ownerId);
+  EntityWrapper<UserInfo> db2=new EntityWrapper<UserInfo>();
+  List<UserInfo> ownerUserInfos=db2.query(userInfo);
+  db2.commit();
+  AccessControlPolicyType accessControlPolicy=new AccessControlPolicyType();
+  if (ownerUserInfos.size() > 0) {
+    UserInfo ownerUserInfo=ownerUserInfos.get(0);
+    accessControlPolicy.setOwner(new CanonicalUserType(ownerUserInfo.getQueryId(),ownerUserInfo.getUserName()));
+    accessControlPolicy.setAccessControlList(accessControlList);
+    reply.setAccessControlPolicy(accessControlPolicy);
+  }
+  db.commit();
+  return reply;
+}

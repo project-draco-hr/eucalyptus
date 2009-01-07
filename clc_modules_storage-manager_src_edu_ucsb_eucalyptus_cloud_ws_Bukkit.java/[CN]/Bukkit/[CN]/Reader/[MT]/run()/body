@@ -1,0 +1,37 @@
+{
+  byte[] bytes=new byte[WalrusQueryDispatcher.DATA_MESSAGE_SIZE];
+  long bytesRemaining=objectSize;
+  long offset=byteRangeStart;
+  if (byteRangeEnd != 0) {
+    assert(byteRangeEnd <= objectSize);
+    assert(byteRangeEnd >= byteRangeStart);
+    bytesRemaining=byteRangeEnd - byteRangeStart;
+  }
+  try {
+    getQueue.put(WalrusDataMessage.StartOfData(bytesRemaining));
+    while (bytesRemaining > 0) {
+      int bytesRead=storageManager.readObject(bucketName,objectName,bytes,offset);
+      bytesRemaining-=bytesRead;
+      getQueue.put(WalrusDataMessage.DataMessage(bytes,bytesRead));
+      offset+=bytesRead;
+    }
+    getQueue.put(WalrusDataMessage.EOF());
+  }
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+  }
+  if (semaphore != null) {
+    semaphore.release();
+synchronized (semaphore) {
+      semaphore.notifyAll();
+    }
+  }
+  if (deleteAfterXfer) {
+    try {
+      storageManager.deleteObject(bucketName,objectName);
+    }
+ catch (    Exception ex) {
+      LOG.error(ex,ex);
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  this.checkParameters(parameters);
+  String sig=parameters.remove(SecurityParameter.Signature.toString());
+  String queryId=parameters.get(SecurityParameter.AWSAccessKeyId.toString());
+  String queryKey=findQueryKey(queryId);
+  String paramString=makeSubjectString(parameters);
+  String paramString2=makePlusSubjectString(parameters);
+  String authSig=checkSignature(queryKey,paramString);
+  String authSig2=checkSignature(queryKey,paramString2);
+  if (!authSig.equals(sig) && !authSig2.equals(sig))   throw new QuerySecurityException("User authentication failed.");
+  Calendar now=Calendar.getInstance();
+  Calendar expires=null;
+  if (parameters.containsKey(SecurityParameter.Timestamp.toString())) {
+    String timestamp=parameters.remove(SecurityParameter.Timestamp.toString());
+    expires=parseTimestamp(timestamp);
+    expires.add(Calendar.MINUTE,5);
+  }
+ else {
+    String exp=parameters.remove(SecurityParameter.Expires.toString());
+    expires=parseTimestamp(exp);
+  }
+  if (now.after(expires))   throw new QuerySecurityException("Message has expired.");
+  for (  Axis2QueryDispatcher.OperationParameter op : Axis2QueryDispatcher.OperationParameter.values())   parameters.remove(op.name());
+  parameters.remove(Axis2QueryDispatcher.RequiredQueryParams.SignatureVersion.toString());
+  parameters.remove(Axis2QueryDispatcher.RequiredQueryParams.Version.toString());
+  return findUserId(parameters.remove(SecurityParameter.AWSAccessKeyId.toString()));
+}

@@ -1,0 +1,115 @@
+{
+  String imageLocation=request.getImageLocation();
+  String[] imagePathParts=imageLocation.split("/");
+  if (imagePathParts.length != 2)   throw new EucalyptusCloudException("Image registration failed:  Invalid image location.");
+  String userName=null;
+  if (!request.isAdministrator()) {
+    GetBucketAccessControlPolicyType getBukkitInfo=Admin.makeMsg(GetBucketAccessControlPolicyType.class,request);
+    getBukkitInfo.setBucket(imagePathParts[0]);
+    GetBucketAccessControlPolicyResponseType reply=(GetBucketAccessControlPolicyResponseType)Messaging.send(WalrusProperties.WALRUS_REF,getBukkitInfo);
+    if (!request.getUserId().equals(reply.getAccessControlPolicy().getOwner().getDisplayName()))     throw new EucalyptusCloudException("Image registration failed: you must own the bucket containing the image.");
+    userName=reply.getAccessControlPolicy().getOwner().getDisplayName();
+  }
+  ImageInfo imageInfo=new ImageInfo(imageLocation,request.getUserId(),"available",true);
+  try {
+    this.verifyManifestIntegrity(imageInfo);
+  }
+ catch (  EucalyptusCloudException e) {
+    throw new EucalyptusCloudException("Image registration failed because the manifest referenced is invalid or unavailable.");
+  }
+  Document inputSource=null;
+  try {
+    inputSource=ImageManager.getManifestData(request.getUserId(),imagePathParts[0],imagePathParts[1]);
+  }
+ catch (  EucalyptusCloudException e) {
+    throw e;
+  }
+  XPath xpath=null;
+  xpath=XPathFactory.newInstance().newXPath();
+  String arch=null;
+  try {
+    arch=(String)xpath.evaluate("/manifest/machine_configuration/architecture/text()",inputSource,XPathConstants.STRING);
+  }
+ catch (  XPathExpressionException e) {
+    LOG.warn(e.getMessage());
+  }
+ finally {
+    imageInfo.setArchitecture((arch == null) ? "i386" : arch);
+  }
+  String kernelId=null;
+  try {
+    kernelId=(String)xpath.evaluate("/manifest/machine_configuration/kernel_id/text()",inputSource,XPathConstants.STRING);
+  }
+ catch (  XPathExpressionException e) {
+    LOG.warn(e.getMessage());
+  }
+  if (!isSet(kernelId))   kernelId=null;
+  String ramdiskId=null;
+  try {
+    ramdiskId=(String)xpath.evaluate("/manifest/machine_configuration/ramdisk_id/text()",inputSource,XPathConstants.STRING);
+  }
+ catch (  XPathExpressionException e) {
+    LOG.warn(e.getMessage());
+  }
+  if (!isSet(ramdiskId))   ramdiskId=null;
+  if ("yes".equals(kernelId) || "true".equals(kernelId) || imagePathParts[1].startsWith("vmlinuz")) {
+    if (!request.isAdministrator())     throw new EucalyptusCloudException("Only administrators can register kernel images.");
+    imageInfo.setImageType(EucalyptusProperties.IMAGE_KERNEL);
+    imageInfo.setImageId(this.newImageId(EucalyptusProperties.IMAGE_KERNEL_PREFIX,imageInfo.getImageLocation()));
+  }
+ else   if ("yes".equals(ramdiskId) || "true".equals(ramdiskId) || imagePathParts[1].startsWith("initrd")) {
+    if (!request.isAdministrator())     throw new EucalyptusCloudException("Only administrators can register ramdisk images.");
+    imageInfo.setImageType(EucalyptusProperties.IMAGE_RAMDISK);
+    imageInfo.setImageId(this.newImageId(EucalyptusProperties.IMAGE_RAMDISK_PREFIX,imageInfo.getImageLocation()));
+  }
+ else {
+    if (kernelId != null) {
+      try {
+        this.getImageInfobyId(kernelId);
+      }
+ catch (      EucalyptusCloudException e) {
+        throw new EucalyptusCloudException("Referenced kernel id is invalid: " + kernelId);
+      }
+    }
+    if (ramdiskId != null) {
+      try {
+        this.getImageInfobyId(ramdiskId);
+      }
+ catch (      EucalyptusCloudException e) {
+        throw new EucalyptusCloudException("Referenced ramdisk id is invalid: " + ramdiskId);
+      }
+    }
+    imageInfo.setImageType(EucalyptusProperties.IMAGE_MACHINE);
+    imageInfo.setKernelId(kernelId);
+    imageInfo.setRamdiskId(ramdiskId);
+    imageInfo.setImageId(this.newImageId(EucalyptusProperties.IMAGE_MACHINE_PREFIX,imageInfo.getImageLocation()));
+  }
+  String signature=null;
+  try {
+    signature=(String)xpath.evaluate("/manifest/signature/text()",inputSource,XPathConstants.STRING);
+  }
+ catch (  XPathExpressionException e) {
+    LOG.warn(e.getMessage());
+  }
+  imageInfo.setSignature(signature);
+  EntityWrapper<ImageInfo> db=new EntityWrapper<ImageInfo>();
+  try {
+    db.add(imageInfo);
+    UserInfo user=db.recast(UserInfo.class).getUnique(new UserInfo(request.getUserId()));
+    UserGroupInfo group=db.recast(UserGroupInfo.class).getUnique(new UserGroupInfo("all"));
+    imageInfo.getPermissions().add(user);
+    imageInfo.getUserGroups().add(group);
+    db.commit();
+    LOG.info("Registering image pk=" + imageInfo.getId() + " ownerId="+ user.getUserName());
+  }
+ catch (  EucalyptusCloudException e) {
+    db.rollback();
+    throw e;
+  }
+  LOG.info("Triggering cache population in Walrus for: " + imageInfo.getId());
+  imageInfo.checkValid();
+  imageInfo.triggerCaching();
+  RegisterImageResponseType reply=(RegisterImageResponseType)request.getReply();
+  reply.setImageId(imageInfo.getImageId());
+  return reply;
+}

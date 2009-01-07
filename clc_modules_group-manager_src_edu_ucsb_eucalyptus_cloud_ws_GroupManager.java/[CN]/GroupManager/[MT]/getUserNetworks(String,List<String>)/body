@@ -1,0 +1,26 @@
+{
+  List<SecurityGroupItemType> groupInfoList=Lists.newArrayList();
+  EntityWrapper<UserInfo> db=new EntityWrapper<UserInfo>();
+  try {
+    UserInfo user=db.getUnique(new UserInfo(userId));
+    for (    NetworkRulesGroup group : user.getNetworkRulesGroup())     if (groupNames.isEmpty() || groupNames.contains(group.getName())) {
+      SecurityGroupItemType groupInfo=new SecurityGroupItemType();
+      groupInfo.setGroupName(group.getName());
+      groupInfo.setGroupDescription(group.getDescription());
+      groupInfo.setOwnerId(user.getUserName());
+      groupInfoList.add(groupInfo);
+      for (      NetworkRule rule : group.getNetworkRules()) {
+        IpPermissionType ipPerm=new IpPermissionType(rule.getProtocol(),rule.getLowPort(),rule.getHighPort());
+        for (        IpRange ipRange : rule.getIpRanges())         ipPerm.getIpRanges().add(ipRange.getValue());
+        if (!rule.getNetworkPeers().isEmpty())         for (        NetworkPeer peer : rule.getNetworkPeers())         ipPerm.getGroups().add(new UserIdGroupPairType(peer.getUserQueryKey(),peer.getGroupName()));
+        groupInfo.getIpPermissions().add(ipPerm);
+      }
+    }
+    db.commit();
+  }
+ catch (  EucalyptusCloudException e) {
+    db.rollback();
+    throw e;
+  }
+  return groupInfoList;
+}

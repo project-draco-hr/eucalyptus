@@ -1,0 +1,45 @@
+{
+  SetObjectAccessControlPolicyResponseType reply=(SetObjectAccessControlPolicyResponseType)request.getReply();
+  String userId=request.getUserId();
+  AccessControlPolicyType accessControlPolicy=request.getAccessControlPolicy();
+  String bucketName=request.getBucket();
+  String objectName=request.getKey();
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    ObjectInfo foundObject=null;
+    for (    ObjectInfo objectInfo : bucket.getObjects()) {
+      if (objectInfo.getObjectName().equals(objectName)) {
+        if (objectInfo.canWriteACP(userId) && accessControlPolicy.getOwner().getDisplayName().equals(objectInfo.getOwnerId())) {
+          foundObject=objectInfo;
+          break;
+        }
+ else {
+          db.rollback();
+          throw new AccessDeniedException(objectName);
+        }
+      }
+    }
+    if (foundObject != null) {
+      List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+      AccessControlListType accessControlList=accessControlPolicy.getAccessControlList();
+      foundObject.resetGlobalGrants();
+      foundObject.addGrants(foundObject.getOwnerId(),grantInfos,accessControlList);
+      foundObject.setGrants(grantInfos);
+      reply.setCode("204");
+      reply.setDescription("OK");
+    }
+ else {
+      db.rollback();
+      throw new NoSuchEntityException(objectName);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  return reply;
+}

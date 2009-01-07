@@ -1,0 +1,109 @@
+{
+  if (mustChange) {
+    label_box.setText("You are required to change your password");
+    label_box.setStyleName("euca-greeting-error");
+  }
+ else {
+    label_box.setText("Please, change your password");
+    label_box.setStyleName("euca-greeting-normal");
+  }
+  final Grid g1=new Grid(3,3);
+  g1.getColumnFormatter().setWidth(0,"180");
+  g1.getColumnFormatter().setWidth(1,"180");
+  g1.getColumnFormatter().setWidth(2,"180");
+  int i=0;
+  final int oldPassword_row=i;
+  g1.setWidget(i,0,new Label("Old password:"));
+  g1.getCellFormatter().setHorizontalAlignment(i,0,HasHorizontalAlignment.ALIGN_RIGHT);
+  final PasswordTextBox oldPassword_box=new PasswordTextBox();
+  oldPassword_box.setWidth("180");
+  if (!mustChange) {
+    g1.setWidget(i++,1,oldPassword_box);
+  }
+  final int newPassword1_row=i;
+  g1.setWidget(i,0,new Label("New password:"));
+  g1.getCellFormatter().setHorizontalAlignment(i,0,HasHorizontalAlignment.ALIGN_RIGHT);
+  final PasswordTextBox newCleartextPassword1_box=new PasswordTextBox();
+  newCleartextPassword1_box.setWidth("180");
+  g1.setWidget(i++,1,newCleartextPassword1_box);
+  final int newPassword2_row=i;
+  g1.setWidget(i,0,new Label("New password, again:"));
+  g1.getCellFormatter().setHorizontalAlignment(i,0,HasHorizontalAlignment.ALIGN_RIGHT);
+  final PasswordTextBox newCleartextPassword2_box=new PasswordTextBox();
+  newCleartextPassword2_box.setWidth("180");
+  g1.setWidget(i++,1,newCleartextPassword2_box);
+  ClickListener ChangeButtonListener=new ClickListener(){
+    public void onClick(    Widget sender){
+      boolean formOk=true;
+      for (int j=0; j < 3; j++) {
+        g1.clearCell(j,2);
+      }
+      if (newCleartextPassword1_box.getText().length() < minPasswordLength) {
+        Label l=new Label("Password is too short!");
+        l.setStyleName("euca-error-hint");
+        g1.setWidget(newPassword1_row,2,l);
+        formOk=false;
+      }
+      if (!newCleartextPassword1_box.getText().equals(newCleartextPassword2_box.getText())) {
+        Label l=new Label("Passwords do not match!");
+        l.setStyleName("euca-error-hint");
+        g1.setWidget(newPassword2_row,2,l);
+        formOk=false;
+      }
+      if (formOk) {
+        label_box.setText("Checking with the server...");
+        label_box.setStyleName("euca-greeting-pending");
+        EucalyptusWebBackend.App.getInstance().changePassword(sessionId,GWTUtils.md5(oldPassword_box.getText()),GWTUtils.md5(newCleartextPassword1_box.getText()),new AsyncCallback(){
+          public void onSuccess(          final Object result){
+            label_box.setText("Refreshing user data...");
+            EucalyptusWebBackend.App.getInstance().getUserRecord(sessionId,null,new AsyncCallback(){
+              public void onSuccess(              Object result2){
+                loggedInUser=(UserInfoWeb)((List)result2).get(0);
+                displayMessagePage((String)result);
+              }
+              public void onFailure(              Throwable caught){
+                displayLoginErrorPage(caught.getMessage());
+              }
+            }
+);
+          }
+          public void onFailure(          Throwable caught){
+            String m=caught.getMessage();
+            label_box.setText(m);
+            label_box.setStyleName("euca-greeting-warning");
+          }
+        }
+);
+      }
+ else {
+        label_box.setText("Please, fix the errors and try again:");
+        label_box.setStyleName("euca-greeting-warning");
+      }
+    }
+  }
+;
+  Button change_button=new Button("Change password",ChangeButtonListener);
+  Button cancel_button=new Button("Cancel",DefaultPageButtonListener);
+  HorizontalPanel bpanel=new HorizontalPanel();
+  bpanel.add(change_button);
+  if (!mustChange) {
+    bpanel.add(new HTML("&nbsp;&nbsp;or&nbsp;&nbsp;"));
+    bpanel.add(cancel_button);
+  }
+  VerticalPanel vpanel=new VerticalPanel();
+  vpanel.setSpacing(15);
+  vpanel.setHorizontalAlignment(HasHorizontalAlignment.ALIGN_CENTER);
+  if (logo != null) {
+    vpanel.add(logo);
+  }
+  vpanel.add(label_box);
+  vpanel.add(g1);
+  vpanel.add(bpanel);
+  VerticalPanel wrapper=new VerticalPanel();
+  wrapper.add(vpanel);
+  wrapper.setSize("100%","100%");
+  wrapper.setCellHorizontalAlignment(vpanel,VerticalPanel.ALIGN_CENTER);
+  wrapper.setCellVerticalAlignment(vpanel,VerticalPanel.ALIGN_MIDDLE);
+  RootPanel.get().clear();
+  RootPanel.get().add(wrapper);
+}

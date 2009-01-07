@@ -1,0 +1,41 @@
+{
+  EntityWrapper<LVMVolumeInfo> db=new EntityWrapper<LVMVolumeInfo>();
+  LVMVolumeInfo lvmVolumeInfo=new LVMVolumeInfo(snapshotId);
+  LVMVolumeInfo foundSnapshotInfo=db.getUnique(lvmVolumeInfo);
+  if (foundSnapshotInfo != null) {
+    String status=foundSnapshotInfo.getStatus();
+    if (status.equals(StorageProperties.Status.available.toString())) {
+      String vgName="vg-" + Hashes.getRandom(4);
+      String lvName="lv-" + Hashes.getRandom(4);
+      lvmVolumeInfo=new LVMVolumeInfo();
+      String rawFileName=StorageProperties.volumeRootDirectory + "/" + volumeId;
+      File snapshotFile=new File(foundSnapshotInfo.getLoFileName());
+      assert(snapshotFile.exists());
+      size=(int)(snapshotFile.length() / StorageProperties.GB);
+      String loDevName=createLoopback(rawFileName,size);
+      createLogicalVolume(loDevName,vgName,lvName);
+      String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
+      String absoluteSnapshotLVName=lvmRootDirectory + PATH_SEPARATOR + foundSnapshotInfo.getVgName()+ PATH_SEPARATOR+ foundSnapshotInfo.getLvName();
+      duplicateLogicalVolume(absoluteSnapshotLVName,absoluteLVName);
+      int vbladePid=exportVolume(lvmVolumeInfo,vgName,lvName);
+      if (vbladePid < 0) {
+        throw new EucalyptusCloudException();
+      }
+      lvmVolumeInfo.setVolumeId(volumeId);
+      lvmVolumeInfo.setLoDevName(loDevName);
+      lvmVolumeInfo.setLoFileName(rawFileName);
+      lvmVolumeInfo.setPvName(loDevName);
+      lvmVolumeInfo.setVgName(vgName);
+      lvmVolumeInfo.setLvName(lvName);
+      lvmVolumeInfo.setStatus(StorageProperties.Status.available.toString());
+      lvmVolumeInfo.setSize(size);
+      db.add(lvmVolumeInfo);
+      db.commit();
+    }
+  }
+ else {
+    db.rollback();
+    throw new EucalyptusCloudException();
+  }
+  return size;
+}

@@ -1,0 +1,37 @@
+{
+  DisassociateAddressResponseType reply=(DisassociateAddressResponseType)request.getReply();
+  reply.set_return(false);
+  LOG.debug("Disassociate: " + request.getPublicIp());
+  Address address=null;
+  try {
+    address=Addresses.getInstance().lookup(request.getPublicIp());
+  }
+ catch (  NoSuchElementException e) {
+    return reply;
+  }
+  LOG.debug("Found address: " + address);
+  VmInstance vm=null;
+  try {
+    vm=VmInstances.getInstance().lookup(address.getInstanceId());
+  }
+ catch (  NoSuchElementException e) {
+    return reply;
+  }
+  LOG.debug("Found vm: " + vm);
+  if (!request.isAdministrator() && !(request.getUserId().equals(address.getUserId()) && request.getUserId().equals(vm.getOwnerId())))   return reply;
+  if (VmInstance.DEFAULT_IP.equals(vm.getInstanceId()))   return reply;
+  reply.set_return(true);
+  UnassignAddressType unassignMsg=Admin.makeMsg(UnassignAddressType.class,address.getName(),address.getInstanceAddress());
+  ClusterEnvelope.dispatch(address.getCluster(),QueuedEvent.make(new UnassignAddressCallback(address),unassignMsg));
+  address.unassign();
+  EntityWrapper<Address> db=new EntityWrapper<Address>();
+  try {
+    Address addr=db.getUnique(new Address(address.getName()));
+    addr.unassign();
+    db.commit();
+  }
+ catch (  EucalyptusCloudException e) {
+    db.rollback();
+  }
+  return reply;
+}

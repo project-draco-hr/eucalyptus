@@ -1,0 +1,51 @@
+{
+  CreateBucketResponseType reply=(CreateBucketResponseType)request.getReply();
+  String userId=request.getUserId();
+  String bucketName=request.getBucket();
+  if (userId == null) {
+    throw new AccessDeniedException(bucketName);
+  }
+  AccessControlListType accessControlList=request.getAccessControlList();
+  if (accessControlList == null) {
+    accessControlList=new AccessControlListType();
+  }
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  if (shouldEnforceUsageLimits && !request.isAdministrator()) {
+    BucketInfo searchBucket=new BucketInfo();
+    searchBucket.setOwnerId(userId);
+    List<BucketInfo> bucketList=db.query(searchBucket);
+    if (bucketList.size() >= WalrusProperties.MAX_BUCKETS_PER_USER) {
+      db.rollback();
+      throw new TooManyBucketsException(bucketName);
+    }
+  }
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    if (bucketList.get(0).getOwnerId().equals(userId)) {
+      db.rollback();
+      throw new BucketAlreadyOwnedByYouException(bucketName);
+    }
+    db.rollback();
+    throw new BucketAlreadyExistsException(bucketName);
+  }
+ else {
+    BucketInfo bucket=new BucketInfo(userId,bucketName,new Date());
+    ArrayList<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+    bucket.addGrants(userId,grantInfos,accessControlList);
+    bucket.setGrants(grantInfos);
+    bucket.setBucketSize(0L);
+    ArrayList<ObjectInfo> objectInfos=new ArrayList<ObjectInfo>();
+    bucket.setObjects(objectInfos);
+    try {
+      storageManager.createBucket(bucketName);
+      db.add(bucket);
+    }
+ catch (    IOException ex) {
+      LOG.warn(ex,ex);
+    }
+  }
+  db.commit();
+  reply.setBucket(bucketName);
+  return reply;
+}

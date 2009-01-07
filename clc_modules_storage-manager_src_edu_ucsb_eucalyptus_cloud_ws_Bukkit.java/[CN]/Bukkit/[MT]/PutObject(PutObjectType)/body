@@ -1,0 +1,144 @@
+{
+  PutObjectResponseType reply=(PutObjectResponseType)request.getReply();
+  String userId=request.getUserId();
+  String bucketName=request.getBucket();
+  String objectName=request.getKey();
+  Long oldBucketSize=0L;
+  String md5="";
+  Date lastModified=null;
+  AccessControlListType accessControlList=request.getAccessControlList();
+  if (accessControlList == null) {
+    accessControlList=new AccessControlListType();
+  }
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    if (bucket.canWrite(userId)) {
+      ObjectInfo foundObject=null;
+      List<ObjectInfo> objectInfos=bucket.getObjects();
+      for (      ObjectInfo objectInfo : objectInfos) {
+        if (objectInfo.getObjectName().equals(objectName)) {
+          if (!objectInfo.canWrite(userId)) {
+            db.rollback();
+            throw new AccessDeniedException(objectName);
+          }
+          foundObject=objectInfo;
+          oldBucketSize=-foundObject.getSize();
+          break;
+        }
+      }
+      if (foundObject == null) {
+        foundObject=new ObjectInfo(objectName);
+        List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+        foundObject.addGrants(userId,grantInfos,accessControlList);
+        foundObject.setGrants(grantInfos);
+        objectInfos.add(foundObject);
+      }
+ else {
+        if (foundObject.canWriteACP(userId)) {
+          List<GrantInfo> grantInfos=foundObject.getGrants();
+          foundObject.addGrants(userId,grantInfos,accessControlList);
+        }
+      }
+      foundObject.setObjectName(objectName);
+      foundObject.setOwnerId(userId);
+      foundObject.addMetaData(request.getMetaData());
+      String randomKey=request.getRandomKey();
+      WalrusDataMessenger messenger=WalrusQueryDispatcher.getWriteMessenger();
+      String key=bucketName + "." + objectName;
+      LinkedBlockingQueue<WalrusDataMessage> putQueue=messenger.getQueue(key,randomKey);
+      try {
+        WalrusDataMessage dataMessage=null;
+        String tempObjectName=objectName;
+        MessageDigest digest=null;
+        long size=0;
+        int offset=0;
+        while ((dataMessage=putQueue.take()) != null) {
+          if (WalrusDataMessage.isStart(dataMessage)) {
+            tempObjectName=objectName + "." + Hashes.getRandom(12);
+            digest=Hashes.Digest.MD5.get();
+          }
+ else           if (WalrusDataMessage.isEOF(dataMessage)) {
+            try {
+              storageManager.renameObject(bucketName,tempObjectName,objectName);
+            }
+ catch (            IOException ex) {
+              LOG.warn(ex,ex);
+            }
+            md5=bytesToHex(digest.digest());
+            lastModified=new Date();
+            foundObject.setEtag(md5);
+            foundObject.setSize(size);
+            foundObject.setLastModified(lastModified);
+            foundObject.setStorageClass("STANDARD");
+            if (shouldEnforceUsageLimits && !request.isAdministrator()) {
+              Long bucketSize=bucket.getBucketSize();
+              long newSize=bucketSize + oldBucketSize + size;
+              if (newSize > WalrusProperties.MAX_BUCKET_SIZE) {
+                db.rollback();
+                throw new EntityTooLargeException(objectName);
+              }
+              bucket.setBucketSize(newSize);
+            }
+            db.commit();
+            WalrusMonitor monitor=messenger.getMonitor(key);
+synchronized (monitor) {
+              monitor.setLastModified(lastModified);
+              monitor.setMd5(md5);
+              monitor.notifyAll();
+            }
+            messenger.removeQueue(key,randomKey);
+            messenger.removeMonitor(key);
+            LOG.info("Transfer complete" + key + " "+ randomKey);
+            break;
+          }
+ else           if (WalrusDataMessage.isInterrupted(dataMessage)) {
+            WalrusMonitor monitor=messenger.getMonitor(key);
+synchronized (monitor) {
+              monitor.wait();
+              lastModified=monitor.getLastModified();
+              md5=monitor.getMd5();
+            }
+            try {
+              storageManager.deleteObject(bucketName,tempObjectName);
+            }
+ catch (            IOException ex) {
+              ex.printStackTrace();
+            }
+            db.rollback();
+            LOG.info("Transfer interrupted" + key + " "+ randomKey);
+            break;
+          }
+ else {
+            assert(WalrusDataMessage.isData(dataMessage));
+            byte[] data=dataMessage.getPayload();
+            try {
+              storageManager.putObject(bucketName,tempObjectName,data,true);
+            }
+ catch (            IOException ex) {
+            }
+            size+=data.length;
+            digest.update(data);
+          }
+        }
+      }
+ catch (      InterruptedException ex) {
+        ex.printStackTrace();
+        throw new EucalyptusCloudException();
+      }
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException(bucketName);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  reply.setEtag(md5);
+  reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+  return reply;
+}

@@ -1,0 +1,40 @@
+{
+  DeleteBucketResponseType reply=(DeleteBucketResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  String userId=request.getUserId();
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo searchBucket=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(searchBucket);
+  if (bucketList.size() > 0) {
+    BucketInfo bucketFound=bucketList.get(0);
+    if (bucketFound.canWrite(userId)) {
+      List<ObjectInfo> objectInfos=bucketFound.getObjects();
+      if (objectInfos.size() == 0) {
+        db.delete(bucketFound);
+        try {
+          storageManager.deleteBucket(bucketName);
+        }
+ catch (        IOException ex) {
+        }
+        Status status=new Status();
+        status.setCode(204);
+        status.setDescription("No Content");
+        reply.setStatus(status);
+      }
+ else {
+        db.rollback();
+        throw new BucketNotEmptyException(bucketName);
+      }
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException(bucketName);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  return reply;
+}

@@ -1,0 +1,44 @@
+{
+  AssociateAddressResponseType reply=(AssociateAddressResponseType)request.getReply();
+  reply.set_return(false);
+  LOG.debug("Associate: " + request.getPublicIp() + " => "+ request.getInstanceId());
+  Address address=null;
+  try {
+    address=Addresses.getInstance().lookup(request.getPublicIp());
+  }
+ catch (  NoSuchElementException e) {
+    return reply;
+  }
+  LOG.debug("Found address: " + address);
+  VmInstance vm=null;
+  try {
+    vm=VmInstances.getInstance().lookup(request.getInstanceId());
+  }
+ catch (  NoSuchElementException e) {
+    return reply;
+  }
+  LOG.debug("Found vm: " + vm);
+  if (!request.isAdministrator() && !(request.getUserId().equals(address.getUserId()) && request.getUserId().equals(vm.getOwnerId())))   return reply;
+  if (VmInstance.DEFAULT_IP.equals(vm.getInstanceId()))   return reply;
+  reply.set_return(true);
+  if (address.isAssigned()) {
+    LOG.debug("Dispatching unassign message for: " + address);
+    UnassignAddressType unassignMsg=Admin.makeMsg(UnassignAddressType.class,address.getName(),address.getInstanceAddress());
+    ClusterEnvelope.dispatch(address.getCluster(),QueuedEvent.make(new UnassignAddressCallback(address),unassignMsg));
+  }
+  address.unassign();
+  address.assign(vm.getInstanceId(),vm.getNetworkConfig().getIpAddress());
+  EntityWrapper<Address> db=new EntityWrapper<Address>();
+  try {
+    Address addr=db.getUnique(new Address(address.getName()));
+    addr.unassign();
+    addr.assign(vm.getInstanceId(),vm.getNetworkConfig().getIpAddress());
+    db.commit();
+  }
+ catch (  EucalyptusCloudException e) {
+    db.rollback();
+  }
+  AssignAddressType assignMsg=Admin.makeMsg(AssignAddressType.class,address.getName(),address.getInstanceAddress());
+  ClusterEnvelope.dispatch(address.getCluster(),QueuedEvent.make(new AssignAddressCallback(vm),assignMsg));
+  return reply;
+}

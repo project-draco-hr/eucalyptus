@@ -1,0 +1,29 @@
+{
+  DescribeImageAttributeResponseType reply=(DescribeImageAttributeResponseType)request.getReply();
+  reply.setImageId(request.getImageId());
+  if (request.getAttribute() != null)   request.applyAttribute();
+  if (request.getProductCodes() != null)   throw new EucalyptusCloudException("image attribute: product codes: not implemented");
+  if (request.getBlockDeviceMapping() != null)   throw new EucalyptusCloudException("image attribute: block device mappings: not implemented");
+  reply.setProductCodes(null);
+  EntityWrapper<ImageInfo> db=new EntityWrapper<ImageInfo>();
+  try {
+    ImageInfo imgInfo=db.getUnique(new ImageInfo(request.getImageId()));
+    if (!imgInfo.isAllowed(db.recast(UserInfo.class).getUnique(new UserInfo(request.getUserId()))))     throw new EucalyptusCloudException("image attribute: not authorized.");
+    if (request.getKernel() != null) {
+      reply.setKernel(imgInfo.getKernelId());
+    }
+ else     if (request.getRamdisk() != null) {
+      reply.setRamdisk(imgInfo.getRamdiskId());
+    }
+ else     if (request.getLaunchPermission() != null) {
+      for (      UserGroupInfo userGroup : imgInfo.getUserGroups())       reply.getLaunchPermission().add(LaunchPermissionItemType.getGroup(userGroup.getName()));
+      for (      UserInfo user : imgInfo.getPermissions())       reply.getLaunchPermission().add(LaunchPermissionItemType.getUser(user.getUserName()));
+    }
+ else     throw new EucalyptusCloudException("invalid image attribute request: not implemented");
+  }
+ catch (  EucalyptusCloudException e) {
+    db.commit();
+    throw e;
+  }
+  return reply;
+}

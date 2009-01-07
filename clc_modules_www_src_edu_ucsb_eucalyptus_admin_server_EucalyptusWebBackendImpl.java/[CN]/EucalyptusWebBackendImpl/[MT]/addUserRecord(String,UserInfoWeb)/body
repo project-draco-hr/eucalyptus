@@ -1,0 +1,38 @@
+{
+  if (user == null) {
+    throw new SerializableException("Invalid RPC arguments");
+  }
+  if (user.getUserName().equalsIgnoreCase("eucalyptus")) {
+    throw new SerializableException("User 'eucalyptus' is not allowed");
+  }
+  load_props();
+  boolean admin=false;
+  try {
+    SessionInfo session=verifySession(sessionId);
+    UserInfoWeb requestingUser=verifyUser(session,session.getUserId(),true);
+    if (!requestingUser.isAdministrator().booleanValue()) {
+      throw new SerializableException("Administrative privileges required");
+    }
+ else {
+      admin=true;
+    }
+  }
+ catch (  Exception e) {
+  }
+  long now=System.currentTimeMillis();
+  user.setPasswordExpires(new Long(now + pass_expiration_ms));
+  EucalyptusManagement.addWebUser(user);
+  String response;
+  if (admin) {
+    user.setIsApproved(true);
+    user.setIsEnabled(true);
+    user.setIsConfirmed(false);
+    EucalyptusManagement.commitWebUser(user);
+    response=notifyUserApproved(user);
+  }
+ else {
+    notifyAdminOfSignup(user);
+    response=thanks_for_signup;
+  }
+  return response;
+}

@@ -1,0 +1,57 @@
+{
+  if (request.getKeyName() == null)   throw new EucalyptusCloudException("KeyPair generation error. Key name must be specified.");
+  String userId=request.getUserId();
+  String newKeyName=request.getKeyName();
+  String privKey;
+  String fingerPrint;
+  EntityWrapper<UserInfo> db=new EntityWrapper<UserInfo>();
+  UserInfo user=null;
+  try {
+    user=db.getUnique(new UserInfo(request.getUserId()));
+    if (user.getKeyPairs().contains(new SSHKeyPair(newKeyName)))     throw new EucalyptusCloudException("KeyPair generation error. Key pair: " + newKeyName + " already exists.");
+    KeyTool keyTool=new KeyTool();
+    KeyPair newKeys=keyTool.getKeyPair();
+    RSAPublicKey publicKey=(RSAPublicKey)newKeys.getPublic();
+    byte[] keyType="ssh-rsa".getBytes();
+    byte[] expBlob=publicKey.getPublicExponent().toByteArray();
+    byte[] modBlob=publicKey.getModulus().toByteArray();
+    byte[] authKeyBlob=new byte[3 * 4 + keyType.length + expBlob.length + modBlob.length];
+    byte[] lenArray=null;
+    lenArray=BigInteger.valueOf(keyType.length).toByteArray();
+    System.arraycopy(lenArray,0,authKeyBlob,4 - lenArray.length,lenArray.length);
+    System.arraycopy(keyType,0,authKeyBlob,4,keyType.length);
+    lenArray=BigInteger.valueOf(expBlob.length).toByteArray();
+    System.arraycopy(lenArray,0,authKeyBlob,4 + keyType.length + 4 - lenArray.length,lenArray.length);
+    System.arraycopy(expBlob,0,authKeyBlob,4 + (4 + keyType.length),expBlob.length);
+    lenArray=BigInteger.valueOf(modBlob.length).toByteArray();
+    System.arraycopy(lenArray,0,authKeyBlob,4 + expBlob.length + 4+ keyType.length+ 4 - lenArray.length,lenArray.length);
+    System.arraycopy(modBlob,0,authKeyBlob,4 + (4 + expBlob.length + (4 + keyType.length)),modBlob.length);
+    String authKeyString=String.format("%s %s %s@eucalyptus",new String(keyType),new String(Base64.encode(authKeyBlob)),request.getUserId());
+    ByteArrayOutputStream byteOut=new ByteArrayOutputStream();
+    PEMWriter privOut=new PEMWriter(new OutputStreamWriter(byteOut));
+    try {
+      privOut.writeObject(newKeys.getPrivate());
+      privOut.close();
+    }
+ catch (    IOException e) {
+      LOG.error(e);
+      throw new EucalyptusCloudException(e);
+    }
+    privKey=byteOut.toString();
+    fingerPrint=Hashes.getFingerPrint(newKeys.getPrivate());
+    LOG.info("Generated new key pair for entities: " + userId + " keypair name="+ newKeyName);
+    user.getKeyPairs().add(new SSHKeyPair(newKeyName,fingerPrint,authKeyString));
+    db.commit();
+  }
+ catch (  EucalyptusCloudException e) {
+    LOG.error(e);
+    LOG.debug(e,e);
+    db.rollback();
+    throw e;
+  }
+  CreateKeyPairResponseType reply=(CreateKeyPairResponseType)request.getReply();
+  reply.setKeyFingerprint(fingerPrint);
+  reply.setKeyMaterial(privKey);
+  reply.setKeyName(newKeyName);
+  return reply;
+}

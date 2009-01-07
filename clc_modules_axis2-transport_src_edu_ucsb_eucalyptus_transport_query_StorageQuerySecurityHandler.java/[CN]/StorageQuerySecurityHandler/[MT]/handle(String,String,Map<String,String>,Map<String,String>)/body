@@ -1,0 +1,28 @@
+{
+  CaseInsensitiveMap hdrs=new CaseInsensitiveMap(headers);
+  this.checkParameters(hdrs);
+  String date=(String)hdrs.remove(SecurityParameter.Date);
+  String eucaCert=(String)hdrs.remove(StorageSecurityParameters.EucaCert);
+  String signature=(String)hdrs.remove(StorageSecurityParameters.EucaSignature);
+  String data=verb + "\n" + date+ "\n"+ addr+ "\n";
+  Signature sig=null;
+  boolean valid=false;
+  try {
+    X509Certificate cert=(X509Certificate)new PEMReader(new StringReader(eucaCert)).readObject();
+    AbstractKeyStore keyStore=ServiceKeyStore.getInstance();
+    if (keyStore.getCertificateAlias(cert) != null) {
+      PublicKey publicKey=cert.getPublicKey();
+      sig=Signature.getInstance("SHA1withRSA");
+      sig.initVerify(publicKey);
+      sig.update(data.getBytes());
+      valid=sig.verify(signature.getBytes("UTF-8"));
+    }
+  }
+ catch (  Exception ex) {
+    ex.printStackTrace();
+  }
+  if (!valid) {
+    throw new QuerySecurityException("User authentication failed.");
+  }
+  return new UserInfo("admin");
+}

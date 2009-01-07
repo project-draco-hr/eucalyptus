@@ -1,0 +1,35 @@
+{
+  StoreSnapshotResponseType reply=(StoreSnapshotResponseType)request.getReply();
+  String volumeId=request.getVolumeId();
+  String snapshotId=request.getKey();
+  EntityWrapper<WalrusVolumeInfo> db=new EntityWrapper<WalrusVolumeInfo>();
+  WalrusVolumeInfo volumeInfo=new WalrusVolumeInfo(volumeId);
+  List<WalrusVolumeInfo> foundVolumeInfos=db.query(volumeInfo);
+  WalrusVolumeInfo foundVolumeInfo=null;
+  if (foundVolumeInfos.size() == 0) {
+    foundVolumeInfo=volumeInfo;
+    db.add(foundVolumeInfo);
+  }
+ else {
+    foundVolumeInfo=foundVolumeInfos.get(0);
+  }
+  WalrusSnapshotInfo snapshotInfo=new WalrusSnapshotInfo(volumeId,snapshotId);
+  List<WalrusSnapshotInfo> snapshotSet=foundVolumeInfo.getSnapshotSet();
+  for (  WalrusSnapshotInfo snapInfo : snapshotSet) {
+    if (snapInfo.getSnapshotId().equals(snapshotId)) {
+      db.rollback();
+      throw new EucalyptusCloudException();
+    }
+  }
+  snapshotSet.add(snapshotInfo);
+  db.commit();
+  PutObjectType putObjectRequest=new PutObjectType();
+  putObjectRequest.setBucket(request.getBucket());
+  putObjectRequest.setKey(snapshotId);
+  putObjectRequest.setRandomKey(request.getRandomKey());
+  PutObjectResponseType putObjectResponseType=PutObject(putObjectRequest);
+  reply.setEtag(putObjectResponseType.getEtag());
+  reply.setLastModified(putObjectResponseType.getLastModified());
+  reply.setStatusMessage(putObjectResponseType.getStatusMessage());
+  return reply;
+}

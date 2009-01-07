@@ -1,0 +1,35 @@
+{
+  Long unencryptedSize=0L;
+  boolean failed=false;
+  try {
+    unzipImage(decryptedImageName,tarredImageName);
+    unencryptedSize=untarImage(tarredImageName,imageName);
+    Long oldCacheSize=0L;
+    EntityWrapper<ImageCacheInfo> db=new EntityWrapper<ImageCacheInfo>();
+    List<ImageCacheInfo> imageCacheInfos=db.query(new ImageCacheInfo());
+    for (    ImageCacheInfo imageCacheInfo : imageCacheInfos) {
+      if (imageCacheInfo.getInCache()) {
+        oldCacheSize+=imageCacheInfo.getSize();
+      }
+    }
+    db.commit();
+    if ((oldCacheSize + unencryptedSize) > WalrusProperties.IMAGE_CACHE_SIZE) {
+      failed=true;
+    }
+  }
+ catch (  Exception ex) {
+    LOG.warn(ex,ex);
+    failed=true;
+  }
+  if (failed) {
+    try {
+      storageManager.deleteAbsoluteObject(decryptedImageName);
+      storageManager.deleteAbsoluteObject(tarredImageName);
+    }
+ catch (    Exception exception) {
+      LOG.warn(exception,exception);
+    }
+    return -1L;
+  }
+  return unencryptedSize;
+}
