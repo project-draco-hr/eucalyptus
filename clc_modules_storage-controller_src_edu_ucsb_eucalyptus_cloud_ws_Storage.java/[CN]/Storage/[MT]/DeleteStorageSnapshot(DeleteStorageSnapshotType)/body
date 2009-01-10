@@ -1,0 +1,39 @@
+{
+  DeleteStorageSnapshotResponseType reply=(DeleteStorageSnapshotResponseType)request.getReply();
+  String snapshotId=request.getSnapshotId();
+  EntityWrapper<SnapshotInfo> db=new EntityWrapper<SnapshotInfo>();
+  SnapshotInfo snapshotInfo=new SnapshotInfo();
+  snapshotInfo.setSnapshotId(snapshotId);
+  SnapshotInfo foundSnapshotInfo=null;
+  try {
+    foundSnapshotInfo=db.getUnique(snapshotInfo);
+  }
+ catch (  Exception ex) {
+    db.rollback();
+    ex.printStackTrace();
+  }
+  reply.set_return(Boolean.FALSE);
+  if (foundSnapshotInfo != null) {
+    if (foundSnapshotInfo.getStatus().equals(Status.available.toString())) {
+      try {
+        ebsManager.deleteSnapshot(snapshotId);
+        snapshotStorageManager.deleteObject("",snapshotId);
+        db.delete(foundSnapshotInfo);
+        reply.set_return(Boolean.TRUE);
+        db.commit();
+      }
+ catch (      IOException ex) {
+        ex.printStackTrace();
+      }
+    }
+ else {
+      db.rollback();
+      throw new EucalyptusCloudException();
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchSnapshotException(snapshotId);
+  }
+  return reply;
+}
