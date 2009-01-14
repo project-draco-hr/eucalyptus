@@ -2,29 +2,48 @@
   StoreSnapshotResponseType reply=(StoreSnapshotResponseType)request.getReply();
   String volumeId=request.getVolumeId();
   String snapshotId=request.getKey();
+  String bucketName=request.getBucket();
+  List<String> snapshotValues=request.getSnapshotValues();
   EntityWrapper<WalrusVolumeInfo> db=new EntityWrapper<WalrusVolumeInfo>();
   WalrusVolumeInfo volumeInfo=new WalrusVolumeInfo(volumeId);
   List<WalrusVolumeInfo> foundVolumeInfos=db.query(volumeInfo);
   WalrusVolumeInfo foundVolumeInfo;
   if (foundVolumeInfos.size() == 0) {
     foundVolumeInfo=volumeInfo;
+    foundVolumeInfo.setBucketName(bucketName);
     db.add(foundVolumeInfo);
   }
  else {
     foundVolumeInfo=foundVolumeInfos.get(0);
   }
   WalrusSnapshotInfo snapshotInfo=new WalrusSnapshotInfo(volumeId,snapshotId);
+  snapshotInfo.setVgName(snapshotValues.get(0));
+  snapshotInfo.setLvName(snapshotValues.get(1));
   List<WalrusSnapshotInfo> snapshotSet=foundVolumeInfo.getSnapshotSet();
   for (  WalrusSnapshotInfo snapInfo : snapshotSet) {
     if (snapInfo.getSnapshotId().equals(snapshotId)) {
       db.rollback();
-      throw new EucalyptusCloudException();
+      throw new EntityAlreadyExistsException(snapshotId);
     }
   }
   snapshotSet.add(snapshotInfo);
   db.commit();
+  String userId=request.getUserId();
+  CreateBucketType createBucketRequest=new CreateBucketType();
+  createBucketRequest.setUserId(userId);
+  createBucketRequest.setBucket(bucketName);
+  try {
+    CreateBucket(createBucketRequest);
+  }
+ catch (  EucalyptusCloudException ex) {
+    if (!(ex instanceof BucketAlreadyExistsException || ex instanceof BucketAlreadyOwnedByYouException)) {
+      db.rollback();
+      throw ex;
+    }
+  }
   PutObjectType putObjectRequest=new PutObjectType();
-  putObjectRequest.setBucket(request.getBucket());
+  putObjectRequest.setUserId(userId);
+  putObjectRequest.setBucket(bucketName);
   putObjectRequest.setKey(snapshotId);
   putObjectRequest.setRandomKey(request.getRandomKey());
   PutObjectResponseType putObjectResponseType=PutObject(putObjectRequest);

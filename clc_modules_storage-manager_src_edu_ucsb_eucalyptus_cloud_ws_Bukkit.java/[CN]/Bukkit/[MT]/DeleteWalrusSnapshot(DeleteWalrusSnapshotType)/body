@@ -1,0 +1,40 @@
+{
+  DeleteWalrusSnapshotResponseType reply=(DeleteWalrusSnapshotResponseType)request.getReply();
+  String snapshotId=request.getKey();
+  EntityWrapper<WalrusSnapshotInfo> db=new EntityWrapper<WalrusSnapshotInfo>();
+  WalrusSnapshotInfo snapshotInfo=new WalrusSnapshotInfo(snapshotId);
+  List<WalrusSnapshotInfo> snapshotInfos=db.query(snapshotInfo);
+  reply.set_return(true);
+  if (snapshotInfos.size() > 0) {
+    WalrusSnapshotInfo foundSnapshotInfo=snapshotInfos.get(0);
+    String volumeId=foundSnapshotInfo.getVolumeId();
+    EntityWrapper<WalrusVolumeInfo> dbVol=db.recast(WalrusVolumeInfo.class);
+    WalrusVolumeInfo volumeInfo=new WalrusVolumeInfo(volumeId);
+    List<WalrusVolumeInfo> volumeInfos=dbVol.query(volumeInfo);
+    if (volumeInfos.size() > 0) {
+      WalrusVolumeInfo foundVolumeInfo=volumeInfos.get(0);
+      String bucketName=foundVolumeInfo.getBucketName();
+      List<WalrusSnapshotInfo> snapshotSet=foundVolumeInfo.getSnapshotSet();
+      ArrayList<String> snapshotIds=new ArrayList<String>();
+      snapshotIds.add(volumeId);
+      WalrusSnapshotInfo snapshotSetSnapInfo=null;
+      for (      WalrusSnapshotInfo snapInfo : snapshotSet) {
+        String snapId=snapInfo.getSnapshotId();
+        snapshotIds.add(snapId);
+        if (snapId.equals(foundSnapshotInfo.getSnapshotId()))         snapshotSetSnapInfo=snapInfo;
+      }
+      if (snapshotSetSnapInfo != null)       snapshotSet.remove(snapshotSetSnapInfo);
+      db.delete(foundSnapshotInfo);
+      dbVol.commit();
+      SnapshotDeleter snapshotDeleter=new SnapshotDeleter(bucketName,foundSnapshotInfo.getSnapshotId(),foundSnapshotInfo.getVgName(),foundSnapshotInfo.getLvName(),snapshotIds);
+      snapshotDeleter.start();
+    }
+ else {
+      dbVol.rollback();
+      db.rollback();
+      throw new NoSuchVolumeException(volumeId);
+    }
+  }
+  db.commit();
+  return reply;
+}

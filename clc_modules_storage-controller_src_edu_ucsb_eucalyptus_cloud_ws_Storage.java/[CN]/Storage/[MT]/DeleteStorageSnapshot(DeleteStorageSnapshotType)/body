@@ -2,38 +2,32 @@
   DeleteStorageSnapshotResponseType reply=(DeleteStorageSnapshotResponseType)request.getReply();
   String snapshotId=request.getSnapshotId();
   EntityWrapper<SnapshotInfo> db=new EntityWrapper<SnapshotInfo>();
-  SnapshotInfo snapshotInfo=new SnapshotInfo();
-  snapshotInfo.setSnapshotId(snapshotId);
-  SnapshotInfo foundSnapshotInfo=null;
-  try {
-    foundSnapshotInfo=db.getUnique(snapshotInfo);
-  }
- catch (  Exception ex) {
-    db.rollback();
-    ex.printStackTrace();
-  }
-  reply.set_return(Boolean.FALSE);
-  if (foundSnapshotInfo != null) {
+  SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
+  List<SnapshotInfo> snapshotInfos=db.query(snapshotInfo);
+  reply.set_return(true);
+  if (snapshotInfos.size() > 0) {
+    SnapshotInfo foundSnapshotInfo=snapshotInfos.get(0);
     if (foundSnapshotInfo.getStatus().equals(Status.available.toString())) {
       try {
         ebsManager.deleteSnapshot(snapshotId);
         snapshotStorageManager.deleteObject("",snapshotId);
         db.delete(foundSnapshotInfo);
-        reply.set_return(Boolean.TRUE);
         db.commit();
+        HttpWriter httpWriter=new HttpWriter("DELETE",null,StorageProperties.snapshotBucket,snapshotId,"DeleteSnapshot",null);
+        httpWriter.run();
       }
  catch (      IOException ex) {
         ex.printStackTrace();
       }
     }
  else {
+      reply.set_return(false);
       db.rollback();
-      throw new EucalyptusCloudException();
+      throw new SnapshotInUseException(snapshotId);
     }
   }
  else {
     db.rollback();
-    throw new NoSuchSnapshotException(snapshotId);
   }
   return reply;
 }
