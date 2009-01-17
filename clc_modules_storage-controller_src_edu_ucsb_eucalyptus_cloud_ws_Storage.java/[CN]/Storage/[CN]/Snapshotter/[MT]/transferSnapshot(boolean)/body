@@ -6,11 +6,19 @@
   size+=shouldTransferVolume ? snapshotFile.length() + volumeFile.length() : snapshotFile.length();
   SnapshotProgressCallback callback=new SnapshotProgressCallback(snapshotId,size,StorageProperties.TRANSFER_CHUNK_SIZE);
   Map<String,String> httpParamaters=new HashMap<String,String>();
-  httpParamaters.put("SnapshotVgName",snapshotValues.get(0));
-  httpParamaters.put("SnapshotLvName",snapshotValues.get(1));
   HttpWriter httpWriter;
   if (shouldTransferVolume) {
-    httpWriter=new HttpWriter("PUT",volumeFile,callback,volumeBucket,volumeKey,"StoreSnapshot",null,httpParamaters);
+    try {
+      List<String> returnValues=ebsManager.getSnapshotValues(volumeId);
+      if (returnValues.size() > 0) {
+        httpParamaters.put("SnapshotVgName",returnValues.get(0));
+        httpParamaters.put("SnapshotLvName",returnValues.get(1));
+      }
+    }
+ catch (    Exception ex) {
+      LOG.warn(ex,ex);
+    }
+    httpWriter=new HttpWriter("PUT",volumeFile,callback,volumeBucket,volumeId,"StoreSnapshot",null,httpParamaters);
     httpWriter.run();
     try {
       httpWriter.join();
@@ -20,7 +28,16 @@
       return;
     }
   }
-  httpParamaters.remove("VolumeId");
+  try {
+    List<String> returnValues=ebsManager.getSnapshotValues(snapshotId);
+    if (returnValues.size() > 0) {
+      httpParamaters.put("SnapshotVgName",returnValues.get(0));
+      httpParamaters.put("SnapshotLvName",returnValues.get(1));
+    }
+  }
+ catch (  Exception ex) {
+    LOG.warn(ex,ex);
+  }
   httpWriter=new HttpWriter("PUT",snapshotFile,callback,volumeBucket,snapshotId,"StoreSnapshot",null,httpParamaters);
   httpWriter.run();
   try {
