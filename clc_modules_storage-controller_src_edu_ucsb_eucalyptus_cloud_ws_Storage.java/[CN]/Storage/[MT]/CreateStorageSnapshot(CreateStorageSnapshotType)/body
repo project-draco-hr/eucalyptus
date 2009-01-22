@@ -1,0 +1,42 @@
+{
+  CreateStorageSnapshotResponseType reply=(CreateStorageSnapshotResponseType)request.getReply();
+  String volumeId=request.getVolumeId();
+  String snapshotId=request.getSnapshotId();
+  EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
+  VolumeInfo volumeInfo=new VolumeInfo(volumeId);
+  List<VolumeInfo> volumeInfos=db.query(volumeInfo);
+  if (volumeInfos.size() > 0) {
+    VolumeInfo foundVolumeInfo=volumeInfos.get(0);
+    if (foundVolumeInfo.getStatus().equals(Status.available.toString())) {
+      EntityWrapper<SnapshotInfo> db2=new EntityWrapper<SnapshotInfo>();
+      edu.ucsb.eucalyptus.cloud.entities.SnapshotInfo snapshotInfo=new edu.ucsb.eucalyptus.cloud.entities.SnapshotInfo(snapshotId);
+      snapshotInfo.setUserName(foundVolumeInfo.getUserName());
+      snapshotInfo.setVolumeId(volumeId);
+      Date startTime=new Date();
+      snapshotInfo.setStartTime(startTime);
+      snapshotInfo.setProgress("0");
+      snapshotInfo.setStatus(Status.creating.toString());
+      db2.add(snapshotInfo);
+      db2.commit();
+      db.commit();
+      String snapshotSet="snapset-" + UUID.randomUUID();
+      ebsManager.createSnapshot(volumeId,snapshotId);
+      Snapshotter snapshotter=new Snapshotter(snapshotSet,volumeId,snapshotId);
+      snapshotter.run();
+      reply.setSnapshotId(snapshotId);
+      reply.setVolumeId(volumeId);
+      reply.setStatus(snapshotInfo.getStatus());
+      reply.setStartTime(DateUtils.format(startTime.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+      reply.setProgress(snapshotInfo.getProgress());
+    }
+ else {
+      db.rollback();
+      throw new VolumeNotReadyException(volumeId);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchVolumeException(volumeId);
+  }
+  return reply;
+}

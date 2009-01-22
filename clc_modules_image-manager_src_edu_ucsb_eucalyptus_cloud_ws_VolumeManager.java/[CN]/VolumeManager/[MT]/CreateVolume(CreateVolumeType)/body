@@ -1,4 +1,39 @@
 {
   CreateVolumeResponseType reply=(CreateVolumeResponseType)request.getReply();
+  EntityWrapper<UserInfo> db=new EntityWrapper<UserInfo>();
+  UserInfo user=null;
+  try {
+    user=db.getUnique(new UserInfo(request.getUserId()));
+  }
+ catch (  EucalyptusCloudException e) {
+    db.rollback();
+    throw new EucalyptusCloudException("User does not exist: " + request.getUserId());
+  }
+  if (request.getSnapshotId() != null && !user.getSnapshots().contains(new SnapshotInfo(request.getSnapshotId()))) {
+    db.rollback();
+    throw new EucalyptusCloudException("Snapshot does not exist: " + request.getUserId());
+  }
+  if (!Clusters.getInstance().contains(request.getAvailabilityZone())) {
+    db.rollback();
+    throw new EucalyptusCloudException("Zone does not exist: " + request.getAvailabilityZone());
+  }
+  String newId=null;
+  while (true) {
+    newId=generateImageId(request.getUserId());
+    try {
+      db.recast(VolumeInfo.class).getUnique(new VolumeInfo(newId));
+      break;
+    }
+ catch (    EucalyptusCloudException e) {
+    }
+  }
+  VolumeInfo newVol=new VolumeInfo(newId);
+  newVol.setSize(Integer.parseInt(request.getSize()));
+  newVol.setCreateTime(new Date());
+  newVol.setZone(request.getAvailabilityZone());
+  newVol.setUserName(request.getUserId());
+  user.getVolumes().add(newVol);
+  db.commit();
+  reply.setVolume(newVol.getAsVolume());
   return reply;
 }

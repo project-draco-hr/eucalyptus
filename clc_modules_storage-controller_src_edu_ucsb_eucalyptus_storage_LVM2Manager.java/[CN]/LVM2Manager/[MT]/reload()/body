@@ -1,0 +1,27 @@
+{
+  EntityWrapper<LVMVolumeInfo> db=new EntityWrapper<LVMVolumeInfo>();
+  LVMVolumeInfo volumeInfo=new LVMVolumeInfo();
+  List<LVMVolumeInfo> volumeInfos=db.query(volumeInfo);
+  for (  LVMVolumeInfo foundVolumeInfo : volumeInfos) {
+    String loDevName=foundVolumeInfo.getLoDevName();
+    String loFileName=foundVolumeInfo.getVolumeId();
+    String absoluteLoFileName=StorageProperties.storageRootDirectory + PATH_SEPARATOR + loFileName;
+    String returnValue=getLoopback(loDevName);
+    if (!returnValue.contains(loFileName)) {
+      createLoopback(absoluteLoFileName,loDevName);
+    }
+  }
+  for (  LVMVolumeInfo foundVolumeInfo : volumeInfos) {
+    int pid=foundVolumeInfo.getVbladePid();
+    if (foundVolumeInfo.getVbladePid() > 0) {
+      String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + foundVolumeInfo.getVgName()+ PATH_SEPARATOR+ foundVolumeInfo.getLvName();
+      enableLogicalVolume(absoluteLVName);
+      String returnValue=getAoEStatus(String.valueOf(pid));
+      if (!returnValue.contains("vblade")) {
+        pid=aoeExport(iface,absoluteLVName,foundVolumeInfo.getMajorNumber(),foundVolumeInfo.getMinorNumber());
+        foundVolumeInfo.setVbladePid(pid);
+      }
+    }
+  }
+  db.commit();
+}

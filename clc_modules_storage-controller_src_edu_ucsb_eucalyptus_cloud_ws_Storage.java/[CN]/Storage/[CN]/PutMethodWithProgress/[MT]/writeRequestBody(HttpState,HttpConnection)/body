@@ -2,22 +2,26 @@
   if (null != getRequestHeader("expect") && getStatusCode() != HttpStatus.SC_CONTINUE) {
     return false;
   }
-  OutputStream out=conn.getRequestOutputStream();
-  InputStream inputStream=null;
+  InputStream inputStream;
   if (outFile != null) {
     inputStream=new FileInputStream(outFile);
-  }
-  byte[] buffer=new byte[StorageProperties.TRANSFER_CHUNK_SIZE];
-  int nb=0;
-  while (true) {
-    nb=inputStream.read(buffer);
-    if (nb == -1) {
-      break;
+    GZIPOutputStream gzipOutStream=new GZIPOutputStream(conn.getRequestOutputStream());
+    byte[] buffer=new byte[StorageProperties.TRANSFER_CHUNK_SIZE];
+    int bytesRead;
+    int numberProcessed=0;
+    while ((bytesRead=inputStream.read(buffer)) > 0) {
+      gzipOutStream.write(buffer,0,bytesRead);
+      if (++numberProcessed >= callback.getUpdateThreshold()) {
+        callback.run();
+        numberProcessed=0;
+      }
     }
-    out.write(buffer,0,nb);
-    callback.run();
+    callback.finish();
+    gzipOutStream.finish();
+    inputStream.close();
   }
-  inputStream.close();
-  out.close();
+ else {
+    return false;
+  }
   return true;
 }
