@@ -1,4 +1,31 @@
 {
+  EntityWrapper<Snapshot> db=SnapshotManager.getEntityWrapper();
+  String userName=request.isAdministrator() ? null : request.getUserId();
+  Volume vol=db.recast(Volume.class).getUnique(new Volume(userName,request.getVolumeId()));
+  String newId=null;
+  while (true) {
+    newId=Hashes.generateId(request.getUserId(),ID_PREFIX);
+    try {
+      db.getUnique(new Snapshot(null,newId));
+      break;
+    }
+ catch (    EucalyptusCloudException e) {
+    }
+  }
+  CreateStorageSnapshotType scRequest=new CreateStorageSnapshotType(newId,vol.getDisplayName());
+  CreateStorageSnapshotResponseType scReply=null;
+  try {
+    scReply=(CreateStorageSnapshotResponseType)Messaging.send(StorageProperties.STORAGE_REF,scRequest);
+  }
+ catch (  EucalyptusCloudException e) {
+    LOG.debug(e,e);
+    db.rollback();
+    throw new EucalyptusCloudException("Error calling CreateStorageSnapshot:" + e.getMessage());
+  }
+  Snapshot snap=new Snapshot(request.getUserId(),newId,vol.getDisplayName());
+  db.add(snap);
+  db.commit();
   CreateSnapshotResponseType reply=(CreateSnapshotResponseType)request.getReply();
+  reply.setSnapshot(snap.morph(new edu.ucsb.eucalyptus.msgs.Snapshot()));
   return reply;
 }
