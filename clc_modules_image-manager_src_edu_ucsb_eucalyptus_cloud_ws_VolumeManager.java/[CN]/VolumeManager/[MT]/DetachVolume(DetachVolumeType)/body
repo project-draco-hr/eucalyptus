@@ -1,13 +1,33 @@
 {
   DetachVolumeResponseType reply=(DetachVolumeResponseType)request.getReply();
-  EntityWrapper<UserInfo> db=new EntityWrapper<UserInfo>();
-  UserInfo user=null;
+  VmInstance vm=null;
   try {
-    user=db.getUnique(new UserInfo(request.getUserId()));
+    vm=VmInstances.getInstance().lookup(request.getInstanceId());
+  }
+ catch (  NoSuchElementException e) {
+    LOG.debug(e,e);
+    throw new EucalyptusCloudException("Instance does not exist: " + request.getInstanceId());
+  }
+  EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
+  String userName=request.isAdministrator() ? null : request.getUserId();
+  try {
+    db.getUnique(new Volume(userName,request.getVolumeId()));
   }
  catch (  EucalyptusCloudException e) {
+    LOG.debug(e,e);
     db.rollback();
-    throw new EucalyptusCloudException("User does not exist: " + request.getUserId());
+    throw new EucalyptusCloudException("Volume does not exist: " + request.getVolumeId());
   }
+  db.commit();
+  AttachedVolume volume=null;
+  for (  VmInstance v : VmInstances.getInstance().listValues()) {
+    for (    AttachedVolume vol : v.getVolumes()) {
+      if (vol.getVolumeId().equals(request.getVolumeId())) {
+        volume=vol;
+      }
+    }
+  }
+  if (volume == null)   throw new EucalyptusCloudException("Volume is not attached: " + request.getVolumeId());
+  reply.setDetachedVolume(volume);
   return reply;
 }

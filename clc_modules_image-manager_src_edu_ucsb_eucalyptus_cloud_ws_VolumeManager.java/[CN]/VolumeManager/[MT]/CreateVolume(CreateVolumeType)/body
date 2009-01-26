@@ -1,39 +1,43 @@
 {
-  CreateVolumeResponseType reply=(CreateVolumeResponseType)request.getReply();
-  EntityWrapper<UserInfo> db=new EntityWrapper<UserInfo>();
-  UserInfo user=null;
-  try {
-    user=db.getUnique(new UserInfo(request.getUserId()));
-  }
- catch (  EucalyptusCloudException e) {
-    db.rollback();
-    throw new EucalyptusCloudException("User does not exist: " + request.getUserId());
-  }
-  if (request.getSnapshotId() != null && !user.getSnapshots().contains(new SnapshotInfo(request.getSnapshotId()))) {
-    db.rollback();
-    throw new EucalyptusCloudException("Snapshot does not exist: " + request.getUserId());
-  }
   if (!Clusters.getInstance().contains(request.getAvailabilityZone())) {
-    db.rollback();
     throw new EucalyptusCloudException("Zone does not exist: " + request.getAvailabilityZone());
+  }
+  EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
+  if (!(request.getSnapshotId() == null)) {
+    String userName=request.isAdministrator() ? null : request.getUserId();
+    try {
+      db.recast(Snapshot.class).getUnique(new Snapshot(userName,request.getSnapshotId()));
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.debug(e,e);
+      db.rollback();
+      throw new EucalyptusCloudException("Snapshot does not exist: " + request.getSnapshotId());
+    }
   }
   String newId=null;
   while (true) {
-    newId=generateImageId(request.getUserId());
+    newId=Hashes.generateId(request.getUserId(),ID_PREFIX);
     try {
-      db.recast(VolumeInfo.class).getUnique(new VolumeInfo(newId));
+      db.getUnique(new Volume(null,newId));
       break;
     }
  catch (    EucalyptusCloudException e) {
     }
   }
-  VolumeInfo newVol=new VolumeInfo(newId);
-  newVol.setSize(Integer.parseInt(request.getSize()));
-  newVol.setCreateTime(new Date());
-  newVol.setZone(request.getAvailabilityZone());
-  newVol.setUserName(request.getUserId());
-  user.getVolumes().add(newVol);
+  CreateStorageVolumeType scRequest=new CreateStorageVolumeType(newId,request.getSize(),request.getSnapshotId());
+  CreateStorageVolumeResponseType scReply=null;
+  try {
+    scReply=(CreateStorageVolumeResponseType)Messaging.send(StorageProperties.STORAGE_REF,scRequest);
+  }
+ catch (  EucalyptusCloudException e) {
+    LOG.debug(e,e);
+    db.rollback();
+    throw new EucalyptusCloudException("Error calling CreateStorageVolume:" + e.getMessage());
+  }
+  Volume newVol=new Volume(request.getUserId(),newId,new Integer(request.getSize()),request.getAvailabilityZone(),request.getSnapshotId());
+  db.add(newVol);
   db.commit();
-  reply.setVolume(newVol.getAsVolume());
+  CreateVolumeResponseType reply=(CreateVolumeResponseType)request.getReply();
+  reply.setVolume(newVol.morph(new edu.ucsb.eucalyptus.msgs.Volume()));
   return reply;
 }
