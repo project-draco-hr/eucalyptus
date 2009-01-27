@@ -1,4 +1,19 @@
 {
   DeleteVolumeResponseType reply=(DeleteVolumeResponseType)request.getReply();
+  reply.set_return(false);
+  EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
+  String userName=request.isAdministrator() ? null : request.getUserId();
+  try {
+    Volume vol=db.getUnique(new Volume(userName,request.getVolumeId()));
+    Messaging.dispatch(StorageProperties.STORAGE_REF,new DeleteStorageVolumeType(vol.getDisplayName()));
+    db.delete(vol);
+    db.commit();
+  }
+ catch (  EucalyptusCloudException e) {
+    LOG.debug(e,e);
+    db.rollback();
+    throw new EucalyptusCloudException("Error deleting storage volume:" + e.getMessage());
+  }
+  reply.set_return(true);
   return reply;
 }

@@ -1,0 +1,40 @@
+{
+  AccessControlListType accessControlList=new AccessControlListType();
+  if (accessControlList == null) {
+    accessControlList=new AccessControlListType();
+  }
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    if (bucket.canWrite(userId)) {
+      List<ObjectInfo> objectInfos=bucket.getObjects();
+      for (      ObjectInfo objectInfo : objectInfos) {
+        if (objectInfo.getObjectName().equals(key)) {
+          db.rollback();
+          throw new EucalyptusCloudException("object already exists " + key);
+        }
+      }
+      ObjectInfo objectInfo=new ObjectInfo(key);
+      List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+      objectInfo.addGrants(userId,grantInfos,accessControlList);
+      objectInfo.setGrants(grantInfos);
+      objectInfos.add(objectInfo);
+      objectInfo.setObjectName(key);
+      objectInfo.setOwnerId(userId);
+      objectInfo.setSize(storageManager.getSize(bucketName,key));
+      objectInfo.setEtag("");
+      objectInfo.setLastModified(new Date());
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException(bucketName);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+}

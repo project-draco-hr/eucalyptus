@@ -1,4 +1,19 @@
 {
   DeleteSnapshotResponseType reply=(DeleteSnapshotResponseType)request.getReply();
+  reply.set_return(false);
+  EntityWrapper<Snapshot> db=SnapshotManager.getEntityWrapper();
+  String userName=request.isAdministrator() ? null : request.getUserId();
+  try {
+    Snapshot snap=db.getUnique(new Snapshot(userName,request.getSnapshotId()));
+    Messaging.dispatch(StorageProperties.STORAGE_REF,new DeleteStorageSnapshotType(snap.getDisplayName()));
+    db.delete(snap);
+    db.commit();
+  }
+ catch (  EucalyptusCloudException e) {
+    LOG.debug(e,e);
+    db.rollback();
+    throw new EucalyptusCloudException("Error deleting storage volume:" + e.getMessage());
+  }
+  reply.set_return(true);
   return reply;
 }
