@@ -43,8 +43,33 @@
     VolumeInfo volumeInfo=new VolumeInfo(volumeId);
     VolumeInfo foundVolumeInfo=db.getUnique(volumeInfo);
     if (foundVolumeInfo != null) {
-      if (success)       foundVolumeInfo.setStatus(StorageProperties.Status.available.toString());
- else       foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
+      if (success) {
+        EntityWrapper<StorageMetaInfo> dbMeta=new EntityWrapper<StorageMetaInfo>();
+        StorageMetaInfo metaInfo=new StorageMetaInfo();
+        StorageMetaInfo foundMetaInfo;
+        try {
+          foundMetaInfo=dbMeta.getUnique(metaInfo);
+          if ((foundMetaInfo.getVolumeSize() + size) > StorageProperties.maxVolumeSize) {
+            success=false;
+            LOG.warn("Volume size limit exceeeded");
+          }
+ else {
+            foundMetaInfo.setVolumeSize(foundMetaInfo.getVolumeSize() + size);
+          }
+        }
+ catch (        Exception ex) {
+          dbMeta.rollback();
+          foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
+          db.commit();
+          ex.printStackTrace();
+          return;
+        }
+        dbMeta.commit();
+        foundVolumeInfo.setStatus(StorageProperties.Status.available.toString());
+      }
+ else {
+        foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
+      }
       if (snapshotId != null) {
         foundVolumeInfo.setSize(size);
       }
