@@ -1,9 +1,33 @@
 {
-  String walrusAddr=System.getProperty(WalrusProperties.URL_PROPERTY);
+  enableSnapshots=enableStorage=true;
+  EntityWrapper<StorageMetaInfo> db=new EntityWrapper<StorageMetaInfo>();
+  StorageMetaInfo metaInfo=new StorageMetaInfo();
+  try {
+    StorageMetaInfo storageMetaInfo=db.getUnique(metaInfo);
+    if (storageMetaInfo.getMaxTotalVolumeSize() == null)     storageMetaInfo.setMaxTotalVolumeSize(0);
+    if (storageMetaInfo.getMaxTotalSnapshotSize() == null)     storageMetaInfo.setMaxTotalSnapshotSize(0);
+  }
+ catch (  Exception ex) {
+    metaInfo.setMaxTotalVolumeSize(0);
+    metaInfo.setMaxTotalSnapshotSize(0);
+    db.add(metaInfo);
+  }
+  db.commit();
+  String walrusAddr=StorageProperties.WALRUS_URL;
   if (walrusAddr == null) {
     LOG.warn("Walrus host addr not set");
   }
-  blockManager=new LVM2Manager();
+  blockManager=new LVM2Manager(StorageProperties.storageInterface);
   blockManager.initVolumeManager();
-  startupChecks();
+  try {
+    blockManager.checkPreconditions();
+  }
+ catch (  Exception ex) {
+    enableStorage=false;
+    LOG.warn(ex);
+    LOG.warn("Could not initialize block manager");
+    return;
+  }
+  startup();
+  checkWalrusConnection();
 }

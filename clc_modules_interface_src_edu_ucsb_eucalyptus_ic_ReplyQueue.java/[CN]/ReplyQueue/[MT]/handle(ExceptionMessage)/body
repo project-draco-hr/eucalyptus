@@ -1,35 +1,24 @@
 {
+  Throwable exception=exMsg.getException();
   Object payload=null;
   EucalyptusMessage msg=null;
-  Throwable exception=muleMsg.getException();
   if (exception instanceof MessagingException) {
     MessagingException ex=(MessagingException)exception;
-    payload=ex.getUmoMessage().getPayload();
-    if (payload instanceof VmAllocationInfo) {
-      msg=((VmAllocationInfo)payload).getRequest();
+    MuleMessage muleMsg=ex.getUmoMessage();
+    if (payload instanceof RequestTransactionScript) {
+      msg=((RequestTransactionScript)payload).getRequestMessage();
     }
  else {
       try {
-        msg=(EucalyptusMessage)BindingManager.getBinding("msgs_eucalyptus_ucsb_edu").fromOM((String)muleMsg.getPayload());
+        msg=parsePayload(muleMsg.getPayload());
       }
  catch (      Exception e) {
+        LOG.error("Bailing out of error handling: don't have the correlationId for the caller!");
         LOG.error(e,e);
+        return;
       }
     }
-    EucalyptusErrorMessageType errMsg=null;
-    if (exception != null) {
-      Throwable e=muleMsg.getException().getCause();
-      if (e != null) {
-        errMsg=new EucalyptusErrorMessageType(muleMsg.getComponentName(),msg,e.getMessage());
-      }
-    }
-    if (errMsg == null) {
-      errMsg=new EucalyptusErrorMessageType(muleMsg.getComponentName(),msg,"Internal Error.");
-    }
+    EucalyptusErrorMessageType errMsg=getErrorMessageType(exMsg,msg);
     replies.putMessage(errMsg);
-  }
- else {
-    LOG.error("Bailing out of error handling!");
-    LOG.error(exception,exception);
   }
 }

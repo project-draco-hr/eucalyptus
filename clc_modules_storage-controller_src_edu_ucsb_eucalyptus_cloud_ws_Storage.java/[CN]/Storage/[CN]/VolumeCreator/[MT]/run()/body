@@ -4,14 +4,15 @@
     EntityWrapper<SnapshotInfo> db=new EntityWrapper<SnapshotInfo>();
     try {
       SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
-      SnapshotInfo foundSnapshotInfo=db.getUnique(snapshotInfo);
-      if (foundSnapshotInfo == null) {
+      List<SnapshotInfo> foundSnapshotInfos=db.query(snapshotInfo);
+      if (foundSnapshotInfos.size() == 0) {
         String volumePath=getVolume(volumeId,snapshotSetName,snapshotId);
         size=blockManager.createVolume(volumeId,volumePath);
         db.commit();
       }
  else {
-        if (!foundSnapshotInfo.getStatus().equals(Status.available.toString())) {
+        SnapshotInfo foundSnapshotInfo=foundSnapshotInfos.get(0);
+        if (!foundSnapshotInfo.getStatus().equals(StorageProperties.Status.available.toString())) {
           success=false;
           db.rollback();
           LOG.warn("snapshot " + foundSnapshotInfo.getSnapshotId() + " not available.");
@@ -43,8 +44,33 @@
     VolumeInfo volumeInfo=new VolumeInfo(volumeId);
     VolumeInfo foundVolumeInfo=db.getUnique(volumeInfo);
     if (foundVolumeInfo != null) {
-      if (success)       foundVolumeInfo.setStatus(Status.available.toString());
- else       foundVolumeInfo.setStatus(Status.failed.toString());
+      if (success) {
+        EntityWrapper<StorageMetaInfo> dbMeta=new EntityWrapper<StorageMetaInfo>();
+        StorageMetaInfo metaInfo=new StorageMetaInfo();
+        StorageMetaInfo foundMetaInfo;
+        try {
+          foundMetaInfo=dbMeta.getUnique(metaInfo);
+          if ((foundMetaInfo.getMaxTotalVolumeSize() + size) > StorageProperties.MAX_TOTAL_VOLUME_SIZE || (size > StorageProperties.MAX_VOLUME_SIZE)) {
+            success=false;
+            LOG.warn("Volume size limit exceeeded");
+          }
+ else {
+            foundMetaInfo.setMaxTotalVolumeSize(foundMetaInfo.getMaxTotalVolumeSize() + size);
+          }
+        }
+ catch (        Exception ex) {
+          dbMeta.rollback();
+          foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
+          db.commit();
+          ex.printStackTrace();
+          return;
+        }
+        dbMeta.commit();
+        foundVolumeInfo.setStatus(StorageProperties.Status.available.toString());
+      }
+ else {
+        foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
+      }
       if (snapshotId != null) {
         foundVolumeInfo.setSize(size);
       }

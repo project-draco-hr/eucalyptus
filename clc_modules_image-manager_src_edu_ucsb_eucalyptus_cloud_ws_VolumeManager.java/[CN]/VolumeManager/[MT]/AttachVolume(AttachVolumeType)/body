@@ -8,6 +8,14 @@
     LOG.debug(e,e);
     throw new EucalyptusCloudException("Instance does not exist: " + request.getInstanceId());
   }
+  Cluster cluster=null;
+  try {
+    cluster=Clusters.getInstance().lookup(vm.getPlacement());
+  }
+ catch (  NoSuchElementException e) {
+    LOG.debug(e,e);
+    throw new EucalyptusCloudException("Cluster does not exist: " + vm.getPlacement());
+  }
   for (  VmInstance v : VmInstances.getInstance().listValues()) {
     for (    AttachedVolume vol : v.getVolumes()) {
       if (vol.getVolumeId().equals(request.getVolumeId())) {
@@ -17,13 +25,20 @@
   }
   EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
   String userName=request.isAdministrator() ? null : request.getUserId();
+  Volume volume=null;
   try {
-    db.getUnique(new Volume(userName,request.getVolumeId()));
+    volume=db.getUnique(Volume.named(userName,request.getVolumeId()));
   }
  catch (  EucalyptusCloudException e) {
     LOG.debug(e,e);
     db.rollback();
     throw new EucalyptusCloudException("Volume does not exist: " + request.getVolumeId());
   }
+  request.setRemoteDevice(volume.getRemoteDevice());
+  QueuedEvent<AttachVolumeType> event=QueuedEvent.make(new VolumeAttachCallback(cluster),request);
+  cluster.getMessageQueue().enqueue(event);
+  AttachedVolume attachVol=new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice(),volume.getRemoteDevice());
+  vm.getVolumes().add(attachVol);
+  reply.setAttachedVolume(attachVol);
   return reply;
 }

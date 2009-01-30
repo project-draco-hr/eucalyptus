@@ -4,6 +4,9 @@
   EntityWrapper<WalrusSnapshotInfo> db=new EntityWrapper<WalrusSnapshotInfo>();
   WalrusSnapshotInfo snapshotInfo=new WalrusSnapshotInfo(snapshotId);
   List<WalrusSnapshotInfo> snapshotInfos=db.query(snapshotInfo);
+  ArrayList<String> vgNames=new ArrayList<String>();
+  ArrayList<String> lvNames=new ArrayList<String>();
+  ArrayList<String> snapIdsToDelete=new ArrayList<String>();
   reply.set_return(true);
   if (snapshotInfos.size() > 0) {
     WalrusSnapshotInfo foundSnapshotInfo=snapshotInfos.get(0);
@@ -24,11 +27,25 @@
       for (      WalrusSnapshotInfo snapInfo : snapshotSet) {
         String snapId=snapInfo.getSnapshotId();
         snapshotIds.add(snapId);
-        if (snapId.equals(foundSnapshotInfo.getSnapshotId()))         snapshotSetSnapInfo=snapInfo;
+        if (snapId.equals(foundSnapshotInfo.getSnapshotId())) {
+          snapshotSetSnapInfo=snapInfo;
+        }
       }
-      if (snapshotSetSnapInfo != null)       snapshotSet.remove(snapshotSetSnapInfo);
+      if (snapshotSetSnapInfo != null) {
+        snapshotSet.remove(snapshotSetSnapInfo);
+        if (snapshotSet.size() == 1) {
+          WalrusSnapshotInfo snapZeroInfo=snapshotSet.get(0);
+          if (snapZeroInfo.getSnapshotId().startsWith("vol")) {
+            snapshotSet.remove(snapZeroInfo);
+            dbSet.delete(foundSnapshotSetInfo);
+            snapZeroInfo=new WalrusSnapshotInfo(snapZeroInfo.getSnapshotId());
+            WalrusSnapshotInfo foundVolInfo=db.getUnique(snapZeroInfo);
+            db.delete(foundVolInfo);
+          }
+        }
+      }
       db.delete(foundSnapshotInfo);
-      SnapshotDeleter snapshotDeleter=new SnapshotDeleter(bucketName,foundSnapshotInfo.getSnapshotId(),foundSnapshotInfo.getVgName(),foundSnapshotInfo.getLvName(),snapshotIds);
+      SnapshotDeleter snapshotDeleter=new SnapshotDeleter(bucketName,snapIdsToDelete,vgNames,lvNames,snapshotIds);
       snapshotDeleter.start();
     }
  else {

@@ -14,6 +14,18 @@
  else {
       String key=(String)messageContext.getProperty("GET_KEY");
       String randomKey=(String)messageContext.getProperty("GET_RANDOM_KEY");
+      Boolean isCompressed=(Boolean)messageContext.getProperty("GET_COMPRESSED");
+      if (isCompressed == null)       isCompressed=false;
+      GZIPOutputStream gzipOutStream=null;
+      if (isCompressed) {
+        try {
+          gzipOutStream=new GZIPOutputStream(outputStream);
+        }
+ catch (        Exception ex) {
+          ex.printStackTrace();
+          return;
+        }
+      }
       WalrusDataMessenger messenger=WalrusQueryDispatcher.getReadMessenger();
       LinkedBlockingQueue<WalrusDataMessage> getQueue=messenger.getQueue(key,randomKey);
       WalrusDataMessage dataMessage;
@@ -23,19 +35,35 @@
           }
  else           if (WalrusDataMessage.isData(dataMessage)) {
             byte[] data=dataMessage.getPayload();
-            for (            byte b : data) {
+            if (isCompressed) {
               try {
-                outputStream.write(b);
+                gzipOutStream.write(data);
               }
- catch (              IOException e) {
-                e.printStackTrace();
-                throw new AxisFault("An error occured while writing the request");
+ catch (              Exception ex) {
+                ex.printStackTrace();
+              }
+            }
+ else {
+              for (              byte b : data) {
+                try {
+                  outputStream.write(b);
+                }
+ catch (                IOException e) {
+                  e.printStackTrace();
+                  throw new AxisFault("An error occured while writing the request");
+                }
               }
             }
           }
  else           if (WalrusDataMessage.isEOF(dataMessage)) {
             try {
-              outputStream.flush();
+              if (isCompressed) {
+                gzipOutStream.finish();
+                gzipOutStream.flush();
+              }
+ else {
+                outputStream.flush();
+              }
               messenger.removeQueue(key,randomKey);
               break;
             }
