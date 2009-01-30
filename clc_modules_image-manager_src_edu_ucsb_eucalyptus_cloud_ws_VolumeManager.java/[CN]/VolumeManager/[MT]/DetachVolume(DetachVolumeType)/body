@@ -8,6 +8,14 @@
     LOG.debug(e,e);
     throw new EucalyptusCloudException("Instance does not exist: " + request.getInstanceId());
   }
+  Cluster cluster=null;
+  try {
+    cluster=Clusters.getInstance().lookup(vm.getPlacement());
+  }
+ catch (  NoSuchElementException e) {
+    LOG.debug(e,e);
+    throw new EucalyptusCloudException("Cluster does not exist: " + vm.getPlacement());
+  }
   EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
   String userName=request.isAdministrator() ? null : request.getUserId();
   try {
@@ -28,6 +36,9 @@
     }
   }
   if (volume == null)   throw new EucalyptusCloudException("Volume is not attached: " + request.getVolumeId());
+  request.setRemoteDevice(volume.getRemoteDevice());
+  QueuedEvent<DetachVolumeType> event=QueuedEvent.make(new VolumeDetachCallback(cluster),request);
+  cluster.getMessageQueue().enqueue(event);
   reply.setDetachedVolume(volume);
   return reply;
 }
