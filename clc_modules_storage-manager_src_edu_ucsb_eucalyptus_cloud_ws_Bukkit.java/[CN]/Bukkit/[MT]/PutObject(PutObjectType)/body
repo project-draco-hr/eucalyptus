@@ -2,7 +2,7 @@
   PutObjectResponseType reply=(PutObjectResponseType)request.getReply();
   String userId=request.getUserId();
   String bucketName=request.getBucket();
-  String objectName=request.getKey();
+  String objectKey=request.getKey();
   Long oldBucketSize=0L;
   String md5="";
   Date lastModified=null;
@@ -19,10 +19,10 @@
       ObjectInfo foundObject=null;
       List<ObjectInfo> objectInfos=bucket.getObjects();
       for (      ObjectInfo objectInfo : objectInfos) {
-        if (objectInfo.getObjectName().equals(objectName)) {
+        if (objectInfo.getObjectKey().equals(objectKey)) {
           if (!objectInfo.canWrite(userId)) {
             db.rollback();
-            throw new AccessDeniedException(objectName);
+            throw new AccessDeniedException(objectKey);
           }
           foundObject=objectInfo;
           oldBucketSize=-foundObject.getSize();
@@ -30,7 +30,7 @@
         }
       }
       if (foundObject == null) {
-        foundObject=new ObjectInfo(objectName);
+        foundObject=new ObjectInfo(objectKey);
         List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
         foundObject.addGrants(userId,grantInfos,accessControlList);
         foundObject.setGrants(grantInfos);
@@ -43,12 +43,14 @@
           foundObject.setGrants(grantInfos);
         }
       }
+      String objectName=objectKey.replaceAll("/","-") + Hashes.getRandom(4);
       foundObject.setObjectName(objectName);
+      foundObject.setObjectKey(objectKey);
       foundObject.setOwnerId(userId);
       foundObject.addMetaData(request.getMetaData());
       String randomKey=request.getRandomKey();
       WalrusDataMessenger messenger=WalrusQueryDispatcher.getWriteMessenger();
-      String key=bucketName + "." + objectName;
+      String key=bucketName + "." + objectKey;
       LinkedBlockingQueue<WalrusDataMessage> putQueue=messenger.getQueue(key,randomKey);
       try {
         WalrusDataMessage dataMessage;
@@ -67,7 +69,7 @@
  catch (            IOException ex) {
               LOG.warn(ex,ex);
               db.rollback();
-              throw new EucalyptusCloudException(objectName);
+              throw new EucalyptusCloudException(objectKey);
             }
             md5=bytesToHex(digest.digest());
             lastModified=new Date();
@@ -80,7 +82,7 @@
               long newSize=bucketSize + oldBucketSize + size;
               if (newSize > WalrusProperties.MAX_BUCKET_SIZE) {
                 db.rollback();
-                throw new EntityTooLargeException(objectName);
+                throw new EntityTooLargeException(objectKey);
               }
               bucket.setBucketSize(newSize);
             }
