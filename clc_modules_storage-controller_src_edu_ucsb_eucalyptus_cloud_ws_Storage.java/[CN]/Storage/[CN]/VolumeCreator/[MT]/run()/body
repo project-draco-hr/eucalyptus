@@ -39,33 +39,25 @@
       ex.printStackTrace();
     }
   }
+  EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
+  VolumeInfo volumeInfo=new VolumeInfo(volumeId);
   try {
-    EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
-    VolumeInfo volumeInfo=new VolumeInfo(volumeId);
     VolumeInfo foundVolumeInfo=db.getUnique(volumeInfo);
     if (foundVolumeInfo != null) {
       if (success) {
-        EntityWrapper<StorageMetaInfo> dbMeta=new EntityWrapper<StorageMetaInfo>();
-        StorageMetaInfo metaInfo=new StorageMetaInfo();
-        StorageMetaInfo foundMetaInfo;
-        try {
-          foundMetaInfo=dbMeta.getUnique(metaInfo);
-          if ((foundMetaInfo.getMaxTotalVolumeSize() + size) > StorageProperties.MAX_TOTAL_VOLUME_SIZE || (size > StorageProperties.MAX_VOLUME_SIZE)) {
-            success=false;
-            LOG.warn("Volume size limit exceeeded");
-          }
- else {
-            foundMetaInfo.setMaxTotalVolumeSize(foundMetaInfo.getMaxTotalVolumeSize() + size);
-          }
+        EntityWrapper<VolumeInfo> dbVol=new EntityWrapper<VolumeInfo>();
+        VolumeInfo volInfo=new VolumeInfo();
+        List<VolumeInfo> volInfos=db.query(volInfo);
+        int totalVolumeSize=0;
+        for (        VolumeInfo vinfo : volInfos) {
+          totalVolumeSize+=vinfo.getSize();
         }
- catch (        Exception ex) {
-          dbMeta.rollback();
+        if ((totalVolumeSize + size) > StorageProperties.MAX_TOTAL_VOLUME_SIZE || (size > StorageProperties.MAX_VOLUME_SIZE)) {
+          LOG.warn("Volume size limit exceeeded");
           foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
           db.commit();
-          ex.printStackTrace();
           return;
         }
-        dbMeta.commit();
         foundVolumeInfo.setStatus(StorageProperties.Status.available.toString());
       }
  else {
@@ -82,6 +74,6 @@
     db.commit();
   }
  catch (  EucalyptusCloudException ex) {
-    ex.printStackTrace();
+    LOG.warn(ex,ex);
   }
 }
