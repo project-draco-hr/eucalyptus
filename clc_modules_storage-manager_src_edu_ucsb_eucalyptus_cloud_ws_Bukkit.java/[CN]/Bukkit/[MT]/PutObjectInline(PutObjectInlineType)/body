@@ -2,10 +2,10 @@
   PutObjectInlineResponseType reply=(PutObjectInlineResponseType)request.getReply();
   String userId=request.getUserId();
   String bucketName=request.getBucket();
-  String objectName=request.getKey();
+  String objectKey=request.getKey();
   String md5="";
   Long oldBucketSize=0L;
-  Date lastModified=null;
+  Date lastModified;
   AccessControlListType accessControlList=request.getAccessControlList();
   if (accessControlList == null) {
     accessControlList=new AccessControlListType();
@@ -19,10 +19,10 @@
       ObjectInfo foundObject=null;
       List<ObjectInfo> objectInfos=bucket.getObjects();
       for (      ObjectInfo objectInfo : objectInfos) {
-        if (objectInfo.getObjectName().equals(objectName)) {
+        if (objectInfo.getObjectKey().equals(objectKey)) {
           if (!objectInfo.canWrite(userId)) {
             db.rollback();
-            throw new AccessDeniedException(objectName);
+            throw new AccessDeniedException(objectKey);
           }
           foundObject=objectInfo;
           oldBucketSize=-foundObject.getSize();
@@ -30,7 +30,7 @@
         }
       }
       if (foundObject == null) {
-        foundObject=new ObjectInfo(objectName);
+        foundObject=new ObjectInfo(objectKey);
         List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
         foundObject.addGrants(userId,grantInfos,accessControlList);
         foundObject.setGrants(grantInfos);
@@ -42,10 +42,12 @@
           foundObject.addGrants(userId,grantInfos,accessControlList);
         }
       }
-      foundObject.setObjectName(objectName);
+      foundObject.setObjectKey(objectKey);
       foundObject.setOwnerId(userId);
       try {
         byte[] base64Data=request.getBase64Data().getBytes();
+        String objectName=objectKey.replaceAll("/","-") + Hashes.getRandom(4);
+        foundObject.setObjectName(objectName);
         storageManager.putObject(bucketName,objectName,base64Data,false);
         md5=Hashes.getHexString(Hashes.Digest.MD5.get().digest(base64Data));
         foundObject.setEtag(md5);
@@ -56,7 +58,7 @@
           long newSize=bucketSize + oldBucketSize + size;
           if (newSize > WalrusProperties.MAX_BUCKET_SIZE) {
             db.rollback();
-            throw new EntityTooLargeException(objectName);
+            throw new EntityTooLargeException(objectKey);
           }
           bucket.setBucketSize(newSize);
         }

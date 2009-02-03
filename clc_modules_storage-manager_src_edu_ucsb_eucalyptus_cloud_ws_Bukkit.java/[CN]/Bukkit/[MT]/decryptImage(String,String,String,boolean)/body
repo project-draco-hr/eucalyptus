@@ -5,8 +5,9 @@
   if (bucketList.size() > 0) {
     BucketInfo bucket=bucketList.get(0);
     for (    ObjectInfo objectInfo : bucket.getObjects()) {
-      if (objectInfo.getObjectName().equals(objectName)) {
+      if (objectInfo.getObjectKey().equals(objectKey)) {
         if (objectInfo.canRead(userId)) {
+          String objectName=objectInfo.getObjectName();
           File file=new File(storageManager.getObjectPath(bucketName,objectName));
           XMLParser parser=new XMLParser(file);
           String imageKey=parser.getValue("//image/name");
@@ -76,9 +77,17 @@
           }
           List<String> parts=parser.getValues("//image/parts/part/filename");
           ArrayList<String> qualifiedPaths=new ArrayList<String>();
+          EntityWrapper<ObjectInfo> dbObject=new EntityWrapper<ObjectInfo>();
           for (          String part : parts) {
-            qualifiedPaths.add(storageManager.getObjectPath(bucketName,part));
+            ObjectInfo partInfo=new ObjectInfo();
+            objectInfo.setObjectKey(part);
+            List<ObjectInfo> partInfos=dbObject.query(partInfo);
+            if (partInfos.size() > 0) {
+              ObjectInfo pInfo=partInfos.get(0);
+              qualifiedPaths.add(storageManager.getObjectPath(bucketName,pInfo.getObjectName()));
+            }
           }
+          dbObject.commit();
           String encryptedImageKey=imageKey + "-" + Hashes.getRandom(5)+ ".crypt.gz";
           String encryptedImageName=storageManager.getObjectPath(bucketName,encryptedImageKey);
           String decryptedImageKey=encryptedImageKey.replaceAll("crypt.gz","tgz");
