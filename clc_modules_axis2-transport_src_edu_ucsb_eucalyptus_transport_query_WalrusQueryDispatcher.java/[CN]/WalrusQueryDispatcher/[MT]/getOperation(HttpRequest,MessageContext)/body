@@ -37,6 +37,83 @@
     if (!target[0].equals("")) {
       operationKey=BUCKET + verb;
       operationParams.put("Bucket",target[0]);
+      if (verb.equals(HTTPVerb.POST.toString())) {
+        InputStream in=(InputStream)messageContext.getProperty("TRANSPORT_IN");
+        String contentType=headers.get(HTTP.CONTENT_TYPE);
+        int contentLength=Integer.parseInt(headers.get(HTTP.CONTENT_LEN));
+        POSTRequestContext postRequestContext=new POSTRequestContext(in,contentType,contentLength);
+        FileUpload fileUpload=new FileUpload(new WalrusFileItemFactory());
+        InputStream formDataIn=null;
+        String objectKey=null;
+        String key;
+        Map<String,String> formFields=new HashMap<String,String>();
+        try {
+          List<FileItem> parts=fileUpload.parseRequest(postRequestContext);
+          for (          FileItem part : parts) {
+            if (part.isFormField()) {
+              InputStream formFieldIn=part.getInputStream();
+              int bytesRead;
+              String fieldValue="";
+              byte[] bytes=new byte[512];
+              while ((bytesRead=formFieldIn.read(bytes)) > 0) {
+                fieldValue+=new String(bytes,0,bytesRead);
+              }
+              formFields.put(part.getFieldName(),fieldValue);
+            }
+ else {
+              formDataIn=part.getInputStream();
+            }
+          }
+        }
+ catch (        Exception ex) {
+          LOG.warn(ex,ex);
+          return null;
+        }
+        String authenticationHeader="";
+        String aclHeader="";
+        if (formFields.containsKey(WalrusProperties.FormField.AWSAccessKeyId.toString())) {
+          String accessKeyId=formFields.remove(WalrusProperties.FormField.AWSAccessKeyId.toString());
+          authenticationHeader+="AWS" + " " + accessKeyId + ":";
+        }
+        if (formFields.containsKey(WalrusProperties.FormField.key.toString())) {
+          objectKey=formFields.remove(WalrusProperties.FormField.key.toString());
+        }
+        if (formFields.containsKey(WalrusProperties.FormField.signature.toString())) {
+          String signature=formFields.remove(WalrusProperties.FormField.signature.toString());
+          authenticationHeader+=signature;
+          headers.put(HMACQuerySecurityHandler.SecurityParameter.Authorization.toString(),authenticationHeader);
+        }
+        if (formFields.containsKey(WalrusProperties.FormField.acl.toString())) {
+          String acl=formFields.remove(WalrusProperties.FormField.acl.toString());
+          headers.put(WalrusProperties.AMZ_ACL,acl);
+        }
+        if (formFields.containsKey(WalrusProperties.FormField.policy.toString())) {
+          String policy=new String(Base64.decode(formFields.remove(WalrusProperties.FormField.policy.toString())));
+          try {
+            String policyData=new String(Base64.encode(policy.getBytes()));
+            headers.put(WalrusProperties.FormField.FormUploadPolicyData.toString(),policyData);
+          }
+ catch (          Exception ex) {
+            LOG.warn(ex,ex);
+            return null;
+          }
+        }
+        operationParams.put("Key",objectKey);
+        key=target[0] + "." + objectKey;
+        String randomKey=key + "." + Hashes.getRandom(10);
+        LinkedBlockingQueue<WalrusDataMessage> putQueue=getWriteMessenger().interruptAllAndGetQueue(key,randomKey);
+        int dataLength=0;
+        try {
+          dataLength=formDataIn.available();
+        }
+ catch (        IOException ex) {
+          ex.printStackTrace();
+        }
+        Writer writer=new Writer(formDataIn,dataLength,putQueue);
+        writer.start();
+        operationParams.put("ContentLength",(new Long(dataLength).toString()));
+        operationParams.put(WalrusProperties.Headers.RandomKey.toString(),randomKey);
+      }
     }
  else {
       operationKey=SERVICE + verb;
