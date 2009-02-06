@@ -52,7 +52,7 @@
           List<FileItem> parts=fileUpload.parseRequest(postRequestContext);
           for (          FileItem part : parts) {
             if (part.isFormField()) {
-              String fieldName=part.getFieldName().toString();
+              String fieldName=part.getFieldName().toString().toLowerCase();
               InputStream formFieldIn=part.getInputStream();
               int bytesRead;
               String fieldValue="";
@@ -69,10 +69,9 @@
         }
  catch (        Exception ex) {
           LOG.warn(ex,ex);
-          return null;
+          throw new EucalyptusCloudException("could not process form request");
         }
         String authenticationHeader="";
-        String aclHeader="";
         formFields.put(WalrusProperties.FormField.bucket.toString(),target[0]);
         if (formFields.containsKey(WalrusProperties.FormField.key.toString())) {
           objectKey=formFields.get(WalrusProperties.FormField.key.toString());
@@ -101,7 +100,7 @@
           }
  catch (          Exception ex) {
             LOG.warn(ex,ex);
-            return null;
+            throw new EucalyptusCloudException("error reading policy data.");
           }
           try {
             JSONObject policyObject=new JSONObject(policy);
@@ -110,34 +109,50 @@
               Date expirationDate=DateUtils.parseIso8601DateTimeOrDate(expiration);
               if ((new Date()).getTime() > expirationDate.getTime()) {
                 LOG.warn("Policy has expired.");
-                return null;
+                throw new EucalyptusCloudException("Policy has expired.");
               }
             }
+            List<String> policyItemNames=new ArrayList<String>();
             JSONArray conditions=(JSONArray)policyObject.get(WalrusProperties.PolicyHeaders.conditions.toString());
             for (int i=0; i < conditions.length(); ++i) {
               Object policyItem=conditions.get(i);
               if (policyItem instanceof JSONObject) {
                 JSONObject jsonObject=(JSONObject)policyItem;
-                if (!exactMatch(jsonObject,formFields)) {
+                if (!exactMatch(jsonObject,formFields,policyItemNames)) {
                   LOG.warn("Policy verification failed. ");
-                  return null;
+                  throw new EucalyptusCloudException("Policy verification failed.");
                 }
-                System.out.println(jsonObject);
               }
  else               if (policyItem instanceof JSONArray) {
                 JSONArray jsonArray=(JSONArray)policyItem;
-                if (!partialMatch(jsonArray,formFields)) {
+                if (!partialMatch(jsonArray,formFields,policyItemNames)) {
                   LOG.warn("Policy verification failed. ");
-                  return null;
+                  throw new EucalyptusCloudException("Policy verification failed.");
                 }
               }
             }
+            Set<String> formFieldsKeys=formFields.keySet();
+            for (            String formKey : formFieldsKeys) {
+              if (formKey.startsWith(WalrusProperties.IGNORE_PREFIX))               continue;
+              boolean fieldOkay=false;
+              for (              WalrusProperties.IgnoredFields field : WalrusProperties.IgnoredFields.values()) {
+                if (formKey.equals(field.toString().toLowerCase())) {
+                  fieldOkay=true;
+                  break;
+                }
+              }
+              if (fieldOkay)               continue;
+              if (policyItemNames.contains(formKey))               continue;
+              LOG.warn("All fields except those marked with x-ignore- should be in policy.");
+              throw new EucalyptusCloudException("All fields except those marked with x-ignore- should be in policy.");
+            }
           }
  catch (          Exception ex) {
-            LOG.warn(ex,ex);
+            if (ex instanceof EucalyptusCloudException)             throw (EucalyptusCloudException)ex;
+            LOG.warn(ex);
           }
-          if (formFields.containsKey(WalrusProperties.FormField.AWSAccessKeyId.toString())) {
-            String accessKeyId=formFields.remove(WalrusProperties.FormField.AWSAccessKeyId.toString());
+          if (formFields.containsKey(WalrusProperties.FormField.AWSAccessKeyId.toString().toLowerCase())) {
+            String accessKeyId=formFields.remove(WalrusProperties.FormField.AWSAccessKeyId.toString().toLowerCase());
             authenticationHeader+="AWS" + " " + accessKeyId + ":";
           }
           if (formFields.containsKey(WalrusProperties.FormField.signature.toString())) {
@@ -192,7 +207,7 @@
           }
  catch (          Exception ex) {
             LOG.warn(ex,ex);
-            return null;
+            throw new EucalyptusCloudException("cannot process input");
           }
         }
         String key=target[0] + "." + objectKey;
