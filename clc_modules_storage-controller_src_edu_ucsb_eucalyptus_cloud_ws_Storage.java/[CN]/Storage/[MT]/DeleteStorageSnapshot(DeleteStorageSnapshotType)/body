@@ -1,9 +1,11 @@
 {
   DeleteStorageSnapshotResponseType reply=(DeleteStorageSnapshotResponseType)request.getReply();
-  if (!enableSnapshots || !enableStorage) {
-    checkWalrusConnection();
-    if (!enableSnapshots)     LOG.warn("Snapshots have been disabled. Please check connection to Walrus.");
-    return reply;
+  if (!sharedMode) {
+    if (!enableSnapshots || !enableStorage) {
+      checkWalrusConnection();
+      if (!enableSnapshots)       LOG.warn("Snapshots have been disabled. Please check connection to Walrus.");
+      return reply;
+    }
   }
   String snapshotId=request.getSnapshotId();
   EntityWrapper<SnapshotInfo> db=new EntityWrapper<SnapshotInfo>();
@@ -19,8 +21,10 @@
         snapshotStorageManager.deleteObject("",snapshotId);
         db.delete(foundSnapshotInfo);
         db.commit();
-        HttpWriter httpWriter=new HttpWriter("DELETE","snapset",snapshotId,"DeleteWalrusSnapshot",null);
-        httpWriter.run();
+        if (!sharedMode) {
+          SnapshotDeleter snapshotDeleter=new SnapshotDeleter(snapshotId);
+          snapshotDeleter.start();
+        }
       }
  catch (      IOException ex) {
         ex.printStackTrace();
