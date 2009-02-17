@@ -2,10 +2,27 @@
   DescribeSnapshotsResponseType reply=(DescribeSnapshotsResponseType)request.getReply();
   EntityWrapper<Snapshot> db=getEntityWrapper();
   String userName=request.isAdministrator() ? null : request.getUserId();
-  List<Snapshot> Snapshots=db.query(Snapshot.ownedBy(userName));
-  for (  Snapshot v : Snapshots) {
+  List<Snapshot> snapshots=db.query(Snapshot.ownedBy(userName));
+  for (  Snapshot v : snapshots) {
     if (request.getSnapshotSet().isEmpty() || request.getSnapshotSet().contains(v.getDisplayName())) {
-      reply.getSnapshotSet().add(v.morph(new edu.ucsb.eucalyptus.msgs.Snapshot()));
+      DescribeStorageSnapshotsResponseType snapshotInfo=null;
+      try {
+        snapshotInfo=(DescribeStorageSnapshotsResponseType)Messaging.send(StorageProperties.STORAGE_REF,new DescribeStorageSnapshotsType(Lists.newArrayList(v.getDisplayName())));
+        LOG.debug(snapshotInfo);
+      }
+ catch (      EucalyptusCloudException e) {
+        LOG.debug(e,e);
+        throw e;
+      }
+      if (!snapshotInfo.getSnapshotSet().isEmpty()) {
+        StorageSnapshot storageSnapshot=snapshotInfo.getSnapshotSet().get(0);
+        v.setMappedState(storageSnapshot.getStatus());
+        edu.ucsb.eucalyptus.msgs.Snapshot snapReply=v.morph(new edu.ucsb.eucalyptus.msgs.Snapshot());
+        snapReply.setProgress(storageSnapshot.getProgress());
+        reply.getSnapshotSet().add(snapReply);
+      }
+ else {
+      }
     }
   }
   db.commit();
