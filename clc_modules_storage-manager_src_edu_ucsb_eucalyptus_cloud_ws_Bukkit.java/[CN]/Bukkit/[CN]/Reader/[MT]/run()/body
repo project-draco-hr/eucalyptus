@@ -2,17 +2,19 @@
   byte[] bytes=new byte[WalrusQueryDispatcher.DATA_MESSAGE_SIZE];
   long bytesRemaining=objectSize;
   long offset=byteRangeStart;
-  if (byteRangeEnd != 0) {
+  if (byteRangeEnd > 0) {
     assert(byteRangeEnd <= objectSize);
     assert(byteRangeEnd >= byteRangeStart);
     bytesRemaining=byteRangeEnd - byteRangeStart;
+    if (byteRangeEnd > objectSize || (byteRangeStart < 0))     bytesRemaining=0;
   }
   try {
     getQueue.put(WalrusDataMessage.StartOfData(bytesRemaining));
     while (bytesRemaining > 0) {
       int bytesRead=storageManager.readObject(bucketName,objectName,bytes,offset);
+      if (bytesRemaining - bytesRead > 0)       getQueue.put(WalrusDataMessage.DataMessage(bytes,bytesRead));
+ else       getQueue.put(WalrusDataMessage.DataMessage(bytes,(int)bytesRemaining));
       bytesRemaining-=bytesRead;
-      getQueue.put(WalrusDataMessage.DataMessage(bytes,bytesRead));
       offset+=bytesRead;
     }
     getQueue.put(WalrusDataMessage.EOF());

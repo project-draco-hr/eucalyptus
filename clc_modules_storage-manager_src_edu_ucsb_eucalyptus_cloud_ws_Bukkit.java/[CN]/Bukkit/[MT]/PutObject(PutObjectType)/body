@@ -2,7 +2,7 @@
   PutObjectResponseType reply=(PutObjectResponseType)request.getReply();
   String userId=request.getUserId();
   String bucketName=request.getBucket();
-  String objectName=request.getKey();
+  String objectKey=request.getKey();
   Long oldBucketSize=0L;
   String md5="";
   Date lastModified=null;
@@ -19,35 +19,40 @@
       ObjectInfo foundObject=null;
       List<ObjectInfo> objectInfos=bucket.getObjects();
       for (      ObjectInfo objectInfo : objectInfos) {
-        if (objectInfo.getObjectName().equals(objectName)) {
+        if (objectInfo.getObjectKey().equals(objectKey)) {
           if (!objectInfo.canWrite(userId)) {
             db.rollback();
-            throw new AccessDeniedException(objectName);
+            throw new AccessDeniedException(objectKey);
           }
           foundObject=objectInfo;
           oldBucketSize=-foundObject.getSize();
           break;
         }
       }
+      String objectName;
       if (foundObject == null) {
-        foundObject=new ObjectInfo(objectName);
+        foundObject=new ObjectInfo(objectKey);
         List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
         foundObject.addGrants(userId,grantInfos,accessControlList);
         foundObject.setGrants(grantInfos);
+        objectName=objectKey.replaceAll("/","-") + Hashes.getRandom(4);
+        foundObject.setObjectName(objectName);
         objectInfos.add(foundObject);
       }
  else {
         if (foundObject.canWriteACP(userId)) {
-          List<GrantInfo> grantInfos=foundObject.getGrants();
+          List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
           foundObject.addGrants(userId,grantInfos,accessControlList);
+          foundObject.setGrants(grantInfos);
         }
+        objectName=foundObject.getObjectName();
       }
-      foundObject.setObjectName(objectName);
+      foundObject.setObjectKey(objectKey);
       foundObject.setOwnerId(userId);
-      foundObject.addMetaData(request.getMetaData());
+      foundObject.replaceMetaData(request.getMetaData());
       String randomKey=request.getRandomKey();
       WalrusDataMessenger messenger=WalrusQueryDispatcher.getWriteMessenger();
-      String key=bucketName + "." + objectName;
+      String key=bucketName + "." + objectKey;
       LinkedBlockingQueue<WalrusDataMessage> putQueue=messenger.getQueue(key,randomKey);
       try {
         WalrusDataMessage dataMessage;
@@ -66,7 +71,7 @@
  catch (            IOException ex) {
               LOG.warn(ex,ex);
               db.rollback();
-              throw new EucalyptusCloudException(objectName);
+              throw new EucalyptusCloudException(objectKey);
             }
             md5=bytesToHex(digest.digest());
             lastModified=new Date();
@@ -79,7 +84,7 @@
               long newSize=bucketSize + oldBucketSize + size;
               if (newSize > WalrusProperties.MAX_BUCKET_SIZE) {
                 db.rollback();
-                throw new EntityTooLargeException(objectName);
+                throw new EntityTooLargeException(objectKey);
               }
               bucket.setBucketSize(newSize);
             }
@@ -141,6 +146,6 @@ synchronized (monitor) {
     throw new NoSuchBucketException(bucketName);
   }
   reply.setEtag(md5);
-  reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+  reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN));
   return reply;
 }

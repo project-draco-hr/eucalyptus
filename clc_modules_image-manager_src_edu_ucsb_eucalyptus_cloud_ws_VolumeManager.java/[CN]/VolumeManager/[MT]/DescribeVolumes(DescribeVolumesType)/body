@@ -3,6 +3,7 @@
   EntityWrapper<Volume> db=getEntityWrapper();
   String userName=request.isAdministrator() ? null : request.getUserId();
   LOG.debug(request);
+  Messaging.send(StorageProperties.STORAGE_REF,new DescribeStorageVolumesType());
   Map<String,AttachedVolume> attachedVolumes=new HashMap<String,AttachedVolume>();
   for (  VmInstance vm : VmInstances.getInstance().listValues()) {
     for (    AttachedVolume av : vm.getVolumes()) {
@@ -18,12 +19,15 @@
       if (!volState.getVolumeSet().isEmpty()) {
         StorageVolume vol=volState.getVolumeSet().get(0);
         volumeState=vol.getStatus();
-        v.setMappedState(volumeState);
         v.setRemoteDevice(vol.getActualDeviceName());
       }
+      if (attachedVolumes.containsKey(v.getDisplayName())) {
+        volumeState="in-use";
+      }
+      v.setMappedState(volumeState);
       edu.ucsb.eucalyptus.msgs.Volume aVolume=v.morph(new edu.ucsb.eucalyptus.msgs.Volume());
-      if (attachedVolumes.containsKey(aVolume.getVolumeId())) {
-        aVolume.setStatus("in-use");
+      if (attachedVolumes.containsKey(v.getDisplayName())) {
+        aVolume.setStatus(volumeState);
         aVolume.getAttachmentSet().add(attachedVolumes.get(aVolume.getVolumeId()));
       }
       reply.getVolumeSet().add(aVolume);

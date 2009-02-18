@@ -1,0 +1,58 @@
+{
+  cancelled=false;
+  setHTML("<img src=\"img/ajax-loader-FFCC33.gif\" align=\"middle\"> &nbsp; Checking the external IP address...");
+  final Button okButton=new Button("OK",new ClickListener(){
+    public void onClick(    Widget sender){
+      RightscaleDialog.this.hide();
+      if (rightscaleUrl != null) {
+        Window.open(rightscaleUrl,"_blank","");
+      }
+    }
+  }
+);
+  okButton.setEnabled(false);
+  Button cancelButton=new Button("Cancel",new ClickListener(){
+    public void onClick(    Widget sender){
+      RightscaleDialog.this.hide();
+      cancelled=true;
+    }
+  }
+);
+  HorizontalPanel buttonPanel=new HorizontalPanel();
+  buttonPanel.add(okButton);
+  buttonPanel.add(cancelButton);
+  setWidget(buttonPanel);
+  EucalyptusWebBackend.App.getInstance().getCloudInfo(sessionId,true,new AsyncCallback(){
+    public void onSuccess(    Object result){
+      if (cancelled) {
+        return;
+      }
+      cloudInfo=(CloudInfoWeb)result;
+      String ex=cloudInfo.getExternalHostPort();
+      String in=cloudInfo.getInternalHostPort();
+      String text="";
+      String ip;
+      if (ex == null) {
+        ip=in;
+        text="<b>Warning:</b> Rightscale could not discover the external IP address of your cloud.  Hence, the pre-filled cloud URL <i>may</i> be incorrect.  Check your firewall settings.</p> ";
+      }
+ else       if (!ex.equals(in)) {
+        ip=ex;
+        text="<b>Warning:</b> The external cloud IP discovered by Rightscale (" + ex + ") is different from the IP found by Eucalyptus ("+ in+ ").  Hence, the pre-filled cloud URL <i>may</i> be incorrect.  Check your firewall settings.</p> ";
+      }
+ else {
+        ip=ex;
+      }
+      String callbackUrl="http://" + ip + cloudInfo.getServicePath();
+      rightscaleUrl="https://moo.rightscale.com/cloud_registrations/new?callback_url=" + GWTUtils.escape(callbackUrl) + "&registration_version=1.0&retry=1&secret_token="+ GWTUtils.escape(cloudInfo.getCloudId());
+      String pre="<h3>Cloud registration</h3> You are about to open a new window to Rightscale's Web site, on which you will be able to complete registraton. </p> ";
+      setHTML(pre + text);
+      okButton.setEnabled(true);
+      center();
+    }
+    public void onFailure(    Throwable caught){
+      displayErrorPage(caught.getMessage());
+    }
+  }
+);
+}

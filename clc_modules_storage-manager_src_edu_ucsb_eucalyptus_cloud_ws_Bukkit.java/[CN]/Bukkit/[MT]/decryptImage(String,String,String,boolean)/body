@@ -5,8 +5,9 @@
   if (bucketList.size() > 0) {
     BucketInfo bucket=bucketList.get(0);
     for (    ObjectInfo objectInfo : bucket.getObjects()) {
-      if (objectInfo.getObjectName().equals(objectName)) {
+      if (objectInfo.getObjectKey().equals(objectKey)) {
         if (objectInfo.canRead(userId)) {
+          String objectName=objectInfo.getObjectName();
           File file=new File(storageManager.getObjectPath(bucketName,objectName));
           XMLParser parser=new XMLParser(file);
           String imageKey=parser.getValue("//image/name");
@@ -77,7 +78,11 @@
           List<String> parts=parser.getValues("//image/parts/part/filename");
           ArrayList<String> qualifiedPaths=new ArrayList<String>();
           for (          String part : parts) {
-            qualifiedPaths.add(storageManager.getObjectPath(bucketName,part));
+            for (            ObjectInfo object : bucket.getObjects()) {
+              if (part.equals(object.getObjectKey())) {
+                qualifiedPaths.add(storageManager.getObjectPath(bucketName,object.getObjectName()));
+              }
+            }
           }
           String encryptedImageKey=imageKey + "-" + Hashes.getRandom(5)+ ".crypt.gz";
           String encryptedImageName=storageManager.getObjectPath(bucketName,encryptedImageKey);
@@ -90,8 +95,10 @@
             PrivateKey pk=(PrivateKey)userKeyStore.getKey(EucalyptusProperties.NAME,EucalyptusProperties.NAME);
             Cipher cipher=Cipher.getInstance("RSA/ECB/PKCS1Padding");
             cipher.init(Cipher.DECRYPT_MODE,pk);
-            key=hexToBytes(new String(cipher.doFinal(hexToBytes(encryptedKey))));
-            iv=hexToBytes(new String(cipher.doFinal(hexToBytes(encryptedIV))));
+            String keyString=new String(cipher.doFinal(hexToBytes(encryptedKey)));
+            key=hexToBytes(keyString);
+            String ivString=new String(cipher.doFinal(hexToBytes(encryptedIV)));
+            iv=hexToBytes(ivString);
           }
  catch (          Exception ex) {
             db2.rollback();
@@ -100,7 +107,7 @@
             throw new DecryptionFailedException("AES params");
           }
           try {
-            Cipher cipher=Cipher.getInstance("AES/CBC/PKCS5Padding");
+            Cipher cipher=Cipher.getInstance("AES/CBC/PKCS5Padding","BC");
             IvParameterSpec salt=new IvParameterSpec(iv);
             SecretKey keySpec=new SecretKeySpec(key,"AES");
             cipher.init(Cipher.DECRYPT_MODE,keySpec,salt);

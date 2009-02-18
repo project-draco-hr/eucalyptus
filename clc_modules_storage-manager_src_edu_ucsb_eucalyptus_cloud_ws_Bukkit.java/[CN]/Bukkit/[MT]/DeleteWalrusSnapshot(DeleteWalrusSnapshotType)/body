@@ -1,5 +1,9 @@
 {
   DeleteWalrusSnapshotResponseType reply=(DeleteWalrusSnapshotResponseType)request.getReply();
+  if (!enableSnapshots) {
+    LOG.warn("Snapshots not enabled. Please check pre-conditions and restart Walrus.");
+    return reply;
+  }
   String snapshotId=request.getKey();
   EntityWrapper<WalrusSnapshotInfo> db=new EntityWrapper<WalrusSnapshotInfo>();
   WalrusSnapshotInfo snapshotInfo=new WalrusSnapshotInfo(snapshotId);
@@ -31,6 +35,10 @@
           snapshotSetSnapInfo=snapInfo;
         }
       }
+      db.delete(foundSnapshotInfo);
+      vgNames.add(foundSnapshotInfo.getVgName());
+      lvNames.add(foundSnapshotInfo.getLvName());
+      snapIdsToDelete.add(foundSnapshotInfo.getSnapshotId());
       if (snapshotSetSnapInfo != null) {
         snapshotSet.remove(snapshotSetSnapInfo);
         if (snapshotSet.size() == 1) {
@@ -41,10 +49,12 @@
             snapZeroInfo=new WalrusSnapshotInfo(snapZeroInfo.getSnapshotId());
             WalrusSnapshotInfo foundVolInfo=db.getUnique(snapZeroInfo);
             db.delete(foundVolInfo);
+            vgNames.add(foundVolInfo.getVgName());
+            lvNames.add(foundVolInfo.getLvName());
+            snapIdsToDelete.add(foundVolInfo.getSnapshotId());
           }
         }
       }
-      db.delete(foundSnapshotInfo);
       SnapshotDeleter snapshotDeleter=new SnapshotDeleter(bucketName,snapIdsToDelete,vgNames,lvNames,snapshotIds);
       snapshotDeleter.start();
     }

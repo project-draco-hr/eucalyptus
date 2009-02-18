@@ -1,0 +1,62 @@
+{
+synchronized (lock) {
+    if (spi != null) {
+      implInit(spi,initType,opmode,key,paramSpec,params,random);
+      return;
+    }
+    Exception lastException=null;
+    while ((firstService != null) || serviceIterator.hasNext()) {
+      Service s;
+      CipherSpi thisSpi;
+      if (firstService != null) {
+        s=firstService;
+        thisSpi=firstSpi;
+        firstService=null;
+        firstSpi=null;
+      }
+ else {
+        s=(Service)serviceIterator.next();
+        thisSpi=null;
+      }
+      if (s.supportsParameter(key) == false) {
+        continue;
+      }
+      Transform tr=getTransform(s,transforms);
+      if (tr == null) {
+        continue;
+      }
+      if (tr.supportsModePadding(s) == S_NO) {
+        continue;
+      }
+      try {
+        if (thisSpi == null) {
+          thisSpi=(CipherSpi)s.newInstance(null);
+        }
+        tr.setModePadding(thisSpi);
+        implInit(thisSpi,initType,opmode,key,paramSpec,params,random);
+        provider=s.getProvider();
+        this.spi=thisSpi;
+        firstService=null;
+        serviceIterator=null;
+        transforms=null;
+        return;
+      }
+ catch (      Exception e) {
+        if (lastException == null) {
+          lastException=e;
+        }
+      }
+    }
+    if (lastException instanceof InvalidKeyException) {
+      throw (InvalidKeyException)lastException;
+    }
+    if (lastException instanceof InvalidAlgorithmParameterException) {
+      throw (InvalidAlgorithmParameterException)lastException;
+    }
+    if (lastException instanceof RuntimeException) {
+      throw (RuntimeException)lastException;
+    }
+    String kName=(key != null) ? key.getClass().getName() : "(null)";
+    throw new InvalidKeyException("No installed provider supports this key: " + kName,lastException);
+  }
+}

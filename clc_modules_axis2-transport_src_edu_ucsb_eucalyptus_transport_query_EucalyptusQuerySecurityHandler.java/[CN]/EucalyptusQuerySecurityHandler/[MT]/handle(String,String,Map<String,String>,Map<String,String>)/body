@@ -1,13 +1,26 @@
 {
   this.checkParameters(parameters);
+  URL url=null;
+  try {
+    url=new URL(urlString);
+  }
+ catch (  MalformedURLException e) {
+    throw new QuerySecurityException(e.getMessage());
+  }
+  String host=url.getHost();
+  String addr=url.getPath();
   String sig=parameters.remove(SecurityParameter.Signature.toString());
   String queryId=parameters.get(SecurityParameter.AWSAccessKeyId.toString());
   String queryKey=findQueryKey(queryId);
   String paramString=makeSubjectString(parameters);
   String paramString2=makePlusSubjectString(parameters);
+  String paramString3=makeV2SubjectString(verb,host,addr,parameters);
   String authSig=checkSignature(queryKey,paramString);
   String authSig2=checkSignature(queryKey,paramString2);
-  if (!authSig.equals(sig) && !authSig2.equals(sig))   throw new QuerySecurityException("User authentication failed.");
+  String authv2sha1=checkSignature(queryKey,paramString3);
+  String authv2sha256=checkSignature256(queryKey,paramString3);
+  LOG.info("VERSION2-SHA256: " + authv2sha256 + " -- "+ sig.replaceAll("=",""));
+  if (!authSig.equals(sig) && !authSig2.equals(sig) && !authv2sha1.equals(sig.replaceAll("=",""))&& !authv2sha256.equals(sig.replaceAll("=","")))   throw new QuerySecurityException("User authentication failed.");
   Calendar now=Calendar.getInstance();
   Calendar expires=null;
   if (parameters.containsKey(SecurityParameter.Timestamp.toString())) {
@@ -23,5 +36,6 @@
   for (  Axis2QueryDispatcher.OperationParameter op : Axis2QueryDispatcher.OperationParameter.values())   parameters.remove(op.name());
   parameters.remove(Axis2QueryDispatcher.RequiredQueryParams.SignatureVersion.toString());
   parameters.remove(Axis2QueryDispatcher.RequiredQueryParams.Version.toString());
+  parameters.remove("SignatureMethod");
   return findUserId(parameters.remove(SecurityParameter.AWSAccessKeyId.toString()));
 }

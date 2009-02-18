@@ -1,20 +1,23 @@
 {
   GetObjectResponseType reply=(GetObjectResponseType)request.getReply();
   String bucketName=request.getBucket();
-  String objectName=request.getKey();
+  String objectKey=request.getKey();
   String userId=request.getUserId();
-  Boolean isCompressed=request.getIsCompressed();
+  Boolean deleteAfterGet=request.getDeleteAfterGet();
+  if (deleteAfterGet == null)   deleteAfterGet=false;
   EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
     BucketInfo bucket=bucketList.get(0);
     for (    ObjectInfo objectInfo : bucket.getObjects()) {
-      if (objectInfo.getObjectName().equals(objectName)) {
+      if (objectInfo.getObjectKey().equals(objectKey)) {
         if (objectInfo.canRead(userId)) {
+          String objectName=objectInfo.getObjectName();
           if (request.getGetMetaData()) {
             ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
-            objectInfo.getMetaData(metaData);
+            objectInfo.returnMetaData(metaData);
+            reply.setMetaData(metaData);
             reply.setMetaData(metaData);
           }
           if (request.getGetData()) {
@@ -34,33 +37,35 @@
               }
             }
  else {
-              String key=bucketName + "." + objectName;
+              String key=bucketName + "." + objectKey;
               String randomKey=key + "." + Hashes.getRandom(10);
               request.setRandomKey(randomKey);
               LinkedBlockingQueue<WalrusDataMessage> getQueue=WalrusQueryDispatcher.getReadMessenger().getQueue(key,randomKey);
-              Reader reader=new Reader(bucketName,objectName,objectInfo.getSize(),getQueue);
+              Reader reader=new Reader(bucketName,objectName,objectInfo.getSize(),getQueue,deleteAfterGet,null);
               reader.start();
             }
           }
           reply.setEtag(objectInfo.getEtag());
-          reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+          reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN));
           reply.setSize(objectInfo.getSize());
           Status status=new Status();
           status.setCode(200);
           status.setDescription("OK");
           reply.setStatus(status);
+          db.commit();
+          return reply;
         }
  else {
           db.rollback();
-          throw new AccessDeniedException(objectName);
+          throw new AccessDeniedException(objectKey);
         }
       }
     }
+    db.rollback();
+    throw new NoSuchEntityException(objectKey);
   }
  else {
     db.rollback();
     throw new NoSuchBucketException(bucketName);
   }
-  db.commit();
-  return reply;
 }

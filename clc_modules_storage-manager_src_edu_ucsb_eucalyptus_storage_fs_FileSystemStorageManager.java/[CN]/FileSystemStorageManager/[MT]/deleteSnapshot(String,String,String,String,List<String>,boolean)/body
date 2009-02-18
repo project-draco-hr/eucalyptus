@@ -1,0 +1,42 @@
+{
+  ArrayList<String> loDevices=new ArrayList<String>();
+  String snapshotLoDev=null;
+  String snapshotFileName=null;
+  for (  String snapshot : snapshotSet) {
+    String fileName=rootDirectory + FILE_SEPARATOR + bucket+ FILE_SEPARATOR+ snapshot;
+    String loDevName=createLoopback(fileName);
+    if (loDevName.length() == 0)     throw new EucalyptusCloudException("could not create loopback device for " + snapshot);
+    if (snapshot.equals(snapshotId)) {
+      snapshotLoDev=loDevName;
+      snapshotFileName=fileName;
+    }
+    loDevices.add(loDevName);
+  }
+  String absoluteLVName=lvmRootDirectory + FILE_SEPARATOR + vgName+ FILE_SEPARATOR+ lvName;
+  String returnValue=removeLogicalVolume(absoluteLVName);
+  if (returnValue.length() == 0) {
+    throw new EucalyptusCloudException("Unable to remove logical volume " + absoluteLVName);
+  }
+  if (removeVg) {
+    returnValue=removeVolumeGroup(vgName);
+  }
+ else {
+    returnValue=reduceVolumeGroup(vgName,snapshotLoDev);
+  }
+  if (returnValue.length() == 0) {
+    throw new EucalyptusCloudException("Unable to remove volume group " + vgName);
+  }
+  returnValue=removePhysicalVolume(snapshotLoDev);
+  if (returnValue.length() == 0) {
+    throw new EucalyptusCloudException("Unable to remove physical volume " + snapshotLoDev);
+  }
+  for (  String loDevice : loDevices) {
+    returnValue=removeLoopback(loDevice);
+  }
+  try {
+    deleteObject("",snapshotFileName);
+  }
+ catch (  Exception ex) {
+    throw new EucalyptusCloudException("could not delete snapshot file " + snapshotFileName);
+  }
+}
