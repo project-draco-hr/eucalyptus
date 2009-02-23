@@ -17,7 +17,22 @@
     String status=foundSnapshotInfo.getStatus();
     if (status.equals(StorageProperties.Status.available.toString()) || status.equals(StorageProperties.Status.failed.toString())) {
       try {
+        SnapshotInfo snapInfo=new SnapshotInfo();
+        snapInfo.setVolumeId(foundSnapshotInfo.getVolumeId());
+        List<SnapshotInfo> snapInfos=db.query(snapInfo);
+        String dupedVolumeId=null;
+        if (snapInfos.size() == 1) {
+          EntityWrapper<VolumeInfo> dbVol=db.recast(VolumeInfo.class);
+          VolumeInfo volumeInfo=new VolumeInfo();
+          volumeInfo.setVolumeId(snapInfos.get(0).getVolumeId());
+          VolumeInfo foundVolumeInfo=dbVol.getUnique(volumeInfo);
+          dupedVolumeId=foundVolumeInfo.getDupedVolumeId();
+        }
         blockManager.deleteSnapshot(snapshotId);
+        if (dupedVolumeId != null) {
+          blockManager.deleteVolume(dupedVolumeId);
+          volumeStorageManager.deleteObject("",dupedVolumeId);
+        }
         snapshotStorageManager.deleteObject("",snapshotId);
         db.delete(foundSnapshotInfo);
         db.commit();

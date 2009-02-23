@@ -1,26 +1,40 @@
 {
   try {
+    EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
+    VolumeInfo volumeInfo=new VolumeInfo(volumeId);
+    VolumeInfo foundVolumeInfo=db.getUnique(volumeInfo);
+    String dupedVolumeId;
+    if (foundVolumeInfo.getDupedVolumeId() == null) {
+      dupedVolumeId=volumeId + "-" + Hashes.getRandom(6);
+      foundVolumeInfo.setDupedVolumeId(dupedVolumeId);
+      blockManager.dupVolume(volumeId,dupedVolumeId);
+      volumeId=dupedVolumeId;
+    }
+ else {
+      volumeId=foundVolumeInfo.getDupedVolumeId();
+    }
+    db.commit();
     blockManager.createSnapshot(volumeId,snapshotId);
     if (sharedMode) {
-      EntityWrapper<SnapshotInfo> db=new EntityWrapper<SnapshotInfo>();
+      EntityWrapper<SnapshotInfo> dbSnap=new EntityWrapper<SnapshotInfo>();
       SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
-      SnapshotInfo foundSnapshotInfo=db.getUnique(snapshotInfo);
+      SnapshotInfo foundSnapshotInfo=dbSnap.getUnique(snapshotInfo);
       foundSnapshotInfo.setProgress("100");
       foundSnapshotInfo.setTransferred(true);
       foundSnapshotInfo.setStatus(StorageProperties.Status.available.toString());
-      db.commit();
+      dbSnap.commit();
       return;
     }
  else {
       List<String> returnValues=blockManager.prepareForTransfer(volumeId,snapshotId);
       volumeFileName=returnValues.get(0);
       snapshotFileName=returnValues.get(1);
-      EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
-      VolumeInfo volumeInfo=new VolumeInfo(volumeId);
+      db=new EntityWrapper<VolumeInfo>();
+      volumeInfo=new VolumeInfo(volumeId);
       List<VolumeInfo> volumeInfos=db.query(volumeInfo);
       boolean shouldTransferVolume=false;
       if (volumeInfos.size() > 0) {
-        VolumeInfo foundVolumeInfo=volumeInfos.get(0);
+        foundVolumeInfo=volumeInfos.get(0);
         if (!foundVolumeInfo.getTransferred()) {
           foundVolumeInfo.setVolumeBucket(volumeBucket);
           shouldTransferVolume=true;
