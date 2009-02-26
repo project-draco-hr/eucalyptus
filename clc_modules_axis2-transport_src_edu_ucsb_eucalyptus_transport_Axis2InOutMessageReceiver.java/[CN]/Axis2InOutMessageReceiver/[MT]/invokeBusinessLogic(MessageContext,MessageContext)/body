@@ -39,18 +39,51 @@
     response.addHeader(new BasicHeader("ETag",reply.getEtag()));
     if (getType != null) {
       newMsgContext.setProperty(WalrusProperties.STREAMING_HTTP_GET,getType);
-      Long contentLength=reply.getSize();
-      response.addHeader(new BasicHeader(HTTP.CONTENT_LEN,String.valueOf(contentLength)));
+      WalrusDataRequestType request=(WalrusDataRequestType)wrappedParam;
+      Boolean isCompressed=request.getIsCompressed();
+      if (isCompressed == null)       isCompressed=false;
+      if (isCompressed) {
+        newMsgContext.setProperty("GET_COMPRESSED",isCompressed);
+      }
+ else {
+        Long contentLength=reply.getSize();
+        response.addHeader(new BasicHeader(HTTP.CONTENT_LEN,String.valueOf(contentLength)));
+      }
       List<MetaDataEntry> metaData=reply.getMetaData();
       for (      MetaDataEntry metaDataEntry : metaData) {
         response.addHeader(new BasicHeader(WalrusProperties.AMZ_META_HEADER_PREFIX + metaDataEntry.getName(),metaDataEntry.getValue()));
       }
       if (getType.equals(Boolean.TRUE)) {
-        WalrusDataRequestType request=(WalrusDataRequestType)wrappedParam;
         newMsgContext.setProperty("GET_KEY",request.getBucket() + "." + request.getKey());
         newMsgContext.setProperty("GET_RANDOM_KEY",request.getRandomKey());
       }
       newMsgContext.setProperty("messageType","application/walrus");
+    }
+ else     if (putType != null) {
+      if (reply instanceof PostObjectResponseType) {
+        PostObjectResponseType postReply=(PostObjectResponseType)reply;
+        String redirectUrl=postReply.getRedirectUrl();
+        if (redirectUrl != null) {
+          response.addHeader(new BasicHeader("Location",redirectUrl));
+          msgContext.setProperty(Axis2HttpWorker.HTTP_STATUS,HttpStatus.SC_MOVED_PERMANENTLY);
+          newMsgContext.setProperty(Axis2HttpWorker.HTTP_STATUS,HttpStatus.SC_MOVED_PERMANENTLY);
+          newMsgContext.setProperty("messageType","application/walrus");
+        }
+ else {
+          Integer successCode=postReply.getSuccessCode();
+          if (successCode != null) {
+            newMsgContext.setProperty(Axis2HttpWorker.HTTP_STATUS,successCode);
+            if (successCode == 201) {
+              return;
+            }
+ else {
+              newMsgContext.setProperty("messageType","application/walrus");
+              return;
+            }
+          }
+        }
+      }
+      response.addHeader(new BasicHeader(HTTP.CONTENT_LEN,String.valueOf(0)));
     }
   }
 }

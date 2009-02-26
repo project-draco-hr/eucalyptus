@@ -1,5 +1,9 @@
 {
   DeleteStorageVolumeResponseType reply=(DeleteStorageVolumeResponseType)request.getReply();
+  if (!enableStorage) {
+    LOG.warn("Storage has been disabled. Please check your setup");
+    return reply;
+  }
   String volumeId=request.getVolumeId();
   EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
   VolumeInfo volumeInfo=new VolumeInfo();
@@ -8,7 +12,8 @@
   reply.set_return(Boolean.FALSE);
   if (volumeList.size() > 0) {
     VolumeInfo foundVolume=volumeList.get(0);
-    if (foundVolume.getStatus().equals(StorageProperties.Status.available.toString())) {
+    String status=foundVolume.getStatus();
+    if (status.equals(StorageProperties.Status.available.toString()) || status.equals(StorageProperties.Status.failed.toString())) {
       try {
         blockManager.deleteVolume(volumeId);
         volumeStorageManager.deleteObject("",volumeId);
@@ -16,7 +21,7 @@
         db.commit();
       }
  catch (      IOException ex) {
-        ex.printStackTrace();
+        LOG.warn(ex,ex);
       }
     }
  else {
@@ -28,5 +33,24 @@
     db.rollback();
     throw new NoSuchVolumeException(volumeId);
   }
+  SnapshotInfo snapInfo=new SnapshotInfo();
+  snapInfo.setVolumeId(volumeId);
+  EntityWrapper<SnapshotInfo> dbSnap=new EntityWrapper<SnapshotInfo>();
+  List<SnapshotInfo> snapInfos=dbSnap.query(snapInfo);
+  for (  SnapshotInfo snapshotInfo : snapInfos) {
+    String snapshotId=snapInfo.getSnapshotId();
+    String status=snapshotInfo.getStatus();
+    if (status.equals(StorageProperties.Status.available.toString()) || status.equals(StorageProperties.Status.failed.toString())) {
+      try {
+        blockManager.deleteSnapshot(snapshotId);
+        snapshotStorageManager.deleteObject("",snapshotId);
+        dbSnap.delete(snapshotInfo);
+      }
+ catch (      IOException ex) {
+        LOG.warn("Could not delete snapshot " + snapshotId);
+      }
+    }
+  }
+  dbSnap.commit();
   return reply;
 }

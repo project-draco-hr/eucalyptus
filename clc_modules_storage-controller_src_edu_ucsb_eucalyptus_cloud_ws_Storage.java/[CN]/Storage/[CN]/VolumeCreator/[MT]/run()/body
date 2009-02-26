@@ -4,13 +4,14 @@
     EntityWrapper<SnapshotInfo> db=new EntityWrapper<SnapshotInfo>();
     try {
       SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
-      SnapshotInfo foundSnapshotInfo=db.getUnique(snapshotInfo);
-      if (foundSnapshotInfo == null) {
+      List<SnapshotInfo> foundSnapshotInfos=db.query(snapshotInfo);
+      if (foundSnapshotInfos.size() == 0) {
         String volumePath=getVolume(volumeId,snapshotSetName,snapshotId);
         size=blockManager.createVolume(volumeId,volumePath);
         db.commit();
       }
  else {
+        SnapshotInfo foundSnapshotInfo=foundSnapshotInfos.get(0);
         if (!foundSnapshotInfo.getStatus().equals(StorageProperties.Status.available.toString())) {
           success=false;
           db.rollback();
@@ -25,7 +26,7 @@
  catch (    Exception ex) {
       success=false;
       db.rollback();
-      ex.printStackTrace();
+      LOG.warn(ex,ex);
     }
   }
  else {
@@ -35,16 +36,33 @@
     }
  catch (    Exception ex) {
       success=false;
-      ex.printStackTrace();
+      LOG.warn(ex,ex);
     }
   }
+  EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
+  VolumeInfo volumeInfo=new VolumeInfo(volumeId);
   try {
-    EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
-    VolumeInfo volumeInfo=new VolumeInfo(volumeId);
     VolumeInfo foundVolumeInfo=db.getUnique(volumeInfo);
     if (foundVolumeInfo != null) {
-      if (success)       foundVolumeInfo.setStatus(StorageProperties.Status.available.toString());
- else       foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
+      if (success) {
+        EntityWrapper<VolumeInfo> dbVol=new EntityWrapper<VolumeInfo>();
+        VolumeInfo volInfo=new VolumeInfo();
+        List<VolumeInfo> volInfos=db.query(volInfo);
+        int totalVolumeSize=0;
+        for (        VolumeInfo vinfo : volInfos) {
+          totalVolumeSize+=vinfo.getSize();
+        }
+        if ((totalVolumeSize + size) > StorageProperties.MAX_TOTAL_VOLUME_SIZE || (size > StorageProperties.MAX_VOLUME_SIZE)) {
+          LOG.warn("Volume size limit exceeeded");
+          foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
+          db.commit();
+          return;
+        }
+        foundVolumeInfo.setStatus(StorageProperties.Status.available.toString());
+      }
+ else {
+        foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
+      }
       if (snapshotId != null) {
         foundVolumeInfo.setSize(size);
       }
@@ -56,6 +74,6 @@
     db.commit();
   }
  catch (  EucalyptusCloudException ex) {
-    ex.printStackTrace();
+    LOG.warn(ex,ex);
   }
 }

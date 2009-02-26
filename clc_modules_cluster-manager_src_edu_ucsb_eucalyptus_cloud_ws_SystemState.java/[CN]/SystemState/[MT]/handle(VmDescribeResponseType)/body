@@ -4,9 +4,8 @@
   for (  VmInfo runVm : request.getVms())   SystemState.updateVmInstance(originCluster,runVm);
   List<String> runningVmIds=new ArrayList<String>();
   for (  VmInfo runVm : request.getVms())   runningVmIds.add(runVm.getInstanceId());
-  List<String> knownVmIds=new ArrayList<String>();
-  knownVmIds.addAll(VmInstances.getInstance().getKeys());
-  if (knownVmIds.removeAll(runningVmIds))   for (  String vmId : knownVmIds) {
+  for (  String vmId : VmInstances.getInstance().getKeys()) {
+    if (runningVmIds.contains(vmId))     continue;
     VmInstance vm=null;
     try {
       vm=VmInstances.getInstance().lookup(vmId);
@@ -22,8 +21,30 @@
  catch (    NoSuchElementException e) {
     }
   }
-  for (  VmInstance vm : VmInstances.getInstance().getDisabledEntries())   if (vm.getSplitTime() > SHUT_DOWN_TIME && !VmState.BURIED.equals(vm.getState())) {
-    vm.setState(VmState.BURIED);
-    SystemState.cleanUp(vm);
+  List<String> knownVmIds=new ArrayList<String>();
+  knownVmIds.addAll(VmInstances.getInstance().getKeys());
+  if (knownVmIds.removeAll(runningVmIds)) {
+    for (    String vmId : knownVmIds) {
+      VmInstance vm=null;
+      try {
+        vm=VmInstances.getInstance().lookup(vmId);
+        long splitTime=vm.getSplitTime();
+        if (splitTime > SHUT_DOWN_TIME) {
+          VmInstances.getInstance().disable(vm.getName());
+          vm.resetStopWatch();
+          vm.setState(VmState.TERMINATED);
+          vm.setReason(INSTANCE_EXPIRED);
+          SystemState.cleanUp(vm);
+        }
+      }
+ catch (      NoSuchElementException e) {
+      }
+    }
+  }
+  for (  VmInstance vm : VmInstances.getInstance().getDisabledEntries()) {
+    if (vm.getSplitTime() > SHUT_DOWN_TIME && !VmState.BURIED.equals(vm.getState())) {
+      vm.setState(VmState.BURIED);
+      SystemState.cleanUp(vm);
+    }
   }
 }

@@ -2,10 +2,36 @@
   DescribeVolumesResponseType reply=(DescribeVolumesResponseType)request.getReply();
   EntityWrapper<Volume> db=getEntityWrapper();
   String userName=request.isAdministrator() ? null : request.getUserId();
-  List<Volume> volumes=db.query(new Volume(userName,null));
+  LOG.debug(request);
+  Messaging.send(StorageProperties.STORAGE_REF,new DescribeStorageVolumesType());
+  Map<String,AttachedVolume> attachedVolumes=new HashMap<String,AttachedVolume>();
+  for (  VmInstance vm : VmInstances.getInstance().listValues()) {
+    for (    AttachedVolume av : vm.getVolumes()) {
+      attachedVolumes.put(av.getVolumeId(),av);
+    }
+  }
+  List<Volume> volumes=db.query(Volume.ownedBy(userName));
   for (  Volume v : volumes) {
     if (request.getVolumeSet().isEmpty() || request.getVolumeSet().contains(v.getDisplayName())) {
-      reply.getVolumeSet().add(v.morph(new edu.ucsb.eucalyptus.msgs.Volume()));
+      DescribeStorageVolumesResponseType volState=(DescribeStorageVolumesResponseType)Messaging.send(StorageProperties.STORAGE_REF,new DescribeStorageVolumesType(Lists.newArrayList(v.getDisplayName())));
+      LOG.debug(volState);
+      String volumeState="unavailable";
+      if (!volState.getVolumeSet().isEmpty()) {
+        StorageVolume vol=volState.getVolumeSet().get(0);
+        volumeState=vol.getStatus();
+        v.setSize(new Integer(vol.getSize()));
+        v.setRemoteDevice(vol.getActualDeviceName());
+      }
+      if (attachedVolumes.containsKey(v.getDisplayName())) {
+        volumeState="in-use";
+      }
+      v.setMappedState(volumeState);
+      edu.ucsb.eucalyptus.msgs.Volume aVolume=v.morph(new edu.ucsb.eucalyptus.msgs.Volume());
+      if (attachedVolumes.containsKey(v.getDisplayName())) {
+        aVolume.setStatus(volumeState);
+        aVolume.getAttachmentSet().add(attachedVolumes.get(aVolume.getVolumeId()));
+      }
+      reply.getVolumeSet().add(aVolume);
     }
   }
   db.commit();

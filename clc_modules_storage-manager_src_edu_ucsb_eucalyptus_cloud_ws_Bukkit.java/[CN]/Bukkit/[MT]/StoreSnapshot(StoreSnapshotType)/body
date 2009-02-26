@@ -1,5 +1,9 @@
 {
   StoreSnapshotResponseType reply=(StoreSnapshotResponseType)request.getReply();
+  if (!enableSnapshots) {
+    LOG.warn("Snapshots not enabled. Please check pre-conditions and restart Walrus.");
+    return reply;
+  }
   String snapshotId=request.getKey();
   String bucketName=request.getBucket();
   String snapshotVgName=request.getSnapshotvgname();
@@ -36,7 +40,6 @@
   snapshotInfo.setVgName(snapshotVgName);
   snapshotInfo.setLvName(snapshotLvName);
   snapshotInfo.setTransferred(false);
-  db.commit();
   String userId=request.getUserId();
   if (createBucket) {
     CreateBucketType createBucketRequest=new CreateBucketType();
@@ -57,14 +60,21 @@
   putObjectRequest.setBucket(bucketName);
   putObjectRequest.setKey(snapshotId);
   putObjectRequest.setRandomKey(request.getRandomKey());
-  PutObjectResponseType putObjectResponseType=PutObject(putObjectRequest);
-  reply.setEtag(putObjectResponseType.getEtag());
-  reply.setLastModified(putObjectResponseType.getLastModified());
-  reply.setStatusMessage(putObjectResponseType.getStatusMessage());
-  snapshotInfo=new WalrusSnapshotInfo(snapshotId);
-  dbSnap=new EntityWrapper<WalrusSnapshotInfo>();
-  WalrusSnapshotInfo foundSnapshotInfo=dbSnap.getUnique(snapshotInfo);
-  foundSnapshotInfo.setTransferred(true);
-  dbSnap.commit();
+  try {
+    PutObjectResponseType putObjectResponseType=PutObject(putObjectRequest);
+    reply.setEtag(putObjectResponseType.getEtag());
+    reply.setLastModified(putObjectResponseType.getLastModified());
+    reply.setStatusMessage(putObjectResponseType.getStatusMessage());
+    db.commit();
+    snapshotInfo=new WalrusSnapshotInfo(snapshotId);
+    dbSnap=new EntityWrapper<WalrusSnapshotInfo>();
+    WalrusSnapshotInfo foundSnapshotInfo=dbSnap.getUnique(snapshotInfo);
+    foundSnapshotInfo.setTransferred(true);
+    dbSnap.commit();
+  }
+ catch (  EucalyptusCloudException ex) {
+    db.rollback();
+    throw ex;
+  }
   return reply;
 }

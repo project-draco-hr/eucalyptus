@@ -1,0 +1,50 @@
+{
+synchronized (lock) {
+    if (spi != null) {
+      implInit(spi,initType,key,params,random);
+      return;
+    }
+    Exception lastException=null;
+    while ((firstService != null) || serviceIterator.hasNext()) {
+      Service s;
+      if (firstService != null) {
+        s=firstService;
+        firstService=null;
+      }
+ else {
+        s=(Service)serviceIterator.next();
+      }
+      if (s.supportsParameter(key) == false) {
+        continue;
+      }
+      if (JceSecurity.canUseProvider(s.getProvider()) == false) {
+        continue;
+      }
+      try {
+        KeyAgreementSpi spi=(KeyAgreementSpi)s.newInstance(null);
+        implInit(spi,initType,key,params,random);
+        provider=s.getProvider();
+        this.spi=spi;
+        firstService=null;
+        serviceIterator=null;
+        return;
+      }
+ catch (      Exception e) {
+        if (lastException == null) {
+          lastException=e;
+        }
+      }
+    }
+    if (lastException instanceof InvalidKeyException) {
+      throw (InvalidKeyException)lastException;
+    }
+    if (lastException instanceof InvalidAlgorithmParameterException) {
+      throw (InvalidAlgorithmParameterException)lastException;
+    }
+    if (lastException instanceof RuntimeException) {
+      throw (RuntimeException)lastException;
+    }
+    String kName=(key != null) ? key.getClass().getName() : "(null)";
+    throw new InvalidKeyException("No installed provider supports this key: " + kName,lastException);
+  }
+}

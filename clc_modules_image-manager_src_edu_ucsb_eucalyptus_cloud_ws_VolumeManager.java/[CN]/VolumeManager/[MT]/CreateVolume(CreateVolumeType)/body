@@ -2,11 +2,14 @@
   if (!Clusters.getInstance().contains(request.getAvailabilityZone())) {
     throw new EucalyptusCloudException("Zone does not exist: " + request.getAvailabilityZone());
   }
+  if ((request.getSnapshotId() == null && request.getSize() == null) || (request.getSnapshotId() != null && request.getSize() != null)) {
+    throw new EucalyptusCloudException("One of 'snapshotId' or 'size' must be set.");
+  }
   EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
   if (!(request.getSnapshotId() == null)) {
     String userName=request.isAdministrator() ? null : request.getUserId();
     try {
-      db.recast(Snapshot.class).getUnique(new Snapshot(userName,request.getSnapshotId()));
+      db.recast(Snapshot.class).getUnique(Snapshot.named(userName,request.getSnapshotId()));
     }
  catch (    EucalyptusCloudException e) {
       LOG.debug(e,e);
@@ -19,14 +22,15 @@
   while (true) {
     newId=Hashes.generateId(request.getUserId(),ID_PREFIX);
     try {
-      db.getUnique(new Volume(null,newId));
+      db.getUnique(Volume.ownedBy(newId));
     }
  catch (    EucalyptusCloudException e) {
-      newVol=new Volume(request.getUserId(),newId,new Integer(request.getSize()),request.getAvailabilityZone(),request.getSnapshotId());
+      newVol=new Volume(request.getUserId(),newId,new Integer(request.getSize() != null ? request.getSize() : "-1"),request.getAvailabilityZone(),request.getSnapshotId());
       db.add(newVol);
       break;
     }
   }
+  newVol.setState(State.GENERATING);
   CreateStorageVolumeType scRequest=new CreateStorageVolumeType(newId,request.getSize(),request.getSnapshotId());
   CreateStorageVolumeResponseType scReply=null;
   try {

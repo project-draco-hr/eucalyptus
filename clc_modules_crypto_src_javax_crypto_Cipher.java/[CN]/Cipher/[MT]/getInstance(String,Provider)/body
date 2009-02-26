@@ -1,0 +1,39 @@
+{
+  if (provider == null) {
+    throw new IllegalArgumentException("Missing provider");
+  }
+  Exception failure=null;
+  List transforms=getTransforms(transformation);
+  String paddingError=null;
+  for (Iterator t=transforms.iterator(); t.hasNext(); ) {
+    Transform tr=(Transform)t.next();
+    Service s=provider.getService("Cipher",tr.transform);
+    if (s == null) {
+      continue;
+    }
+    if (tr.supportsMode(s) == S_NO) {
+      continue;
+    }
+    if (tr.supportsPadding(s) == S_NO) {
+      paddingError=tr.pad;
+      continue;
+    }
+    try {
+      CipherSpi spi=(CipherSpi)s.newInstance(null);
+      tr.setModePadding(spi);
+      Cipher cipher=new Cipher(spi,transformation);
+      cipher.provider=s.getProvider();
+      return cipher;
+    }
+ catch (    Exception e) {
+      failure=e;
+    }
+  }
+  if (failure instanceof NoSuchPaddingException) {
+    throw (NoSuchPaddingException)failure;
+  }
+  if (paddingError != null) {
+    throw new NoSuchPaddingException("Padding not supported: " + paddingError);
+  }
+  throw new NoSuchAlgorithmException("No such algorithm: " + transformation,failure);
+}

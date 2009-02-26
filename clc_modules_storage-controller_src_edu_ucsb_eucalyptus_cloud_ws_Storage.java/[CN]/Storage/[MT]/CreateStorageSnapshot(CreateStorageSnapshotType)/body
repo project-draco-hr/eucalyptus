@@ -1,5 +1,12 @@
 {
   CreateStorageSnapshotResponseType reply=(CreateStorageSnapshotResponseType)request.getReply();
+  if (!sharedMode) {
+    if (!enableSnapshots || !enableStorage) {
+      checkWalrusConnection();
+      if (!enableSnapshots)       LOG.warn("Snapshots have been disabled. Please check connection to Walrus.");
+      return reply;
+    }
+  }
   String volumeId=request.getVolumeId();
   String snapshotId=request.getSnapshotId();
   EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
@@ -17,12 +24,11 @@
       snapshotInfo.setProgress("0");
       snapshotInfo.setStatus(StorageProperties.Status.creating.toString());
       db2.add(snapshotInfo);
+      String snapshotSet="snapset-" + UUID.randomUUID();
+      Snapshotter snapshotter=new Snapshotter(snapshotSet,volumeId,snapshotId);
+      snapshotter.start();
       db2.commit();
       db.commit();
-      String snapshotSet="snapset-" + UUID.randomUUID();
-      blockManager.createSnapshot(volumeId,snapshotId);
-      Snapshotter snapshotter=new Snapshotter(snapshotSet,volumeId,snapshotId);
-      snapshotter.run();
       reply.setSnapshotId(snapshotId);
       reply.setVolumeId(volumeId);
       reply.setStatus(snapshotInfo.getStatus());
