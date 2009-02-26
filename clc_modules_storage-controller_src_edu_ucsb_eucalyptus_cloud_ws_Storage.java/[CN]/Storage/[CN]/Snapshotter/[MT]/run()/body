@@ -1,42 +1,61 @@
 {
   try {
-    blockManager.createSnapshot(volumeId,snapshotId);
-    List<String> returnValues=blockManager.prepareForTransfer(volumeId,snapshotId);
-    volumeFileName=returnValues.get(0);
-    snapshotFileName=returnValues.get(1);
-    EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
-    VolumeInfo volumeInfo=new VolumeInfo(volumeId);
-    List<VolumeInfo> volumeInfos=db.query(volumeInfo);
-    boolean shouldTransferVolume=false;
-    if (volumeInfos.size() > 0) {
-      VolumeInfo foundVolumeInfo=volumeInfos.get(0);
-      if (!foundVolumeInfo.getTransferred()) {
-        foundVolumeInfo.setVolumeBucket(volumeBucket);
-        shouldTransferVolume=true;
-      }
-      volumeBucket=foundVolumeInfo.getVolumeBucket();
-      db.commit();
-      EntityWrapper<SnapshotInfo> db2=new EntityWrapper<SnapshotInfo>();
-      SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
-      SnapshotInfo foundSnapshotInfo=db2.getUnique(snapshotInfo);
-      if (foundSnapshotInfo != null) {
-        if (!sharedMode) {
-          transferSnapshot(shouldTransferVolume);
-        }
- else {
-          foundSnapshotInfo.setProgress("100");
-          foundSnapshotInfo.setTransferred(true);
-          foundSnapshotInfo.setStatus(StorageProperties.Status.available.toString());
-        }
-      }
-      db2.commit();
+    EntityWrapper<SnapshotInfo> dbS=new EntityWrapper<SnapshotInfo>();
+    SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
+    SnapshotInfo foundSnapInfo=dbS.getUnique(snapInfo);
+    String dupedVolumeId;
+    if (foundSnapInfo.getDupedVolumeId() == null) {
+      dupedVolumeId=volumeId + "-" + Hashes.getRandom(6);
+      foundSnapInfo.setDupedVolumeId(dupedVolumeId);
+      blockManager.dupVolume(volumeId,dupedVolumeId);
+      volumeId=dupedVolumeId;
     }
  else {
-      db.rollback();
-      throw new EucalyptusCloudException();
+      volumeId=foundSnapInfo.getDupedVolumeId();
+    }
+    dbS.commit();
+    blockManager.createSnapshot(volumeId,snapshotId);
+    if (sharedMode) {
+      EntityWrapper<SnapshotInfo> dbSnap=new EntityWrapper<SnapshotInfo>();
+      SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
+      SnapshotInfo foundSnapshotInfo=dbSnap.getUnique(snapshotInfo);
+      foundSnapshotInfo.setProgress("100");
+      foundSnapshotInfo.setTransferred(true);
+      foundSnapshotInfo.setStatus(StorageProperties.Status.available.toString());
+      dbSnap.commit();
+      return;
+    }
+ else {
+      List<String> returnValues=blockManager.prepareForTransfer(volumeId,snapshotId);
+      volumeFileName=returnValues.get(0);
+      snapshotFileName=returnValues.get(1);
+      EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
+      VolumeInfo volumeInfo=new VolumeInfo(volumeId);
+      List<VolumeInfo> volumeInfos=db.query(volumeInfo);
+      boolean shouldTransferVolume=false;
+      if (volumeInfos.size() > 0) {
+        VolumeInfo foundVolumeInfo=volumeInfos.get(0);
+        if (!foundVolumeInfo.getTransferred()) {
+          foundVolumeInfo.setVolumeBucket(volumeBucket);
+          shouldTransferVolume=true;
+        }
+        volumeBucket=foundVolumeInfo.getVolumeBucket();
+        db.commit();
+        EntityWrapper<SnapshotInfo> db2=new EntityWrapper<SnapshotInfo>();
+        SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
+        SnapshotInfo foundSnapshotInfo=db2.getUnique(snapshotInfo);
+        if (foundSnapshotInfo != null) {
+          transferSnapshot(shouldTransferVolume);
+        }
+        db2.commit();
+      }
+ else {
+        db.rollback();
+        throw new EucalyptusCloudException();
+      }
     }
   }
  catch (  EucalyptusCloudException ex) {
-    ex.printStackTrace();
+    LOG.warn(ex,ex);
   }
 }
