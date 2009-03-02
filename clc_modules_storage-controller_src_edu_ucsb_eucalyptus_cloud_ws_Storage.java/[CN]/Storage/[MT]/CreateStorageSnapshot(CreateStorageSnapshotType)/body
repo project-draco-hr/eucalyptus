@@ -15,6 +15,20 @@
   if (volumeInfos.size() > 0) {
     VolumeInfo foundVolumeInfo=volumeInfos.get(0);
     if (foundVolumeInfo.getStatus().equals(StorageProperties.Status.available.toString())) {
+      if (shouldEnforceUsageLimits && sharedMode) {
+        int volSize=foundVolumeInfo.getSize();
+        int totalSnapshotSize=0;
+        SnapshotInfo snapInfo=new SnapshotInfo();
+        EntityWrapper<SnapshotInfo> dbSnap=db.recast(SnapshotInfo.class);
+        List<SnapshotInfo> snapInfos=dbSnap.query(snapInfo);
+        for (        SnapshotInfo sInfo : snapInfos) {
+          totalSnapshotSize+=blockManager.getSnapshotSize(sInfo.getSnapshotId());
+        }
+        if ((totalSnapshotSize + volSize) > StorageProperties.MAX_TOTAL_SNAPSHOT_SIZE) {
+          db.rollback();
+          throw new EntityTooLargeException(snapshotId);
+        }
+      }
       EntityWrapper<SnapshotInfo> db2=new EntityWrapper<SnapshotInfo>();
       edu.ucsb.eucalyptus.cloud.entities.SnapshotInfo snapshotInfo=new edu.ucsb.eucalyptus.cloud.entities.SnapshotInfo(snapshotId);
       snapshotInfo.setUserName(foundVolumeInfo.getUserName());
