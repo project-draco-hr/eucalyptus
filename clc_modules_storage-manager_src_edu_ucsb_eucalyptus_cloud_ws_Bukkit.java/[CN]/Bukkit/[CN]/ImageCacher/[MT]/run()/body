@@ -7,14 +7,30 @@
   while ((unencryptedSize=tryToCache(decryptedImageName,tarredImageName,imageName)) < 0) {
     EntityWrapper<ImageCacheInfo> db=new EntityWrapper<ImageCacheInfo>();
     List<ImageCacheInfo> imageCacheInfos=db.query(new ImageCacheInfo());
-    ImageCacheInfo imageCacheInfo=null;
+    ImageCacheInfo imageCacheInfo;
     if (imageCacheInfos.size() > 1) {
+      boolean anyCached=false;
+      for (      ImageCacheInfo icInfo : imageCacheInfos) {
+        if (icInfo.getInCache()) {
+          anyCached=true;
+          break;
+        }
+      }
+      if (!anyCached) {
+        db.rollback();
+        notifyWaiters();
+        return;
+      }
       Collections.sort(imageCacheInfos);
       imageCacheInfo=imageCacheInfos.get(0);
-      break;
+    }
+ else {
+      db.rollback();
+      notifyWaiters();
+      return;
     }
     db.commit();
-    if (imageCacheInfo != null && imageCacheInfo.getInCache()) {
+    if (imageCacheInfo.getInCache()) {
       flushCachedImage(imageCacheInfo.getBucketName(),imageCacheInfo.getManifestName());
     }
   }
@@ -31,18 +47,14 @@
       foundImageCacheInfo.setCaching(false);
       foundImageCacheInfo.setSize(unencryptedSize);
       db.commit();
-      WalrusMonitor monitor=imageMessenger.getMonitor(bucketName + "/" + manifestKey);
-synchronized (monitor) {
-        monitor.notifyAll();
-      }
-      imageMessenger.removeMonitor(bucketName + "/" + manifestKey);
+      notifyWaiters();
     }
  else {
       db.rollback();
-      LOG.warn("Could not expand image" + decryptedImageName);
+      LOG.error("Could not expand image" + decryptedImageName);
     }
   }
  catch (  Exception ex) {
-    LOG.warn(ex,ex);
+    LOG.error(ex);
   }
 }

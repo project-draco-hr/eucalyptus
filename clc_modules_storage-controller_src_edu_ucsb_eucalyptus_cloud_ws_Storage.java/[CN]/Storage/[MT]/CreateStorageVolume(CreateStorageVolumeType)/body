@@ -1,7 +1,7 @@
 {
   CreateStorageVolumeResponseType reply=(CreateStorageVolumeResponseType)request.getReply();
   if (!enableStorage) {
-    LOG.warn("Storage has been disabled. Please check your setup");
+    LOG.error("Storage has been disabled. Please check your setup");
     return reply;
   }
   String snapshotId=request.getSnapshotId();
@@ -9,17 +9,19 @@
   String volumeId=request.getVolumeId();
   String size=request.getSize();
   int sizeAsInt=0;
-  if (size != null) {
-    sizeAsInt=Integer.parseInt(size);
-    EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
-    VolumeInfo volInfo=new VolumeInfo();
-    List<VolumeInfo> volInfos=db.query(volInfo);
-    int totalVolumeSize=0;
-    for (    VolumeInfo vinfo : volInfos) {
-      totalVolumeSize+=vinfo.getSize();
+  if (shouldEnforceUsageLimits) {
+    if (size != null) {
+      sizeAsInt=Integer.parseInt(size);
+      EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
+      VolumeInfo volInfo=new VolumeInfo();
+      List<VolumeInfo> volInfos=db.query(volInfo);
+      int totalVolumeSize=0;
+      for (      VolumeInfo vinfo : volInfos) {
+        totalVolumeSize+=vinfo.getSize();
+      }
+      if (((totalVolumeSize + sizeAsInt) > StorageProperties.MAX_TOTAL_VOLUME_SIZE) || (sizeAsInt > StorageProperties.MAX_VOLUME_SIZE))       throw new EntityTooLargeException(volumeId);
+      db.commit();
     }
-    if (((totalVolumeSize + sizeAsInt) > StorageProperties.MAX_TOTAL_VOLUME_SIZE) || (sizeAsInt > StorageProperties.MAX_VOLUME_SIZE))     throw new EntityTooLargeException(volumeId);
-    db.commit();
   }
   EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
   VolumeInfo volumeInfo=new VolumeInfo(volumeId);

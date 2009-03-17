@@ -1,17 +1,19 @@
 {
   LOG.info(String.format(EucalyptusProperties.DEBUG_FSTRING,EucalyptusProperties.TokenState.submitted,token));
-  Clusters.getInstance().lookup(token.getCluster()).getState().submitResourceAllocation(token);
+  Clusters.getInstance().lookup(token.getCluster()).getNodeState().submitToken(token);
   for (  String vmId : msg.getInstanceIds())   parent.msgMap.put(ClusterAllocator.State.ROLLBACK,new QueuedEvent<TerminateInstancesType>(new TerminateCallback(),new TerminateInstancesType(vmId,msg)));
   VmRunResponseType reply=null;
   try {
     reply=(VmRunResponseType)clusterClient.send(msg);
-    Clusters.getInstance().lookup(token.getCluster()).getState().redeemToken(token);
+    Clusters.getInstance().lookup(token.getCluster()).getNodeState().redeemToken(token);
     LOG.info(String.format(EucalyptusProperties.DEBUG_FSTRING,EucalyptusProperties.TokenState.redeemed,token));
     if (reply.get_return()) {
       for (      VmInfo vmInfo : reply.getVms()) {
-        VmInstances.getInstance().lookup(vmInfo.getInstanceId()).getNetworkConfig().setIpAddress(vmInfo.getNetParams().getIpAddress());
-        VmInstances.getInstance().lookup(vmInfo.getInstanceId()).getNetworkConfig().setIgnoredPublicIp(vmInfo.getNetParams().getIgnoredPublicIp());
+        VmInstance vm=VmInstances.getInstance().lookup(vmInfo.getInstanceId());
+        vm.getNetworkConfig().setIpAddress(vmInfo.getNetParams().getIpAddress());
+        vm.getNetworkConfig().setIgnoredPublicIp(vmInfo.getNetParams().getIgnoredPublicIp());
       }
+      this.parent.setupAddressMessages(this.token);
     }
  else {
       this.parent.getRollback().lazySet(true);
