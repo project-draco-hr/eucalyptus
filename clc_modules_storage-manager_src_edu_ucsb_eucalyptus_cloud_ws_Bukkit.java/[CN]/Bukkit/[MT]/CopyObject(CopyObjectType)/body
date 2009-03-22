@@ -16,119 +16,120 @@
   BucketInfo bucketInfo=new BucketInfo(sourceBucket);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
-    BucketInfo bucket=bucketList.get(0);
-    for (    ObjectInfo objectInfo : bucket.getObjects()) {
-      if (objectInfo.getObjectKey().equals(sourceKey)) {
-        ObjectInfo sourceObjectInfo=objectInfo;
-        if (sourceObjectInfo.canRead(userId)) {
-          if (copyIfMatch != null) {
-            if (!copyIfMatch.equals(sourceObjectInfo.getEtag())) {
-              db.rollback();
-              throw new PreconditionFailedException("CopySourceIfMatch " + copyIfMatch);
-            }
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObjectInfo=new ObjectInfo(sourceBucket,sourceKey);
+    List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+    if (objectInfos.size() > 0) {
+      ObjectInfo sourceObjectInfo=objectInfos.get(0);
+      if (sourceObjectInfo.canRead(userId)) {
+        if (copyIfMatch != null) {
+          if (!copyIfMatch.equals(sourceObjectInfo.getEtag())) {
+            db.rollback();
+            throw new PreconditionFailedException("CopySourceIfMatch " + copyIfMatch);
           }
-          if (copyIfNoneMatch != null) {
-            if (copyIfNoneMatch.equals(sourceObjectInfo.getEtag())) {
-              db.rollback();
-              throw new PreconditionFailedException("CopySourceIfNoneMatch " + copyIfNoneMatch);
-            }
+        }
+        if (copyIfNoneMatch != null) {
+          if (copyIfNoneMatch.equals(sourceObjectInfo.getEtag())) {
+            db.rollback();
+            throw new PreconditionFailedException("CopySourceIfNoneMatch " + copyIfNoneMatch);
           }
-          if (copyIfUnmodifiedSince != null) {
-            long unmodifiedTime=copyIfUnmodifiedSince.getTime();
-            long objectTime=sourceObjectInfo.getLastModified().getTime();
-            if (unmodifiedTime < objectTime) {
-              db.rollback();
-              throw new PreconditionFailedException("CopySourceIfUnmodifiedSince " + copyIfUnmodifiedSince.toString());
-            }
+        }
+        if (copyIfUnmodifiedSince != null) {
+          long unmodifiedTime=copyIfUnmodifiedSince.getTime();
+          long objectTime=sourceObjectInfo.getLastModified().getTime();
+          if (unmodifiedTime < objectTime) {
+            db.rollback();
+            throw new PreconditionFailedException("CopySourceIfUnmodifiedSince " + copyIfUnmodifiedSince.toString());
           }
-          if (copyIfModifiedSince != null) {
-            long modifiedTime=copyIfModifiedSince.getTime();
-            long objectTime=sourceObjectInfo.getLastModified().getTime();
-            if (modifiedTime > objectTime) {
-              db.rollback();
-              throw new PreconditionFailedException("CopySourceIfModifiedSince " + copyIfModifiedSince.toString());
-            }
+        }
+        if (copyIfModifiedSince != null) {
+          long modifiedTime=copyIfModifiedSince.getTime();
+          long objectTime=sourceObjectInfo.getLastModified().getTime();
+          if (modifiedTime > objectTime) {
+            db.rollback();
+            throw new PreconditionFailedException("CopySourceIfModifiedSince " + copyIfModifiedSince.toString());
           }
-          BucketInfo destinationBucketInfo=new BucketInfo(destinationBucket);
-          List<BucketInfo> destinationBuckets=db.query(destinationBucketInfo);
-          if (destinationBuckets.size() > 0) {
-            BucketInfo foundDestinationBucketInfo=destinationBuckets.get(0);
-            if (foundDestinationBucketInfo.canWrite(userId)) {
-              ObjectInfo destinationObjectInfo=null;
-              String destinationObjectName;
-              for (              ObjectInfo objInfo : foundDestinationBucketInfo.getObjects()) {
-                if (objInfo.getObjectKey().equals(destinationKey)) {
-                  destinationObjectInfo=objInfo;
-                  if (!destinationObjectInfo.canWrite(userId)) {
-                    db.rollback();
-                    throw new AccessDeniedException(destinationKey);
-                  }
-                  break;
-                }
+        }
+        BucketInfo destinationBucketInfo=new BucketInfo(destinationBucket);
+        List<BucketInfo> destinationBuckets=db.query(destinationBucketInfo);
+        if (destinationBuckets.size() > 0) {
+          BucketInfo foundDestinationBucketInfo=destinationBuckets.get(0);
+          if (foundDestinationBucketInfo.canWrite(userId)) {
+            ObjectInfo destinationObjectInfo=null;
+            String destinationObjectName;
+            ObjectInfo destSearchObjectInfo=new ObjectInfo(destinationBucket,destinationKey);
+            List<ObjectInfo> destinationObjectInfos=dbObject.query(destSearchObjectInfo);
+            if (destinationObjectInfos.size() > 0) {
+              destinationObjectInfo=destinationObjectInfos.get(0);
+              if (!destinationObjectInfo.canWrite(userId)) {
+                db.rollback();
+                throw new AccessDeniedException(destinationKey);
               }
-              if (destinationObjectInfo == null) {
-                destinationObjectInfo=new ObjectInfo(userId);
+            }
+            if (destinationObjectInfo == null) {
+              destinationObjectInfo=new ObjectInfo();
+              List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+              destinationObjectInfo.setObjectKey(destinationKey);
+              destinationObjectInfo.addGrants(userId,grantInfos,accessControlList);
+              destinationObjectInfo.setGrants(grantInfos);
+              destinationObjectInfo.setObjectName(destinationKey.replaceAll("/","-") + Hashes.getRandom(4));
+              dbObject.add(destinationObjectInfo);
+            }
+ else {
+              if (destinationObjectInfo.canWriteACP(userId)) {
                 List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-                destinationObjectInfo.setObjectKey(destinationKey);
                 destinationObjectInfo.addGrants(userId,grantInfos,accessControlList);
                 destinationObjectInfo.setGrants(grantInfos);
-                destinationObjectInfo.setObjectName(destinationKey.replaceAll("/","-") + Hashes.getRandom(4));
-                foundDestinationBucketInfo.getObjects().add(destinationObjectInfo);
               }
- else {
-                if (destinationObjectInfo.canWriteACP(userId)) {
-                  List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-                  destinationObjectInfo.addGrants(userId,grantInfos,accessControlList);
-                  destinationObjectInfo.setGrants(grantInfos);
-                }
-              }
-              destinationObjectInfo.setSize(sourceObjectInfo.getSize());
-              destinationObjectInfo.setStorageClass(sourceObjectInfo.getStorageClass());
-              destinationObjectInfo.setOwnerId(sourceObjectInfo.getOwnerId());
-              String etag=sourceObjectInfo.getEtag();
-              Date lastModified=sourceObjectInfo.getLastModified();
-              destinationObjectInfo.setEtag(etag);
-              destinationObjectInfo.setLastModified(lastModified);
-              if (!metadataDirective.equals("REPLACE")) {
-                destinationObjectInfo.setMetaData(sourceObjectInfo.cloneMetaData());
-              }
- else {
-                List<MetaDataEntry> metaData=request.getMetaData();
-                if (metaData != null)                 destinationObjectInfo.replaceMetaData(metaData);
-              }
-              String sourceObjectName=sourceObjectInfo.getObjectName();
-              destinationObjectName=destinationObjectInfo.getObjectName();
-              try {
-                storageManager.copyObject(sourceBucket,sourceObjectName,destinationBucket,destinationObjectName);
-              }
- catch (              Exception ex) {
-                LOG.error(ex);
-                db.rollback();
-                throw new EucalyptusCloudException("Could not rename " + sourceObjectName + " to "+ destinationObjectName);
-              }
-              reply.setEtag(etag);
-              reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN));
-              db.commit();
-              return reply;
+            }
+            destinationObjectInfo.setSize(sourceObjectInfo.getSize());
+            destinationObjectInfo.setStorageClass(sourceObjectInfo.getStorageClass());
+            destinationObjectInfo.setOwnerId(sourceObjectInfo.getOwnerId());
+            String etag=sourceObjectInfo.getEtag();
+            Date lastModified=sourceObjectInfo.getLastModified();
+            destinationObjectInfo.setEtag(etag);
+            destinationObjectInfo.setLastModified(lastModified);
+            if (!metadataDirective.equals("REPLACE")) {
+              destinationObjectInfo.setMetaData(sourceObjectInfo.cloneMetaData());
             }
  else {
+              List<MetaDataEntry> metaData=request.getMetaData();
+              if (metaData != null)               destinationObjectInfo.replaceMetaData(metaData);
+            }
+            String sourceObjectName=sourceObjectInfo.getObjectName();
+            destinationObjectName=destinationObjectInfo.getObjectName();
+            try {
+              storageManager.copyObject(sourceBucket,sourceObjectName,destinationBucket,destinationObjectName);
+            }
+ catch (            Exception ex) {
+              LOG.error(ex);
               db.rollback();
-              throw new AccessDeniedException(destinationBucket);
+              throw new EucalyptusCloudException("Could not rename " + sourceObjectName + " to "+ destinationObjectName);
             }
+            reply.setEtag(etag);
+            reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN));
+            db.commit();
+            return reply;
           }
  else {
             db.rollback();
-            throw new NoSuchBucketException(destinationBucket);
+            throw new AccessDeniedException(destinationBucket);
           }
         }
  else {
           db.rollback();
-          throw new AccessDeniedException(sourceKey);
+          throw new NoSuchBucketException(destinationBucket);
         }
       }
+ else {
+        db.rollback();
+        throw new AccessDeniedException(sourceKey);
+      }
     }
-    db.rollback();
-    throw new NoSuchEntityException(sourceKey);
+ else {
+      db.rollback();
+      throw new NoSuchEntityException(sourceKey);
+    }
   }
  else {
     db.rollback();

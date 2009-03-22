@@ -21,69 +21,78 @@
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
-    BucketInfo bucket=bucketList.get(0);
-    for (    ObjectInfo objectInfo : bucket.getObjects()) {
-      if (objectInfo.getObjectKey().equals(objectKey)) {
-        if (objectInfo.canRead(userId)) {
-          String etag=objectInfo.getEtag();
-          String objectName=objectInfo.getObjectName();
-          if (ifMatch != null) {
-            if (!ifMatch.equals(etag) && !returnCompleteObjectOnFailure) {
-              db.rollback();
-              throw new PreconditionFailedException(etag);
-            }
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+    List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+    if (objectInfos.size() > 0) {
+      ObjectInfo objectInfo=objectInfos.get(0);
+      if (objectInfo.canRead(userId)) {
+        String etag=objectInfo.getEtag();
+        String objectName=objectInfo.getObjectName();
+        if (ifMatch != null) {
+          if (!ifMatch.equals(etag) && !returnCompleteObjectOnFailure) {
+            db.rollback();
+            throw new PreconditionFailedException(etag);
           }
-          if (ifNoneMatch != null) {
-            if (ifNoneMatch.equals(etag) && !returnCompleteObjectOnFailure) {
-              db.rollback();
-              throw new NotModifiedException(etag);
-            }
+        }
+        if (ifNoneMatch != null) {
+          if (ifNoneMatch.equals(etag) && !returnCompleteObjectOnFailure) {
+            db.rollback();
+            throw new NotModifiedException(etag);
           }
-          Date lastModified=objectInfo.getLastModified();
-          if (ifModifiedSince != null) {
-            if ((ifModifiedSince.getTime() >= lastModified.getTime()) && !returnCompleteObjectOnFailure) {
-              db.rollback();
-              throw new NotModifiedException(lastModified.toString());
-            }
+        }
+        Date lastModified=objectInfo.getLastModified();
+        if (ifModifiedSince != null) {
+          if ((ifModifiedSince.getTime() >= lastModified.getTime()) && !returnCompleteObjectOnFailure) {
+            db.rollback();
+            throw new NotModifiedException(lastModified.toString());
           }
-          if (ifUnmodifiedSince != null) {
-            if ((ifUnmodifiedSince.getTime() < lastModified.getTime()) && !returnCompleteObjectOnFailure) {
-              db.rollback();
-              throw new PreconditionFailedException(lastModified.toString());
-            }
+        }
+        if (ifUnmodifiedSince != null) {
+          if ((ifUnmodifiedSince.getTime() < lastModified.getTime()) && !returnCompleteObjectOnFailure) {
+            db.rollback();
+            throw new PreconditionFailedException(lastModified.toString());
           }
-          if (request.getGetMetaData()) {
-            ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
-            objectInfo.returnMetaData(metaData);
-            reply.setMetaData(metaData);
-          }
-          if (request.getGetData()) {
-            String key=bucketName + "." + objectKey;
-            String randomKey=key + "." + Hashes.getRandom(10);
-            request.setRandomKey(randomKey);
-            LinkedBlockingQueue<WalrusDataMessage> getQueue=WalrusQueryDispatcher.getReadMessenger().getQueue(key,randomKey);
-            Reader reader=new Reader(bucketName,objectName,objectInfo.getSize(),getQueue,byteRangeStart,byteRangeEnd);
-            reader.start();
-          }
-          reply.setEtag(objectInfo.getEtag());
-          reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN));
-          if (byteRangeEnd > -1) {
-            if (byteRangeEnd <= objectInfo.getSize() && ((byteRangeEnd - byteRangeStart) > 0))             reply.setSize(byteRangeEnd - byteRangeStart);
- else             reply.setSize(0L);
-          }
- else {
-            reply.setSize(objectInfo.getSize());
-          }
-          status.setCode(200);
-          status.setDescription("OK");
-          reply.setStatus(status);
+        }
+        if (request.getGetMetaData()) {
+          ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
+          objectInfo.returnMetaData(metaData);
+          reply.setMetaData(metaData);
+        }
+        if (request.getGetData()) {
+          String key=bucketName + "." + objectKey;
+          String randomKey=key + "." + Hashes.getRandom(10);
+          request.setRandomKey(randomKey);
+          LinkedBlockingQueue<WalrusDataMessage> getQueue=WalrusQueryDispatcher.getReadMessenger().getQueue(key,randomKey);
+          Reader reader=new Reader(bucketName,objectName,objectInfo.getSize(),getQueue,byteRangeStart,byteRangeEnd);
+          reader.start();
+        }
+        reply.setEtag(objectInfo.getEtag());
+        reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN));
+        if (byteRangeEnd > -1) {
+          if (byteRangeEnd <= objectInfo.getSize() && ((byteRangeEnd - byteRangeStart) > 0))           reply.setSize(byteRangeEnd - byteRangeStart);
+ else           reply.setSize(0L);
         }
  else {
-          db.rollback();
-          throw new AccessDeniedException(objectKey);
+          reply.setSize(objectInfo.getSize());
         }
+        status.setCode(200);
+        status.setDescription("OK");
+        reply.setStatus(status);
+      }
+ else {
+        db.rollback();
+        throw new AccessDeniedException(objectKey);
       }
     }
+ else {
+      db.rollback();
+      throw new NoSuchEntityException(objectKey);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
   }
   db.commit();
   return reply;

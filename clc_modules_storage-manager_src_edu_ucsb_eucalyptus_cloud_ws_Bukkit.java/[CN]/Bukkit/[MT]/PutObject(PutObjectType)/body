@@ -17,7 +17,10 @@
     BucketInfo bucket=bucketList.get(0);
     if (bucket.canWrite(userId)) {
       ObjectInfo foundObject=null;
-      List<ObjectInfo> objectInfos=bucket.getObjects();
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      ObjectInfo searchObject=new ObjectInfo();
+      searchObject.setBucketName(bucketName);
+      List<ObjectInfo> objectInfos=dbObject.query(searchObject);
       for (      ObjectInfo objectInfo : objectInfos) {
         if (objectInfo.getObjectKey().equals(objectKey)) {
           if (!objectInfo.canWrite(userId)) {
@@ -31,13 +34,14 @@
       }
       String objectName;
       if (foundObject == null) {
-        foundObject=new ObjectInfo(objectKey);
+        foundObject=new ObjectInfo(bucketName,objectKey);
+        foundObject.setOwnerId(userId);
         List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
         foundObject.addGrants(userId,grantInfos,accessControlList);
         foundObject.setGrants(grantInfos);
         objectName=objectKey.replaceAll("/","-") + Hashes.getRandom(4);
         foundObject.setObjectName(objectName);
-        objectInfos.add(foundObject);
+        dbObject.add(foundObject);
       }
  else {
         if (foundObject.canWriteACP(userId)) {
@@ -64,7 +68,6 @@
         }
       }
       foundObject.setObjectKey(objectKey);
-      foundObject.setOwnerId(userId);
       foundObject.replaceMetaData(request.getMetaData());
       String randomKey=request.getRandomKey();
       WalrusDataMessenger messenger=WalrusQueryDispatcher.getWriteMessenger();
