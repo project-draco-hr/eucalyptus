@@ -8,38 +8,37 @@
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
-    BucketInfo bucket=bucketList.get(0);
-    ObjectInfo foundObject=null;
-    for (    ObjectInfo objectInfo : bucket.getObjects()) {
-      if (objectInfo.getObjectKey().equals(objectKey)) {
-        if (objectInfo.canWriteACP(userId)) {
-          foundObject=objectInfo;
-          break;
-        }
- else {
-          db.rollback();
-          throw new AccessDeniedException(objectKey);
-        }
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+    List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+    if (objectInfos.size() > 0) {
+      ObjectInfo objectInfo=objectInfos.get(0);
+      if (!objectInfo.canWriteACP(userId)) {
+        db.rollback();
+        throw new AccessDeniedException(objectKey);
       }
-    }
-    if (foundObject != null) {
       List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
       AccessControlListType accessControlList=accessControlPolicy.getAccessControlList();
-      foundObject.resetGlobalGrants();
-      foundObject.addGrants(foundObject.getOwnerId(),grantInfos,accessControlList);
-      foundObject.setGrants(grantInfos);
-      if (!foundObject.isGlobalRead()) {
-        EntityWrapper<TorrentInfo> dbTorrent=db.recast(TorrentInfo.class);
-        TorrentInfo torrentInfo=new TorrentInfo(bucketName,objectKey);
-        List<TorrentInfo> torrentInfos=dbTorrent.query(torrentInfo);
-        if (torrentInfos.size() > 0) {
-          TorrentInfo foundTorrentInfo=torrentInfos.get(0);
-          TorrentClient torrentClient=Torrents.getClient(bucketName + objectKey);
-          if (torrentClient != null) {
-            torrentClient.bye();
+      objectInfo.resetGlobalGrants();
+      objectInfo.addGrants(objectInfo.getOwnerId(),grantInfos,accessControlList);
+      objectInfo.setGrants(grantInfos);
+      if (enableTorrents) {
+        if (!objectInfo.isGlobalRead()) {
+          EntityWrapper<TorrentInfo> dbTorrent=db.recast(TorrentInfo.class);
+          TorrentInfo torrentInfo=new TorrentInfo(bucketName,objectKey);
+          List<TorrentInfo> torrentInfos=dbTorrent.query(torrentInfo);
+          if (torrentInfos.size() > 0) {
+            TorrentInfo foundTorrentInfo=torrentInfos.get(0);
+            TorrentClient torrentClient=Torrents.getClient(bucketName + objectKey);
+            if (torrentClient != null) {
+              torrentClient.bye();
+            }
+            dbTorrent.delete(foundTorrentInfo);
           }
-          dbTorrent.delete(foundTorrentInfo);
         }
+      }
+ else {
+        LOG.warn("Bittorrent support has been disabled. Please check pre-requisites");
       }
       reply.setCode("204");
       reply.setDescription("OK");
