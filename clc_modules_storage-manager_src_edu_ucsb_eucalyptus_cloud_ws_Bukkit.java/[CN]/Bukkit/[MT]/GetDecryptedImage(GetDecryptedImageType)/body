@@ -32,9 +32,22 @@
         ImageCacheInfo foundImageCacheInfo=foundImageCacheInfos.get(0);
         if (!foundImageCacheInfo.getInCache()) {
           WalrusMonitor monitor=imageMessenger.getMonitor(bucketName + "/" + objectKey);
+          boolean cached=false;
 synchronized (monitor) {
             try {
-              monitor.wait();
+              boolean caching;
+              long bytesCached=0;
+              do {
+                monitor.wait(CACHE_PROGRESS_TIMEOUT);
+                if (isCached(bucketName,objectKey)) {
+                  cached=true;
+                  break;
+                }
+                long newBytesCached=checkCachingProgress(bucketName,objectKey,bytesCached);
+                caching=(newBytesCached - bytesCached) > 0 ? true : false;
+                bytesCached=newBytesCached;
+              }
+ while (caching);
             }
  catch (            Exception ex) {
               LOG.error(ex);
@@ -42,6 +55,13 @@ synchronized (monitor) {
               db.rollback();
               throw new EucalyptusCloudException("monitor failure");
             }
+          }
+          if (!cached) {
+            db2.rollback();
+            db.rollback();
+            LOG.error("Image caching failed for " + bucketName + "/"+ objectKey);
+            LOG.error("Aborting GetDecryptedImage. No progress made in a while");
+            throw new EucalyptusCloudException("image caching failed");
           }
           db2.commit();
           db2=new EntityWrapper<ImageCacheInfo>();
