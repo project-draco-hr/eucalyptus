@@ -1,2 +1,107 @@
 {
+  GetDecryptedImageResponseType reply=(GetDecryptedImageResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  String objectKey=request.getKey();
+  String userId=request.getUserId();
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+    List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+    if (objectInfos.size() > 0) {
+      ObjectInfo objectInfo=objectInfos.get(0);
+      if (objectInfo.canRead(userId) || request.isAdministrator()) {
+        WalrusSemaphore semaphore=imageMessenger.getSemaphore(bucketName + "/" + objectKey);
+        try {
+          semaphore.acquire();
+        }
+ catch (        InterruptedException ex) {
+          throw new EucalyptusCloudException("semaphore could not be acquired");
+        }
+        EntityWrapper<ImageCacheInfo> db2=new EntityWrapper<ImageCacheInfo>();
+        ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,objectKey);
+        List<ImageCacheInfo> foundImageCacheInfos=db2.query(searchImageCacheInfo);
+        if (foundImageCacheInfos.size() == 0) {
+          db2.commit();
+          cacheImage(bucketName,objectKey,userId,request.isAdministrator());
+          db2=new EntityWrapper<ImageCacheInfo>();
+          foundImageCacheInfos=db2.query(searchImageCacheInfo);
+        }
+        ImageCacheInfo foundImageCacheInfo=foundImageCacheInfos.get(0);
+        db2.commit();
+        if (!foundImageCacheInfo.getInCache()) {
+          WalrusMonitor monitor=imageMessenger.getMonitor(bucketName + "/" + objectKey);
+          boolean cached=false;
+synchronized (monitor) {
+            try {
+              boolean caching;
+              long bytesCached=0;
+              do {
+                monitor.wait(CACHE_PROGRESS_TIMEOUT);
+                if (isCached(bucketName,objectKey)) {
+                  cached=true;
+                  break;
+                }
+                long newBytesCached=checkCachingProgress(bucketName,objectKey,bytesCached);
+                caching=(newBytesCached - bytesCached) > 0 ? true : false;
+                bytesCached=newBytesCached;
+              }
+ while (caching);
+            }
+ catch (            Exception ex) {
+              LOG.error(ex);
+              db.rollback();
+              throw new EucalyptusCloudException("monitor failure");
+            }
+          }
+          if (!cached) {
+            LOG.error("unable to cache image: " + bucketName + "/"+ objectKey);
+            db.rollback();
+            throw new EucalyptusCloudException("caching failure");
+          }
+        }
+        db2=new EntityWrapper<ImageCacheInfo>();
+        foundImageCacheInfos=db2.query(searchImageCacheInfo);
+        if (foundImageCacheInfos.size() > 0) {
+          foundImageCacheInfo=foundImageCacheInfos.get(0);
+          foundImageCacheInfo.setUseCount(foundImageCacheInfo.getUseCount() + 1);
+          assert(foundImageCacheInfo.getInCache());
+        }
+ else {
+          db.rollback();
+          db2.rollback();
+          LOG.error("Could not find cached image: " + bucketName + "/"+ objectKey);
+          throw new NoSuchEntityException(bucketName + "/" + objectKey);
+        }
+        Long unencryptedSize=foundImageCacheInfo.getSize();
+        String imageKey=foundImageCacheInfo.getImageName();
+        String queueKey=bucketName + "." + objectKey;
+        String randomKey=queueKey + "." + Hashes.getRandom(10);
+        request.setRandomKey(randomKey);
+        LinkedBlockingQueue<WalrusDataMessage> getQueue=WalrusQueryDispatcher.getReadMessenger().getQueue(queueKey,randomKey);
+        reply.setSize(unencryptedSize);
+        reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN));
+        reply.setEtag("");
+        Reader reader=new Reader(bucketName,imageKey,unencryptedSize,getQueue,false,semaphore);
+        reader.start();
+        db.commit();
+        db2.commit();
+        return reply;
+      }
+ else {
+        db.rollback();
+        throw new AccessDeniedException(objectKey);
+      }
+    }
+ else {
+      db.rollback();
+      throw new NoSuchEntityException(objectKey);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
 }
