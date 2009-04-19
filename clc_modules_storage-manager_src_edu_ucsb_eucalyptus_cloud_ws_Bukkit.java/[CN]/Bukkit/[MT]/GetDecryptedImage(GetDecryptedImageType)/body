@@ -33,8 +33,8 @@
             WalrusMonitor monitor=imageMessenger.getMonitor(bucketName + "/" + objectKey);
 synchronized (monitor) {
               try {
-                boolean caching;
                 long bytesCached=0;
+                int number_of_tries=0;
                 do {
                   monitor.wait(CACHE_PROGRESS_TIMEOUT);
                   if (isCached(bucketName,objectKey)) {
@@ -42,13 +42,15 @@ synchronized (monitor) {
                     break;
                   }
                   long newBytesCached=checkCachingProgress(bucketName,objectKey,bytesCached);
-                  caching=(newBytesCached - bytesCached) > 0 ? true : false;
+                  ++number_of_tries;
+                  boolean is_caching=(newBytesCached - bytesCached) > 0 ? true : false;
+                  if (!is_caching && (number_of_tries++ >= CACHE_RETRY_LIMIT))                   break;
                   bytesCached=newBytesCached;
-                  if (caching) {
+                  if (is_caching) {
                     LOG.info("Bytes cached so far for image " + bucketName + "/"+ objectKey+ " :"+ String.valueOf(bytesCached));
                   }
                 }
- while (caching);
+ while (true);
               }
  catch (              Exception ex) {
                 LOG.error(ex);
@@ -56,6 +58,12 @@ synchronized (monitor) {
                 db.rollback();
                 throw new EucalyptusCloudException("monitor failure");
               }
+            }
+            if (!cached) {
+              LOG.error("Tired of waiting to cache image: " + bucketName + "/"+ objectKey+ " giving up");
+              db2.rollback();
+              db.rollback();
+              throw new EucalyptusCloudException("caching failure");
             }
             db2.commit();
             db2=new EntityWrapper<ImageCacheInfo>();
