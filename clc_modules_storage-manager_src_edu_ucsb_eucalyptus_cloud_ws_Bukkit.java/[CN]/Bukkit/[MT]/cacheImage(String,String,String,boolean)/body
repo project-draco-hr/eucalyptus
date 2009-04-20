@@ -2,17 +2,34 @@
   EntityWrapper<ImageCacheInfo> db=new EntityWrapper<ImageCacheInfo>();
   ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,manifestKey);
   List<ImageCacheInfo> imageCacheInfos=db.query(searchImageCacheInfo);
-  if (imageCacheInfos.size() == 0) {
-    String decryptedImageKey=decryptImage(bucketName,manifestKey,userId,isAdministrator);
-    ImageCacheInfo foundImageCacheInfo=new ImageCacheInfo(bucketName,manifestKey);
-    foundImageCacheInfo.setImageName(decryptedImageKey);
-    foundImageCacheInfo.setInCache(false);
-    foundImageCacheInfo.setCaching(true);
-    foundImageCacheInfo.setUseCount(0);
-    foundImageCacheInfo.setSize(0L);
-    db.add(foundImageCacheInfo);
+  String decryptedImageKey=null;
+  if (imageCacheInfos.size() != 0) {
+    ImageCacheInfo icInfo=imageCacheInfos.get(0);
+    if (!icInfo.getInCache()) {
+      decryptedImageKey=icInfo.getImageName();
+    }
+ else {
+      db.commit();
+      return;
+    }
+  }
+  ImageCacher imageCacher=imageCachers.putIfAbsent(bucketName + manifestKey,new ImageCacher(bucketName,manifestKey,decryptedImageKey));
+  if (imageCacher == null) {
+    if (decryptedImageKey == null) {
+      decryptedImageKey=decryptImage(bucketName,manifestKey,userId,isAdministrator);
+      ImageCacheInfo foundImageCacheInfo=new ImageCacheInfo(bucketName,manifestKey);
+      foundImageCacheInfo.setImageName(decryptedImageKey);
+      foundImageCacheInfo.setInCache(false);
+      foundImageCacheInfo.setUseCount(0);
+      foundImageCacheInfo.setSize(0L);
+      db.add(foundImageCacheInfo);
+    }
     db.commit();
-    ImageCacher imageCacher=new ImageCacher(bucketName,manifestKey,decryptedImageKey);
+    imageCacher=imageCachers.get(bucketName + manifestKey);
+    imageCacher.setDecryptedImageKey(decryptedImageKey);
     imageCacher.start();
+  }
+ else {
+    db.commit();
   }
 }
