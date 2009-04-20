@@ -26,14 +26,6 @@
             LOG.error(ex,ex);
             throw new DecryptionFailedException("SHA1withRSA not found");
           }
-          EntityWrapper<UserInfo> db2=new EntityWrapper<UserInfo>();
-          UserInfo userInfo=new UserInfo(userId);
-          List<UserInfo> foundUserInfos=db2.query(userInfo);
-          if (foundUserInfos.size() == 0) {
-            db2.rollback();
-            db.rollback();
-            throw new AccessDeniedException(userId);
-          }
           if (isAdministrator) {
             try {
               boolean verified=false;
@@ -48,13 +40,20 @@
               }
             }
  catch (            Exception ex) {
-              db2.rollback();
               db.rollback();
               LOG.error(ex,ex);
               throw new DecryptionFailedException("signature verification");
             }
           }
  else {
+            EntityWrapper<UserInfo> db2=new EntityWrapper<UserInfo>();
+            UserInfo userInfo=new UserInfo(userId);
+            List<UserInfo> foundUserInfos=db2.query(userInfo);
+            if (foundUserInfos.size() == 0) {
+              db2.rollback();
+              db.rollback();
+              throw new AccessDeniedException(userId);
+            }
             List<CertificateInfo> certInfos=foundUserInfos.get(0).getCertificates();
             boolean signatureVerified=false;
             for (            CertificateInfo certInfo : certInfos) {
@@ -74,6 +73,7 @@
             if (!signatureVerified) {
               throw new NotAuthorizedException("Invalid signature");
             }
+            db2.commit();
           }
           List<String> parts=parser.getValues("//image/parts/part/filename");
           ArrayList<String> qualifiedPaths=new ArrayList<String>();
@@ -101,7 +101,6 @@
             iv=hexToBytes(ivString);
           }
  catch (          Exception ex) {
-            db2.rollback();
             db.rollback();
             LOG.error(ex,ex);
             throw new DecryptionFailedException("AES params");
@@ -114,7 +113,6 @@
             decryptImage(encryptedImageName,decryptedImageName,cipher);
           }
  catch (          Exception ex) {
-            db2.rollback();
             db.rollback();
             LOG.error(ex,ex);
             throw new DecryptionFailedException("decryption failed");
@@ -126,7 +124,6 @@
             LOG.error(ex);
             throw new EucalyptusCloudException();
           }
-          db2.commit();
           db.commit();
           return decryptedImageKey;
         }
