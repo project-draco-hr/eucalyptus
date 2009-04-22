@@ -29,10 +29,31 @@
       return;
     }
     Collections.sort(imageCacheInfos);
-    ImageCacheInfo imageCacheInfo=imageCacheInfos.get(0);
     db.commit();
     try {
-      flushCachedImage(imageCacheInfo.getBucketName(),imageCacheInfo.getManifestName());
+      if (spaceNeeded > 0) {
+        ArrayList<ImageCacheInfo> imagesToFlush=new ArrayList<ImageCacheInfo>();
+        long tryToFree=spaceNeeded;
+        for (        ImageCacheInfo imageCacheInfo : imageCacheInfos) {
+          if (tryToFree <= 0)           break;
+          long imageSize=imageCacheInfo.getSize();
+          tryToFree-=imageSize;
+          imagesToFlush.add(imageCacheInfo);
+        }
+        if (imagesToFlush.size() == 0) {
+          LOG.error("Unable to flush existing images. Sorry.");
+          notifyWaiters();
+          return;
+        }
+        for (        ImageCacheInfo imageCacheInfo : imagesToFlush) {
+          flushCachedImage(imageCacheInfo.getBucketName(),imageCacheInfo.getManifestName());
+        }
+      }
+ else {
+        LOG.error("Unable to cache image. Unable to flush existing images.");
+        notifyWaiters();
+        return;
+      }
     }
  catch (    Exception ex) {
       LOG.error(ex);
