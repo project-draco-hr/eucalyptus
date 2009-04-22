@@ -19,32 +19,25 @@
       return;
     }
     EntityWrapper<ImageCacheInfo> db=new EntityWrapper<ImageCacheInfo>();
-    List<ImageCacheInfo> imageCacheInfos=db.query(new ImageCacheInfo());
-    ImageCacheInfo imageCacheInfo;
-    if (imageCacheInfos.size() > 1) {
-      boolean anyCached=false;
-      for (      ImageCacheInfo icInfo : imageCacheInfos) {
-        if (icInfo.getInCache()) {
-          anyCached=true;
-          break;
-        }
-      }
-      if (!anyCached) {
-        db.rollback();
-        notifyWaiters();
-        return;
-      }
-      Collections.sort(imageCacheInfos);
-      imageCacheInfo=imageCacheInfos.get(0);
-    }
- else {
+    ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo();
+    searchImageCacheInfo.setInCache(true);
+    List<ImageCacheInfo> imageCacheInfos=db.query(searchImageCacheInfo);
+    if (imageCacheInfos.size() == 0) {
+      LOG.error("No cached images found to flush. Unable to cache image. Please check the error log and the image cache size.");
       db.rollback();
       notifyWaiters();
       return;
     }
+    Collections.sort(imageCacheInfos);
+    ImageCacheInfo imageCacheInfo=imageCacheInfos.get(0);
     db.commit();
-    if (imageCacheInfo.getInCache()) {
+    try {
       flushCachedImage(imageCacheInfo.getBucketName(),imageCacheInfo.getManifestName());
+    }
+ catch (    Exception ex) {
+      LOG.error(ex);
+      LOG.error("Unable to flush previously cached image. Please increase your image cache size");
+      notifyWaiters();
     }
   }
   try {
