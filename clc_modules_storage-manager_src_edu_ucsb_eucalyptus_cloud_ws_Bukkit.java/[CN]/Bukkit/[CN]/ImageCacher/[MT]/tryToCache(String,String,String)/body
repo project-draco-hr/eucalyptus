@@ -2,11 +2,23 @@
   Long unencryptedSize=0L;
   boolean failed=false;
   try {
-    LOG.info("Caching image: " + bucketName + "/"+ manifestKey);
-    LOG.info("Unzipping image: " + bucketName + "/"+ manifestKey);
-    unzipImage(decryptedImageName,tarredImageName);
-    LOG.info("Untarring image: " + bucketName + "/"+ manifestKey);
-    unencryptedSize=untarImage(tarredImageName,imageName);
+    if (!imageSizeExceeded) {
+      LOG.info("Unzipping image: " + bucketName + "/"+ manifestKey);
+      unzipImage(decryptedImageName,tarredImageName);
+      LOG.info("Untarring image: " + bucketName + "/"+ manifestKey);
+      unencryptedSize=untarImage(tarredImageName,imageName);
+    }
+ else {
+      File imageFile=new File(imageName);
+      if (imageFile.exists()) {
+        unencryptedSize=imageFile.length();
+      }
+ else {
+        LOG.error("Could not find image: " + imageName);
+        imageSizeExceeded=false;
+        return -1L;
+      }
+    }
     Long oldCacheSize=0L;
     EntityWrapper<ImageCacheInfo> db=new EntityWrapper<ImageCacheInfo>();
     List<ImageCacheInfo> imageCacheInfos=db.query(new ImageCacheInfo());
@@ -17,7 +29,10 @@
     }
     db.commit();
     if ((oldCacheSize + unencryptedSize) > WalrusProperties.IMAGE_CACHE_SIZE) {
+      LOG.error("Maximum image cache size exceeded when decrypting " + bucketName + "/"+ manifestKey);
       failed=true;
+      imageSizeExceeded=true;
+      spaceNeeded=unencryptedSize;
     }
   }
  catch (  Exception ex) {
@@ -25,12 +40,14 @@
     failed=true;
   }
   if (failed) {
-    try {
-      storageManager.deleteAbsoluteObject(decryptedImageName);
-      storageManager.deleteAbsoluteObject(tarredImageName);
-    }
- catch (    Exception exception) {
-      LOG.error(exception);
+    if (!imageSizeExceeded) {
+      try {
+        storageManager.deleteAbsoluteObject(tarredImageName);
+        storageManager.deleteAbsoluteObject(imageName);
+      }
+ catch (      Exception exception) {
+        LOG.error(exception);
+      }
     }
     return -1L;
   }
