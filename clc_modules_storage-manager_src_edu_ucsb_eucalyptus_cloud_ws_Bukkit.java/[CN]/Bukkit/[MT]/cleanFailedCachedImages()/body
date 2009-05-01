@@ -1,0 +1,24 @@
+{
+  EntityWrapper<ImageCacheInfo> db=new EntityWrapper<ImageCacheInfo>();
+  ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo();
+  searchImageCacheInfo.setInCache(false);
+  List<ImageCacheInfo> icInfos=db.query(searchImageCacheInfo);
+  for (  ImageCacheInfo icInfo : icInfos) {
+    String decryptedImageName=icInfo.getImageName();
+    String bucket=icInfo.getBucketName();
+    LOG.info("Cleaning failed cache entry: " + bucket + "/"+ icInfo.getManifestName());
+    try {
+      if (decryptedImageName.contains(".tgz")) {
+        storageManager.deleteObject(bucket,decryptedImageName.replaceAll(".tgz","crypt.gz"));
+        storageManager.deleteObject(bucket,decryptedImageName.replaceAll(".tgz",".tar"));
+        storageManager.deleteObject(bucket,decryptedImageName.replaceAll(".tgz",""));
+      }
+      storageManager.deleteObject(bucket,decryptedImageName);
+    }
+ catch (    IOException ex) {
+      LOG.error(ex);
+    }
+    db.delete(icInfo);
+  }
+  db.commit();
+}

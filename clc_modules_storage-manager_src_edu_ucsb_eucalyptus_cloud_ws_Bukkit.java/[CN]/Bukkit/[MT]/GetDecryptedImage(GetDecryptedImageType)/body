@@ -23,21 +23,21 @@
         EntityWrapper<ImageCacheInfo> db2=new EntityWrapper<ImageCacheInfo>();
         ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,objectKey);
         List<ImageCacheInfo> foundImageCacheInfos=db2.query(searchImageCacheInfo);
-        if (foundImageCacheInfos.size() == 0) {
+        if ((foundImageCacheInfos.size() == 0) || (!imageCachers.containsKey(bucketName + objectKey))) {
           db2.commit();
           cacheImage(bucketName,objectKey,userId,request.isAdministrator());
           db2=new EntityWrapper<ImageCacheInfo>();
           foundImageCacheInfos=db2.query(searchImageCacheInfo);
         }
-        ImageCacheInfo foundImageCacheInfo=foundImageCacheInfos.get(0);
-        db2.commit();
-        if (!foundImageCacheInfo.getInCache()) {
-          WalrusMonitor monitor=imageMessenger.getMonitor(bucketName + "/" + objectKey);
+        ImageCacheInfo foundImageCacheInfo=null;
+        if (foundImageCacheInfos.size() > 0)         foundImageCacheInfo=foundImageCacheInfos.get(0);
+        if ((foundImageCacheInfo == null) || (!foundImageCacheInfo.getInCache())) {
           boolean cached=false;
+          WalrusMonitor monitor=imageMessenger.getMonitor(bucketName + "/" + objectKey);
 synchronized (monitor) {
             try {
-              boolean caching;
               long bytesCached=0;
+              int number_of_tries=0;
               do {
                 monitor.wait(CACHE_PROGRESS_TIMEOUT);
                 if (isCached(bucketName,objectKey)) {
@@ -45,35 +45,41 @@ synchronized (monitor) {
                   break;
                 }
                 long newBytesCached=checkCachingProgress(bucketName,objectKey,bytesCached);
-                caching=(newBytesCached - bytesCached) > 0 ? true : false;
+                boolean is_caching=(newBytesCached - bytesCached) > 0 ? true : false;
+                if (!is_caching && (number_of_tries++ >= CACHE_RETRY_LIMIT))                 break;
                 bytesCached=newBytesCached;
+                if (is_caching) {
+                  LOG.info("Bytes cached so far for image " + bucketName + "/"+ objectKey+ " :"+ String.valueOf(bytesCached));
+                }
               }
- while (caching);
+ while (true);
             }
  catch (            Exception ex) {
               LOG.error(ex);
+              db2.rollback();
               db.rollback();
               throw new EucalyptusCloudException("monitor failure");
             }
           }
           if (!cached) {
-            LOG.error("unable to cache image: " + bucketName + "/"+ objectKey);
+            LOG.error("Tired of waiting to cache image: " + bucketName + "/"+ objectKey+ " giving up");
+            db2.rollback();
             db.rollback();
             throw new EucalyptusCloudException("caching failure");
           }
-        }
-        db2=new EntityWrapper<ImageCacheInfo>();
-        foundImageCacheInfos=db2.query(searchImageCacheInfo);
-        if (foundImageCacheInfos.size() > 0) {
-          foundImageCacheInfo=foundImageCacheInfos.get(0);
-          foundImageCacheInfo.setUseCount(foundImageCacheInfo.getUseCount() + 1);
-          assert(foundImageCacheInfo.getInCache());
-        }
+          db2.commit();
+          db2=new EntityWrapper<ImageCacheInfo>();
+          foundImageCacheInfos=db2.query(searchImageCacheInfo);
+          if (foundImageCacheInfos.size() > 0) {
+            foundImageCacheInfo=foundImageCacheInfos.get(0);
+            foundImageCacheInfo.setUseCount(foundImageCacheInfo.getUseCount() + 1);
+            assert(foundImageCacheInfo.getInCache());
+          }
  else {
-          db.rollback();
-          db2.rollback();
-          LOG.error("Could not find cached image: " + bucketName + "/"+ objectKey);
-          throw new NoSuchEntityException(bucketName + "/" + objectKey);
+            db.rollback();
+            db2.rollback();
+            throw new NoSuchEntityException(objectKey);
+          }
         }
         Long unencryptedSize=foundImageCacheInfo.getSize();
         String imageKey=foundImageCacheInfo.getImageName();
@@ -82,7 +88,7 @@ synchronized (monitor) {
         request.setRandomKey(randomKey);
         LinkedBlockingQueue<WalrusDataMessage> getQueue=WalrusQueryDispatcher.getReadMessenger().getQueue(queueKey,randomKey);
         reply.setSize(unencryptedSize);
-        reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN));
+        reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
         reply.setEtag("");
         Reader reader=new Reader(bucketName,imageKey,unencryptedSize,getQueue,false,semaphore);
         reader.start();
