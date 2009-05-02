@@ -29,10 +29,23 @@
           }
           ImageCacheInfo foundImageCacheInfo=foundImageCacheInfos.get(0);
           if (!foundImageCacheInfo.getInCache()) {
+            boolean cached=false;
             WalrusMonitor monitor=imageMessenger.getMonitor(bucketName + "/" + objectKey);
 synchronized (monitor) {
               try {
-                monitor.wait();
+                boolean caching;
+                long bytesCached=0;
+                do {
+                  monitor.wait(CACHE_PROGRESS_TIMEOUT);
+                  if (isCached(bucketName,objectKey)) {
+                    cached=true;
+                    break;
+                  }
+                  long newBytesCached=checkCachingProgress(bucketName,objectKey,bytesCached);
+                  caching=(newBytesCached - bytesCached) > 0 ? true : false;
+                  bytesCached=newBytesCached;
+                }
+ while (caching);
               }
  catch (              Exception ex) {
                 LOG.error(ex);
