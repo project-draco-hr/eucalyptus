@@ -1,0 +1,39 @@
+{
+  if (userId == null) {
+    throw new AccessDeniedException(bucketName);
+  }
+  if (accessControlList == null) {
+    accessControlList=new AccessControlListType();
+  }
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  if (shouldEnforceUsageLimits && !isAdministrator) {
+    BucketInfo searchBucket=new BucketInfo();
+    searchBucket.setOwnerId(userId);
+    List<BucketInfo> bucketList=db.query(searchBucket);
+    if (bucketList.size() >= WalrusProperties.MAX_BUCKETS_PER_USER) {
+      db.rollback();
+      throw new TooManyBucketsException(bucketName);
+    }
+  }
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    if (bucketList.get(0).getOwnerId().equals(userId)) {
+      db.rollback();
+      throw new BucketAlreadyOwnedByYouException(bucketName);
+    }
+    db.rollback();
+    throw new BucketAlreadyExistsException(bucketName);
+  }
+ else {
+    BucketInfo bucket=new BucketInfo(userId,bucketName,new Date());
+    ArrayList<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+    bucket.addGrants(userId,grantInfos,accessControlList);
+    bucket.setGrants(grantInfos);
+    bucket.setBucketSize(0L);
+    if (locationConstraint != null)     bucket.setLocation(locationConstraint);
+ else     bucket.setLocation("US");
+    db.add(bucket);
+  }
+  db.commit();
+}
