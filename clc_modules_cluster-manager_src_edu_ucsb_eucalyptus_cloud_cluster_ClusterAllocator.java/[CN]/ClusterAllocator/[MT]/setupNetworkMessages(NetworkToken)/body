@@ -1,2 +1,21 @@
 {
+  if (networkToken != null) {
+    StartNetworkType msg=new StartNetworkType(this.vmAllocInfo.getRequest(),networkToken.getVlan(),networkToken.getNetworkName());
+    StartNetworkCallback callback=new StartNetworkCallback(this,networkToken);
+    QueuedEvent<StartNetworkType> event=new QueuedEvent<StartNetworkType>(callback,msg);
+    this.msgMap.put(State.CREATE_NETWORK,event);
+  }
+  try {
+    Network network=Networks.getInstance().lookup(networkToken.getName());
+    if (network.getRules().isEmpty())     return;
+    QueuedEvent event=new QueuedEvent<ConfigureNetworkType>(new ConfigureNetworkCallback(),new ConfigureNetworkType(this.vmAllocInfo.getRequest(),network.getRules()));
+    this.msgMap.put(State.CREATE_NETWORK_RULES,event);
+    for (    Network otherNetwork : Networks.getInstance().listValues()) {
+      if (otherNetwork.isPeer(network.getUserName(),network.getNetworkName())) {
+        this.msgMap.put(State.CREATE_NETWORK_RULES,new QueuedEvent<ConfigureNetworkType>(new ConfigureNetworkCallback(),new ConfigureNetworkType(network.getRules())));
+      }
+    }
+  }
+ catch (  NoSuchElementException e) {
+  }
 }
