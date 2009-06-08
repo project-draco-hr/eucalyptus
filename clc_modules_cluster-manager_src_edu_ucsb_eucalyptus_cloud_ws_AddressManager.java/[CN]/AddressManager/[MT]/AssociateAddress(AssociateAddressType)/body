@@ -19,8 +19,20 @@
   }
   LOG.debug("Found vm: " + vm);
   if (!request.isAdministrator() && !(request.getUserId().equals(address.getUserId()) && request.getUserId().equals(vm.getOwnerId())))   return reply;
-  if (!vm.getNetworkConfig().getIpAddress().equals(vm.getNetworkConfig().getIgnoredPublicIp()) && !VmInstance.DEFAULT_IP.equals(vm.getNetworkConfig().getIgnoredPublicIp()))   return reply;
   reply.set_return(true);
+  if (!vm.getNetworkConfig().getIpAddress().equals(vm.getNetworkConfig().getIgnoredPublicIp()) && !VmInstance.DEFAULT_IP.equals(vm.getNetworkConfig().getIgnoredPublicIp())) {
+    String currentPublicIp=vm.getNetworkConfig().getIgnoredPublicIp();
+    try {
+      Address currentAddr=Addresses.getInstance().lookup(currentPublicIp);
+      LOG.debug("Dispatching unassign message for: " + address);
+      UnassignAddressType unassignMsg=Admin.makeMsg(UnassignAddressType.class,currentAddr.getName(),currentAddr.getInstanceAddress());
+      ClusterEnvelope.dispatch(currentAddr.getCluster(),QueuedEvent.make(new UnassignAddressCallback(currentAddr),unassignMsg));
+      currentAddr.unassign();
+    }
+ catch (    NoSuchElementException e) {
+      return reply;
+    }
+  }
   if (address.isAssigned() && address.getUserId().equals(request.getUserId())) {
     LOG.debug("Dispatching unassign message for: " + address);
     UnassignAddressType unassignMsg=Admin.makeMsg(UnassignAddressType.class,address.getName(),address.getInstanceAddress());
