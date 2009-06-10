@@ -1,12 +1,19 @@
 {
   final String oldPassword;
+  final boolean admin;
   final boolean newUser;
-  boolean admin=false;
-  if (loggedInUser != null && loggedInUser.isAdministrator().booleanValue()) {
+  final boolean showSkipConfirmed;
+  boolean isAdminChecked=false;
+  boolean skipConfirmationChecked=previousSkipConfirmation;
+  if (loggedInUser != null && loggedInUser.isAdministrator()) {
     admin=true;
+  }
+ else {
+    admin=false;
   }
   if (userToEdit == null) {
     newUser=true;
+    showSkipConfirmed=true;
     userToEdit=new UserInfoWeb();
     oldPassword="";
     if (admin) {
@@ -19,10 +26,36 @@
  else {
     newUser=false;
     oldPassword=userToEdit.getBCryptedPassword();
-    label_box.setText("Editing information for user '" + userToEdit.getUserName() + "'");
+    isAdminChecked=userToEdit.isAdministrator();
+    showSkipConfirmed=!userToEdit.isConfirmed();
+    skipConfirmationChecked=userToEdit.isConfirmed();
+    String status;
+    if (!userToEdit.isApproved()) {
+      status="unapproved";
+    }
+ else     if (!userToEdit.isEnabled()) {
+      status="disabled";
+    }
+ else     if (!userToEdit.isConfirmed()) {
+      status="unconfirmed";
+    }
+ else {
+      status="active";
+    }
+    if (userToEdit.isAdministrator()) {
+      status+=" & admin";
+    }
+    label_box.setText("Editing information for user '" + userToEdit.getUserName() + "' ("+ status+ ")");
   }
   label_box.setStyleName("euca-greeting-normal");
-  final Grid g1=new Grid(5,3);
+  int rowsMandatory=5;
+  if (admin) {
+    rowsMandatory++;
+    if (showSkipConfirmed) {
+      rowsMandatory++;
+    }
+  }
+  final Grid g1=new Grid(rowsMandatory,3);
   g1.getColumnFormatter().setWidth(0,"180");
   g1.getColumnFormatter().setWidth(1,"180");
   g1.getColumnFormatter().setWidth(2,"180");
@@ -39,13 +72,19 @@
     userName_box.setEnabled(false);
   }
   g1.setWidget(i++,1,userName_box);
+  final CheckBox userIsAdmin=new CheckBox("Administrator");
+  userIsAdmin.setChecked(isAdminChecked);
+  userIsAdmin.setStyleName("euca-remember-text");
+  if (admin) {
+    g1.setWidget(i++,1,userIsAdmin);
+  }
   final int password1_row=i;
   g1.setWidget(i,0,new Label("Password:"));
   g1.getCellFormatter().setHorizontalAlignment(i,0,HasHorizontalAlignment.ALIGN_RIGHT);
   final PasswordTextBox cleartextPassword1_box=new PasswordTextBox();
   cleartextPassword1_box.setText(userToEdit.getBCryptedPassword());
   cleartextPassword1_box.setWidth("180");
-  if ((!admin && !newUser) || userToEdit.isAdministrator()) {
+  if ((!admin && !newUser) || userToEdit.isAdministrator().booleanValue()) {
     cleartextPassword1_box.setEnabled(false);
   }
   g1.setWidget(i++,1,cleartextPassword1_box);
@@ -55,7 +94,7 @@
   final PasswordTextBox cleartextPassword2_box=new PasswordTextBox();
   cleartextPassword2_box.setText(userToEdit.getBCryptedPassword());
   cleartextPassword2_box.setWidth("180");
-  if ((!admin && !newUser) || userToEdit.isAdministrator()) {
+  if ((!admin && !newUser) || userToEdit.isAdministrator().booleanValue()) {
     cleartextPassword2_box.setEnabled(false);
   }
   g1.setWidget(i++,1,cleartextPassword2_box);
@@ -73,6 +112,12 @@
   emailAddress_box.setText(userToEdit.getEmail());
   emailAddress_box.setWidth("180");
   g1.setWidget(i++,1,emailAddress_box);
+  final CheckBox skipConfirmation=new CheckBox("Skip email confirmation");
+  skipConfirmation.setChecked(skipConfirmationChecked);
+  skipConfirmation.setStyleName("euca-remember-text");
+  if (admin && showSkipConfirmed) {
+    g1.setWidget(i++,1,skipConfirmation);
+  }
   final Grid g2=new Grid();
   final Label label_optional=new Label("Optional fields:");
   label_optional.setStyleName("euca-section-header");
@@ -199,6 +244,13 @@
           encryptedPassword=enteredPassword;
         }
         final UserInfoWeb userToSave=new UserInfoWeb(userName_box.getText(),realName_box.getText(),emailAddress_box.getText(),encryptedPassword);
+        if (admin) {
+          userToSave.setIsAdministrator(userIsAdmin.isChecked());
+          if (showSkipConfirmed) {
+            previousSkipConfirmation=skipConfirmation.isChecked();
+            userToSave.setIsConfirmed(previousSkipConfirmation);
+          }
+        }
         if (telephoneNumber_box.getText().length() > 0) {
           userToSave.setTelephoneNumber(telephoneNumber_box.getText());
         }
@@ -234,13 +286,15 @@
           EucalyptusWebBackend.App.getInstance().updateUserRecord(sessionId,userToSave,new AsyncCallback(){
             public void onSuccess(            Object result){
               displayDialog("",(String)result);
-              loggedInUser.setRealName(userToSave.getRealName());
-              loggedInUser.setEmail(userToSave.getEmail());
-              loggedInUser.setBCryptedPassword(userToSave.getBCryptedPassword());
-              loggedInUser.setTelephoneNumber(userToSave.getTelephoneNumber());
-              loggedInUser.setAffiliation(userToSave.getAffiliation());
-              loggedInUser.setProjectDescription(userToSave.getProjectDescription());
-              loggedInUser.setProjectPIName(userToSave.getProjectPIName());
+              if (loggedInUser.getUserName().equals(userToSave.getUserName())) {
+                loggedInUser.setRealName(userToSave.getRealName());
+                loggedInUser.setEmail(userToSave.getEmail());
+                loggedInUser.setBCryptedPassword(userToSave.getBCryptedPassword());
+                loggedInUser.setTelephoneNumber(userToSave.getTelephoneNumber());
+                loggedInUser.setAffiliation(userToSave.getAffiliation());
+                loggedInUser.setProjectDescription(userToSave.getProjectDescription());
+                loggedInUser.setProjectPIName(userToSave.getProjectPIName());
+              }
             }
             public void onFailure(            Throwable caught){
               String m=caught.getMessage();
