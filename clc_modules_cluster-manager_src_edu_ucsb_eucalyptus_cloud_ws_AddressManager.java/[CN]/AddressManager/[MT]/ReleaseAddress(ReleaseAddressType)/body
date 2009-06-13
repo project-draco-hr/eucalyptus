@@ -5,11 +5,15 @@
   try {
     address=Addresses.getInstance().lookup(request.getPublicIp());
     if (!request.isAdministrator() && !address.getUserId().equals(request.getUserId()))     return reply;
-    if (address.isAssigned()) {
+    if (address.isAssigned() && !address.isPending()) {
       UnassignAddressType unassignMsg=new UnassignAddressType(request,address.getName(),address.getInstanceAddress());
       UnassignAddressCallback unassignHandler=new UnassignAddressCallback(address);
       QueuedEvent<UnassignAddressType> event=new QueuedEvent<UnassignAddressType>(unassignHandler,unassignMsg);
       Messaging.dispatch(EucalyptusProperties.CLUSTERSINK_REF,new ClusterEnvelope(address.getCluster(),event));
+    }
+    if (EucalyptusProperties.NAME.equals(address.getUserId()) && !EucalyptusProperties.getSystemConfiguration().isDoDynamicPublicAddresses()) {
+      LOG.debug("Not de-allocating system owned address in static public addressing mode: " + address.getName());
+      return reply;
     }
     EntityWrapper<Address> db=new EntityWrapper<Address>();
     try {
