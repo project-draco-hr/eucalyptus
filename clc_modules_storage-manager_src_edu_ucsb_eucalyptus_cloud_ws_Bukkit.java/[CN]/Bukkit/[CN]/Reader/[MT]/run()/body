@@ -1,5 +1,5 @@
 {
-  byte[] bytes=new byte[WalrusQueryDispatcher.DATA_MESSAGE_SIZE];
+  FileIO fileIO=storageManager.prepareForRead(bucketName,objectName);
   long bytesRemaining=objectSize;
   long offset=byteRangeStart;
   if (byteRangeEnd > 0) {
@@ -11,16 +11,17 @@
   try {
     getQueue.put(WalrusDataMessage.StartOfData(bytesRemaining));
     while (bytesRemaining > 0) {
-      int bytesRead=storageManager.readObject(bucketName,objectName,bytes,offset);
+      int bytesRead=fileIO.read(offset);
       if (bytesRead < 0) {
         LOG.error("Unable to read object: " + bucketName + "/"+ objectName);
         break;
       }
-      if ((bytesRemaining - bytesRead) > 0)       getQueue.put(WalrusDataMessage.DataMessage(bytes,bytesRead));
- else       getQueue.put(WalrusDataMessage.DataMessage(bytes,(int)bytesRemaining));
+      if ((bytesRemaining - bytesRead) > 0)       getQueue.put(WalrusDataMessage.DataMessage(fileIO.getBuffer(),bytesRead));
+ else       getQueue.put(WalrusDataMessage.DataMessage(fileIO.getBuffer(),(int)bytesRemaining));
       bytesRemaining-=bytesRead;
       offset+=bytesRead;
     }
+    fileIO.finish();
     getQueue.put(WalrusDataMessage.EOF());
   }
  catch (  Exception ex) {
