@@ -1,4 +1,5 @@
 {
+  AddressManager.updateAddressingMode();
   ReleaseAddressResponseType reply=(ReleaseAddressResponseType)request.getReply();
   reply.set_return(false);
   Address address=null;
@@ -6,26 +7,19 @@
     address=Addresses.getInstance().lookup(request.getPublicIp());
     if (!request.isAdministrator() && !address.getUserId().equals(request.getUserId()))     return reply;
     if (address.isAssigned() && !address.isPending()) {
-      UnassignAddressType unassignMsg=new UnassignAddressType(request,address.getName(),address.getInstanceAddress());
-      UnassignAddressCallback unassignHandler=new UnassignAddressCallback(address);
-      QueuedEvent<UnassignAddressType> event=new QueuedEvent<UnassignAddressType>(unassignHandler,unassignMsg);
-      Messaging.dispatch(EucalyptusProperties.CLUSTERSINK_REF,new ClusterEnvelope(address.getCluster(),event));
+      try {
+        VmInstance oldVm=VmInstances.getInstance().lookup(address.getInstanceId());
+        AddressManager.unassignAddressFromVm(address,oldVm);
+        AddressManager.tryAssignSystemAddress(oldVm);
+      }
+ catch (      NoSuchElementException e) {
+      }
     }
     if (EucalyptusProperties.NAME.equals(address.getUserId()) && !EucalyptusProperties.getSystemConfiguration().isDoDynamicPublicAddresses()) {
       LOG.debug("Not de-allocating system owned address in static public addressing mode: " + address.getName());
       return reply;
     }
-    EntityWrapper<Address> db=new EntityWrapper<Address>();
-    try {
-      Address dbAddr=db.getUnique(address);
-      db.delete(dbAddr);
-      db.commit();
-    }
- catch (    EucalyptusCloudException e) {
-      db.rollback();
-    }
-    address.release();
-    Addresses.getInstance().disable(address.getName());
+    AddressManager.releaseAddress(address);
     reply.set_return(true);
   }
  catch (  NoSuchElementException e) {
