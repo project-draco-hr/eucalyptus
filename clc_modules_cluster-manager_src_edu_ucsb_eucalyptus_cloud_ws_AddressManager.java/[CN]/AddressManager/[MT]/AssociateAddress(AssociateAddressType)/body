@@ -1,4 +1,5 @@
 {
+  AddressManager.updateAddressingMode();
   AssociateAddressResponseType reply=(AssociateAddressResponseType)request.getReply();
   reply.set_return(false);
   LOG.debug("Associate: " + request.getPublicIp() + " => "+ request.getInstanceId());
@@ -24,10 +25,12 @@
     String currentPublicIp=vm.getNetworkConfig().getIgnoredPublicIp();
     try {
       Address currentAddr=Addresses.getInstance().lookup(currentPublicIp);
+      boolean release=EucalyptusProperties.NAME.equals(currentAddr.getUserId()) && EucalyptusProperties.getSystemConfiguration().isDoDynamicPublicAddresses();
       LOG.debug("Dispatching unassign message for: " + address);
-      UnassignAddressType unassignMsg=Admin.makeMsg(UnassignAddressType.class,currentAddr.getName(),currentAddr.getInstanceAddress());
-      ClusterEnvelope.dispatch(currentAddr.getCluster(),QueuedEvent.make(new UnassignAddressCallback(currentAddr),unassignMsg));
-      currentAddr.unassign();
+      AddressManager.unassignAddressFromVm(currentAddr,vm);
+      if (release) {
+        AddressManager.releaseAddress(currentAddr);
+      }
     }
  catch (    NoSuchElementException e) {
       return reply;
@@ -35,22 +38,17 @@
   }
   if (address.isAssigned() && address.getUserId().equals(request.getUserId()) && !address.isPending()) {
     LOG.debug("Dispatching unassign message for: " + address);
-    UnassignAddressType unassignMsg=Admin.makeMsg(UnassignAddressType.class,address.getName(),address.getInstanceAddress());
-    ClusterEnvelope.dispatch(address.getCluster(),QueuedEvent.make(new UnassignAddressCallback(address),unassignMsg));
+    try {
+      VmInstance oldVm=VmInstances.getInstance().lookup(address.getInstanceId());
+      AddressManager.unassignAddressFromVm(address,oldVm);
+      AddressManager.tryAssignSystemAddress(oldVm);
+      if (!EucalyptusProperties.disableNetworking) {
+      }
+    }
+ catch (    NoSuchElementException e) {
+      LOG.error(e,e);
+    }
   }
-  address.unassign();
-  address.assign(vm.getInstanceId(),vm.getNetworkConfig().getIpAddress());
-  EntityWrapper<Address> db=new EntityWrapper<Address>();
-  try {
-    Address addr=db.getUnique(new Address(address.getName()));
-    addr.unassign();
-    addr.assign(vm.getInstanceId(),vm.getNetworkConfig().getIpAddress());
-    db.commit();
-  }
- catch (  EucalyptusCloudException e) {
-    db.rollback();
-  }
-  AssignAddressType assignMsg=Admin.makeMsg(AssignAddressType.class,address.getName(),address.getInstanceAddress());
-  ClusterEnvelope.dispatch(address.getCluster(),QueuedEvent.make(new AssignAddressCallback(vm),assignMsg));
+  AddressManager.assignAddressToVm(address,vm);
   return reply;
 }
