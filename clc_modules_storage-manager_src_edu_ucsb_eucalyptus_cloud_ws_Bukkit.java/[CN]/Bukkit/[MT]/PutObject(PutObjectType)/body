@@ -81,10 +81,12 @@
 synchronized (putQueue) {
           putQueue.notifyAll();
         }
+        FileIO fileIO=null;
         while ((dataMessage=putQueue.take()) != null) {
           if (WalrusDataMessage.isStart(dataMessage)) {
             tempObjectName=objectName + "." + Hashes.getRandom(12);
             digest=Hashes.Digest.MD5.get();
+            fileIO=storageManager.prepareForWrite(bucketName,tempObjectName);
           }
  else           if (WalrusDataMessage.isEOF(dataMessage)) {
             try {
@@ -112,6 +114,7 @@ synchronized (putQueue) {
               bucket.setBucketSize(newSize);
             }
             db.commit();
+            fileIO.finish();
             WalrusMonitor monitor=messenger.getMonitor(key);
 synchronized (monitor) {
               monitor.setLastModified(lastModified);
@@ -131,6 +134,7 @@ synchronized (monitor) {
               md5=monitor.getMd5();
             }
             try {
+              fileIO.finish();
               storageManager.deleteObject(bucketName,tempObjectName);
             }
  catch (            IOException ex) {
@@ -144,7 +148,7 @@ synchronized (monitor) {
             assert(WalrusDataMessage.isData(dataMessage));
             byte[] data=dataMessage.getPayload();
             try {
-              storageManager.putObject(bucketName,tempObjectName,data,true);
+              fileIO.write(data);
             }
  catch (            IOException ex) {
               LOG.error(ex);
