@@ -1,0 +1,35 @@
+{
+  LOG.fatal(this.getClass().getSimpleName() + ": " + channelEvent);
+  if (channelEvent instanceof MessageEvent) {
+    Object o=((MessageEvent)channelEvent).getMessage();
+    if (o instanceof MappingHttpRequest) {
+      MappingHttpRequest httpRequest=(MappingHttpRequest)o;
+      StAXOMBuilder doomBuilder=new StAXOMBuilder(DOOMAbstractFactory.getOMFactory(),httpRequest.getEnvelope().getXMLStreamReader());
+      OMElement elem=doomBuilder.getDocumentElement();
+      elem.build();
+      Document doc=((Element)elem).getOwnerDocument();
+      Vector v=new Vector();
+      WSSecHeader wsheader=new WSSecHeader("",false);
+      wsheader.insertSecurityHeader(doc);
+      WSSecSignature signer=new WSSecSignature();
+      signer.setKeyIdentifierType(WSConstants.BST_DIRECT_REFERENCE);
+      signer.setSigCanonicalization(WSConstants.C14N_EXCL_OMIT_COMMENTS);
+      signer.prepare(doc,new CryptoProxy(),wsheader);
+      WSSecTimestamp ts=new WSSecTimestamp();
+      ts.setTimeToLive(300);
+      ts.prepare(doc);
+      ts.prependToHeader(wsheader);
+      v.add(new WSEncryptionPart(WSConstants.TIMESTAMP_TOKEN_LN,WSConstants.WSU_NS,"Content"));
+      v.add(new WSEncryptionPart(SOAP11Constants.BODY_LOCAL_NAME,SOAP11Constants.SOAP_ENVELOPE_NAMESPACE_URI,"Content"));
+      signer.appendBSTElementToHeader(wsheader);
+      signer.appendToHeader(wsheader);
+      signer.addReferencesToSign(v,wsheader);
+      signer.computeSignature();
+      StAXSOAPModelBuilder stAXSOAPModelBuilder=new StAXSOAPModelBuilder(elem.getXMLStreamReader(),null);
+      SOAPEnvelope envelope=stAXSOAPModelBuilder.getSOAPEnvelope();
+      envelope.build();
+      httpRequest.setEnvelope(envelope);
+    }
+  }
+  channelHandlerContext.sendDownstream(channelEvent);
+}
