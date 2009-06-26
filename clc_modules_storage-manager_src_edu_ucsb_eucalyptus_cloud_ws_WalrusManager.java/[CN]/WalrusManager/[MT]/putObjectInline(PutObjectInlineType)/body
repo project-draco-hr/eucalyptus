@@ -1,0 +1,97 @@
+{
+  PutObjectInlineResponseType reply=(PutObjectInlineResponseType)request.getReply();
+  String userId=request.getUserId();
+  String bucketName=request.getBucket();
+  String objectKey=request.getKey();
+  String md5="";
+  Long oldBucketSize=0L;
+  Date lastModified;
+  AccessControlListType accessControlList=request.getAccessControlList();
+  if (accessControlList == null) {
+    accessControlList=new AccessControlListType();
+  }
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    if (bucket.canWrite(userId)) {
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      ObjectInfo searchObjectInfo=new ObjectInfo();
+      searchObjectInfo.setBucketName(bucketName);
+      ObjectInfo foundObject=null;
+      List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+      for (      ObjectInfo objectInfo : objectInfos) {
+        if (objectInfo.getObjectKey().equals(objectKey)) {
+          if (!objectInfo.canWrite(userId)) {
+            db.rollback();
+            throw new AccessDeniedException(objectKey);
+          }
+          foundObject=objectInfo;
+          oldBucketSize=-foundObject.getSize();
+          break;
+        }
+      }
+      String objectName;
+      if (foundObject == null) {
+        foundObject=new ObjectInfo(bucketName,objectKey);
+        foundObject.setOwnerId(userId);
+        List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+        foundObject.addGrants(userId,grantInfos,accessControlList);
+        foundObject.setGrants(grantInfos);
+        objectName=objectKey.replaceAll("/","-") + Hashes.getRandom(4);
+        foundObject.setObjectName(objectName);
+        dbObject.add(foundObject);
+      }
+ else {
+        if (foundObject.canWriteACP(userId)) {
+          List<GrantInfo> grantInfos=foundObject.getGrants();
+          foundObject.addGrants(userId,grantInfos,accessControlList);
+        }
+        objectName=foundObject.getObjectName();
+      }
+      foundObject.setObjectKey(objectKey);
+      try {
+        byte[] base64Data=request.getBase64Data().getBytes();
+        foundObject.setObjectName(objectName);
+        FileIO fileIO=storageManager.prepareForWrite(bucketName,objectName);
+        fileIO.write(base64Data);
+        fileIO.finish();
+        md5=Hashes.getHexString(Hashes.Digest.MD5.get().digest(base64Data));
+        foundObject.setEtag(md5);
+        Long size=Long.parseLong(request.getContentLength());
+        foundObject.setSize(size);
+        if (WalrusProperties.shouldEnforceUsageLimits && !request.isAdministrator()) {
+          Long bucketSize=bucket.getBucketSize();
+          long newSize=bucketSize + oldBucketSize + size;
+          if (newSize > WalrusProperties.MAX_BUCKET_SIZE) {
+            db.rollback();
+            throw new EntityTooLargeException(objectKey);
+          }
+          bucket.setBucketSize(newSize);
+        }
+        foundObject.replaceMetaData(request.getMetaData());
+        foundObject.setStorageClass("STANDARD");
+        lastModified=new Date();
+        foundObject.setLastModified(lastModified);
+      }
+ catch (      IOException ex) {
+        LOG.error(ex);
+        db.rollback();
+        throw new EucalyptusCloudException(bucketName);
+      }
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException(bucketName);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  reply.setEtag(md5);
+  reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+  return reply;
+}

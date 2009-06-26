@@ -1,0 +1,39 @@
+{
+  CacheImageResponseType reply=(CacheImageResponseType)request.getReply();
+  reply.setSuccess(false);
+  String bucketName=request.getBucket();
+  String manifestKey=request.getKey();
+  String userId=request.getUserId();
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,manifestKey);
+    List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+    if (objectInfos.size() > 0) {
+      ObjectInfo objectInfo=objectInfos.get(0);
+      if (objectInfo.canRead(userId)) {
+        EntityWrapper<ImageCacheInfo> db2=new EntityWrapper<ImageCacheInfo>();
+        ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,manifestKey);
+        List<ImageCacheInfo> foundImageCacheInfos=db2.query(searchImageCacheInfo);
+        db2.commit();
+        if ((foundImageCacheInfos.size() == 0) || (!imageCachers.containsKey(bucketName + manifestKey))) {
+          cacheImage(bucketName,manifestKey,userId,request.isAdministrator());
+          reply.setSuccess(true);
+        }
+        return reply;
+      }
+ else {
+        db.rollback();
+        throw new AccessDeniedException(manifestKey);
+      }
+    }
+ else {
+      throw new NoSuchEntityException(manifestKey);
+    }
+  }
+ else {
+    throw new NoSuchBucketException(bucketName);
+  }
+}

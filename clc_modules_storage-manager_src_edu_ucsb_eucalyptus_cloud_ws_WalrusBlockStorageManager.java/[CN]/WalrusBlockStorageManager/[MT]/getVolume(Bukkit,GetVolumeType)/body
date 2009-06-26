@@ -1,0 +1,60 @@
+{
+  GetVolumeResponseType reply=(GetVolumeResponseType)request.getReply();
+  if (!WalrusProperties.enableSnapshots) {
+    LOG.warn("Snapshots not enabled. Please check pre-conditions and restart Walrus.");
+    return reply;
+  }
+  String snapshotId=request.getKey();
+  String userId=request.getUserId();
+  EntityWrapper<WalrusSnapshotInfo> db=new EntityWrapper<WalrusSnapshotInfo>();
+  WalrusSnapshotInfo snapshotInfo=new WalrusSnapshotInfo(snapshotId);
+  List<WalrusSnapshotInfo> snapshotInfos=db.query(snapshotInfo);
+  if (snapshotInfos.size() > 0) {
+    WalrusSnapshotInfo foundSnapshotInfo=snapshotInfos.get(0);
+    String snapshotSetId=foundSnapshotInfo.getSnapshotSetId();
+    EntityWrapper<WalrusSnapshotSet> dbSet=db.recast(WalrusSnapshotSet.class);
+    WalrusSnapshotSet snapSet=new WalrusSnapshotSet(snapshotSetId);
+    List<WalrusSnapshotSet> snapshotSets=dbSet.query(snapSet);
+    if (snapshotSets.size() > 0) {
+      WalrusSnapshotSet snapshotSet=snapshotSets.get(0);
+      List<WalrusSnapshotInfo> snapshots=snapshotSet.getSnapshotSet();
+      ArrayList<String> snapshotIds=new ArrayList<String>();
+      ArrayList<String> vgNames=new ArrayList<String>();
+      ArrayList<String> lvNames=new ArrayList<String>();
+      for (      WalrusSnapshotInfo snap : snapshots) {
+        snapshotIds.add(snap.getSnapshotId());
+        vgNames.add(snap.getVgName());
+        lvNames.add(snap.getLvName());
+      }
+      String volumeKey=storageManager.createVolume(snapshotSetId,snapshotIds,vgNames,lvNames,snapshotId,foundSnapshotInfo.getVgName(),foundSnapshotInfo.getLvName());
+      bukkit.AddObject(userId,snapshotSetId,volumeKey);
+      GetObjectType getObjectType=new GetObjectType();
+      getObjectType.setUserId(request.getUserId());
+      getObjectType.setGetData(true);
+      getObjectType.setInlineData(false);
+      getObjectType.setGetMetaData(false);
+      getObjectType.setBucket(snapshotSetId);
+      getObjectType.setKey(volumeKey);
+      getObjectType.setIsCompressed(true);
+      getObjectType.setDeleteAfterGet(true);
+      db.commit();
+      GetObjectResponseType getObjectResponse=bukkit.GetObject(getObjectType);
+      reply.setEtag(getObjectResponse.getEtag());
+      reply.setLastModified(getObjectResponse.getLastModified());
+      reply.setSize(getObjectResponse.getSize());
+      request.setRandomKey(getObjectType.getRandomKey());
+      request.setBucket(snapshotSetId);
+      request.setKey(volumeKey);
+      request.setIsCompressed(true);
+    }
+ else {
+      db.rollback();
+      throw new EucalyptusCloudException("Could not find snapshot set");
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchSnapshotException(snapshotId);
+  }
+  return reply;
+}

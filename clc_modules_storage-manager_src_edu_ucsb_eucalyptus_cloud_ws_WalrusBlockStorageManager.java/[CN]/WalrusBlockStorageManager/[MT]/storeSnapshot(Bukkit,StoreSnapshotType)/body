@@ -1,0 +1,94 @@
+{
+  StoreSnapshotResponseType reply=(StoreSnapshotResponseType)request.getReply();
+  if (!WalrusProperties.enableSnapshots) {
+    LOG.warn("Snapshots not enabled. Please check pre-conditions and restart Walrus.");
+    return reply;
+  }
+  String snapshotId=request.getKey();
+  String bucketName=request.getBucket();
+  String snapshotVgName=request.getSnapshotvgname();
+  String snapshotLvName=request.getSnapshotlvname();
+  boolean createBucket=true;
+  EntityWrapper<WalrusSnapshotSet> db=new EntityWrapper<WalrusSnapshotSet>();
+  WalrusSnapshotSet snapshotSet=new WalrusSnapshotSet(bucketName);
+  List<WalrusSnapshotSet> snapshotSets=db.query(snapshotSet);
+  WalrusSnapshotSet foundSnapshotSet;
+  if (snapshotSets.size() == 0) {
+    foundSnapshotSet=snapshotSet;
+    createBucket=true;
+    db.add(foundSnapshotSet);
+  }
+ else {
+    foundSnapshotSet=snapshotSets.get(0);
+  }
+  List<WalrusSnapshotInfo> snapshotInfos=foundSnapshotSet.getSnapshotSet();
+  EntityWrapper<WalrusSnapshotInfo> dbSnap=db.recast(WalrusSnapshotInfo.class);
+  WalrusSnapshotInfo snapshotInfo=new WalrusSnapshotInfo(snapshotId);
+  List<WalrusSnapshotInfo> snapInfos=dbSnap.query(snapshotInfo);
+  if (snapInfos.size() > 0) {
+    snapshotInfo=snapInfos.get(0);
+    if (snapshotInfo.getTransferred()) {
+      db.rollback();
+      throw new EntityAlreadyExistsException(snapshotId);
+    }
+  }
+ else {
+    snapshotInfos.add(snapshotInfo);
+    dbSnap.add(snapshotInfo);
+  }
+  snapshotInfo.setSnapshotSetId(bucketName);
+  snapshotInfo.setVgName(snapshotVgName);
+  snapshotInfo.setLvName(snapshotLvName);
+  snapshotInfo.setTransferred(false);
+  String userId=request.getUserId();
+  if (createBucket) {
+    CreateBucketType createBucketRequest=new CreateBucketType();
+    createBucketRequest.setUserId(userId);
+    createBucketRequest.setBucket(bucketName);
+    try {
+      bukkit.CreateBucket(createBucketRequest);
+    }
+ catch (    EucalyptusCloudException ex) {
+      if (!(ex instanceof BucketAlreadyExistsException || ex instanceof BucketAlreadyOwnedByYouException)) {
+        db.rollback();
+        throw ex;
+      }
+    }
+  }
+  PutObjectType putObjectRequest=new PutObjectType();
+  putObjectRequest.setUserId(userId);
+  putObjectRequest.setBucket(bucketName);
+  putObjectRequest.setKey(snapshotId);
+  putObjectRequest.setRandomKey(request.getRandomKey());
+  try {
+    PutObjectResponseType putObjectResponseType=bukkit.PutObject(putObjectRequest);
+    reply.setEtag(putObjectResponseType.getEtag());
+    reply.setLastModified(putObjectResponseType.getLastModified());
+    reply.setStatusMessage(putObjectResponseType.getStatusMessage());
+    int snapshotSize=(int)(putObjectResponseType.getSize() / WalrusProperties.G);
+    if (WalrusProperties.shouldEnforceUsageLimits) {
+      int totalSnapshotSize=0;
+      WalrusSnapshotInfo snapInfo=new WalrusSnapshotInfo();
+      List<WalrusSnapshotInfo> sInfos=dbSnap.query(snapInfo);
+      for (      WalrusSnapshotInfo sInfo : sInfos) {
+        totalSnapshotSize+=sInfo.getSize();
+      }
+      if ((totalSnapshotSize + snapshotSize) > WalrusProperties.MAX_TOTAL_SNAPSHOT_SIZE) {
+        db.rollback();
+        throw new EntityTooLargeException(snapshotId);
+      }
+    }
+    db.commit();
+    snapshotInfo=new WalrusSnapshotInfo(snapshotId);
+    dbSnap=new EntityWrapper<WalrusSnapshotInfo>();
+    WalrusSnapshotInfo foundSnapshotInfo=dbSnap.getUnique(snapshotInfo);
+    foundSnapshotInfo.setSize(snapshotSize);
+    foundSnapshotInfo.setTransferred(true);
+    dbSnap.commit();
+  }
+ catch (  EucalyptusCloudException ex) {
+    db.rollback();
+    throw ex;
+  }
+  return reply;
+}
