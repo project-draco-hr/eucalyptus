@@ -1,0 +1,39 @@
+{
+  EntityWrapper<LVMVolumeInfo> db=new EntityWrapper<LVMVolumeInfo>();
+  LVMVolumeInfo volumeInfo=new LVMVolumeInfo();
+  List<LVMVolumeInfo> volumeInfos=db.query(volumeInfo);
+  for (  LVMVolumeInfo foundVolumeInfo : volumeInfos) {
+    String loDevName=foundVolumeInfo.getLoDevName();
+    String loFileName=foundVolumeInfo.getVolumeId();
+    String absoluteLoFileName=StorageProperties.storageRootDirectory + PATH_SEPARATOR + loFileName;
+    String returnValue=getLoopback(loDevName);
+    if (returnValue.length() <= 0) {
+      createLoopback(absoluteLoFileName,loDevName);
+    }
+  }
+  for (  LVMVolumeInfo foundVolumeInfo : volumeInfos) {
+    int pid=foundVolumeInfo.getVbladePid();
+    if (pid > 0) {
+      String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + foundVolumeInfo.getVgName()+ PATH_SEPARATOR+ foundVolumeInfo.getLvName();
+      enableLogicalVolume(absoluteLVName);
+      String returnValue=aoeStatus(pid);
+      if (returnValue.length() == 0) {
+        int majorNumber=foundVolumeInfo.getMajorNumber();
+        int minorNumber=foundVolumeInfo.getMinorNumber();
+        pid=exportManager.exportVolume(StorageProperties.iface,absoluteLVName,majorNumber,minorNumber);
+        foundVolumeInfo.setVbladePid(pid);
+        File vbladePidFile=new File(eucaHome + EUCA_VAR_RUN_PATH + "/vblade-"+ majorNumber+ minorNumber+ ".pid");
+        try {
+          FileOutputStream fileOutStream=new FileOutputStream(vbladePidFile);
+          String pidString=String.valueOf(pid);
+          fileOutStream.write(pidString.getBytes());
+          fileOutStream.close();
+        }
+ catch (        Exception ex) {
+          LOG.error("Could not write pid file vblade-" + majorNumber + minorNumber+ ".pid");
+        }
+      }
+    }
+  }
+  db.commit();
+}

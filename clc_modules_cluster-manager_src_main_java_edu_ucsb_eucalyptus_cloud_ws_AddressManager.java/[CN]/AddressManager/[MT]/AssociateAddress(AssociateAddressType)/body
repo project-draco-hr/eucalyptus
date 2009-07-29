@@ -1,0 +1,54 @@
+{
+  AddressManager.updateAddressingMode();
+  AssociateAddressResponseType reply=(AssociateAddressResponseType)request.getReply();
+  reply.set_return(false);
+  LOG.debug("Associate: " + request.getPublicIp() + " => "+ request.getInstanceId());
+  Address address=null;
+  try {
+    address=Addresses.getInstance().lookup(request.getPublicIp());
+  }
+ catch (  NoSuchElementException e) {
+    return reply;
+  }
+  LOG.debug("Found address: " + address);
+  VmInstance vm=null;
+  try {
+    vm=VmInstances.getInstance().lookup(request.getInstanceId());
+  }
+ catch (  NoSuchElementException e) {
+    return reply;
+  }
+  LOG.debug("Found vm: " + vm);
+  if (!request.isAdministrator() && !(request.getUserId().equals(address.getUserId()) && request.getUserId().equals(vm.getOwnerId())))   return reply;
+  reply.set_return(true);
+  if (!vm.getNetworkConfig().getIpAddress().equals(vm.getNetworkConfig().getIgnoredPublicIp()) && !VmInstance.DEFAULT_IP.equals(vm.getNetworkConfig().getIgnoredPublicIp())) {
+    String currentPublicIp=vm.getNetworkConfig().getIgnoredPublicIp();
+    try {
+      Address currentAddr=Addresses.getInstance().lookup(currentPublicIp);
+      boolean release=EucalyptusProperties.NAME.equals(currentAddr.getUserId()) && EucalyptusProperties.getSystemConfiguration().isDoDynamicPublicAddresses();
+      LOG.debug("Dispatching unassign message for: " + address);
+      AddressManager.unassignAddressFromVm(currentAddr,vm);
+      if (release) {
+        AddressManager.releaseAddress(currentAddr);
+      }
+    }
+ catch (    NoSuchElementException e) {
+      return reply;
+    }
+  }
+  if (address.isAssigned() && address.getUserId().equals(request.getUserId()) && !address.isPending()) {
+    LOG.debug("Dispatching unassign message for: " + address);
+    try {
+      VmInstance oldVm=VmInstances.getInstance().lookup(address.getInstanceId());
+      AddressManager.unassignAddressFromVm(address,oldVm);
+      AddressManager.tryAssignSystemAddress(oldVm);
+      if (!EucalyptusProperties.disableNetworking) {
+      }
+    }
+ catch (    NoSuchElementException e) {
+      LOG.error(e,e);
+    }
+  }
+  AddressManager.assignAddressToVm(address,vm);
+  return reply;
+}

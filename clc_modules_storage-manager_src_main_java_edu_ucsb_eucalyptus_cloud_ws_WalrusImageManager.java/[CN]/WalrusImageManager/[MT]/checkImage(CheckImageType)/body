@@ -1,0 +1,36 @@
+{
+  CheckImageResponseType reply=(CheckImageResponseType)request.getReply();
+  reply.setSuccess(false);
+  String bucketName=request.getBucket();
+  String objectKey=request.getKey();
+  String userId=request.getUserId();
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+    List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+    if (objectInfos.size() > 0) {
+      ObjectInfo objectInfo=objectInfos.get(0);
+      if (objectInfo.canRead(userId)) {
+        checkManifest(bucketName,objectKey,userId);
+        reply.setSuccess(true);
+        db.commit();
+        return reply;
+      }
+ else {
+        db.rollback();
+        throw new AccessDeniedException(objectKey);
+      }
+    }
+ else {
+      db.rollback();
+      throw new NoSuchEntityException(objectKey);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+}

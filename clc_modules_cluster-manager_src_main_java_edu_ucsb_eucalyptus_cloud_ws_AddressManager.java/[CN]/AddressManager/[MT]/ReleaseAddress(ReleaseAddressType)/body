@@ -1,0 +1,29 @@
+{
+  AddressManager.updateAddressingMode();
+  ReleaseAddressResponseType reply=(ReleaseAddressResponseType)request.getReply();
+  reply.set_return(false);
+  Address address=null;
+  try {
+    address=Addresses.getInstance().lookup(request.getPublicIp());
+    if (!request.isAdministrator() && !address.getUserId().equals(request.getUserId()))     return reply;
+    if (address.isAssigned() && !address.isPending()) {
+      try {
+        VmInstance oldVm=VmInstances.getInstance().lookup(address.getInstanceId());
+        AddressManager.unassignAddressFromVm(address,oldVm);
+        AddressManager.tryAssignSystemAddress(oldVm);
+      }
+ catch (      NoSuchElementException e) {
+      }
+    }
+    if (EucalyptusProperties.NAME.equals(address.getUserId()) && !EucalyptusProperties.getSystemConfiguration().isDoDynamicPublicAddresses()) {
+      LOG.debug("Not de-allocating system owned address in static public addressing mode: " + address.getName());
+      return reply;
+    }
+    AddressManager.releaseAddress(address);
+    reply.set_return(true);
+  }
+ catch (  NoSuchElementException e) {
+    return reply;
+  }
+  return reply;
+}

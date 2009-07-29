@@ -1,0 +1,27 @@
+{
+  DeleteWalrusSnapshotResponseType reply=(DeleteWalrusSnapshotResponseType)request.getReply();
+  if (!WalrusProperties.enableSnapshots) {
+    LOG.warn("Snapshots not enabled. Please check pre-conditions and restart Walrus.");
+    return reply;
+  }
+  String snapshotId=request.getKey();
+  EntityWrapper<WalrusSnapshotInfo> db=new EntityWrapper<WalrusSnapshotInfo>();
+  WalrusSnapshotInfo snapshotInfo=new WalrusSnapshotInfo(snapshotId);
+  List<WalrusSnapshotInfo> snapshotInfos=db.query(snapshotInfo);
+  ArrayList<String> vgNames=new ArrayList<String>();
+  ArrayList<String> lvNames=new ArrayList<String>();
+  ArrayList<String> snapIdsToDelete=new ArrayList<String>();
+  reply.set_return(true);
+  if (snapshotInfos.size() > 0) {
+    WalrusSnapshotInfo foundSnapshotInfo=snapshotInfos.get(0);
+    db.delete(foundSnapshotInfo);
+    db.commit();
+    SnapshotDeleter snapshotDeleter=new SnapshotDeleter(request.getUserId(),foundSnapshotInfo.getSnapshotBucket(),snapshotId);
+    snapshotDeleter.start();
+  }
+ else {
+    db.rollback();
+    throw new NoSuchSnapshotException(snapshotId);
+  }
+  return reply;
+}

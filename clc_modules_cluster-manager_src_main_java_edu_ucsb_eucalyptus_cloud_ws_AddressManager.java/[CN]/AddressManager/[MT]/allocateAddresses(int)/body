@@ -1,0 +1,50 @@
+{
+  boolean doDynamic=true;
+  updateAddressingMode();
+  try {
+    doDynamic=EucalyptusProperties.getSystemConfiguration().isDoDynamicPublicAddresses();
+  }
+ catch (  EucalyptusCloudException e) {
+  }
+  NavigableSet<String> ipList=Sets.newTreeSet();
+  List<Address> addressList=Lists.newArrayList();
+  if (doDynamic) {
+    ConcurrentNavigableMap<String,Address> unusedAddresses=Addresses.getInstance().getDisabledMap();
+    if (unusedAddresses.size() < count)     throw new NotEnoughResourcesAvailable();
+    for (int i=0; i < count; i++) {
+      Map.Entry<String,Address> addressEntry=unusedAddresses.pollFirstEntry();
+      if (addressEntry != null) {
+        Address addr=addressEntry.getValue();
+        addressList.add(addr);
+        ipList.add(addr.getName());
+      }
+ else {
+        for (        Address a : addressList) {
+          unusedAddresses.putIfAbsent(a.getName(),a);
+        }
+        throw new NotEnoughResourcesAvailable();
+      }
+    }
+  }
+ else {
+    List<Address> allocatedAddresses=Addresses.getInstance().listValues();
+    for (    Address addr : allocatedAddresses) {
+      if (!addr.isAssigned() && !addr.isPending() && EucalyptusProperties.NAME.equals(addr.getUserId())) {
+        Addresses.getInstance().deregister(addr.getName());
+        ipList.add(addr.getName());
+        addressList.add(addr);
+        if (addressList.size() >= count)         break;
+      }
+    }
+    if (addressList.size() < count) {
+      for (      Address putBackAddr : addressList) {
+        Addresses.getInstance().register(putBackAddr);
+      }
+      throw new NotEnoughResourcesAvailable();
+    }
+  }
+  for (  Address address : addressList) {
+    assignSystemPublicAddress(address);
+  }
+  return ipList;
+}

@@ -1,0 +1,48 @@
+{
+  DescribeImageAttributeResponseType reply=(DescribeImageAttributeResponseType)request.getReply();
+  reply.setImageId(request.getImageId());
+  if (request.getAttribute() != null)   request.applyAttribute();
+  EntityWrapper<ImageInfo> db=new EntityWrapper<ImageInfo>();
+  try {
+    ImageInfo imgInfo=db.getUnique(new ImageInfo(request.getImageId()));
+    if (!imgInfo.isAllowed(db.recast(UserInfo.class).getUnique(new UserInfo(request.getUserId()))))     throw new EucalyptusCloudException("image attribute: not authorized.");
+    if (request.getKernel() != null) {
+      reply.setRealResponse(reply.getKernel());
+      if (imgInfo.getKernelId() != null) {
+        reply.getKernel().add(imgInfo.getKernelId());
+      }
+    }
+ else     if (request.getRamdisk() != null) {
+      reply.setRealResponse(reply.getRamdisk());
+      if (imgInfo.getRamdiskId() != null) {
+        reply.getRamdisk().add(imgInfo.getRamdiskId());
+      }
+    }
+ else     if (request.getLaunchPermission() != null) {
+      reply.setRealResponse(reply.getLaunchPermission());
+      for (      UserGroupInfo userGroup : imgInfo.getUserGroups())       reply.getLaunchPermission().add(LaunchPermissionItemType.getGroup(userGroup.getName()));
+      for (      UserInfo user : imgInfo.getPermissions())       reply.getLaunchPermission().add(LaunchPermissionItemType.getUser(user.getUserName()));
+    }
+ else     if (request.getProductCodes() != null) {
+      reply.setRealResponse(reply.getProductCodes());
+      for (      ProductCode p : imgInfo.getProductCodes()) {
+        reply.getProductCodes().add(p.getValue());
+      }
+    }
+ else     if (request.getBlockDeviceMapping() != null) {
+      reply.setRealResponse(reply.getBlockDeviceMapping());
+      reply.getBlockDeviceMapping().add(EMI);
+      reply.getBlockDeviceMapping().add(EPHEMERAL);
+      reply.getBlockDeviceMapping().add(SWAP);
+      reply.getBlockDeviceMapping().add(ROOT);
+    }
+ else {
+      throw new EucalyptusCloudException("invalid image attribute request.");
+    }
+  }
+ catch (  EucalyptusCloudException e) {
+    db.commit();
+    throw e;
+  }
+  return reply;
+}

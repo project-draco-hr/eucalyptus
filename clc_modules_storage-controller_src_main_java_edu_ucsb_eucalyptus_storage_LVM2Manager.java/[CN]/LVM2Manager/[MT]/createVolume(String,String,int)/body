@@ -1,0 +1,49 @@
+{
+  EntityWrapper<LVMVolumeInfo> db=new EntityWrapper<LVMVolumeInfo>();
+  LVMVolumeInfo lvmVolumeInfo=new LVMVolumeInfo(snapshotId);
+  LVMVolumeInfo foundSnapshotInfo=db.getUnique(lvmVolumeInfo);
+  if (foundSnapshotInfo != null) {
+    String status=foundSnapshotInfo.getStatus();
+    if (status.equals(StorageProperties.Status.available.toString())) {
+      String vgName="vg-" + Hashes.getRandom(4);
+      String lvName="lv-" + Hashes.getRandom(4);
+      lvmVolumeInfo=new LVMVolumeInfo();
+      String rawFileName=StorageProperties.storageRootDirectory + "/" + volumeId;
+      File snapshotFile=new File(StorageProperties.storageRootDirectory + PATH_SEPARATOR + foundSnapshotInfo.getVolumeId());
+      assert(snapshotFile.exists());
+      long absoluteSize=snapshotFile.length() + LVM_HEADER_LENGTH;
+      size=(int)(snapshotFile.length() / StorageProperties.GB);
+      String loDevName=createLoopback(rawFileName,absoluteSize);
+      createLogicalVolume(loDevName,vgName,lvName);
+      String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
+      duplicateLogicalVolume(foundSnapshotInfo.getLoDevName(),absoluteLVName);
+      try {
+        int vbladePid=exportVolume(lvmVolumeInfo,vgName,lvName);
+        if (vbladePid < 0) {
+          throw new EucalyptusCloudException();
+        }
+      }
+ catch (      EucalyptusCloudException ex) {
+        String returnValue=removeLogicalVolume(absoluteLVName);
+        returnValue=removeVolumeGroup(vgName);
+        returnValue=removePhysicalVolume(loDevName);
+        removeLoopback(loDevName);
+        throw ex;
+      }
+      lvmVolumeInfo.setVolumeId(volumeId);
+      lvmVolumeInfo.setLoDevName(loDevName);
+      lvmVolumeInfo.setPvName(loDevName);
+      lvmVolumeInfo.setVgName(vgName);
+      lvmVolumeInfo.setLvName(lvName);
+      lvmVolumeInfo.setStatus(StorageProperties.Status.available.toString());
+      lvmVolumeInfo.setSize(size);
+      db.add(lvmVolumeInfo);
+      db.commit();
+    }
+  }
+ else {
+    db.rollback();
+    throw new EucalyptusCloudException();
+  }
+  return size;
+}

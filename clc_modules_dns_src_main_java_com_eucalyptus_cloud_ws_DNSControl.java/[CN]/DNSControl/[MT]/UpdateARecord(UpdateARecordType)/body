@@ -1,0 +1,47 @@
+{
+  UpdateARecordResponseType reply=(UpdateARecordResponseType)request.getReply();
+  String zone=request.getZone();
+  String name=request.getName();
+  String address=request.getAddress();
+  long ttl=request.getTtl();
+  EntityWrapper<ARecordInfo> db=new EntityWrapper<ARecordInfo>();
+  ARecordInfo aRecordInfo=new ARecordInfo();
+  aRecordInfo.setName(name);
+  List<ARecordInfo> arecords=db.query(aRecordInfo);
+  if (arecords.size() > 0) {
+    aRecordInfo=arecords.get(0);
+    if (!zone.equals(aRecordInfo.getZone())) {
+      db.rollback();
+      throw new EucalyptusCloudException("Sorry, record already associated with a zone. Remove the record and try again.");
+    }
+    aRecordInfo.setAddress(address);
+    aRecordInfo.setTtl(ttl);
+    try {
+      ARecord arecord=new ARecord(Name.fromString(name),DClass.IN,ttl,Address.getByAddress(address));
+      ZoneManager.updateARecord(zone,arecord);
+    }
+ catch (    Exception ex) {
+      LOG.error(ex);
+    }
+  }
+ else {
+    try {
+      ARecordInfo searchARecInfo=new ARecordInfo();
+      searchARecInfo.setZone(zone);
+      ARecord record=new ARecord(new Name(name),DClass.IN,ttl,Address.getByAddress(address));
+      ZoneManager.addRecord(zone,record);
+      aRecordInfo=new ARecordInfo();
+      aRecordInfo.setName(name);
+      aRecordInfo.setAddress(address);
+      aRecordInfo.setTtl(ttl);
+      aRecordInfo.setZone(zone);
+      aRecordInfo.setRecordclass(DClass.IN);
+      db.add(aRecordInfo);
+    }
+ catch (    Exception ex) {
+      LOG.error(ex);
+    }
+  }
+  db.commit();
+  return reply;
+}

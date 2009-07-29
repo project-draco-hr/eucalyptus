@@ -1,0 +1,63 @@
+{
+  try {
+    String instanceId=runVm.getInstanceId(), reservationId=runVm.getReservationId(), ownerId=runVm.getOwnerId(), placement=cluster, userData=runVm.getUserData();
+    int launchIndex=0;
+    try {
+      launchIndex=Integer.parseInt(runVm.getLaunchIndex());
+    }
+ catch (    NumberFormatException e) {
+    }
+    VmImageInfo imgInfo=null;
+    try {
+      imgInfo=(VmImageInfo)Messaging.send("vm://ImageResolve",runVm);
+    }
+ catch (    EucalyptusCloudException e) {
+      imgInfo=new VmImageInfo(runVm.getImageId(),runVm.getKernelId(),runVm.getRamdiskId(),null,null,null,null);
+    }
+    VmKeyInfo keyInfo=null;
+    try {
+      keyInfo=(VmKeyInfo)Messaging.send("vm://KeyPairResolve",runVm);
+    }
+ catch (    EucalyptusCloudException e) {
+      keyInfo=new VmKeyInfo("unknown",runVm.getKeyValue(),null);
+    }
+    VmTypeInfo vmType=runVm.getInstanceType();
+    List<Network> networks=new ArrayList<Network>();
+    for (    String netName : runVm.getGroupNames())     try {
+      Network notwork=Networks.getInstance().lookup(runVm.getOwnerId() + "-" + netName);
+      networks.add(notwork);
+      try {
+        NetworkToken netToken=Clusters.getInstance().lookup(runVm.getPlacement()).getState().extantAllocation(runVm.getOwnerId(),netName,runVm.getNetParams().getVlan());
+        notwork.addTokenIfAbsent(netToken);
+      }
+ catch (      NetworkAlreadyExistsException e) {
+        LOG.error(e);
+      }
+    }
+ catch (    NoSuchElementException e1) {
+      try {
+        Network notwork=SystemState.getUserNetwork(runVm.getOwnerId(),netName);
+        networks.add(notwork);
+        NetworkToken netToken=Clusters.getInstance().lookup(runVm.getPlacement()).getState().extantAllocation(runVm.getOwnerId(),netName,runVm.getNetParams().getVlan());
+        notwork.addTokenIfAbsent(netToken);
+        Networks.getInstance().register(notwork);
+      }
+ catch (      EucalyptusCloudException e) {
+        LOG.error(e);
+        SystemState.dispatch(runVm.getPlacement(),new TerminateCallback(),Admin.makeMsg(TerminateInstancesType.class,runVm.getInstanceId()));
+      }
+catch (      NetworkAlreadyExistsException e) {
+        LOG.error(e);
+      }
+    }
+    VmInstance vm=new VmInstance(reservationId,launchIndex,instanceId,ownerId,placement,userData,imgInfo,keyInfo,vmType,networks);
+    vm.setLaunchTime(runVm.getLaunchTime());
+    vm.getNetworkConfig().setIgnoredPublicIp(VmInstance.DEFAULT_IP);
+    vm.setKeyInfo(keyInfo);
+    vm.setImageInfo(imgInfo);
+    VmInstances.getInstance().register(vm);
+  }
+ catch (  NoSuchElementException e) {
+    SystemState.dispatch(runVm.getPlacement(),new TerminateCallback(),Admin.makeMsg(TerminateInstancesType.class,runVm.getInstanceId()));
+  }
+}
