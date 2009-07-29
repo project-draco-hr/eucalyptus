@@ -1,0 +1,100 @@
+{
+  GetObjectExtendedResponseType reply=(GetObjectExtendedResponseType)request.getReply();
+  Long byteRangeStart=request.getByteRangeStart();
+  if (byteRangeStart == null) {
+    byteRangeStart=0L;
+  }
+  Long byteRangeEnd=request.getByteRangeEnd();
+  if (byteRangeEnd == null) {
+    byteRangeEnd=-1L;
+  }
+  Date ifModifiedSince=request.getIfModifiedSince();
+  Date ifUnmodifiedSince=request.getIfUnmodifiedSince();
+  String ifMatch=request.getIfMatch();
+  String ifNoneMatch=request.getIfNoneMatch();
+  boolean returnCompleteObjectOnFailure=request.getReturnCompleteObjectOnConditionFailure();
+  String bucketName=request.getBucket();
+  String objectKey=request.getKey();
+  String userId=request.getUserId();
+  Status status=new Status();
+  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+    List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+    if (objectInfos.size() > 0) {
+      ObjectInfo objectInfo=objectInfos.get(0);
+      if (objectInfo.canRead(userId)) {
+        String etag=objectInfo.getEtag();
+        String objectName=objectInfo.getObjectName();
+        if (ifMatch != null) {
+          if (!ifMatch.equals(etag) && !returnCompleteObjectOnFailure) {
+            db.rollback();
+            throw new PreconditionFailedException(etag);
+          }
+        }
+        if (ifNoneMatch != null) {
+          if (ifNoneMatch.equals(etag) && !returnCompleteObjectOnFailure) {
+            db.rollback();
+            throw new NotModifiedException(etag);
+          }
+        }
+        Date lastModified=objectInfo.getLastModified();
+        if (ifModifiedSince != null) {
+          if ((ifModifiedSince.getTime() >= lastModified.getTime()) && !returnCompleteObjectOnFailure) {
+            db.rollback();
+            throw new NotModifiedException(lastModified.toString());
+          }
+        }
+        if (ifUnmodifiedSince != null) {
+          if ((ifUnmodifiedSince.getTime() < lastModified.getTime()) && !returnCompleteObjectOnFailure) {
+            db.rollback();
+            throw new PreconditionFailedException(lastModified.toString());
+          }
+        }
+        if (request.getGetMetaData()) {
+          ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
+          objectInfo.returnMetaData(metaData);
+          reply.setMetaData(metaData);
+        }
+        if (request.getGetData()) {
+          String key=bucketName + "." + objectKey;
+          String randomKey=key + "." + Hashes.getRandom(10);
+          request.setRandomKey(randomKey);
+          LinkedBlockingQueue<WalrusDataMessage> getQueue=null;
+          ObjectReader reader=new ObjectReader(bucketName,objectName,objectInfo.getSize(),getQueue,byteRangeStart,byteRangeEnd,storageManager);
+          reader.start();
+        }
+        reply.setEtag(objectInfo.getEtag());
+        reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+        if (byteRangeEnd > -1) {
+          if (byteRangeEnd <= objectInfo.getSize() && ((byteRangeEnd - byteRangeStart) > 0))           reply.setSize(byteRangeEnd - byteRangeStart);
+ else           reply.setSize(0L);
+        }
+ else {
+          reply.setSize(objectInfo.getSize());
+        }
+        status.setCode(200);
+        status.setDescription("OK");
+        reply.setContentType("binary/octet-stream");
+        reply.setStatus(status);
+      }
+ else {
+        db.rollback();
+        throw new AccessDeniedException(objectKey);
+      }
+    }
+ else {
+      db.rollback();
+      throw new NoSuchEntityException(objectKey);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  return reply;
+}

@@ -1,0 +1,35 @@
+{
+  final String operationName=httpRequest.getParameters().containsKey(OperationParameter.Action.toString()) ? httpRequest.getParameters().get(OperationParameter.Action.toString()) : httpRequest.getParameters().get(OperationParameter.Operation.toString());
+  for (  OperationParameter op : OperationParameter.values())   httpRequest.getParameters().remove(op.name());
+  final Map<String,String> params=httpRequest.getParameters();
+  int paramSize=params.size();
+  OMElement msg=null;
+  EucalyptusMessage eucaMsg=null;
+  Map<String,String> fieldMap=null;
+  Class targetType=null;
+  try {
+    targetType=Class.forName("edu.ucsb.eucalyptus.msgs.".concat(operationName).concat("Type"));
+    fieldMap=this.buildFieldMap(targetType);
+    eucaMsg=(EucalyptusMessage)targetType.newInstance();
+  }
+ catch (  Exception e) {
+    throw new BindingException("Failed to construct message of type " + operationName);
+  }
+  List<String> failedMappings=populateObject((GroovyObject)eucaMsg,fieldMap,params);
+  if (!failedMappings.isEmpty() || !params.isEmpty()) {
+    StringBuilder errMsg=new StringBuilder("Failed to bind the following fields:\n");
+    for (    String f : failedMappings)     errMsg.append(f).append('\n');
+    for (    Map.Entry<String,String> f : params.entrySet())     errMsg.append(f.getKey()).append(" = ").append(f.getValue()).append('\n');
+    throw new BindingException(errMsg.toString());
+  }
+  eucaMsg.setUserId(userId);
+  eucaMsg.setEffectiveUserId(admin ? "eucalyptus" : userId);
+  try {
+    Binding binding=BindingManager.getBinding(BindingManager.sanitizeNamespace("http://msgs.eucalyptus.ucsb.edu"));
+    msg=binding.toOM(eucaMsg);
+  }
+ catch (  RuntimeException e) {
+    throw new BindingException("Failed to build a valid message: " + e.getMessage());
+  }
+  return eucaMsg;
+}

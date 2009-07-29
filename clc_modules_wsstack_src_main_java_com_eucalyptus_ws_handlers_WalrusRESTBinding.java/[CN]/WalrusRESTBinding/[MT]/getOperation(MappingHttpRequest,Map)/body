@@ -1,0 +1,277 @@
+{
+  String[] target=null;
+  String path=getOperationPath(httpRequest);
+  boolean walrusInternalOperation=false;
+  if (path.length() > 0) {
+    target=getTarget(path);
+  }
+  String verb=httpRequest.getMethod().getName();
+  String operationKey="";
+  Map<String,String> params=httpRequest.getParameters();
+  String operationName=null;
+  long contentLength=0;
+  String contentLengthString=httpRequest.getHeader(WalrusProperties.CONTENT_LEN);
+  if (contentLengthString != null) {
+    contentLength=Long.parseLong(contentLengthString);
+  }
+  if (httpRequest.containsHeader(StorageProperties.EUCALYPTUS_OPERATION)) {
+    String value=httpRequest.getHeader(StorageProperties.EUCALYPTUS_OPERATION);
+    for (    WalrusProperties.WalrusInternalOperations operation : WalrusProperties.WalrusInternalOperations.values()) {
+      if (value.toLowerCase().equals(operation.toString().toLowerCase())) {
+        operationName=operation.toString();
+        walrusInternalOperation=true;
+        break;
+      }
+    }
+    if (!walrusInternalOperation) {
+      for (      WalrusProperties.StorageOperations operation : WalrusProperties.StorageOperations.values()) {
+        if (value.toLowerCase().equals(operation.toString().toLowerCase())) {
+          operationName=operation.toString();
+          walrusInternalOperation=true;
+          break;
+        }
+      }
+    }
+  }
+  if (target == null) {
+    operationKey=SERVICE + verb;
+  }
+ else   if (target.length < 2) {
+    if (!target[0].equals("")) {
+      operationKey=BUCKET + verb;
+      operationParams.put("Bucket",target[0]);
+      if (verb.equals(WalrusProperties.HTTPVerb.POST.toString())) {
+        Map<String,String> formFields=processPOSTParams(httpRequest);
+        String objectKey=null;
+        String file="";
+        String authenticationHeader="";
+        formFields.put(WalrusProperties.FormField.bucket.toString(),target[0]);
+        if (formFields.containsKey(WalrusProperties.FormField.key.toString())) {
+          objectKey=formFields.get(WalrusProperties.FormField.key.toString());
+          objectKey=objectKey.replaceAll("\\$\\{filename\\}",file);
+        }
+        if (formFields.containsKey(WalrusProperties.FormField.acl.toString())) {
+          String acl=formFields.get(WalrusProperties.FormField.acl.toString());
+          httpRequest.addHeader(WalrusProperties.AMZ_ACL,acl);
+        }
+        if (formFields.containsKey(WalrusProperties.FormField.success_action_redirect.toString())) {
+          String successActionRedirect=formFields.get(WalrusProperties.FormField.success_action_redirect.toString());
+          operationParams.put("SuccessActionRedirect",successActionRedirect);
+        }
+        if (formFields.containsKey(WalrusProperties.FormField.success_action_status.toString())) {
+          Integer successActionStatus=Integer.parseInt(formFields.get(WalrusProperties.FormField.success_action_status.toString()));
+          if (successActionStatus == 200 || successActionStatus == 201)           operationParams.put("SuccessActionStatus",successActionStatus);
+ else           operationParams.put("SuccessActionStatus",204);
+        }
+ else {
+          operationParams.put("SuccessActionStatus",204);
+        }
+        if (formFields.containsKey(WalrusProperties.FormField.policy.toString())) {
+          String policy=new String(Base64.decode(formFields.remove(WalrusProperties.FormField.policy.toString())));
+          String policyData;
+          try {
+            policyData=new String(Base64.encode(policy.getBytes()));
+          }
+ catch (          Exception ex) {
+            LOG.warn(ex,ex);
+            throw new BindingException("error reading policy data.");
+          }
+          try {
+            JsonSlurper jsonSlurper=new JsonSlurper();
+            JSONObject policyObject=(JSONObject)jsonSlurper.parseText(policy);
+            String expiration=(String)policyObject.get(WalrusProperties.PolicyHeaders.expiration.toString());
+            if (expiration != null) {
+              Date expirationDate=DateUtils.parseIso8601DateTimeOrDate(expiration);
+              if ((new Date()).getTime() > expirationDate.getTime()) {
+                LOG.warn("Policy has expired.");
+                throw new BindingException("Policy has expired.");
+              }
+            }
+            List<String> policyItemNames=new ArrayList<String>();
+            JSONArray conditions=(JSONArray)policyObject.get(WalrusProperties.PolicyHeaders.conditions.toString());
+            for (int i=0; i < conditions.size(); ++i) {
+              Object policyItem=conditions.get(i);
+              if (policyItem instanceof JSONObject) {
+                JSONObject jsonObject=(JSONObject)policyItem;
+                if (!exactMatch(jsonObject,formFields,policyItemNames)) {
+                  LOG.warn("Policy verification failed. ");
+                  throw new BindingException("Policy verification failed.");
+                }
+              }
+ else               if (policyItem instanceof JSONArray) {
+                JSONArray jsonArray=(JSONArray)policyItem;
+                if (!partialMatch(jsonArray,formFields,policyItemNames)) {
+                  LOG.warn("Policy verification failed. ");
+                  throw new BindingException("Policy verification failed.");
+                }
+              }
+            }
+            Set<String> formFieldsKeys=formFields.keySet();
+            for (            String formKey : formFieldsKeys) {
+              if (formKey.startsWith(WalrusProperties.IGNORE_PREFIX))               continue;
+              boolean fieldOkay=false;
+              for (              WalrusProperties.IgnoredFields field : WalrusProperties.IgnoredFields.values()) {
+                if (formKey.equals(field.toString().toLowerCase())) {
+                  fieldOkay=true;
+                  break;
+                }
+              }
+              if (fieldOkay)               continue;
+              if (policyItemNames.contains(formKey))               continue;
+              LOG.warn("All fields except those marked with x-ignore- should be in policy.");
+              throw new BindingException("All fields except those marked with x-ignore- should be in policy.");
+            }
+          }
+ catch (          Exception ex) {
+            LOG.warn(ex);
+            if (ex instanceof BindingException)             throw (BindingException)ex;
+          }
+          if (formFields.containsKey(WalrusProperties.FormField.AWSAccessKeyId.toString().toLowerCase())) {
+            String accessKeyId=formFields.remove(WalrusProperties.FormField.AWSAccessKeyId.toString().toLowerCase());
+            authenticationHeader+="AWS" + " " + accessKeyId + ":";
+          }
+          if (formFields.containsKey(WalrusProperties.FormField.signature.toString())) {
+            String signature=formFields.remove(WalrusProperties.FormField.signature.toString());
+            authenticationHeader+=signature;
+            httpRequest.addHeader(WalrusAuthenticationHandler.SecurityParameter.Authorization.toString(),authenticationHeader);
+          }
+          httpRequest.addHeader(WalrusProperties.FormField.FormUploadPolicyData.toString(),policyData);
+        }
+      }
+    }
+ else {
+      operationKey=SERVICE + verb;
+    }
+  }
+ else {
+    operationKey=OBJECT + verb;
+    String objectKey="";
+    String splitOn="";
+    for (int i=1; i < target.length; ++i) {
+      objectKey+=splitOn + target[i];
+      splitOn="/";
+    }
+    operationParams.put("Bucket",target[0]);
+    operationParams.put("Key",objectKey);
+    if (!params.containsKey(WalrusProperties.OperationParameter.acl.toString())) {
+      if (verb.equals(WalrusProperties.HTTPVerb.PUT.toString())) {
+        if (httpRequest.containsHeader(WalrusProperties.COPY_SOURCE.toString())) {
+          String copySource=httpRequest.getHeader(WalrusProperties.COPY_SOURCE.toString());
+          String[] sourceTarget=getTarget(copySource);
+          String sourceObjectKey="";
+          String sourceSplitOn="";
+          if (sourceTarget.length > 1) {
+            for (int i=1; i < sourceTarget.length; ++i) {
+              sourceObjectKey+=sourceSplitOn + sourceTarget[i];
+              sourceSplitOn="/";
+            }
+            operationParams.put("SourceBucket",sourceTarget[0]);
+            operationParams.put("SourceObject",sourceObjectKey);
+            operationParams.put("DestinationBucket",operationParams.remove("Bucket"));
+            operationParams.put("DestinationObject",operationParams.remove("Key"));
+            String metaDataDirective=httpRequest.getHeader(WalrusProperties.METADATA_DIRECTIVE.toString());
+            if (metaDataDirective != null) {
+              operationParams.put("MetadataDirective",metaDataDirective);
+            }
+            AccessControlListType accessControlList;
+            if (contentLength > 0) {
+              accessControlList=null;
+              accessControlList=getAccessControlList(httpRequest);
+            }
+ else {
+              accessControlList=new AccessControlListType();
+            }
+            operationParams.put("AccessControlList",accessControlList);
+            operationKey+=WalrusProperties.COPY_SOURCE.toString();
+            Set<String> headerNames=httpRequest.getHeaderNames();
+            for (            String key : headerNames) {
+              for (              WalrusProperties.CopyHeaders header : WalrusProperties.CopyHeaders.values()) {
+                if (key.replaceAll("-","").equals(header.toString().toLowerCase())) {
+                  String value=httpRequest.getHeader(key);
+                  parseExtendedHeaders(operationParams,header.toString(),value);
+                }
+              }
+            }
+          }
+ else {
+            throw new BindingException("Malformed COPY request");
+          }
+        }
+ else {
+          String key=target[0] + "." + objectKey;
+          String randomKey=key + "." + Hashes.getRandom(10);
+          putQ=new LinkedBlockingQueue<String>();
+          try {
+            putQ.put("hi");
+          }
+ catch (          InterruptedException ex) {
+            LOG.warn(ex,ex);
+          }
+          String contentType=httpRequest.getHeader(WalrusProperties.CONTENT_TYPE);
+          if (contentType != null)           operationParams.put("ContentType",contentType);
+          String contentDisposition=httpRequest.getHeader("Content-Disposition");
+          if (contentDisposition != null)           operationParams.put("ContentDisposition",contentDisposition);
+          operationParams.put("ContentLength",(new Long(contentLength).toString()));
+          operationParams.put(WalrusProperties.Headers.RandomKey.toString(),randomKey);
+        }
+      }
+ else       if (verb.equals(WalrusProperties.HTTPVerb.GET.toString())) {
+      }
+ else       if (verb.equals(WalrusProperties.HTTPVerb.HEAD.toString())) {
+        if (!walrusInternalOperation) {
+          operationParams.put("GetData",Boolean.FALSE);
+          operationParams.put("InlineData",Boolean.FALSE);
+          operationParams.put("GetMetaData",Boolean.TRUE);
+        }
+      }
+    }
+  }
+  if (verb.equals(WalrusProperties.HTTPVerb.PUT.toString()) && params.containsKey(WalrusProperties.OperationParameter.acl.toString())) {
+    operationParams.put("AccessControlPolicy",getAccessControlPolicy(httpRequest));
+  }
+  ArrayList paramsToRemove=new ArrayList();
+  boolean addMore=true;
+  Iterator iterator=params.keySet().iterator();
+  while (iterator.hasNext()) {
+    Object key=iterator.next();
+    String keyString=key.toString().toLowerCase();
+    boolean dontIncludeParam=false;
+    for (    WalrusAuthenticationHandler.SecurityParameter securityParam : WalrusAuthenticationHandler.SecurityParameter.values()) {
+      if (keyString.equals(securityParam.toString().toLowerCase())) {
+        dontIncludeParam=true;
+        break;
+      }
+    }
+    if (dontIncludeParam)     continue;
+    String value=params.get(key);
+    if (value != null) {
+      String[] keyStringParts=keyString.split("-");
+      if (keyStringParts.length > 1) {
+        keyString="";
+        for (int i=0; i < keyStringParts.length; ++i) {
+          keyString+=toUpperFirst(keyStringParts[i]);
+        }
+      }
+ else {
+        keyString=toUpperFirst(keyString);
+      }
+      operationParams.put(keyString,value);
+    }
+    if (addMore) {
+      operationKey+=keyString.toLowerCase();
+      addMore=false;
+    }
+    paramsToRemove.add(key);
+  }
+  for (  Object key : paramsToRemove) {
+    params.remove(key);
+  }
+  if (!walrusInternalOperation) {
+    operationName=operationMap.get(operationKey);
+  }
+  if ("CreateBucket".equals(operationName)) {
+    String locationConstraint=getLocationConstraint(httpRequest);
+    if (locationConstraint != null)     operationParams.put("LocationConstraint",locationConstraint);
+  }
+  return operationName;
+}

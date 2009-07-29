@@ -1,0 +1,21 @@
+{
+  if (event.getMessage() instanceof MappingHttpResponse) {
+    MappingHttpResponse httpResponse=(MappingHttpResponse)event.getMessage();
+    LOG.error("Getting namespace=" + this.namespace);
+    Binding binding=BindingManager.getBinding(BindingManager.sanitizeNamespace(this.namespace));
+    ByteArrayOutputStream byteOut=new ByteArrayOutputStream();
+    if (httpResponse.getMessage() instanceof EucalyptusErrorMessageType) {
+      EucalyptusErrorMessageType errMsg=(EucalyptusErrorMessageType)httpResponse.getMessage();
+      Binding.createFault(errMsg.getSource(),errMsg.getMessage(),errMsg.getStatusMessage()).serialize(byteOut);
+    }
+ else {
+      OMElement omMsg=binding.toOM(httpResponse.getMessage(),this.namespace);
+      omMsg.serialize(byteOut);
+    }
+    byte[] req=byteOut.toByteArray();
+    ChannelBuffer buffer=ChannelBuffers.copiedBuffer(req);
+    httpResponse.addHeader(HttpHeaders.Names.CONTENT_LENGTH,String.valueOf(buffer.readableBytes()));
+    httpResponse.addHeader(HttpHeaders.Names.CONTENT_TYPE,"application/xml; charset=UTF-8");
+    httpResponse.setContent(buffer);
+  }
+}
