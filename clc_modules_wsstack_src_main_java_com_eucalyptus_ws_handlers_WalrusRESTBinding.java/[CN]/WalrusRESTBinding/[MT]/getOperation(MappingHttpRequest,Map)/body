@@ -207,11 +207,41 @@
           operationParams.put("ContentLength",(new Long(contentLength).toString()));
           operationParams.put(WalrusProperties.Headers.RandomKey.toString(),randomKey);
           putQueue=getWriteMessenger().interruptAllAndGetQueue(key,randomKey);
-          Writer writer=new Writer(httpRequest.getContent(),contentLength);
-          writer.start();
+          handleFirstChunk(httpRequest,contentLength);
         }
       }
  else       if (verb.equals(WalrusProperties.HTTPVerb.GET.toString())) {
+        if (!walrusInternalOperation) {
+          if (params.containsKey("torrent")) {
+            operationParams.put("GetTorrent",Boolean.TRUE);
+          }
+ else {
+            operationParams.put("GetData",Boolean.TRUE);
+            operationParams.put("InlineData",Boolean.FALSE);
+            operationParams.put("GetMetaData",Boolean.TRUE);
+          }
+          Set<String> headerNames=httpRequest.getHeaderNames();
+          boolean isExtendedGet=false;
+          for (          String key : headerNames) {
+            for (            WalrusProperties.ExtendedGetHeaders header : WalrusProperties.ExtendedGetHeaders.values()) {
+              if (key.replaceAll("-","").equals(header.toString().toLowerCase())) {
+                String value=httpRequest.getHeader(key);
+                isExtendedGet=true;
+                parseExtendedHeaders(operationParams,header.toString(),value);
+              }
+            }
+          }
+          if (isExtendedGet) {
+            operationKey+="extended";
+            operationParams.put("ReturnCompleteObjectOnConditionFailure",Boolean.FALSE);
+          }
+        }
+ else {
+        }
+        if (params.containsKey(WalrusProperties.GetOptionalParameters.IsCompressed.toString())) {
+          Boolean isCompressed=Boolean.parseBoolean(params.remove(WalrusProperties.GetOptionalParameters.IsCompressed.toString()));
+          operationParams.put("IsCompressed",isCompressed);
+        }
       }
  else       if (verb.equals(WalrusProperties.HTTPVerb.HEAD.toString())) {
         if (!walrusInternalOperation) {
