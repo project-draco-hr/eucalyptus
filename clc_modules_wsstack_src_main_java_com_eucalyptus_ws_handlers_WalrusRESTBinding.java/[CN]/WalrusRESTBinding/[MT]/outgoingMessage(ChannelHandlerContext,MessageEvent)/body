@@ -2,13 +2,13 @@
   if (event.getMessage() instanceof MappingHttpResponse) {
     MappingHttpResponse httpResponse=(MappingHttpResponse)event.getMessage();
     EucalyptusMessage msg=(EucalyptusMessage)httpResponse.getMessage();
-    if (msg instanceof GetObjectResponseType) {
+    if (false) {
       GetObjectResponseType getObjectResponse=(GetObjectResponseType)msg;
       Long size=getObjectResponse.getSize();
       String etag=getObjectResponse.getEtag();
       httpResponse.addHeader(HttpHeaders.Names.CONTENT_LENGTH,String.valueOf(size));
       httpResponse.addHeader(HttpHeaders.Names.CONTENT_TYPE,"binary/octet-stream");
-      Channel channel=event.getChannel();
+      Channel channel=ctx.getChannel();
       channel.write(httpResponse);
       WalrusDataMessenger messenger=getReadMessenger();
       LinkedBlockingQueue<WalrusDataMessage> getQueue=messenger.getQueue(getObjectType.getKey(),getObjectType.getRandomKey());
@@ -19,9 +19,11 @@
           }
  else           if (WalrusDataMessage.isData(dataMessage)) {
             byte[] data=dataMessage.getPayload();
+            LOG.warn("writing data message");
             channel.write(data);
           }
  else {
+            return;
           }
         }
       }
@@ -31,14 +33,18 @@
     }
  else {
       Binding binding=BindingManager.getBinding(BindingManager.sanitizeNamespace(namespace));
-      OMElement omMsg=binding.toOM(httpResponse.getMessage());
-      ByteArrayOutputStream byteOut=new ByteArrayOutputStream();
-      omMsg.serialize(byteOut);
-      byte[] req=byteOut.toByteArray();
-      ChannelBuffer buffer=ChannelBuffers.copiedBuffer(req);
-      httpResponse.addHeader(HttpHeaders.Names.CONTENT_LENGTH,String.valueOf(buffer.readableBytes()));
-      httpResponse.addHeader(HttpHeaders.Names.CONTENT_TYPE,"text/plain");
-      httpResponse.setContent(buffer);
+      if (httpResponse.getMessage() != null) {
+        if (!(httpResponse.getMessage() instanceof GetObjectResponseType)) {
+          OMElement omMsg=binding.toOM(httpResponse.getMessage());
+          ByteArrayOutputStream byteOut=new ByteArrayOutputStream();
+          omMsg.serialize(byteOut);
+          byte[] req=byteOut.toByteArray();
+          ChannelBuffer buffer=ChannelBuffers.copiedBuffer(req);
+          httpResponse.addHeader(HttpHeaders.Names.CONTENT_LENGTH,String.valueOf(buffer.readableBytes()));
+          httpResponse.addHeader(HttpHeaders.Names.CONTENT_TYPE,"text/plain");
+          httpResponse.setContent(buffer);
+        }
+      }
     }
   }
 }
