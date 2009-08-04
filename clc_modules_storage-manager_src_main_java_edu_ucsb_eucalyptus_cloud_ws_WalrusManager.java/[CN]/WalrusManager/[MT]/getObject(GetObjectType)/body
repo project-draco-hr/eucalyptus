@@ -20,11 +20,12 @@
       ObjectInfo objectInfo=objectInfos.get(0);
       if (objectInfo.canRead(userId)) {
         String objectName=objectInfo.getObjectName();
+        MappingHttpResponse httpResponse=new MappingHttpResponse(HttpVersion.HTTP_1_1);
         if (getMetaData) {
-          ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
-          objectInfo.returnMetaData(metaData);
-          reply.setMetaData(metaData);
-          reply.setMetaData(metaData);
+          List<MetaDataInfo> metaDataInfos=objectInfo.getMetaData();
+          for (          MetaDataInfo metaDataInfo : metaDataInfos) {
+            httpResponse.addHeader(WalrusProperties.AMZ_META_HEADER_PREFIX + metaDataInfo.getName(),metaDataInfo.getValue());
+          }
         }
         if (getTorrent) {
           if (objectInfo.isGlobalRead()) {
@@ -66,7 +67,7 @@
             File torrent=new File(torrentFilePath);
             if (torrent.exists()) {
               long torrentLength=torrent.length();
-              sendObject(request.getChannel(),bucketName,torrentFile,torrentLength,null,DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN),null,null,request.getIsCompressed());
+              sendObject(request.getChannel(),httpResponse,bucketName,torrentFile,torrentLength,null,DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN),null,null,request.getIsCompressed());
               reply.setEtag("");
               reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN));
               reply.setSize(torrentLength);
@@ -107,8 +108,11 @@
             }
           }
  else {
-            sendObject(request.getChannel(),bucketName,objectName,objectInfo.getSize(),objectInfo.getEtag(),DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),objectInfo.getContentType(),objectInfo.getContentDisposition(),request.getIsCompressed());
+            sendObject(request.getChannel(),httpResponse,bucketName,objectName,objectInfo.getSize(),objectInfo.getEtag(),DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),objectInfo.getContentType(),objectInfo.getContentDisposition(),request.getIsCompressed());
           }
+        }
+ else {
+          sendHeaders(request.getChannel(),httpResponse,objectInfo.getSize(),objectInfo.getEtag(),DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),objectInfo.getContentType(),objectInfo.getContentDisposition());
         }
         reply.setEtag(objectInfo.getEtag());
         reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"));

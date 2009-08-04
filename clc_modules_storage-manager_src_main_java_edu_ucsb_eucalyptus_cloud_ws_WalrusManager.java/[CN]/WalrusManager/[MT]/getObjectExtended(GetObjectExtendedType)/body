@@ -29,6 +29,7 @@
       if (objectInfo.canRead(userId)) {
         String etag=objectInfo.getEtag();
         String objectName=objectInfo.getObjectName();
+        MappingHttpResponse httpResponse=new MappingHttpResponse(HttpVersion.HTTP_1_1);
         if (ifMatch != null) {
           if (!ifMatch.equals(etag) && !returnCompleteObjectOnFailure) {
             db.rollback();
@@ -55,12 +56,16 @@
           }
         }
         if (request.getGetMetaData()) {
-          ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
-          objectInfo.returnMetaData(metaData);
-          reply.setMetaData(metaData);
+          List<MetaDataInfo> metaDataInfos=objectInfo.getMetaData();
+          for (          MetaDataInfo metaDataInfo : metaDataInfos) {
+            httpResponse.addHeader(WalrusProperties.AMZ_META_HEADER_PREFIX + metaDataInfo.getName(),metaDataInfo.getValue());
+          }
         }
         if (request.getGetData()) {
-          sendObject(request.getChannel(),bucketName,objectName,objectInfo.getSize(),objectInfo.getEtag(),DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),objectInfo.getContentType(),objectInfo.getContentDisposition(),request.getIsCompressed());
+          sendObject(request.getChannel(),httpResponse,bucketName,objectName,objectInfo.getSize(),objectInfo.getEtag(),DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),objectInfo.getContentType(),objectInfo.getContentDisposition(),request.getIsCompressed());
+        }
+ else {
+          sendHeaders(request.getChannel(),httpResponse,objectInfo.getSize(),objectInfo.getEtag(),DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),objectInfo.getContentType(),objectInfo.getContentDisposition());
         }
         reply.setEtag(objectInfo.getEtag());
         reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
