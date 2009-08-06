@@ -1,30 +1,15 @@
 {
   LOG.debug(this.getClass().getSimpleName() + "[incoming]: " + e);
   if (e instanceof MessageEvent) {
+    this.startTime=System.currentTimeMillis();
     final MessageEvent event=(MessageEvent)e;
     if (event.getMessage() instanceof MappingHttpMessage) {
-      MappingHttpMessage message=(MappingHttpMessage)event.getMessage();
-      EucalyptusMessage msg=(EucalyptusMessage)message.getMessage();
+      MappingHttpMessage request=(MappingHttpMessage)event.getMessage();
+      requestLocal.set(ctx.getChannel(),request);
+      EucalyptusMessage msg=(EucalyptusMessage)request.getMessage();
       LOG.info(EventRecord.create(this.getClass().getSimpleName(),msg.getUserId(),msg.getCorrelationId(),EventType.MSG_RECEIVED,msg.getClass().getSimpleName()));
-      long startTime=System.currentTimeMillis();
-      if (msg instanceof PutObjectType) {
-        Dispatcher dispatch=new Dispatcher(ctx,msg,message,startTime);
-        dispatch.start();
-      }
- else {
-        Messaging.dispatch("vm://RequestQueue",msg);
-        EucalyptusMessage reply=null;
-        reply=ReplyQueue.getReply(msg.getCorrelationId());
-        LOG.info(EventRecord.create(this.getClass().getSimpleName(),msg.getUserId(),msg.getCorrelationId(),EventType.MSG_SERVICED,(System.currentTimeMillis() - startTime)));
-        if (reply == null) {
-          reply=new EucalyptusErrorMessageType(this.getClass().getSimpleName(),msg,"Received a NULL reply");
-        }
-        MappingHttpResponse response=new MappingHttpResponse(message.getProtocolVersion());
-        response.setMessage(reply);
-        if (!(reply instanceof WalrusDataGetResponseType)) {
-          Channels.write(ctx.getChannel(),response);
-        }
-      }
+      ReplyQueue.addReplyListener(msg.getCorrelationId(),ctx);
+      Messaging.dispatch("vm://RequestQueue",msg);
     }
   }
 }
