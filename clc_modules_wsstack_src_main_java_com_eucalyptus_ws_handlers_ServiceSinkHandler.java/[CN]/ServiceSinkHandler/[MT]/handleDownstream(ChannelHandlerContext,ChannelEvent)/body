@@ -1,18 +1,24 @@
 {
-  if (e instanceof MessageEvent && ((MessageEvent)e).getMessage() instanceof EucalyptusMessage) {
-    MappingHttpMessage request=requestLocal.get(ctx.getChannel());
-    EucalyptusMessage reply=(EucalyptusMessage)((MessageEvent)e).getMessage();
-    if (reply == null) {
-      LOG.warn("Received a null response: " + request.getMessageString());
-      reply=new EucalyptusErrorMessageType(this.getClass().getSimpleName(),(EucalyptusMessage)request.getMessage(),"Received a NULL reply");
+  if (e instanceof MessageEvent) {
+    MessageEvent msge=(MessageEvent)e;
+    if (msge instanceof IsData) {
+      ctx.sendDownstream(msge);
     }
-    LOG.info(EventRecord.create(this.getClass().getSimpleName(),reply.getUserId(),reply.getCorrelationId(),EventType.MSG_SERVICED,(System.currentTimeMillis() - startTime)));
-    MappingHttpResponse response=new MappingHttpResponse(request.getProtocolVersion());
-    DownstreamMessageEvent newEvent=new DownstreamMessageEvent(ctx.getChannel(),e.getFuture(),response,null);
-    response.setMessage(reply);
-    if (!(reply instanceof WalrusDataGetResponseType)) {
-      ctx.sendDownstream(newEvent);
-      newEvent.getFuture().addListener(ChannelFutureListener.CLOSE);
+ else     if (msge instanceof EucalyptusMessage) {
+      MappingHttpMessage request=requestLocal.get(ctx.getChannel());
+      EucalyptusMessage reply=(EucalyptusMessage)((MessageEvent)e).getMessage();
+      if (reply == null) {
+        LOG.warn("Received a null response: " + request.getMessageString());
+        reply=new EucalyptusErrorMessageType(this.getClass().getSimpleName(),(EucalyptusMessage)request.getMessage(),"Received a NULL reply");
+      }
+      LOG.info(EventRecord.create(this.getClass().getSimpleName(),reply.getUserId(),reply.getCorrelationId(),EventType.MSG_SERVICED,(System.currentTimeMillis() - startTime)));
+      if (!(reply instanceof WalrusDataGetResponseType)) {
+        MappingHttpResponse response=new MappingHttpResponse(request.getProtocolVersion());
+        DownstreamMessageEvent newEvent=new DownstreamMessageEvent(ctx.getChannel(),e.getFuture(),response,null);
+        response.setMessage(reply);
+        ctx.sendDownstream(newEvent);
+        newEvent.getFuture().addListener(ChannelFutureListener.CLOSE);
+      }
     }
   }
 }
