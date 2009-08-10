@@ -1,0 +1,29 @@
+{
+  final SecurityTokenReference secRef=WSSecurity.getSecurityTokenReference(sig.getKeyInfo());
+  final Reference tokenRef=secRef.getReference();
+  Element bstDirect=WSSecurityUtil.getElementByWsuId(securityNode.getOwnerDocument(),tokenRef.getURI());
+  if (bstDirect == null) {
+    bstDirect=WSSecurityUtil.getElementByGenId(securityNode.getOwnerDocument(),tokenRef.getURI());
+    if (bstDirect == null) {
+      throw new WSSecurityException(WSSecurityException.INVALID_SECURITY,"noCert");
+    }
+  }
+  BinarySecurity token=new BinarySecurity(bstDirect);
+  String type=token.getValueType();
+  X509Security x509=null;
+  X509Certificate cert=null;
+  try {
+    x509=new X509Security(bstDirect);
+    byte[] bstToken=x509.getToken();
+    CertificateFactory factory=getCertificateFactory();
+    cert=(X509Certificate)factory.generateCertificate(new ByteArrayInputStream(bstToken));
+  }
+ catch (  Exception e) {
+    LOG.error(e,e);
+    throw new WSSecurityException(WSSecurityException.UNSUPPORTED_SECURITY_TOKEN,"unsupportedBinaryTokenType",new Object[]{type});
+  }
+  if (!sig.checkSignatureValue(cert)) {
+    throw new WSSecurityException(WSSecurityException.FAILED_CHECK);
+  }
+  return cert;
+}
