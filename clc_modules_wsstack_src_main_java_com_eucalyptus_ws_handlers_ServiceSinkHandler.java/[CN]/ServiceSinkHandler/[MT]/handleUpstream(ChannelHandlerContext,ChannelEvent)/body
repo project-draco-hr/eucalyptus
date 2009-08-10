@@ -6,16 +6,21 @@
     if (event.getMessage() instanceof MappingHttpMessage) {
       MappingHttpMessage request=(MappingHttpMessage)event.getMessage();
       User user=request.getUser();
-      if (user != null) {
-        EucalyptusMessage msg=(EucalyptusMessage)request.getMessage();
-        msg.setUserId(user.getUserName());
-        msg.setEffectiveUserId(user.getIsAdministrator() ? "eucalyptus" : user.getUserName());
-      }
       requestLocal.set(ctx.getChannel(),request);
       EucalyptusMessage msg=(EucalyptusMessage)request.getMessage();
+      if (user != null && msgReceiver == null) {
+        msg.setUserId(user.getUserName());
+        msg.setEffectiveUserId(user.getIsAdministrator() ? EucalyptusProperties.NAME : user.getUserName());
+      }
       LOG.info(EventRecord.create(this.getClass().getSimpleName(),msg.getUserId(),msg.getCorrelationId(),EventType.MSG_RECEIVED,msg.getClass().getSimpleName()));
-      ReplyQueue.addReplyListener(msg.getCorrelationId(),ctx);
-      Messaging.dispatch("vm://RequestQueue",msg);
+      if (this.msgReceiver == null) {
+        ReplyQueue.addReplyListener(msg.getCorrelationId(),ctx);
+        Messaging.dispatch("vm://RequestQueue",msg);
+      }
+ else       if (user == null) {
+        MuleMessage reply=this.msgReceiver.routeMessage(new DefaultMuleMessage(this.msgReceiver.getConnector().getMessageAdapter(msg)),true);
+        ctx.getChannel().write(reply.getPayload());
+      }
     }
   }
 }
