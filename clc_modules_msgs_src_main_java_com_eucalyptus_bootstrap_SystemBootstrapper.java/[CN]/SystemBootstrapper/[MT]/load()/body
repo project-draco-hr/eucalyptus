@@ -1,6 +1,5 @@
 {
   LOG.info("Looking for Eucalyptus components in: " + BaseDirectory.LIB.toString());
-  List<ConfigResource> confs=Lists.newArrayList();
   File libDir=new File(BaseDirectory.LIB.toString());
   for (  File f : libDir.listFiles()) {
     if (f.getName().startsWith(EucalyptusProperties.NAME)) {
@@ -8,26 +7,48 @@
         JarFile jar=new JarFile(f);
         JarEntry entry=jar.getJarEntry(Bootstrapper.PROPERTIES);
         InputStream in=jar.getInputStream(entry);
-        LOG.info("Found eucalyptus jar: " + f.getName());
         Properties props=new Properties();
-        props.load(in);
+        Enumeration<JarEntry> jarList=jar.entries();
+        URLClassLoader classLoader=URLClassLoader.newInstance(new URL[]{f.getAbsoluteFile().toURL()});
+        LOG.info("Found eucalyptus component jar: " + f.getName());
+        while (jarList.hasMoreElements()) {
+          JarEntry j=jarList.nextElement();
+          if (j.getName().endsWith(".class")) {
+            String classGuess=j.getName().replaceAll("/",".").replaceAll(".class","");
+            Class c=classLoader.loadClass(classGuess);
+            if (Bootstrapper.class.isAssignableFrom(c)) {
+              try {
+                Bootstrapper b=(Bootstrapper)c.newInstance();
+                this.bootstrappers.add(b);
+                LOG.info("-> Registered bootsrapper instance: " + c.getSimpleName());
+              }
+ catch (              Exception e) {
+                LOG.info("-> Failed to create boostrapper instance: " + c.getSimpleName());
+              }
+            }
+          }
+        }
         LOG.info("-> Loaded properties...");
+        props.load(in);
         props.list(System.out);
         String servicesEntryPath=props.getProperty(Bootstrapper.SERVICES_PROPERTY);
         JarEntry servicesEntry=jar.getJarEntry(Bootstrapper.BASEDIR + servicesEntryPath);
         ConfigResource rsc=new ConfigResource(servicesEntryPath,jar.getInputStream(servicesEntry));
-        confs.add(rsc);
+        configs.add(rsc);
       }
  catch (      Exception e) {
-        LOG.info(e,e);
+        LOG.trace(e,e);
       }
     }
   }
   try {
     LOG.info("-> Configuring...");
-    confs.add(new ConfigResource("eucalyptus-bootstrap.xml"));
-    context=new DefaultMuleContextFactory().createMuleContext(new SpringXmlConfigurationBuilder(confs.toArray(new ConfigResource[]{})));
-    context.start();
+    configs.add(new ConfigResource("eucalyptus-bootstrap.xml"));
+    context=new DefaultMuleContextFactory().createMuleContext(new SpringXmlConfigurationBuilder(configs.toArray(new ConfigResource[]{})));
+    for (    Bootstrapper b : this.bootstrappers) {
+      LOG.info("-> Invoking bootsrapper " + b.getClass().getSimpleName() + ".load()");
+      b.load();
+    }
   }
  catch (  Exception e) {
     LOG.info(e,e);
