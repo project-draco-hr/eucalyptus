@@ -1,0 +1,64 @@
+{
+  int labels;
+  int tlabels;
+  Element element;
+  Name tname;
+  Object types;
+  SetResponse sr;
+  labels=name.labels();
+  for (tlabels=labels; tlabels >= 1; tlabels--) {
+    boolean isRoot=(tlabels == 1);
+    boolean isExact=(tlabels == labels);
+    if (isRoot)     tname=Name.root;
+ else     if (isExact)     tname=name;
+ else     tname=new Name(name,labels - tlabels);
+    types=data.get(tname);
+    if (types == null)     continue;
+    if (isExact && type == Type.ANY) {
+      sr=new SetResponse(SetResponse.SUCCESSFUL);
+      Element[] elements=allElements(types);
+      int added=0;
+      for (int i=0; i < elements.length; i++) {
+        element=elements[i];
+        if (element.expired()) {
+          removeElement(tname,element.getType());
+          continue;
+        }
+        if (!(element instanceof CacheRRset))         continue;
+        if (element.compareCredibility(minCred) < 0)         continue;
+        sr.addRRset((CacheRRset)element);
+        added++;
+      }
+      if (added > 0)       return sr;
+    }
+    if (isExact) {
+      element=oneElement(tname,types,type,minCred);
+      if (element != null && element instanceof CacheRRset) {
+        sr=new SetResponse(SetResponse.SUCCESSFUL);
+        sr.addRRset((CacheRRset)element);
+        return sr;
+      }
+ else       if (element != null) {
+        sr=new SetResponse(SetResponse.NXRRSET);
+        return sr;
+      }
+      element=oneElement(tname,types,Type.CNAME,minCred);
+      if (element != null && element instanceof CacheRRset) {
+        return new SetResponse(SetResponse.CNAME,(CacheRRset)element);
+      }
+    }
+ else {
+      element=oneElement(tname,types,Type.DNAME,minCred);
+      if (element != null && element instanceof CacheRRset) {
+        return new SetResponse(SetResponse.DNAME,(CacheRRset)element);
+      }
+    }
+    element=oneElement(tname,types,Type.NS,minCred);
+    if (element != null && element instanceof CacheRRset)     return new SetResponse(SetResponse.DELEGATION,(CacheRRset)element);
+    if (isExact) {
+      element=oneElement(tname,types,0,minCred);
+      if (element != null)       return SetResponse.ofType(SetResponse.NXDOMAIN);
+    }
+  }
+  return SetResponse.ofType(SetResponse.UNKNOWN);
+}

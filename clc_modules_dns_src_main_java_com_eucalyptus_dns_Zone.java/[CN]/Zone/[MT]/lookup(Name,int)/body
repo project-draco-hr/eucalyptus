@@ -1,0 +1,60 @@
+{
+  int labels;
+  int olabels;
+  int tlabels;
+  RRset rrset;
+  Name tname;
+  Object types;
+  SetResponse sr;
+  if (!name.subdomain(origin))   return SetResponse.ofType(SetResponse.NXDOMAIN);
+  labels=name.labels();
+  olabels=origin.labels();
+  for (tlabels=olabels; tlabels <= labels; tlabels++) {
+    boolean isOrigin=(tlabels == olabels);
+    boolean isExact=(tlabels == labels);
+    if (isOrigin)     tname=origin;
+ else     if (isExact)     tname=name;
+ else     tname=new Name(name,labels - tlabels);
+    types=exactName(tname);
+    if (types == null)     continue;
+    if (!isOrigin) {
+      RRset ns=oneRRset(types,Type.NS);
+      if (ns != null)       return new SetResponse(SetResponse.DELEGATION,ns);
+    }
+    if (isExact && type == Type.ANY) {
+      sr=new SetResponse(SetResponse.SUCCESSFUL);
+      RRset[] sets=allRRsets(types);
+      for (int i=0; i < sets.length; i++)       sr.addRRset(sets[i]);
+      return sr;
+    }
+    if (isExact) {
+      rrset=oneRRset(types,type);
+      if (rrset != null) {
+        sr=new SetResponse(SetResponse.SUCCESSFUL);
+        sr.addRRset(rrset);
+        return sr;
+      }
+      rrset=oneRRset(types,Type.CNAME);
+      if (rrset != null)       return new SetResponse(SetResponse.CNAME,rrset);
+    }
+ else {
+      rrset=oneRRset(types,Type.DNAME);
+      if (rrset != null)       return new SetResponse(SetResponse.DNAME,rrset);
+    }
+    if (isExact)     return SetResponse.ofType(SetResponse.NXRRSET);
+  }
+  if (hasWild) {
+    for (int i=0; i < labels - olabels; i++) {
+      tname=name.wild(i + 1);
+      types=exactName(tname);
+      if (types == null)       continue;
+      rrset=oneRRset(types,type);
+      if (rrset != null) {
+        sr=new SetResponse(SetResponse.SUCCESSFUL);
+        sr.addRRset(rrset);
+        return sr;
+      }
+    }
+  }
+  return SetResponse.ofType(SetResponse.NXDOMAIN);
+}

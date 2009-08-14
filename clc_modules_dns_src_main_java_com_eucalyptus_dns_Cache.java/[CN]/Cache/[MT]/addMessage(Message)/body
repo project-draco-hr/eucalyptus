@@ -1,0 +1,99 @@
+{
+  boolean isAuth=in.getHeader().getFlag(Flags.AA);
+  Record question=in.getQuestion();
+  Name qname;
+  Name curname;
+  int qtype;
+  int qclass;
+  int cred;
+  int rcode=in.getHeader().getRcode();
+  boolean completed=false;
+  RRset[] answers, auth, addl;
+  SetResponse response=null;
+  boolean verbose=Options.check("verbosecache");
+  HashSet additionalNames;
+  if ((rcode != Rcode.NOERROR && rcode != Rcode.NXDOMAIN) || question == null)   return null;
+  qname=question.getName();
+  qtype=question.getType();
+  qclass=question.getDClass();
+  curname=qname;
+  additionalNames=new HashSet();
+  answers=in.getSectionRRsets(Section.ANSWER);
+  for (int i=0; i < answers.length; i++) {
+    if (answers[i].getDClass() != qclass)     continue;
+    int type=answers[i].getType();
+    Name name=answers[i].getName();
+    cred=getCred(Section.ANSWER,isAuth);
+    if ((type == qtype || qtype == Type.ANY) && name.equals(curname)) {
+      addRRset(answers[i],cred);
+      completed=true;
+      if (curname == qname) {
+        if (response == null)         response=new SetResponse(SetResponse.SUCCESSFUL);
+        response.addRRset(answers[i]);
+      }
+      markAdditional(answers[i],additionalNames);
+    }
+ else     if (type == Type.CNAME && name.equals(curname)) {
+      CNAMERecord cname;
+      addRRset(answers[i],cred);
+      if (curname == qname)       response=new SetResponse(SetResponse.CNAME,answers[i]);
+      cname=(CNAMERecord)answers[i].first();
+      curname=cname.getTarget();
+    }
+ else     if (type == Type.DNAME && curname.subdomain(name)) {
+      DNAMERecord dname;
+      addRRset(answers[i],cred);
+      if (curname == qname)       response=new SetResponse(SetResponse.DNAME,answers[i]);
+      dname=(DNAMERecord)answers[i].first();
+      try {
+        curname=curname.fromDNAME(dname);
+      }
+ catch (      NameTooLongException e) {
+        break;
+      }
+    }
+  }
+  auth=in.getSectionRRsets(Section.AUTHORITY);
+  RRset soa=null, ns=null;
+  for (int i=0; i < auth.length; i++) {
+    if (auth[i].getType() == Type.SOA && curname.subdomain(auth[i].getName()))     soa=auth[i];
+ else     if (auth[i].getType() == Type.NS && curname.subdomain(auth[i].getName()))     ns=auth[i];
+  }
+  if (!completed) {
+    int cachetype=(rcode == Rcode.NXDOMAIN) ? 0 : qtype;
+    if (rcode == Rcode.NXDOMAIN || soa != null || ns == null) {
+      cred=getCred(Section.AUTHORITY,isAuth);
+      SOARecord soarec=null;
+      if (soa != null)       soarec=(SOARecord)soa.first();
+      addNegative(curname,cachetype,soarec,cred);
+      if (response == null) {
+        int responseType;
+        if (rcode == Rcode.NXDOMAIN)         responseType=SetResponse.NXDOMAIN;
+ else         responseType=SetResponse.NXRRSET;
+        response=SetResponse.ofType(responseType);
+      }
+    }
+ else {
+      cred=getCred(Section.AUTHORITY,isAuth);
+      addRRset(ns,cred);
+      markAdditional(ns,additionalNames);
+      if (response == null)       response=new SetResponse(SetResponse.DELEGATION,ns);
+    }
+  }
+ else   if (rcode == Rcode.NOERROR && ns != null) {
+    cred=getCred(Section.AUTHORITY,isAuth);
+    addRRset(ns,cred);
+    markAdditional(ns,additionalNames);
+  }
+  addl=in.getSectionRRsets(Section.ADDITIONAL);
+  for (int i=0; i < addl.length; i++) {
+    int type=addl[i].getType();
+    if (type != Type.A && type != Type.AAAA && type != Type.A6)     continue;
+    Name name=addl[i].getName();
+    if (!additionalNames.contains(name))     continue;
+    cred=getCred(Section.ADDITIONAL,isAuth);
+    addRRset(addl[i],cred);
+  }
+  if (verbose)   System.out.println("addMessage: " + response);
+  return (response);
+}
