@@ -2,6 +2,25 @@
   StoreSnapshotResponseType reply=(StoreSnapshotResponseType)request.getReply();
   String snapshotId=request.getKey();
   String bucketName=request.getBucket();
+  String snapSizeString=request.getSnapshotSize();
+  Long snapSize=0L;
+  if (snapSizeString != null) {
+    snapSize=Long.parseLong(snapSizeString);
+  }
+  if (WalrusProperties.shouldEnforceUsageLimits) {
+    int totalSnapshotSize=0;
+    WalrusSnapshotInfo snapInfo=new WalrusSnapshotInfo();
+    EntityWrapper<WalrusSnapshotInfo> db=new EntityWrapper<WalrusSnapshotInfo>();
+    List<WalrusSnapshotInfo> sInfos=db.query(snapInfo);
+    for (    WalrusSnapshotInfo sInfo : sInfos) {
+      totalSnapshotSize+=sInfo.getSize();
+    }
+    if ((totalSnapshotSize + (int)(snapSize / WalrusProperties.G)) > WalrusProperties.MAX_TOTAL_SNAPSHOT_SIZE) {
+      db.rollback();
+      throw new EntityTooLargeException(snapshotId);
+    }
+    db.commit();
+  }
   boolean createBucket=true;
   EntityWrapper<WalrusSnapshotInfo> db=new EntityWrapper<WalrusSnapshotInfo>();
   WalrusSnapshotInfo snapshotInfo=new WalrusSnapshotInfo(snapshotId);
@@ -38,20 +57,6 @@
     reply.setLastModified(putObjectResponseType.getLastModified());
     reply.setStatusMessage(putObjectResponseType.getStatusMessage());
     int snapshotSize=(int)(putObjectResponseType.getSize() / WalrusProperties.G);
-    if (WalrusProperties.shouldEnforceUsageLimits) {
-      int totalSnapshotSize=0;
-      WalrusSnapshotInfo snapInfo=new WalrusSnapshotInfo();
-      db=new EntityWrapper<WalrusSnapshotInfo>();
-      List<WalrusSnapshotInfo> sInfos=db.query(snapInfo);
-      for (      WalrusSnapshotInfo sInfo : sInfos) {
-        totalSnapshotSize+=sInfo.getSize();
-      }
-      if ((totalSnapshotSize + snapshotSize) > WalrusProperties.MAX_TOTAL_SNAPSHOT_SIZE) {
-        db.rollback();
-        throw new EntityTooLargeException(snapshotId);
-      }
-      db.commit();
-    }
     snapshotInfo=new WalrusSnapshotInfo(snapshotId);
     db=new EntityWrapper<WalrusSnapshotInfo>();
     snapshotInfo.setSnapshotBucket(bucketName);
