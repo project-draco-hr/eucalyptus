@@ -1,17 +1,18 @@
 {
-  if (null != getRequestHeader("expect") && getStatusCode() != HttpStatus.SC_CONTINUE) {
-    return false;
-  }
   InputStream inputStream;
   if (outFile != null) {
     inputStream=new FileInputStream(outFile);
-    GZIPOutputStream gzipOutStream=new GZIPOutputStream(conn.getRequestOutputStream());
+    ChunkedOutputStream chunkedOut=new ChunkedOutputStream(conn.getRequestOutputStream());
     byte[] buffer=new byte[StorageProperties.TRANSFER_CHUNK_SIZE];
     int bytesRead;
     int numberProcessed=0;
     long totalBytesProcessed=0;
     while ((bytesRead=inputStream.read(buffer)) > 0) {
-      gzipOutStream.write(buffer,0,bytesRead);
+      ByteArrayOutputStream out=new ByteArrayOutputStream();
+      GZIPOutputStream zip=new GZIPOutputStream(out);
+      zip.write(buffer,0,bytesRead);
+      zip.close();
+      chunkedOut.write(out.toByteArray());
       totalBytesProcessed+=bytesRead;
       if (++numberProcessed >= callback.getUpdateThreshold()) {
         callback.run();
@@ -24,8 +25,7 @@
  else {
       callback.failed();
     }
-    gzipOutStream.flush();
-    gzipOutStream.finish();
+    chunkedOut.finish();
     inputStream.close();
     if (deleteOnXfer) {
       snapshotStorageManager.deleteAbsoluteObject(outFile.getAbsolutePath());
