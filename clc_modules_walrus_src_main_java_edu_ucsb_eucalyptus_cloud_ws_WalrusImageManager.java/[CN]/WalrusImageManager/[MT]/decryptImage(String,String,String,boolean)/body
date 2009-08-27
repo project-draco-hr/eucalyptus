@@ -47,25 +47,21 @@
           }
         }
  else {
-          EntityWrapper<UserInfo> db2=new EntityWrapper<UserInfo>();
-          UserInfo userInfo=new UserInfo(userId);
-          List<UserInfo> foundUserInfos=db2.query(userInfo);
-          if (foundUserInfos.size() == 0) {
-            db2.rollback();
-            db.rollback();
-            throw new AccessDeniedException(userId);
-          }
-          List<CertificateInfo> certInfos=foundUserInfos.get(0).getCertificates();
           boolean signatureVerified=false;
-          for (          CertificateInfo certInfo : certInfos) {
-            String alias=certInfo.getCertAlias();
+          User user=null;
+          try {
+            user=UserCredentialProvider.getUser(userId);
+          }
+ catch (          NoSuchUserException e) {
+            throw new AccessDeniedException(userId,e);
+          }
+          for (          X509Cert certInfo : user.getCertificates()) {
             try {
-              X509Certificate cert=UserCredentialProvider.getCertificate(alias);
+              X509Certificate cert=X509Cert.toCertificate(certInfo);
               signatureVerified=canVerifySignature(sigVerifier,cert,signature,verificationString);
               if (signatureVerified)               break;
             }
  catch (            Exception ex) {
-              db2.rollback();
               db.rollback();
               LOG.error(ex,ex);
               throw new DecryptionFailedException("signature verification");
@@ -74,7 +70,6 @@
           if (!signatureVerified) {
             throw new NotAuthorizedException("Invalid signature");
           }
-          db2.commit();
         }
         List<String> parts=parser.getValues("//image/parts/part/filename");
         ArrayList<String> qualifiedPaths=new ArrayList<String>();
