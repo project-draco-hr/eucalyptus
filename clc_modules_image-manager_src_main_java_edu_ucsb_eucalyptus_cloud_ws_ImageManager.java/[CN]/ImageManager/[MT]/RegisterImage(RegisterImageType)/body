@@ -4,22 +4,20 @@
   if (imagePathParts.length != 2)   throw new EucalyptusCloudException("Image registration failed:  Invalid image location.");
   String userName=null;
   if (!request.isAdministrator()) {
-    GetBucketAccessControlPolicyType getBukkitInfo=Admin.makeMsg(GetBucketAccessControlPolicyType.class,request);
-    getBukkitInfo.setBucket(imagePathParts[0]);
-    GetBucketAccessControlPolicyResponseType reply=(GetBucketAccessControlPolicyResponseType)Messaging.send(WalrusProperties.WALRUS_REF,getBukkitInfo);
+    GetBucketAccessControlPolicyResponseType reply=WalrusProxy.getBucketAcl(request,imagePathParts);
     if (!request.getUserId().equals(reply.getAccessControlPolicy().getOwner().getDisplayName()))     throw new EucalyptusCloudException("Image registration failed: you must own the bucket containing the image.");
     userName=reply.getAccessControlPolicy().getOwner().getDisplayName();
   }
   ImageInfo imageInfo=new ImageInfo(imageLocation,request.getUserId(),"available",true);
   try {
-    this.verifyManifestIntegrity(imageInfo);
+    WalrusProxy.verifyManifestIntegrity(imageInfo);
   }
  catch (  EucalyptusCloudException e) {
     throw new EucalyptusCloudException("Image registration failed because the manifest referenced is invalid or unavailable.");
   }
   Document inputSource=null;
   try {
-    inputSource=ImageManager.getManifestData(request.getUserId(),imagePathParts[0],imagePathParts[1]);
+    inputSource=WalrusProxy.getManifestData(request.getUserId(),imagePathParts[0],imagePathParts[1]);
   }
  catch (  EucalyptusCloudException e) {
     throw e;
@@ -66,12 +64,12 @@
   if ("yes".equals(kernelId) || "true".equals(kernelId) || imagePathParts[1].startsWith("vmlinuz")) {
     if (!request.isAdministrator())     throw new EucalyptusCloudException("Only administrators can register kernel images.");
     imageInfo.setImageType(EucalyptusProperties.IMAGE_KERNEL);
-    imageInfo.setImageId(this.newImageId(EucalyptusProperties.IMAGE_KERNEL_PREFIX,imageInfo.getImageLocation()));
+    imageInfo.setImageId(ImageUtil.newImageId(EucalyptusProperties.IMAGE_KERNEL_PREFIX,imageInfo.getImageLocation()));
   }
  else   if ("yes".equals(ramdiskId) || "true".equals(ramdiskId) || imagePathParts[1].startsWith("initrd")) {
     if (!request.isAdministrator())     throw new EucalyptusCloudException("Only administrators can register ramdisk images.");
     imageInfo.setImageType(EucalyptusProperties.IMAGE_RAMDISK);
-    imageInfo.setImageId(this.newImageId(EucalyptusProperties.IMAGE_RAMDISK_PREFIX,imageInfo.getImageLocation()));
+    imageInfo.setImageId(ImageUtil.newImageId(EucalyptusProperties.IMAGE_RAMDISK_PREFIX,imageInfo.getImageLocation()));
   }
  else {
     if (kernelId != null) {
@@ -93,7 +91,7 @@
     imageInfo.setImageType(EucalyptusProperties.IMAGE_MACHINE);
     imageInfo.setKernelId(kernelId);
     imageInfo.setRamdiskId(ramdiskId);
-    imageInfo.setImageId(this.newImageId(EucalyptusProperties.IMAGE_MACHINE_PREFIX,imageInfo.getImageLocation()));
+    imageInfo.setImageId(ImageUtil.newImageId(EucalyptusProperties.IMAGE_MACHINE_PREFIX,imageInfo.getImageLocation()));
   }
   String signature=null;
   try {
@@ -118,8 +116,8 @@
     throw e;
   }
   LOG.info("Triggering cache population in Walrus for: " + imageInfo.getId());
-  imageInfo.checkValid();
-  imageInfo.triggerCaching();
+  WalrusProxy.checkValid(imageInfo);
+  WalrusProxy.triggerCaching(imageInfo);
   RegisterImageResponseType reply=(RegisterImageResponseType)request.getReply();
   reply.setImageId(imageInfo.getImageId());
   return reply;
