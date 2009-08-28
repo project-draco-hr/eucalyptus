@@ -5,19 +5,19 @@
   String userName=request.isAdministrator() ? null : request.getUserId();
   try {
     Volume vol=db.getUnique(Volume.named(userName,request.getVolumeId()));
-    boolean isAttached=false;
     for (    VmInstance vm : VmInstances.getInstance().listValues()) {
       for (      AttachedVolume attachedVol : vm.getVolumes()) {
         if (request.getVolumeId().equals(attachedVol.getVolumeId())) {
-          isAttached=true;
+          db.rollback();
+          return reply;
         }
       }
     }
-    if (isAttached)     return reply;
-    if (!vol.getState().equals(State.ANNILATED)) {
-      StorageProxy.dispatch(vol.getCluster(),new DeleteStorageVolumeType(vol.getDisplayName()));
-    }
     db.delete(vol);
+    db.getSession().flush();
+    if (!vol.getState().equals(State.ANNILATED)) {
+      StorageProxy.dispatchAll(new DeleteStorageVolumeType(vol.getDisplayName()));
+    }
     db.commit();
   }
  catch (  EucalyptusCloudException e) {

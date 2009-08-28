@@ -11,25 +11,14 @@
   List<Volume> volumes=db.query(Volume.ownedBy(userName));
   for (  Volume v : volumes) {
     if (request.getVolumeSet().isEmpty() || request.getVolumeSet().contains(v.getDisplayName())) {
-      DescribeStorageVolumesResponseType volState=StorageProxy.send(v.getCluster(),new DescribeStorageVolumesType(Lists.newArrayList(v.getDisplayName())),DescribeStorageVolumesResponseType.class);
-      LOG.debug(volState);
-      String volumeState="unavailable";
-      if (!volState.getVolumeSet().isEmpty()) {
-        StorageVolume vol=volState.getVolumeSet().get(0);
-        volumeState=vol.getStatus();
-        v.setSize(new Integer(vol.getSize()));
-        v.setRemoteDevice(vol.getActualDeviceName());
+      try {
+        edu.ucsb.eucalyptus.msgs.Volume aVolume=StorageProxy.getVolumeReply(attachedVolumes,v);
+        reply.getVolumeSet().add(aVolume);
       }
-      if (attachedVolumes.containsKey(v.getDisplayName())) {
-        volumeState="in-use";
+ catch (      Exception e) {
+        LOG.warn("Error getting volume information from the Storage Controller: " + e);
+        LOG.debug(e,e);
       }
-      v.setMappedState(volumeState);
-      edu.ucsb.eucalyptus.msgs.Volume aVolume=v.morph(new edu.ucsb.eucalyptus.msgs.Volume());
-      if (attachedVolumes.containsKey(v.getDisplayName())) {
-        aVolume.setStatus(volumeState);
-        aVolume.getAttachmentSet().add(attachedVolumes.get(aVolume.getVolumeId()));
-      }
-      reply.getVolumeSet().add(aVolume);
     }
   }
   db.commit();
