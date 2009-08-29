@@ -1,0 +1,33 @@
+{
+  if (e.getMessage() instanceof MappingHttpResponse) {
+    MappingHttpResponse resp=(MappingHttpResponse)e.getMessage();
+    DescribeNetworksResponseType reply=(DescribeNetworksResponseType)resp.getMessage();
+    for (    NetworkInfoType netInfo : reply.getActiveNetworks()) {
+      try {
+        Network net=Networks.getInstance().lookup(netInfo.getUserName() + "-" + netInfo.getNetworkName());
+        net.getAvailableAddresses().removeAll(netInfo.getAllocatedAddresses());
+        net.getToken(this.getCluster().getName()).setVlan(netInfo.getVlan());
+      }
+ catch (      NoSuchElementException e1) {
+        LOG.warn("Got back network info for an extant allocation, but cant do anything with it." + LogUtil.dumpObject(netInfo));
+      }
+    }
+    this.getCluster().getState().setAddressCapacity(reply.getAddrsPerNetwork());
+    this.getCluster().getState().setMode(reply.getMode());
+    List<Cluster> ccList=Clusters.getInstance().listValues();
+    int ccNum=ccList.size();
+    for (    Cluster c : ccList) {
+      ccNum-=c.getState().getMode();
+    }
+    if (ccNum != 0) {
+      EucalyptusProperties.disableNetworking=true;
+    }
+ else {
+      EucalyptusProperties.disableNetworking=false;
+    }
+  }
+ else {
+    LOG.info("Received unknown message type. " + e.getMessage());
+  }
+  ctx.getChannel().close();
+}

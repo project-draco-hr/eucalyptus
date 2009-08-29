@@ -1,9 +1,10 @@
 {
   EntityWrapper<ComponentConfiguration> db=Configuration.getEntityWrapper();
+  ComponentConfiguration componentConfig=null;
   try {
-    ComponentConfiguration searchConfig=Configuration.getConfigurationInstance(request);
+    ComponentConfiguration searchConfig=ConfigurationUtil.getConfigurationInstance(request);
     searchConfig.setName(request.getName());
-    ComponentConfiguration componentConfig=db.getUnique(searchConfig);
+    componentConfig=db.getUnique(searchConfig);
     db.delete(componentConfig);
     db.commit();
   }
@@ -13,11 +14,27 @@
   }
   if (request instanceof DeregisterClusterType) {
     try {
-      Configuration.removeClusterCredentials(request.getName());
+      ConfigurationUtil.removeClusterCredentials(request.getName());
     }
  catch (    Exception e) {
       LOG.error("BUG: removed cluster but failed to remove the credentials.");
     }
+  }
+  StopComponentEvent e=null;
+  if (Component.walrus.equals(componentConfig.getComponent()) && (Component.walrus.isLocal() || NetworkUtil.testLocal(componentConfig.getHostName()))) {
+    e=StopComponentEvent.getLocal(componentConfig.getComponent());
+  }
+ else   if (Component.storage.equals(componentConfig.getComponent()) && (Component.storage.isLocal() || NetworkUtil.testLocal(componentConfig.getHostName()))) {
+    e=StopComponentEvent.getLocal(componentConfig.getComponent());
+  }
+ else {
+    e=StopComponentEvent.getRemote(componentConfig);
+  }
+  try {
+    ListenerRegistry.getInstance().fireEvent(componentConfig.getComponent(),e);
+  }
+ catch (  EventVetoedException e1) {
+    throw new EucalyptusCloudException(e1.getMessage(),e1);
   }
   DeregisterComponentResponseType reply=(DeregisterComponentResponseType)request.getReply();
   reply.set_return(true);
