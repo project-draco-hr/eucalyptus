@@ -1,13 +1,23 @@
 {
   RegisterComponentResponseType reply=(RegisterComponentResponseType)request.getReply();
   reply.set_return(true);
-  if (this.checkComponentExists(request)) {
+  boolean isGood;
+  try {
+    isGood=NetworkUtil.testGoodAddress(request.getHost());
+  }
+ catch (  Exception e1) {
+    throw new EucalyptusCloudException(e1.getMessage(),e1);
+  }
+  if (!isGood) {
+    throw new EucalyptusCloudException("Components cannot be registered using local, link-local, or multicast addresses.");
+  }
+  if (ConfigurationUtil.checkComponentExists(request)) {
     return reply;
   }
   EntityWrapper<ComponentConfiguration> db=Configuration.getEntityWrapper();
   ComponentConfiguration newComponent;
   try {
-    newComponent=Configuration.getConfigurationInstance(request,request.getName(),request.getHost(),request.getPort());
+    newComponent=ConfigurationUtil.getConfigurationInstance(request,request.getName(),NetworkUtil.tryToResolve(request.getHost()),request.getPort());
     db.add(newComponent);
     db.commit();
   }
@@ -17,7 +27,23 @@
     throw new EucalyptusCloudException(e);
   }
   if (request instanceof RegisterClusterType) {
-    Configuration.setupClusterCredentials(newComponent);
+    ConfigurationUtil.setupClusterCredentials(newComponent);
+  }
+  StartComponentEvent e=null;
+  if (Component.walrus.equals(newComponent.getComponent()) && (Component.walrus.isLocal() || NetworkUtil.testLocal(newComponent.getHostName()))) {
+    e=StartComponentEvent.getLocal(newComponent.getComponent());
+  }
+ else   if (Component.storage.equals(newComponent.getComponent()) && (Component.storage.isLocal() || NetworkUtil.testLocal(newComponent.getHostName()))) {
+    e=StartComponentEvent.getLocal(newComponent.getComponent());
+  }
+ else {
+    e=StartComponentEvent.getRemote(newComponent);
+  }
+  try {
+    ListenerRegistry.getInstance().fireEvent(newComponent.getComponent(),e);
+  }
+ catch (  EventVetoedException e1) {
+    throw new EucalyptusCloudException(e1.getMessage(),e1);
   }
   return reply;
 }
