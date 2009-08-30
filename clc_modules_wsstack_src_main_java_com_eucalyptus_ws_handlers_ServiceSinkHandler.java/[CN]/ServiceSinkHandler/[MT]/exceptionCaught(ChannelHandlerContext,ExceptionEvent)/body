@@ -1,7 +1,22 @@
 {
-  MappingHttpMessage request=requestLocal.get(ctx.getChannel());
-  MappingHttpResponse error=new MappingHttpResponse(request != null ? request.getProtocolVersion() : HttpVersion.HTTP_1_0,HttpResponseStatus.INTERNAL_SERVER_ERROR);
-  error.setContent(ChannelBuffers.copiedBuffer(e.getCause().getMessage().getBytes()));
-  ChannelFuture writeFuture=ctx.getChannel().write(error);
-  writeFuture.addListener(ChannelFutureListener.CLOSE);
+  LOG.fatal(e.getCause(),e.getCause());
+  if (e.getCause() instanceof IOException) {
+    ctx.getChannel().close();
+    return;
+  }
+ else {
+    HttpResponse error=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.INTERNAL_SERVER_ERROR);
+    Throwable t=e.getCause();
+    String errMsg="Error";
+    if (t != null && t.getMessage() != null) {
+      errMsg=t.getMessage();
+    }
+ else     if (t != null) {
+      errMsg=t.toString();
+    }
+    error.setContent(ChannelBuffers.copiedBuffer(errMsg.getBytes()));
+    DownstreamMessageEvent newEvent=new DownstreamMessageEvent(ctx.getChannel(),ctx.getChannel().getCloseFuture(),error,null);
+    ctx.sendDownstream(newEvent);
+    newEvent.getFuture().addListener(ChannelFutureListener.CLOSE);
+  }
 }
