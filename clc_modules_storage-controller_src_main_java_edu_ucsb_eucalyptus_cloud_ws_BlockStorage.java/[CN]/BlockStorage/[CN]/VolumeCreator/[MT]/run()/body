@@ -6,9 +6,9 @@
       SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
       List<SnapshotInfo> foundSnapshotInfos=db.query(snapshotInfo);
       if (foundSnapshotInfos.size() == 0) {
-        String snapshotPath=getSnapshot(snapshotId);
-        size=blockManager.createVolume(volumeId,snapshotId);
         db.commit();
+        getSnapshot(snapshotId);
+        size=blockManager.createVolume(volumeId,snapshotId);
       }
  else {
         SnapshotInfo foundSnapshotInfo=foundSnapshotInfos.get(0);
@@ -18,8 +18,8 @@
           LOG.warn("snapshot " + foundSnapshotInfo.getSnapshotId() + " not available.");
         }
  else {
-          size=blockManager.createVolume(volumeId,snapshotId);
           db.commit();
+          size=blockManager.createVolume(volumeId,snapshotId);
         }
       }
     }
@@ -45,18 +45,13 @@
     VolumeInfo foundVolumeInfo=db.getUnique(volumeInfo);
     if (foundVolumeInfo != null) {
       if (success) {
-        if (StorageProperties.shouldEnforceUsageLimits) {
-          EntityWrapper<VolumeInfo> dbVol=new EntityWrapper<VolumeInfo>();
-          VolumeInfo volInfo=new VolumeInfo();
-          List<VolumeInfo> volInfos=db.query(volInfo);
-          int totalVolumeSize=0;
-          for (          VolumeInfo vinfo : volInfos) {
-            totalVolumeSize+=vinfo.getSize();
-          }
+        if (StorageProperties.shouldEnforceUsageLimits && StorageProperties.trackUsageStatistics) {
+          int totalVolumeSize=(int)(blockStorageStatistics.getTotalSpaceUsed() / StorageProperties.GB);
+          ;
           if ((totalVolumeSize + size) > StorageProperties.MAX_TOTAL_VOLUME_SIZE || (size > StorageProperties.MAX_VOLUME_SIZE)) {
             LOG.error("Volume size limit exceeeded");
-            foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
             db.commit();
+            checker.cleanFailedVolume(volumeId);
             return;
           }
         }
