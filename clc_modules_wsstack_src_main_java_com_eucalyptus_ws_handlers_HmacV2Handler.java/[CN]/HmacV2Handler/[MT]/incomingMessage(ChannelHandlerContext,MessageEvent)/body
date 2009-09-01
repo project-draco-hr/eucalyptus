@@ -2,6 +2,9 @@
   if (event.getMessage() instanceof MappingHttpRequest) {
     MappingHttpRequest httpRequest=(MappingHttpRequest)event.getMessage();
     Map<String,String> parameters=httpRequest.getParameters();
+    ByteArrayOutputStream bos=new ByteArrayOutputStream();
+    httpRequest.getContent().readBytes(bos,httpRequest.getContent().readableBytes());
+    String blah=bos.toString();
     if (!parameters.containsKey(SecurityParameter.AWSAccessKeyId.toString()))     throw new AuthenticationException("Missing required parameter: " + SecurityParameter.AWSAccessKeyId);
     if (!parameters.containsKey(SecurityParameter.Signature.toString()))     throw new AuthenticationException("Missing required parameter: " + SecurityParameter.Signature);
     String sig=parameters.remove(SecurityParameter.Signature.toString());
@@ -32,7 +35,10 @@
         LOG.debug("VERSION1-STRING:        " + canonicalString);
         String computedSig=HmacUtils.getSignature(secretKey,canonicalString,Hashes.Mac.HmacSHA1);
         LOG.debug("VERSION1-SHA1:        " + computedSig + " -- "+ sig);
-        if (!computedSig.equals(sig))         throw new AuthenticationException("User authentication failed.");
+        String decodedSig=URLDecoder.decode(sig).replaceAll("=","");
+        if (!computedSig.equals(sig) && !computedSig.equals(decodedSig)) {
+          throw new AuthenticationException("User authentication failed.");
+        }
       }
  else       if (sigVersion == 2) {
         String canonicalString=HmacUtils.makeV2SubjectString(verb,headerHost,addr,parameters);
