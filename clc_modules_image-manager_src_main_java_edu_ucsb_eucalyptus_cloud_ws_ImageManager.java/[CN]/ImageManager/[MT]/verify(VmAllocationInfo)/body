@@ -13,6 +13,7 @@
     }
   }
  catch (  EucalyptusCloudException e) {
+    db.rollback();
     throw new EucalyptusCloudException("Failed to find kernel image: " + msg.getImageId());
   }
   UserInfo user=db.recast(UserInfo.class).getUnique(new UserInfo(msg.getUserId()));
@@ -22,7 +23,7 @@
   }
   String kernelId=this.getImageInfobyId(msg.getKernelId(),diskInfo.getKernelId(),conf.getDefaultKernel());
   if (kernelId == null) {
-    db.commit();
+    db.rollback();
     throw new EucalyptusCloudException("Unable to determine required kernel image.");
   }
   String ramdiskId=this.getImageInfobyId(msg.getRamdiskId(),diskInfo.getRamdiskId(),conf.getDefaultRamdisk());
@@ -31,15 +32,15 @@
     kernelInfo=db.getUnique(new ImageInfo(kernelId));
   }
  catch (  EucalyptusCloudException e) {
-    db.commit();
+    db.rollback();
     throw new EucalyptusCloudException("Failed to find kernel image: " + kernelId);
   }
   if (!diskInfo.isAllowed(user)) {
-    db.commit();
+    db.rollback();
     throw new EucalyptusCloudException("You do not have permission to launch: " + diskInfo.getImageId());
   }
   if (!kernelInfo.isAllowed(user)) {
-    db.commit();
+    db.rollback();
     throw new EucalyptusCloudException("You do not have permission to launch: " + kernelInfo.getImageId());
   }
   ImageInfo ramdiskInfo=null;
@@ -48,13 +49,15 @@
       ramdiskInfo=db.getUnique(new ImageInfo(ramdiskId));
     }
  catch (    EucalyptusCloudException e) {
+      db.rollback();
       throw new EucalyptusCloudException("Failed to find ramdisk image: " + ramdiskId);
     }
     if (!ramdiskInfo.isAllowed(user)) {
-      db.commit();
+      db.rollback();
       throw new EucalyptusCloudException("You do not have permission to launch: " + ramdiskInfo.getImageId());
     }
   }
+  db.commit();
   ArrayList<String> ancestorIds=this.getAncestors(msg.getUserId(),diskInfo.getImageLocation());
   Long imgSize=this.getSize(msg.getUserId(),diskInfo.getImageLocation());
   this.checkStoredImage(kernelInfo);
