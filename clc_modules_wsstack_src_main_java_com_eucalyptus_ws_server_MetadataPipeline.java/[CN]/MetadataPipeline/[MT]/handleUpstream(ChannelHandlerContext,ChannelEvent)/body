@@ -1,0 +1,24 @@
+{
+  if (e instanceof MessageEvent && ((MessageEvent)e).getMessage() instanceof MappingHttpRequest) {
+    MappingHttpRequest request=(MappingHttpRequest)((MessageEvent)e).getMessage();
+    String newUri=null;
+    String uri=request.getUri();
+    InetSocketAddress remoteAddr=((InetSocketAddress)ctx.getChannel().getRemoteAddress());
+    if (uri.startsWith("/latest/"))     newUri=uri.replaceAll("/latest/",remoteAddr.getAddress().getHostAddress() + ":");
+ else     newUri=uri.replaceAll("/\\d\\d\\d\\d-\\d\\d-\\d\\d/",remoteAddr.getAddress().getHostAddress() + ":");
+    HttpResponse response=null;
+    Object reply=Messaging.send("vm://VmMetadata",newUri);
+    if (!(reply instanceof NullPayload)) {
+      response=new DefaultHttpResponse(request.getProtocolVersion(),HttpResponseStatus.OK);
+      response.setHeader(HttpHeaders.Names.CONTENT_TYPE,"text/html");
+      ChannelBuffer buffer=ChannelBuffers.wrappedBuffer(((String)reply).getBytes());
+      response.setContent(buffer);
+      response.addHeader(HttpHeaders.Names.CONTENT_LENGTH,Integer.toString(buffer.readableBytes()));
+    }
+ else     response=new DefaultHttpResponse(request.getProtocolVersion(),HttpResponseStatus.NOT_FOUND);
+    ctx.getChannel().write(response).addListener(ChannelFutureListener.CLOSE);
+  }
+ else {
+    ctx.sendUpstream(e);
+  }
+}
