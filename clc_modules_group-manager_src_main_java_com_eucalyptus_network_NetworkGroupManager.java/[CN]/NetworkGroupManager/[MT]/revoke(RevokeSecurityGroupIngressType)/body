@@ -1,0 +1,20 @@
+{
+  RevokeSecurityGroupIngressResponseType reply=(RevokeSecurityGroupIngressResponseType)request.getReply();
+  NetworkRulesGroup ruleGroup=NetworkGroupUtil.getUserNetworkRulesGroup(request.getUserId(),request.getGroupName());
+  for (  IpPermissionType ipPerm : request.getIpPermissions()) {
+    List<NetworkRule> ruleList=NetworkGroupUtil.getNetworkRules(ipPerm);
+    if (ruleGroup.getNetworkRules().containsAll(ruleList)) {
+      for (      NetworkRule delRule : ruleList) {
+        ruleGroup.getNetworkRules().remove(delRule);
+        NetworkGroupUtil.getEntityWrapper().mergeAndCommit(ruleGroup);
+      }
+    }
+ else {
+      reply.set_return(false);
+      return reply;
+    }
+  }
+  Network changedNetwork=ruleGroup.getVmNetwork();
+  Messaging.dispatch(Component.cluster.getUri().toASCIIString(),changedNetwork);
+  return reply;
+}
