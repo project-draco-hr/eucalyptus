@@ -1,15 +1,17 @@
 {
   RegisterComponentResponseType reply=(RegisterComponentResponseType)request.getReply();
-  reply.set_return(false);
+  reply.set_return(true);
   boolean isGood;
   try {
-    isGood=NetworkUtil.testGoodAddress(request.getHost());
+    if (!NetworkUtil.testGoodAddress(request.getHost())) {
+      throw new EucalyptusCloudException("Components cannot be registered using local, link-local, or multicast addresses.");
+    }
   }
- catch (  Exception e1) {
+ catch (  EucalyptusCloudException e) {
+    throw e;
+  }
+catch (  Exception e1) {
     throw new EucalyptusCloudException(e1.getMessage(),e1);
-  }
-  if (!isGood) {
-    throw new EucalyptusCloudException("Components cannot be registered using local, link-local, or multicast addresses.");
   }
   try {
     if (ConfigurationUtil.checkComponentExists(request)) {
@@ -17,22 +19,20 @@
     }
   }
  catch (  Exception e2) {
-    return reply;
+    throw new EucalyptusCloudException(e2);
   }
-  if (request instanceof RegisterStorageControllerType) {
-    if ("localhost".equals(request.getHost()) && !Component.storage.isLocal()) {
-      throw new EucalyptusCloudException("You do not have a local storage controller installed.");
-    }
+  if (request instanceof RegisterStorageControllerType && NetworkUtil.testLocal(request.getHost()) && !Component.storage.isLocal()) {
+    throw new EucalyptusCloudException("You do not have a local storage controller installed.");
+  }
+ else   if (request instanceof RegisterWalrusType && NetworkUtil.testLocal(request.getHost()) && !Component.walrus.isLocal()) {
+    throw new EucalyptusCloudException("You do not have a local walrus installed.");
+  }
+ else   if (request instanceof RegisterStorageControllerType) {
     try {
       Configuration.getClusterConfiguration(request.getName());
     }
  catch (    Exception e1) {
       throw new EucalyptusCloudException("Storage controllers may only be registered with a corresponding Cluster of the same name.  No cluster found with the name: " + request.getName());
-    }
-  }
-  if (request instanceof RegisterWalrusType) {
-    if ("localhost".equals(request.getHost()) && !Component.walrus.isLocal()) {
-      throw new EucalyptusCloudException("You do not have a local walrus installed.");
     }
   }
   EntityWrapper<ComponentConfiguration> db=Configuration.getEntityWrapper();
@@ -66,6 +66,5 @@
  catch (  EventVetoedException e1) {
     throw new EucalyptusCloudException(e1.getMessage(),e1);
   }
-  reply.set_return(true);
   return reply;
 }
