@@ -73,6 +73,7 @@
       }
       foundObject.setObjectKey(objectKey);
       foundObject.replaceMetaData(request.getMetaData());
+      db.commit();
       LinkedBlockingQueue<WalrusDataMessage> putQueue=messenger.getQueue(key,randomKey);
       try {
         WalrusDataMessage dataMessage;
@@ -99,34 +100,42 @@
             }
  catch (            IOException ex) {
               LOG.error(ex);
-              db.rollback();
               messenger.removeQueue(key,randomKey);
               throw new EucalyptusCloudException(objectKey);
             }
             md5=Hashes.bytesToHex(digest.digest());
             lastModified=new Date();
-            foundObject.setEtag(md5);
-            foundObject.setSize(size);
-            foundObject.setLastModified(lastModified);
-            foundObject.setStorageClass("STANDARD");
-            foundObject.setContentType(request.getContentType());
-            foundObject.setContentDisposition(request.getContentDisposition());
-            reply.setSize(size);
-            if (WalrusProperties.shouldEnforceUsageLimits && !request.isAdministrator()) {
-              Long bucketSize=bucket.getBucketSize();
-              long newSize=bucketSize + oldBucketSize + size;
-              if (newSize > WalrusProperties.MAX_BUCKET_SIZE) {
-                db.rollback();
-                messenger.removeQueue(key,randomKey);
-                throw new EntityTooLargeException("Key",objectKey);
+            dbObject=WalrusControl.getEntityWrapper();
+            objectInfos=dbObject.query(new ObjectInfo(bucketName,objectKey));
+            if (objectInfos.size() > 0) {
+              foundObject=objectInfos.get(0);
+              foundObject.setEtag(md5);
+              foundObject.setSize(size);
+              foundObject.setLastModified(lastModified);
+              foundObject.setStorageClass("STANDARD");
+              foundObject.setContentType(request.getContentType());
+              foundObject.setContentDisposition(request.getContentDisposition());
+              reply.setSize(size);
+              if (WalrusProperties.shouldEnforceUsageLimits && !request.isAdministrator()) {
+                Long bucketSize=bucket.getBucketSize();
+                long newSize=bucketSize + oldBucketSize + size;
+                if (newSize > WalrusProperties.MAX_BUCKET_SIZE) {
+                  messenger.removeQueue(key,randomKey);
+                  dbObject.rollback();
+                  throw new EntityTooLargeException("Key",objectKey);
+                }
+                bucket.setBucketSize(newSize);
               }
-              bucket.setBucketSize(newSize);
+              if (WalrusProperties.trackUsageStatistics) {
+                walrusStatistics.updateBytesIn(size);
+                walrusStatistics.updateSpaceUsed(size);
+              }
+              dbObject.commit();
             }
-            if (WalrusProperties.trackUsageStatistics) {
-              walrusStatistics.updateBytesIn(size);
-              walrusStatistics.updateSpaceUsed(size);
+ else {
+              dbObject.rollback();
+              throw new EntityNotFoundException("Could not find object: " + bucketName + "/"+ objectKey);
             }
-            db.commit();
             WalrusMonitor monitor=messenger.getMonitor(key);
 synchronized (monitor) {
               monitor.setLastModified(lastModified);
@@ -148,7 +157,6 @@ synchronized (monitor) {
             fileIO.finish();
             ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,-1L);
             objectDeleter.start();
-            db.rollback();
             LOG.info("Transfer interrupted: " + key);
             break;
           }
