@@ -3,8 +3,11 @@
   reply.set_return(true);
   boolean isGood;
   try {
-    if (!NetworkUtil.testGoodAddress(request.getHost()) || (request instanceof RegisterClusterType && !ConfigurationUtil.testClusterCredentialsDirectory(request.getName()))) {
+    if (!NetworkUtil.testGoodAddress(request.getHost())) {
       throw new EucalyptusCloudException("Components cannot be registered using local, link-local, or multicast addresses.");
+    }
+    if (request instanceof RegisterClusterType && !ConfigurationUtil.testClusterCredentialsDirectory(request.getName())) {
+      throw new EucalyptusCloudException("Cluster registration failed because the key directory cannot be created.");
     }
   }
  catch (  EucalyptusCloudException e) {
@@ -50,21 +53,6 @@ catch (  Exception e1) {
   if (request instanceof RegisterClusterType) {
     ConfigurationUtil.setupClusterCredentials(newComponent);
   }
-  StartComponentEvent e=null;
-  if (Component.walrus.equals(newComponent.getComponent()) && NetworkUtil.testLocal(newComponent.getHostName())) {
-    e=StartComponentEvent.getLocal(newComponent.getComponent());
-  }
- else   if (Component.storage.equals(newComponent.getComponent()) && (NetworkUtil.testLocal(newComponent.getHostName()))) {
-    e=StartComponentEvent.getLocal(newComponent.getComponent());
-  }
- else {
-    e=StartComponentEvent.getRemote(newComponent);
-  }
-  try {
-    ListenerRegistry.getInstance().fireEvent(newComponent.getComponent(),e);
-  }
- catch (  EventVetoedException e1) {
-    throw new EucalyptusCloudException(e1.getMessage(),e1);
-  }
+  fireStartComponent(newComponent);
   return reply;
 }
