@@ -1,9 +1,26 @@
 {
-  Collection<Cluster> clusterList=Clusters.getInstance().getEntries();
-  SortedSet<ClusterNodeState> clusterStateList=new ConcurrentSkipListSet<ClusterNodeState>(ClusterNodeState.getComparator(vmAllocInfo.getVmTypeInfo()));
-  for (  Cluster c : clusterList)   clusterStateList.add(c.getNodeState());
-  Allocator blah=this.getAllocator();
   RunInstancesType request=vmAllocInfo.getRequest();
-  List<ResourceToken> allocTokenList=blah.allocate(request.getCorrelationId(),request.getUserId(),vmAllocInfo.getVmTypeInfo().getName(),request.getMinCount(),request.getMaxCount(),clusterStateList);
-  return allocTokenList;
+  String clusterName=request.getAvailabilityZone();
+  if (clusterName != null) {
+    try {
+      Cluster cluster=Clusters.getInstance().lookup(clusterName);
+      ClusterNodeState clusterState=cluster.getNodeState();
+      int available=clusterState.getAvailability(request.getInstanceType()).getAvailable();
+      if (available < request.getMinCount()) {
+        throw new NotEnoughResourcesAvailable("Not enough resources: vm resources in the requested cluster " + clusterName);
+      }
+      int count=available > request.getMaxCount() ? request.getMaxCount() : available;
+      ResourceToken token=clusterState.getResourceAllocation(request.getCorrelationId(),request.getUserId(),request.getInstanceType(),count);
+      return Lists.newArrayList(token);
+    }
+ catch (    NoSuchElementException e) {
+      throw new NotEnoughResourcesAvailable("Not enough resources: request cluster does not exist " + clusterName);
+    }
+  }
+ else {
+    SortedSet<ClusterNodeState> clusterStateList=new ConcurrentSkipListSet<ClusterNodeState>(ClusterNodeState.getComparator(vmAllocInfo.getVmTypeInfo()));
+    for (    Cluster c : Clusters.getInstance().getEntries())     clusterStateList.add(c.getNodeState());
+    Allocator blah=this.getAllocator();
+    return Lists.newArrayList(blah.allocate(request.getCorrelationId(),request.getUserId(),vmAllocInfo.getVmTypeInfo().getName(),request.getMinCount(),request.getMaxCount(),clusterStateList));
+  }
 }
