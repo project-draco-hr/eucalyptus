@@ -1,27 +1,28 @@
 {
   if (networkToken != null) {
     StartNetworkType msg=new StartNetworkType(this.vmAllocInfo.getRequest(),networkToken.getVlan(),networkToken.getNetworkName());
-    msg.setClusterControllers(Lists.newArrayList(Clusters.getInstance().getClusterAddresses()));
-    StartNetworkCallback callback=new StartNetworkCallback(this.cluster.getConfiguration(),this,networkToken);
-    QueuedEvent<StartNetworkType> event=new QueuedEvent<StartNetworkType>(callback,msg);
-    this.msgMap.put(State.CREATE_NETWORK,event);
+    this.msgMap.put(State.CREATE_NETWORK,new QueuedEvent<StartNetworkType>(new StartNetworkCallback(this,networkToken),msg));
+    this.msgMap.put(State.ROLLBACK,new QueuedEvent<StopNetworkType>(new StopNetworkCallback(networkToken),new StopNetworkType(msg)));
   }
   try {
+    RunInstancesType request=this.vmAllocInfo.getRequest();
     Network network=Networks.getInstance().lookup(networkToken.getName());
-    LOG.warn("Setting up rules for: " + network.getName());
+    LOG.info("Setting up rules for: " + network.getName());
     LOG.debug(network);
+    ConfigureNetworkType msg=new ConfigureNetworkType(network.getRules());
+    msg.setUserId(networkToken.getUserName());
+    msg.setEffectiveUserId(networkToken.getUserName());
     if (!network.getRules().isEmpty()) {
-      QueuedEvent event=new QueuedEvent<ConfigureNetworkType>(new ConfigureNetworkCallback(this.cluster.getConfiguration()),new ConfigureNetworkType(this.vmAllocInfo.getRequest(),network.getRules()));
-      this.msgMap.put(State.CREATE_NETWORK_RULES,event);
+      this.msgMap.put(State.CREATE_NETWORK_RULES,new QueuedEvent(ConfigureNetworkCallback.CALLBACK,msg));
     }
     for (    Network otherNetwork : Networks.getInstance().listValues()) {
       if (otherNetwork.isPeer(network.getUserName(),network.getNetworkName())) {
         LOG.warn("Need to refresh rules for incoming named network ingress on: " + otherNetwork.getName());
         LOG.debug(otherNetwork);
-        ConfigureNetworkType msg=new ConfigureNetworkType(otherNetwork.getRules());
-        msg.setUserId(otherNetwork.getUserName());
-        msg.setEffectiveUserId(Component.eucalyptus.name());
-        this.msgMap.put(State.CREATE_NETWORK_RULES,new QueuedEvent<ConfigureNetworkType>(new ConfigureNetworkCallback(this.cluster.getConfiguration()),msg));
+        ConfigureNetworkType omsg=new ConfigureNetworkType(otherNetwork.getRules());
+        omsg.setUserId(otherNetwork.getUserName());
+        omsg.setEffectiveUserId(Component.eucalyptus.name());
+        this.msgMap.put(State.CREATE_NETWORK_RULES,new QueuedEvent<ConfigureNetworkType>(ConfigureNetworkCallback.CALLBACK,omsg));
       }
     }
   }
