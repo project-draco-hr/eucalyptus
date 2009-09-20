@@ -1,31 +1,31 @@
 {
-  while (!finished.get())   try {
-    long start=System.currentTimeMillis();
-    QueuedEvent event=this.msgQueue.poll(pollInterval,TimeUnit.MILLISECONDS);
-    if (event != null) {
-      LOG.trace("Dequeued message of type " + event.getCallback().getClass().getSimpleName());
-      long msgStart=System.currentTimeMillis();
-      try {
-        QueuedEventCallback q=event.getCallback();
-        if (q instanceof StartNetworkCallback || q instanceof StopNetworkCallback || q instanceof ConfigureNetworkCallback) {
-          event.getCallback().process(event.getEvent());
-        }
+  while (!finished.get()) {
+    try {
+      long start=System.currentTimeMillis();
+      QueuedEvent event=this.msgQueue.poll(pollInterval,TimeUnit.MILLISECONDS);
+      if (event != null) {
+        LOG.trace("Dequeued message of type " + event.getCallback().getClass().getSimpleName());
+        long msgStart=System.currentTimeMillis();
+        try {
+          QueuedEventCallback q=event.getCallback();
+          if (!(event instanceof QueuedLogEvent) && q instanceof MultiClusterCallback) {
+            MultiClusterCallback multi=(MultiClusterCallback)q;
+            multi.prepare(event.getEvent());
+          }
  else {
-          Client nioClient=new NioClient(parent.getHostName(),parent.getPort(),parent.getServicePath(),event instanceof QueuedLogEvent ? new LogClientPipeline(new NioResponseHandler()) : new ClusterClientPipeline(new NioResponseHandler()));
-          event.trigger(nioClient);
+            Client nioClient=getClusterClient(event);
+            event.trigger(nioClient);
+          }
         }
+ catch (        Exception e) {
+          LOG.error(e);
+          LOG.debug(e,e);
+        }
+        LOG.debug(String.format("[q=%04dms,send=%04dms,qlen=%02d] message type %s, cluster %s",msgStart - start,System.currentTimeMillis() - msgStart,this.msgQueue.size(),event.getCallback().getClass().getSimpleName(),this.parent.getName()));
       }
- catch (      Exception e) {
-        LOG.error(e);
-        LOG.debug(e,e);
-      }
- finally {
-        event.getCallback().notifyHandler();
-      }
-      LOG.debug(String.format("[q=%04dms,send=%04dms,qlen=%02d] message type %s, cluster %s",msgStart - start,System.currentTimeMillis() - msgStart,this.msgQueue.size(),event.getCallback().getClass().getSimpleName(),this.parent.getName()));
     }
-  }
- catch (  Exception e) {
-    LOG.error(e,e);
+ catch (    Exception e) {
+      LOG.error(e,e);
+    }
   }
 }
