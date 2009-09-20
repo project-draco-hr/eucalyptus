@@ -1,9 +1,10 @@
 {
+  ChannelUtil.addPipelineTimeout(pipeline,ChannelUtil.CLIENT_IDLE_TIMEOUT_SECS,TimeUnit.SECONDS);
   try {
-    for (    UnrollableStage s : stages) {
-      pipeline.addLast("pre-" + s.getStageName(),new StageBottomHandler(s));
+    for (    final UnrollableStage s : this.stages) {
+      pipeline.addLast("pre-" + s.getStageName(),new UnrollableStage.StageBottomHandler(s));
       s.unrollStage(pipeline);
-      pipeline.addLast("post-" + s.getStageName(),new StageTopHandler(s));
+      pipeline.addLast("post-" + s.getStageName(),new UnrollableStage.StageTopHandler(s));
     }
     if (this.msgReceiver != null) {
       pipeline.addLast("service-sink",new ServiceSinkHandler(this.msgReceiver));
@@ -11,13 +12,14 @@
  else {
       pipeline.addLast("service-sink",new ServiceSinkHandler());
     }
-    for (    Map.Entry<String,ChannelHandler> e : pipeline.toMap().entrySet()) {
-      LOG.trace(" - handler: key=" + e.getKey() + " class="+ e.getValue().getClass().getSimpleName());
+    for (    final Map.Entry<String,ChannelHandler> e : pipeline.toMap().entrySet()) {
+      FilteredPipeline.LOG.trace(" - handler: key=" + e.getKey() + " class="+ e.getValue().getClass().getSimpleName());
     }
   }
- catch (  Exception e) {
-    LOG.error("Error unrolling pipeline: " + this.getPipelineName());
-    LOG.error(e,e);
-    pipeline.getChannel().close();
+ catch (  final Exception e) {
+    FilteredPipeline.LOG.error("Error unrolling pipeline: " + this.getPipelineName());
+    final ChannelFuture close=pipeline.getChannel().close();
+    close.awaitUninterruptibly();
+    FilteredPipeline.LOG.error("Forced pipeline to close due to exception: ",e);
   }
 }
