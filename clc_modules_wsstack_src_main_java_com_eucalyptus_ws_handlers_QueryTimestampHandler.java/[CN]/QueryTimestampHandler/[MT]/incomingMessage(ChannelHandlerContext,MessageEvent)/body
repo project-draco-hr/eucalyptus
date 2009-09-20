@@ -5,27 +5,39 @@
     if (!parameters.containsKey(SecurityParameter.Timestamp.toString()) && !parameters.containsKey(SecurityParameter.Expires.toString())) {
       throw new AuthenticationException("One of the following parameters must be specified: " + SecurityParameter.Timestamp + " OR "+ SecurityParameter.Expires);
     }
-    Calendar now=Calendar.getInstance();
+    Calendar now=null;
     Calendar expires=null;
-    if (parameters.containsKey(SecurityParameter.Timestamp.toString())) {
-      String timestamp=parameters.remove(SecurityParameter.Timestamp.toString());
-      try {
-        expires=HmacUtils.parseTimestamp(timestamp);
+    String timestamp=null;
+    String exp=null;
+    try {
+      now=Calendar.getInstance();
+      expires=null;
+      if (parameters.containsKey(SecurityParameter.Timestamp.toString())) {
+        timestamp=parameters.remove(SecurityParameter.Timestamp.toString());
+        try {
+          expires=HmacUtils.parseTimestamp(timestamp);
+        }
+ catch (        Exception e) {
+          expires=HmacUtils.parseTimestamp(URLDecoder.decode(timestamp));
+        }
+        expires.add(Calendar.MINUTE,5);
       }
- catch (      Exception e) {
-        expires=HmacUtils.parseTimestamp(URLDecoder.decode(timestamp));
-      }
-      expires.add(Calendar.MINUTE,5);
-    }
  else {
-      String exp=parameters.remove(SecurityParameter.Expires.toString());
-      try {
-        expires=HmacUtils.parseTimestamp(exp);
-      }
- catch (      Exception e) {
-        expires=HmacUtils.parseTimestamp(URLDecoder.decode(exp));
+        exp=parameters.remove(SecurityParameter.Expires.toString());
+        try {
+          expires=HmacUtils.parseTimestamp(exp);
+        }
+ catch (        Exception e) {
+          expires=HmacUtils.parseTimestamp(URLDecoder.decode(exp));
+        }
       }
     }
-    if (now.after(expires))     throw new AuthenticationException("Message has expired.");
+ catch (    Throwable t) {
+      LOG.debug(t,t);
+      throw new AuthenticationException("Failure to parse timestamp: Timestamp=" + timestamp + " Expires="+ exp);
+    }
+    if (now.after(expires)) {
+      throw new AuthenticationException("Message has expired: Timestamp=" + timestamp + " Expires="+ exp);
+    }
   }
 }
