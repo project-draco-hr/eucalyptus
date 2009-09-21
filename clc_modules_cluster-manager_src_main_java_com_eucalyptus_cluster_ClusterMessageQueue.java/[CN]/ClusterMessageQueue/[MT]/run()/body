@@ -1,36 +1,35 @@
 {
-  while (!finished.get()) {
+  while (!this.finished.get()) {
     try {
-      long start=System.currentTimeMillis();
-      QueuedEvent event=this.msgQueue.poll(pollInterval,TimeUnit.MILLISECONDS);
+      final long start=System.currentTimeMillis();
+      final QueuedEvent event=this.msgQueue.poll(this.pollInterval,TimeUnit.MILLISECONDS);
       if (event != null) {
         LOG.trace("Dequeued message of type " + event.getCallback().getClass().getSimpleName());
-        long msgStart=System.currentTimeMillis();
+        final Client nioClient=Clusters.getClusterClient(this.clusterName,event);
+        final long msgStart=System.currentTimeMillis();
         try {
-          QueuedEventCallback q=event.getCallback();
+          final QueuedEventCallback q=event.getCallback();
           if (event instanceof QueuedLogEvent) {
-            Client nioClient=getClusterClient(event);
             event.trigger(nioClient);
           }
  else {
-            if (q instanceof MultiClusterCallback && !((MultiClusterCallback)q).isSplit()) {
-              MultiClusterCallback multi=(MultiClusterCallback)q;
+            if ((q instanceof MultiClusterCallback) && !((MultiClusterCallback)q).isSplit()) {
+              final MultiClusterCallback multi=(MultiClusterCallback)q;
               multi.prepare(event.getEvent());
             }
  else {
-              Client nioClient=getClusterClient(event);
               event.trigger(nioClient);
             }
           }
         }
- catch (        Exception e) {
+ catch (        final Exception e) {
           LOG.error(e);
           LOG.debug(e,e);
         }
-        LOG.debug(String.format("[q=%04dms,send=%04dms,qlen=%02d] message type %s, cluster %s",msgStart - start,System.currentTimeMillis() - msgStart,this.msgQueue.size(),event.getCallback().getClass().getSimpleName(),this.parent.getName()));
+        LOG.debug(String.format("[q=%04dms,send=%04dms,qlen=%02d] message type %s, cluster %s",msgStart - start,System.currentTimeMillis() - msgStart,this.msgQueue.size(),event.getCallback().getClass().getSimpleName(),this.clusterName));
       }
     }
- catch (    Exception e) {
+ catch (    final Exception e) {
       LOG.error(e,e);
     }
   }

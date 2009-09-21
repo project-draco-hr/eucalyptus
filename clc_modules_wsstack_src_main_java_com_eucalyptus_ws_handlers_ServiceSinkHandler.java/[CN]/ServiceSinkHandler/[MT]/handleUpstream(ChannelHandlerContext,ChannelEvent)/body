@@ -1,5 +1,5 @@
 {
-  LOG.debug(this.getClass().getSimpleName() + "[incoming]: " + e);
+  ServiceSinkHandler.LOG.debug(this.getClass().getSimpleName() + "[incoming]: " + e);
   if (e instanceof ExceptionEvent) {
     this.exceptionCaught(ctx,(ExceptionEvent)e);
   }
@@ -7,25 +7,25 @@
     this.startTime=System.currentTimeMillis();
     final MessageEvent event=(MessageEvent)e;
     if (event.getMessage() instanceof MappingHttpMessage) {
-      MappingHttpMessage request=(MappingHttpMessage)event.getMessage();
-      User user=request.getUser();
-      requestLocal.set(ctx.getChannel(),request);
-      EucalyptusMessage msg=(EucalyptusMessage)request.getMessage();
-      String userAgent=request.getHeader(HttpHeaders.Names.USER_AGENT);
-      if (userAgent != null && userAgent.matches(".*EucalyptusAdminAccess") && msg.getClass().getSimpleName().startsWith("Describe")) {
+      final MappingHttpMessage request=(MappingHttpMessage)event.getMessage();
+      final User user=request.getUser();
+      this.requestLocal.set(ctx.getChannel(),request);
+      final EucalyptusMessage msg=(EucalyptusMessage)request.getMessage();
+      final String userAgent=request.getHeader(HttpHeaders.Names.USER_AGENT);
+      if ((userAgent != null) && userAgent.matches(".*EucalyptusAdminAccess") && msg.getClass().getSimpleName().startsWith("Describe")) {
         msg.setEffectiveUserId(msg.getUserId());
       }
- else       if (user != null && msgReceiver == null) {
+ else       if ((user != null) && (this.msgReceiver == null)) {
         msg.setUserId(user.getUserName());
         msg.setEffectiveUserId(user.getIsAdministrator() ? Component.eucalyptus.name() : user.getUserName());
       }
-      LOG.info(EventRecord.create(this.getClass().getSimpleName(),msg.getUserId(),msg.getCorrelationId(),EventType.MSG_RECEIVED,msg.getClass().getSimpleName()));
+      ServiceSinkHandler.LOG.info(EventRecord.create(this.getClass().getSimpleName(),msg.getUserId(),msg.getCorrelationId(),EventType.MSG_RECEIVED,msg.getClass().getSimpleName()));
       ReplyQueue.addReplyListener(msg.getCorrelationId(),ctx);
       if (this.msgReceiver == null) {
         Messaging.dispatch("vm://RequestQueue",msg);
       }
- else       if (user == null || (user != null && user.getIsAdministrator())) {
-        MuleMessage reply=this.msgReceiver.routeMessage(new DefaultMuleMessage(msg));
+ else       if ((user == null) || ((user != null) && user.getIsAdministrator())) {
+        final MuleMessage reply=this.msgReceiver.routeMessage(new DefaultMuleMessage(msg));
         ctx.getChannel().write(reply.getPayload());
       }
  else {
