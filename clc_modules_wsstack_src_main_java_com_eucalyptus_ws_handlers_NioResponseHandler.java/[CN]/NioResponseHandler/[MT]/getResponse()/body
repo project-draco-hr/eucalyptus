@@ -1,15 +1,32 @@
 {
-  this.canHas.lock();
-  try {
-    if (this.response == null && this.ex == null) {
-      this.finished.await();
+  Object response=null;
+  LOG.debug("-> Waiting for response to event of type: " + this.getClass().getCanonicalName());
+  do {
+    try {
+      response=this.responseQueue.poll(1,TimeUnit.SECONDS);
     }
-    if (ex != null) {
-      throw this.ex;
+ catch (    final InterruptedException e) {
     }
-    return this.response;
   }
-  finally {
-    this.canHas.unlock();
+ while ((response == null));
+  if (response != null) {
+    if (response instanceof EucalyptusMessage) {
+      this.response=(EucalyptusMessage)response;
+      return this.response;
+    }
+ else     if (response instanceof MappingHttpResponse) {
+      MappingHttpResponse httpResponse=(MappingHttpResponse)response;
+      if (httpResponse.getMessage() != null) {
+        this.response=(EucalyptusMessage)httpResponse.getMessage();
+      }
+ else {
+        this.exception=new EucalyptusClusterException(httpResponse.getMessageString());
+      }
+    }
+ else     if (response instanceof Throwable) {
+      this.exception=(Throwable)response;
+      throw new EucalyptusClusterException("Exception in NIO request.",(Throwable)response);
+    }
   }
+  throw new EucalyptusClusterException("Failed to retrieve result of asynchronous operation." + LogUtil.dumpObject(response));
 }
