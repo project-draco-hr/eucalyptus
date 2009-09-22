@@ -1,8 +1,15 @@
 {
   EntityWrapper<Address> db=new EntityWrapper<Address>();
   try {
-    UnassignAddressType unassignMsg=Admin.makeMsg(UnassignAddressType.class,address.getName(),address.getInstanceAddress());
-    ClusterEnvelope.dispatch(address.getCluster(),QueuedEvent.make(new UnassignAddressCallback(address),unassignMsg));
+    try {
+      UnassignAddressType unassignMsg=Admin.makeMsg(UnassignAddressType.class,address.getName(),address.getInstanceAddress());
+      QueuedEvent q=QueuedEvent.make(new UnassignAddressCallback(address),unassignMsg);
+      Clusters.sendClusterEvent(address.getCluster(),q);
+      q.getCallback().getResponse();
+    }
+ catch (    Throwable e) {
+      LOG.debug(e,e);
+    }
     vm.getNetworkConfig().setIgnoredPublicIp(vm.getNetworkConfig().getIpAddress());
     Address addr=db.getUnique(new Address(address.getName()));
     addr.unassign();
