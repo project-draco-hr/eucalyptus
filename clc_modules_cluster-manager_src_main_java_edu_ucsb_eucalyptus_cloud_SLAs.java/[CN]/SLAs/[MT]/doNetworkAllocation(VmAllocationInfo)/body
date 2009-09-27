@@ -1,0 +1,34 @@
+{
+  String userId=vmAllocInfo.getRequest().getUserId();
+  List<ResourceToken> rscTokens=vmAllocInfo.getAllocationTokens();
+  List<Network> networks=vmAllocInfo.getNetworks();
+  ResourceToken firstRscToken=rscTokens.get(0);
+  Network firstNet=networks.get(0);
+  Networks.getInstance().register(firstNet);
+  try {
+    NetworkToken netToken=allocateClusterVlan(userId,firstRscToken.getCluster(),firstNet.getName());
+    firstRscToken.getNetworkTokens().add(netToken);
+  }
+ catch (  NetworkAlreadyExistsException e) {
+    LOG.error(e,e);
+  }
+  for (  ResourceToken token : rscTokens) {
+    for (int i=0; i < token.getAmount(); i++) {
+      Integer addrIndex=firstNet.allocateNetworkIndex();
+      if (addrIndex == null) {
+        LOG.info(String.format(EucalyptusProperties.DEBUG_FSTRING,EucalyptusProperties.TokenState.returned,"networkIndexes=" + token.getPrimaryNetwork().getIndexes()));
+        token.getPrimaryNetwork().getIndexes().clear();
+        throw new NotEnoughResourcesAvailable("Not enough addresses left in the network subnet assigned to requested group: " + firstNet.getNetworkName());
+      }
+ else {
+        LOG.info(String.format(EucalyptusProperties.DEBUG_FSTRING,EucalyptusProperties.TokenState.preallocate,"networkIndex=" + addrIndex));
+        token.getPrimaryNetwork().getIndexes().add(addrIndex);
+      }
+    }
+  }
+  try {
+  }
+ catch (  NoSuchElementException e) {
+    throw new NotEnoughResourcesAvailable("Error obtaining a reference to the network state.  This is a BUG.");
+  }
+}
