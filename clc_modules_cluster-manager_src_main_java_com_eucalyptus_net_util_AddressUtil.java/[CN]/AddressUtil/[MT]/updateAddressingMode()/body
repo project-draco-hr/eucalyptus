@@ -1,0 +1,35 @@
+{
+  int allocatedCount=AddressUtil.clearUnusedSystemAddresses();
+  LOG.debug("Found " + allocatedCount + " addresses allocated to eucalyptus");
+  if (edu.ucsb.eucalyptus.util.EucalyptusProperties.getSystemConfiguration().isDoDynamicPublicAddresses())   return;
+  int allocCount=edu.ucsb.eucalyptus.util.EucalyptusProperties.getSystemConfiguration().getSystemReservedPublicAddresses() - allocatedCount;
+  LOG.debug("Allocating additional " + allocCount + " addresses in static public addresing mode");
+  ConcurrentNavigableMap<String,Address> unusedAddresses=Addresses.getInstance().getDisabledMap();
+  allocCount=unusedAddresses.size() < allocCount ? unusedAddresses.size() : allocCount;
+  if (allocCount > 0) {
+    List<Map.Entry<String,Address>> addressList=Lists.newArrayList();
+    for (int i=0; i < allocCount; i++) {
+      Map.Entry<String,Address> addressEntry=unusedAddresses.pollFirstEntry();
+      if (addressEntry != null) {
+        addressList.add(addressEntry);
+      }
+ else {
+        break;
+      }
+    }
+    for (    Map.Entry<String,Address> addressEntry : addressList) {
+      LOG.debug("Allocating address for static public addressing: " + addressEntry.getValue().getName());
+      Address address=addressEntry.getValue();
+      address.allocate(Component.eucalyptus.name());
+    }
+  }
+ else {
+    for (    String ipAddr : Addresses.getInstance().getActiveMap().descendingKeySet()) {
+      Address addr=Addresses.getInstance().getActiveMap().get(ipAddr);
+      if (Component.eucalyptus.name().equals(addr.getUserId()) && !addr.isAssigned() && !addr.isPending()) {
+        if (allocCount++ >= 0)         break;
+        releaseAddress(addr);
+      }
+    }
+  }
+}

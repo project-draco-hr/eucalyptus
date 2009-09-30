@@ -4,6 +4,28 @@
     DescribePublicAddressesResponseType reply=(DescribePublicAddressesResponseType)resp.getMessage();
     if (reply.get_return()) {
       EucalyptusProperties.disableNetworking=false;
+      AddressUtil.initialize();
+      for (      Pair p : Pair.getPaired(reply.getAddresses(),reply.getMapping())) {
+        Address address=getAddress(p);
+        try {
+          InetAddress addr=Inet4Address.getByName(p.getRight());
+          address.setInstanceAddress(p.getRight());
+          VmInstance vm=getVmInstance(p);
+          if (vm != null) {
+            orphans.remove(address.getName());
+          }
+ else           if (!addr.isLoopbackAddress() && !this.checkForPendingVm(address)) {
+            handleOrphan(address);
+          }
+ else {
+            orphans.remove(address.getName());
+          }
+        }
+ catch (        UnknownHostException e1) {
+          LOG.debug(e1,e1);
+          orphans.remove(address.getName());
+        }
+      }
     }
  else {
       LOG.warn("Response from cluster [" + this.getCluster().getName() + "]: "+ reply.getStatusMessage());

@@ -1,11 +1,16 @@
 {
-  this.canHas.writeLock().lock();
-  try {
-    this.instanceId=UNASSIGNED_INSTANCEID;
-    this.instanceAddress=UNASSIGNED_INSTANCEADDR;
+  if (!this.pending.compareAndSet(false,true)) {
+    throw new IllegalStateException("Trying to unassign an address which is already pending: " + this);
   }
+ else {
+    try {
+      if (!this.state.compareAndSet(State.assigned,State.allocated)) {
+        this.pending.set(false);
+        throw new IllegalStateException("Trying to unassign an address which is not currently assigned: " + this);
+      }
+    }
   finally {
-    this.canHas.writeLock().unlock();
-    LOG.info(String.format(EucalyptusProperties.DEBUG_FSTRING,EucalyptusProperties.TokenState.unassigned,this.toString()));
+      this.state.set(State.allocated);
+    }
   }
 }
