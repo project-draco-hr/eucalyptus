@@ -2,9 +2,43 @@
   this.msgMap=Multimaps.newHashMultimap();
   this.vmAllocInfo=vmAllocInfo;
   this.pendingEvents=new ConcurrentLinkedQueue<QueuedEvent>();
-  this.cluster=Clusters.getInstance().lookup(vmToken.getCluster());
   this.state=State.START;
   this.rollback=new AtomicBoolean(false);
-  for (  NetworkToken networkToken : vmToken.getNetworkTokens())   this.setupNetworkMessages(networkToken);
-  this.setupVmMessages(vmToken);
+  try {
+    this.cluster=Clusters.getInstance().lookup(vmToken.getCluster());
+    for (    NetworkToken networkToken : vmToken.getNetworkTokens())     this.setupNetworkMessages(networkToken);
+    this.setupVmMessages(vmToken);
+  }
+ catch (  Throwable e) {
+    if (vmToken != null) {
+      try {
+        Clusters.getInstance().lookup(vmToken.getCluster()).getNodeState().releaseToken(vmToken);
+      }
+ catch (      Throwable e1) {
+        LOG.debug(e1);
+        LOG.trace(e1,e1);
+      }
+      try {
+        for (        String addr : vmToken.getAddresses()) {
+          AddressUtil.releaseAddress(addr);
+        }
+      }
+ catch (      Throwable e1) {
+        LOG.debug(e1);
+        LOG.trace(e1,e1);
+      }
+      try {
+        if (vmToken.getPrimaryNetwork() != null) {
+          Network net=Networks.getInstance().lookup(vmToken.getPrimaryNetwork().getName());
+          for (          Integer i : vmToken.getPrimaryNetwork().getIndexes()) {
+            net.returnNetworkIndex(i);
+          }
+        }
+      }
+ catch (      Throwable e1) {
+        LOG.debug(e1);
+        LOG.trace(e1,e1);
+      }
+    }
+  }
 }
