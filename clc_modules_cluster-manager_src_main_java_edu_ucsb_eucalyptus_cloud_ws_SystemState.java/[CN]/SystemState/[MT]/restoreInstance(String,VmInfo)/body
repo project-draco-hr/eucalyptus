@@ -23,32 +23,35 @@
     }
     VmTypeInfo vmType=runVm.getInstanceType();
     List<Network> networks=new ArrayList<Network>();
-    for (    String netName : runVm.getGroupNames())     try {
-      Network notwork=Networks.getInstance().lookup(runVm.getOwnerId() + "-" + netName);
-      networks.add(notwork);
+    for (    String netName : runVm.getGroupNames()) {
+      Network notwork=null;
       try {
-        NetworkToken netToken=Clusters.getInstance().lookup(runVm.getPlacement()).getState().extantAllocation(runVm.getOwnerId(),netName,runVm.getNetParams().getVlan());
-        notwork.addTokenIfAbsent(netToken);
-      }
- catch (      NetworkAlreadyExistsException e) {
-        LOG.error(e);
-      }
-    }
- catch (    NoSuchElementException e1) {
-      try {
-        Network notwork=SystemState.getUserNetwork(runVm.getOwnerId(),netName);
+        notwork=Networks.getInstance().lookup(runVm.getOwnerId() + "-" + netName);
         networks.add(notwork);
-        NetworkToken netToken=Clusters.getInstance().lookup(runVm.getPlacement()).getState().extantAllocation(runVm.getOwnerId(),netName,runVm.getNetParams().getVlan());
-        notwork.addTokenIfAbsent(netToken);
-        Networks.getInstance().register(notwork);
+        try {
+          NetworkToken netToken=Clusters.getInstance().lookup(runVm.getPlacement()).getState().extantAllocation(runVm.getOwnerId(),netName,runVm.getNetParams().getVlan());
+          notwork.addTokenIfAbsent(netToken);
+        }
+ catch (        NetworkAlreadyExistsException e) {
+          LOG.error(e);
+        }
       }
- catch (      EucalyptusCloudException e) {
-        LOG.error(e);
-        ClusterConfiguration config=Clusters.getInstance().lookup(runVm.getPlacement()).getConfiguration();
-        SystemState.dispatch(runVm.getPlacement(),new TerminateCallback(),Admin.makeMsg(TerminateInstancesType.class,runVm.getInstanceId()));
-      }
-catch (      NetworkAlreadyExistsException e) {
-        LOG.error(e);
+ catch (      NoSuchElementException e1) {
+        try {
+          notwork=SystemState.getUserNetwork(runVm.getOwnerId(),netName);
+          networks.add(notwork);
+          NetworkToken netToken=Clusters.getInstance().lookup(runVm.getPlacement()).getState().extantAllocation(runVm.getOwnerId(),netName,runVm.getNetParams().getVlan());
+          notwork.addTokenIfAbsent(netToken);
+          Networks.getInstance().registerIfAbsent(notwork,Networks.State.ACTIVE);
+        }
+ catch (        EucalyptusCloudException e) {
+          LOG.error(e);
+          ClusterConfiguration config=Clusters.getInstance().lookup(runVm.getPlacement()).getConfiguration();
+          SystemState.dispatch(runVm.getPlacement(),new TerminateCallback(),Admin.makeMsg(TerminateInstancesType.class,runVm.getInstanceId()));
+        }
+catch (        NetworkAlreadyExistsException e) {
+          LOG.error(e);
+        }
       }
     }
     VmInstance vm=new VmInstance(reservationId,launchIndex,instanceId,ownerId,placement,userData,imgInfo,keyInfo,vmType,networks,Integer.toString(runVm.getNetworkIndex()));

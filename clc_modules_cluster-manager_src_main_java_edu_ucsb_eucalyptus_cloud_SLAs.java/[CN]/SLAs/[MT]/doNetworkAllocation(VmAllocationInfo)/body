@@ -1,0 +1,36 @@
+{
+  if (EucalyptusProperties.disableNetworking)   return;
+  String userId=vmAllocInfo.getRequest().getUserId();
+  List<ResourceToken> rscTokens=vmAllocInfo.getAllocationTokens();
+  List<Network> networks=vmAllocInfo.getNetworks();
+  ResourceToken firstRscToken=rscTokens.get(0);
+  if (networks.size() < 1) {
+    throw new NotEnoughResourcesAvailable("At least one network group must be specified.");
+  }
+  Network firstNet=networks.get(0);
+  String networkName=firstNet.getName();
+  try {
+    firstNet=Networks.getInstance().lookup(networkName);
+  }
+ catch (  NoSuchElementException e) {
+    Networks.getInstance().registerIfAbsent(firstNet,Networks.State.ACTIVE);
+    firstNet=Networks.getInstance().lookup(networkName);
+  }
+  for (  ResourceToken token : rscTokens) {
+    NetworkToken netToken=allocateClusterVlan(userId,token.getCluster(),firstNet.getName());
+    token.getNetworkTokens().add(netToken);
+    for (int i=0; i < token.getAmount(); i++) {
+      Integer addrIndex=firstNet.allocateNetworkIndex(token.getCluster());
+      if (addrIndex == null) {
+        for (        Integer index : token.getPrimaryNetwork().getIndexes()) {
+          firstNet.returnNetworkIndex(index);
+        }
+        token.getPrimaryNetwork().getIndexes().clear();
+        throw new NotEnoughResourcesAvailable("Not enough addresses left in the network subnet assigned to requested group: " + firstNet.getNetworkName());
+      }
+ else {
+        token.getPrimaryNetwork().getIndexes().add(addrIndex);
+      }
+    }
+  }
+}

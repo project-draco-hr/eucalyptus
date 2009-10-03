@@ -1,5 +1,5 @@
 {
-  AddressManager.updateAddressingMode();
+  AddressUtil.updateAddressingMode();
   AssociateAddressResponseType reply=(AssociateAddressResponseType)request.getReply();
   reply.set_return(false);
   LOG.debug("Associate: " + request.getPublicIp() + " => "+ request.getInstanceId());
@@ -25,30 +25,33 @@
     String currentPublicIp=vm.getNetworkConfig().getIgnoredPublicIp();
     try {
       Address currentAddr=Addresses.getInstance().lookup(currentPublicIp);
-      boolean release=Component.eucalyptus.name().equals(currentAddr.getUserId()) && edu.ucsb.eucalyptus.util.EucalyptusProperties.getSystemConfiguration().isDoDynamicPublicAddresses();
       LOG.debug("Dispatching unassign message for: " + address);
-      AddressManager.unassignAddressFromVm(currentAddr,vm);
-      if (release) {
-        AddressManager.releaseAddress(currentAddr);
+      if (currentAddr.isAssigned()) {
+        AddressUtil.unassignAddressFromVm(currentAddr,vm);
+      }
+ else {
+        AddressUtil.dispatchUnassignAddress(currentAddr,vm);
       }
     }
  catch (    NoSuchElementException e) {
-      return reply;
     }
   }
   if (address.isAssigned() && address.getUserId().equals(request.getUserId()) && !address.isPending()) {
     LOG.debug("Dispatching unassign message for: " + address);
     try {
       VmInstance oldVm=VmInstances.getInstance().lookup(address.getInstanceId());
-      AddressManager.unassignAddressFromVm(address,oldVm);
-      AddressManager.tryAssignSystemAddress(oldVm);
-      if (!EucalyptusProperties.disableNetworking) {
+      if (address.isAssigned()) {
+        AddressUtil.unassignAddressFromVm(address,oldVm);
       }
+ else {
+        AddressUtil.dispatchUnassignAddress(address,oldVm);
+      }
+      AddressUtil.tryAssignSystemAddress(oldVm);
     }
  catch (    NoSuchElementException e) {
       LOG.error(e,e);
     }
   }
-  AddressManager.assignAddressToVm(address,vm);
+  AddressUtil.assignAddressToVm(address,vm);
   return reply;
 }

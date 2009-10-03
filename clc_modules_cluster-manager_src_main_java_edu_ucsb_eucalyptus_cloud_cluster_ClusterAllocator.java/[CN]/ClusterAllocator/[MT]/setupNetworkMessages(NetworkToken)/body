@@ -1,31 +1,33 @@
 {
-  if (networkToken != null) {
+  if (EucalyptusProperties.disableNetworking) {
+    return;
+  }
+ else   if (networkToken != null) {
     StartNetworkType msg=new StartNetworkType(this.vmAllocInfo.getRequest(),networkToken.getVlan(),networkToken.getNetworkName());
     this.msgMap.put(State.CREATE_NETWORK,QueuedEvent.make(new StartNetworkCallback(networkToken),msg));
-    this.msgMap.put(State.ROLLBACK,QueuedEvent.make(new StopNetworkCallback(networkToken),new StopNetworkType(msg)));
-    try {
-      RunInstancesType request=this.vmAllocInfo.getRequest();
-      Network network=Networks.getInstance().lookup(networkToken.getName());
-      LOG.info("Setting up rules for: " + network.getName());
-      LOG.debug(network);
-      ConfigureNetworkType msg1=new ConfigureNetworkType(network.getRules());
-      msg1.setUserId(networkToken.getUserName());
-      msg1.setEffectiveUserId(networkToken.getUserName());
-      if (!network.getRules().isEmpty()) {
-        this.msgMap.put(State.CREATE_NETWORK_RULES,QueuedEvent.make(ConfigureNetworkCallback.CALLBACK,msg1));
-      }
-      for (      Network otherNetwork : Networks.getInstance().listValues()) {
-        if (otherNetwork.isPeer(network.getUserName(),network.getNetworkName())) {
-          LOG.warn("Need to refresh rules for incoming named network ingress on: " + otherNetwork.getName());
-          LOG.debug(otherNetwork);
-          ConfigureNetworkType omsg=new ConfigureNetworkType(otherNetwork.getRules());
-          omsg.setUserId(otherNetwork.getUserName());
-          omsg.setEffectiveUserId(Component.eucalyptus.name());
-          this.msgMap.put(State.CREATE_NETWORK_RULES,QueuedEvent.make(ConfigureNetworkCallback.CALLBACK,omsg));
-        }
+  }
+  try {
+    RunInstancesType request=this.vmAllocInfo.getRequest();
+    Network network=Networks.getInstance().lookup(networkToken.getName());
+    LOG.debug(LogUtil.header("Setting up rules for: " + network.getName()));
+    LOG.debug(LogUtil.subheader(network.toString()));
+    ConfigureNetworkType msg=new ConfigureNetworkType(network.getRules());
+    msg.setUserId(networkToken.getUserName());
+    msg.setEffectiveUserId(networkToken.getUserName());
+    if (!network.getRules().isEmpty()) {
+      this.msgMap.put(State.CREATE_NETWORK_RULES,QueuedEvent.make(ConfigureNetworkCallback.CALLBACK,msg));
+    }
+    for (    Network otherNetwork : Networks.getInstance().listValues()) {
+      if (otherNetwork.isPeer(network.getUserName(),network.getNetworkName())) {
+        LOG.warn("Need to refresh rules for incoming named network ingress on: " + otherNetwork.getName());
+        LOG.debug(otherNetwork);
+        ConfigureNetworkType omsg=new ConfigureNetworkType(otherNetwork.getRules());
+        omsg.setUserId(otherNetwork.getUserName());
+        omsg.setEffectiveUserId(Component.eucalyptus.name());
+        this.msgMap.put(State.CREATE_NETWORK_RULES,QueuedEvent.make(ConfigureNetworkCallback.CALLBACK,omsg));
       }
     }
- catch (    NoSuchElementException e) {
-    }
+  }
+ catch (  NoSuchElementException e) {
   }
 }
