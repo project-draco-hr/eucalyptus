@@ -14,34 +14,42 @@
     int size=foundLVMVolumeInfo.getSize();
     long snapshotSize=(size * StorageProperties.GB) / 2;
     String rawFileName=StorageProperties.storageRootDirectory + "/" + volumeId+ Hashes.getRandom(6);
-    String loDevName=createLoopback(rawFileName,snapshotSize);
-    createSnapshotLogicalVolume(loDevName,vgName,absoluteLVName,lvName);
-    String snapRawFileName=StorageProperties.storageRootDirectory + "/" + snapshotId;
-    String absoluteSnapLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
-    duplicateLogicalVolume(absoluteSnapLVName,snapRawFileName);
-    String returnValue=removeLogicalVolume(absoluteSnapLVName);
-    if (returnValue.length() == 0) {
-      throw new EucalyptusCloudException("Unable to remove logical volume " + absoluteSnapLVName);
+    try {
+      String loDevName=createLoopback(rawFileName,snapshotSize);
+      createSnapshotLogicalVolume(loDevName,vgName,absoluteLVName,lvName);
+      String snapRawFileName=StorageProperties.storageRootDirectory + "/" + snapshotId;
+      String absoluteSnapLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
+      duplicateLogicalVolume(absoluteSnapLVName,snapRawFileName);
+      String returnValue=removeLogicalVolume(absoluteSnapLVName);
+      if (returnValue.length() == 0) {
+        throw new EucalyptusCloudException("Unable to remove logical volume " + absoluteSnapLVName);
+      }
+      returnValue=reduceVolumeGroup(vgName,loDevName);
+      if (returnValue.length() == 0) {
+        throw new EucalyptusCloudException("Unable to reduce volume group " + vgName + " logical volume: "+ loDevName);
+      }
+      returnValue=removePhysicalVolume(loDevName);
+      if (returnValue.length() == 0) {
+        throw new EucalyptusCloudException("Unable to remove physical volume " + loDevName);
+      }
+      returnValue=removeLoopback(loDevName);
+      if (!(new File(rawFileName)).delete()) {
+        LOG.error("Unable to remove temporary snapshot file: " + rawFileName);
+      }
+      snapshotInfo.setLoFileName(snapRawFileName);
+      snapshotInfo.setStatus(StorageProperties.Status.available.toString());
+      snapshotInfo.setVbladePid(-1);
+      snapshotInfo.setSize(size);
+      returnValues.add(vgName);
+      returnValues.add(lvName);
+      db.add(snapshotInfo);
     }
-    returnValue=reduceVolumeGroup(vgName,loDevName);
-    if (returnValue.length() == 0) {
-      throw new EucalyptusCloudException("Unable to reduce volume group " + vgName + " logical volume: "+ loDevName);
+ catch (    ExecutionException ex) {
+      db.rollback();
+      String error="Unable to run command: " + ex.getMessage();
+      LOG.error(error);
+      throw new EucalyptusCloudException(error);
     }
-    returnValue=removePhysicalVolume(loDevName);
-    if (returnValue.length() == 0) {
-      throw new EucalyptusCloudException("Unable to remove physical volume " + loDevName);
-    }
-    returnValue=removeLoopback(loDevName);
-    if (!(new File(rawFileName)).delete()) {
-      LOG.error("Unable to remove temporary snapshot file: " + rawFileName);
-    }
-    snapshotInfo.setLoFileName(snapRawFileName);
-    snapshotInfo.setStatus(StorageProperties.Status.available.toString());
-    snapshotInfo.setVbladePid(-1);
-    snapshotInfo.setSize(size);
-    returnValues.add(vgName);
-    returnValues.add(lvName);
-    db.add(snapshotInfo);
   }
   db.commit();
   return returnValues;
