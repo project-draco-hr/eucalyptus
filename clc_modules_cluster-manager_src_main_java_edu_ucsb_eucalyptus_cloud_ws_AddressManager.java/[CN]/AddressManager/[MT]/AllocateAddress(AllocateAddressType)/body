@@ -1,32 +1,12 @@
 {
-  AddressManager.updateAddressingMode();
+  AddressUtil.updateAddressingMode();
   int addrCount=0;
   for (  Address a : Addresses.getInstance().listValues()) {
     if (request.getUserId().equals(a.getUserId()))     addrCount++;
   }
   if (addrCount >= edu.ucsb.eucalyptus.util.EucalyptusProperties.getSystemConfiguration().getMaxUserPublicAddresses() && !request.isAdministrator())   throw new EucalyptusCloudException(ExceptionList.ERR_SYS_INSUFFICIENT_ADDRESS_CAPACITY);
-  ConcurrentNavigableMap<String,Address> unusedAddresses=Addresses.getInstance().getDisabledMap();
-  Map.Entry<String,Address> addressEntry=unusedAddresses.pollFirstEntry();
-  if (addressEntry == null) {
-    LOG.debug(LogUtil.header(LogUtil.dumpObject(Addresses.getInstance())));
-    throw new EucalyptusCloudException(ExceptionList.ERR_SYS_INSUFFICIENT_ADDRESS_CAPACITY);
-  }
-  Address address=addressEntry.getValue();
-  address.allocate(request.getUserId());
-  EntityWrapper<Address> db=new EntityWrapper<Address>();
-  try {
-    Address addr=db.getUnique(new Address(address.getName()));
-    addr.allocate(request.getUserId());
-  }
- catch (  EucalyptusCloudException e) {
-    db.merge(address);
-  }
-  db.commit();
-  try {
-    Addresses.getInstance().register(address);
-  }
- catch (  Exception e) {
-  }
+  String userId=request.getUserId();
+  Address address=Addresses.getInstance().getNextAvailable(userId);
   AllocateAddressResponseType reply=(AllocateAddressResponseType)request.getReply();
   reply.setPublicIp(address.getName());
   return reply;
