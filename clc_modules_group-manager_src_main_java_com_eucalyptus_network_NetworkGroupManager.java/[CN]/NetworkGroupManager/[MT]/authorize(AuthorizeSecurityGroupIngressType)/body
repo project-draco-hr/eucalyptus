@@ -1,18 +1,21 @@
 {
   AuthorizeSecurityGroupIngressResponseType reply=(AuthorizeSecurityGroupIngressResponseType)request.getReply();
+  EntityWrapper<NetworkRulesGroup> db=NetworkGroupUtil.getEntityWrapper();
   NetworkRulesGroup ruleGroup=NetworkGroupUtil.getUserNetworkRulesGroup(request.getUserId(),request.getGroupName());
-  List<NetworkRule> ruleList=new ArrayList<NetworkRule>();
+  List<NetworkRule> ruleList=Lists.newArrayList();
   for (  IpPermissionType ipPerm : request.getIpPermissions()) {
     ruleList.addAll(NetworkGroupUtil.getNetworkRules(ipPerm));
   }
   for (  NetworkRule newRule : ruleList) {
     if (ruleGroup.getNetworkRules().contains(newRule) || !newRule.isValid()) {
       reply.set_return(false);
+      db.rollback();
       return reply;
     }
   }
   ruleGroup.getNetworkRules().addAll(ruleList);
-  NetworkGroupUtil.getEntityWrapper().mergeAndCommit(ruleGroup);
+  db.merge(ruleGroup);
+  db.commit();
   Network changedNetwork=ruleGroup.getVmNetwork();
   Messaging.dispatch(Component.cluster.getUri().toASCIIString(),changedNetwork);
   reply.set_return(true);
