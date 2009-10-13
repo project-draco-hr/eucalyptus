@@ -1,20 +1,43 @@
 {
   RevokeSecurityGroupIngressResponseType reply=(RevokeSecurityGroupIngressResponseType)request.getReply();
   NetworkRulesGroup ruleGroup=NetworkGroupUtil.getUserNetworkRulesGroup(request.getUserId(),request.getGroupName());
+  final List<NetworkRule> ruleList=Lists.newArrayList();
   for (  IpPermissionType ipPerm : request.getIpPermissions()) {
-    List<NetworkRule> ruleList=NetworkGroupUtil.getNetworkRules(ipPerm);
-    if (ruleGroup.getNetworkRules().containsAll(ruleList)) {
-      for (      NetworkRule delRule : ruleList) {
-        ruleGroup.getNetworkRules().remove(delRule);
-        NetworkGroupUtil.getEntityWrapper().mergeAndCommit(ruleGroup);
+    ruleList.addAll(NetworkGroupUtil.getNetworkRules(ipPerm));
+  }
+  List<NetworkRule> filtered=Lists.newArrayList(Iterables.filter(ruleGroup.getNetworkRules(),new Predicate<NetworkRule>(){
+    @Override public boolean apply(    NetworkRule rule){
+      for (      NetworkRule r : ruleList) {
+        if (r.equals(rule) && r.getNetworkPeers().equals(rule.getNetworkPeers()) && r.getIpRanges().equals(rule.getIpRanges())) {
+          return true;
+        }
+      }
+      return false;
+    }
+  }
+));
+  if (filtered.size() == ruleList.size()) {
+    for (    NetworkRule r : filtered) {
+      ruleGroup.getNetworkRules().remove(r);
+    }
+    NetworkGroupUtil.getEntityWrapper().mergeAndCommit(ruleGroup);
+  }
+ else   if (request.getIpPermissions().size() == 1 && request.getIpPermissions().get(0).getIpProtocol() == null) {
+    for (    NetworkRule rule : ruleList) {
+      if (ruleGroup.getNetworkRules().remove(rule)) {
+        reply.set_return(true);
       }
     }
- else {
-      reply.set_return(false);
-      return reply;
+    if (reply.get_return()) {
+      NetworkGroupUtil.getEntityWrapper().mergeAndCommit(ruleGroup);
     }
+  }
+ else {
+    reply.set_return(false);
+    return reply;
   }
   Network changedNetwork=ruleGroup.getVmNetwork();
   Messaging.dispatch(Component.cluster.getUri().toASCIIString(),changedNetwork);
+  reply.set_return(true);
   return reply;
 }
