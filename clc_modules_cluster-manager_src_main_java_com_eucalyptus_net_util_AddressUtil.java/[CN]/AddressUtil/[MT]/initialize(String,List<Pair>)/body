@@ -1,0 +1,57 @@
+{
+  if (AddressUtil.tryInit(cluster)) {
+    try {
+      List<Address> addrList=getStoredAddresses(cluster);
+      List<String> ccListAddrs=Lists.transform(ccList,new Function<Pair,String>(){
+        @Override public String apply(        Pair p){
+          return p.getLeft();
+        }
+      }
+);
+      for (      Address addr : addrList) {
+        if (ccListAddrs.contains(addr.getName())) {
+          Pair current=checkHasCurrentState(addr.getName(),ccList);
+          if (current != null) {
+            try {
+              VmInstance vm=VmInstances.getInstance().lookupByInstanceIp(current.getRight());
+              addr.setAssigned(vm.getInstanceId(),current.getRight());
+            }
+ catch (            Exception e) {
+              addr.doUnassign();
+            }
+          }
+          addr.init();
+          ccList.remove(current);
+        }
+ else {
+          try {
+            addr.release();
+            Addresses.getInstance().deregister(addr.getName());
+          }
+ catch (          Throwable e) {
+            LOG.debug(e);
+          }
+        }
+      }
+      for (      Pair current : ccList) {
+        Address addr=AddressUtil.lookupOrCreate(cluster,current);
+        try {
+          VmInstance vm=VmInstances.getInstance().lookupByInstanceIp(current.getRight());
+          addr.allocate(Component.eucalyptus.name());
+          addr.setAssigned(vm.getInstanceId(),current.getRight());
+        }
+ catch (        Exception e) {
+          addr.doUnassign();
+        }
+        addr.init();
+      }
+    }
+ catch (    Throwable e) {
+      clusterInit.get(cluster).set(false);
+    }
+    return true;
+  }
+ else {
+    return false;
+  }
+}
