@@ -27,7 +27,7 @@
     if ((type == qtype || qtype == Type.ANY) && name.equals(curname)) {
       addRRset(answers[i],cred);
       completed=true;
-      if (curname == qname) {
+      if (curname != null && curname.equals(qname)) {
         if (response == null)         response=new SetResponse(SetResponse.SUCCESSFUL);
         response.addRRset(answers[i]);
       }
@@ -36,14 +36,14 @@
  else     if (type == Type.CNAME && name.equals(curname)) {
       CNAMERecord cname;
       addRRset(answers[i],cred);
-      if (curname == qname)       response=new SetResponse(SetResponse.CNAME,answers[i]);
+      if (curname != null && curname.equals(qname))       response=new SetResponse(SetResponse.CNAME,answers[i]);
       cname=(CNAMERecord)answers[i].first();
       curname=cname.getTarget();
     }
- else     if (type == Type.DNAME && curname.subdomain(name)) {
+ else     if (type == Type.DNAME && curname != null && curname.subdomain(name)) {
       DNAMERecord dname;
       addRRset(answers[i],cred);
-      if (curname == qname)       response=new SetResponse(SetResponse.DNAME,answers[i]);
+      if (curname.equals(qname))       response=new SetResponse(SetResponse.DNAME,answers[i]);
       dname=(DNAMERecord)answers[i].first();
       try {
         curname=curname.fromDNAME(dname);
@@ -55,9 +55,11 @@
   }
   auth=in.getSectionRRsets(Section.AUTHORITY);
   RRset soa=null, ns=null;
-  for (int i=0; i < auth.length; i++) {
-    if (auth[i].getType() == Type.SOA && curname.subdomain(auth[i].getName()))     soa=auth[i];
- else     if (auth[i].getType() == Type.NS && curname.subdomain(auth[i].getName()))     ns=auth[i];
+  if (curname != null) {
+    for (int i=0; i < auth.length; i++) {
+      if (auth[i].getType() == Type.SOA && curname.subdomain(auth[i].getName()))       soa=auth[i];
+ else       if (auth[i].getType() == Type.NS && curname.subdomain(auth[i].getName()))       ns=auth[i];
+    }
   }
   if (!completed) {
     int cachetype=(rcode == Rcode.NXDOMAIN) ? 0 : qtype;
@@ -65,7 +67,7 @@
       cred=getCred(Section.AUTHORITY,isAuth);
       SOARecord soarec=null;
       if (soa != null)       soarec=(SOARecord)soa.first();
-      addNegative(curname,cachetype,soarec,cred);
+      if (curname != null)       addNegative(curname,cachetype,soarec,cred);
       if (response == null) {
         int responseType;
         if (rcode == Rcode.NXDOMAIN)         responseType=SetResponse.NXDOMAIN;
