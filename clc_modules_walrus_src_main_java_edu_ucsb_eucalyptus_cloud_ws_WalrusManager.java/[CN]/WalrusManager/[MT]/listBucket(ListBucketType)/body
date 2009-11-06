@@ -10,13 +10,24 @@
   if (maxKeysString != null)   maxKeys=Integer.parseInt(maxKeysString);
  else   maxKeys=WalrusProperties.MAX_KEYS;
   String delimiter=request.getDelimiter();
-  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
+  bucketInfo.setHidden(false);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   ArrayList<PrefixEntry> prefixes=new ArrayList<PrefixEntry>();
   if (bucketList.size() > 0) {
     BucketInfo bucket=bucketList.get(0);
     if (bucket.canRead(userId)) {
+      if (request.isAdministrator()) {
+        EntityWrapper<WalrusSnapshotInfo> dbSnap=db.recast(WalrusSnapshotInfo.class);
+        WalrusSnapshotInfo walrusSnapInfo=new WalrusSnapshotInfo();
+        walrusSnapInfo.setSnapshotBucket(bucketName);
+        List<WalrusSnapshotInfo> walrusSnaps=dbSnap.query(walrusSnapInfo);
+        if (walrusSnaps.size() > 0) {
+          db.rollback();
+          throw new NoSuchBucketException(bucketName);
+        }
+      }
       reply.setName(bucketName);
       reply.setIsTruncated(false);
       if (maxKeys >= 0)       reply.setMaxKeys(maxKeys);
@@ -78,12 +89,13 @@
           listEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
           listEntry.setStorageClass(objectInfo.getStorageClass());
           String displayName=objectInfo.getOwnerId();
-          EntityWrapper<UserInfo> db2=new EntityWrapper<UserInfo>();
-          UserInfo userInfo=new UserInfo(displayName);
-          List<UserInfo> ownerInfos=db2.query(userInfo);
-          db2.commit();
-          if (ownerInfos.size() > 0) {
-            listEntry.setOwner(new CanonicalUserType(ownerInfos.get(0).getQueryId(),displayName));
+          try {
+            User userInfo=CredentialProvider.getUser(displayName);
+            listEntry.setOwner(new CanonicalUserType(userInfo.getQueryId(),displayName));
+          }
+ catch (          NoSuchUserException e) {
+            db.rollback();
+            throw new AccessDeniedException("Bucket",bucketName);
           }
           ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
           objectInfo.returnMetaData(metaData);
@@ -100,7 +112,7 @@
     }
  else {
       db.rollback();
-      throw new AccessDeniedException(bucketName);
+      throw new AccessDeniedException("Bucket",bucketName);
     }
   }
  else {

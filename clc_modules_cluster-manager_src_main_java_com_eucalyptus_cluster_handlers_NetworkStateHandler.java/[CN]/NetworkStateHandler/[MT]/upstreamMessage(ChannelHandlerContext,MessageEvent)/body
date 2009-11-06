@@ -1,0 +1,44 @@
+{
+  if (e.getMessage() instanceof MappingHttpResponse) {
+    MappingHttpResponse resp=(MappingHttpResponse)e.getMessage();
+    DescribeNetworksResponseType reply=(DescribeNetworksResponseType)resp.getMessage();
+    LOG.debug(reply.toString("eucalyptus_ucsb_edu"));
+    for (    Network net : Networks.getInstance().listValues()) {
+      net.trim(reply.getAddrsPerNetwork());
+    }
+    this.getCluster().getState().setAddressCapacity(reply.getAddrsPerNetwork());
+    this.getCluster().getState().setMode(reply.getMode());
+    List<String> active=Lists.newArrayList();
+    for (    NetworkInfoType netInfo : reply.getActiveNetworks()) {
+      Network net=null;
+      try {
+        net=Networks.getInstance().lookup(netInfo.getUserName() + "-" + netInfo.getNetworkName());
+      }
+ catch (      NoSuchElementException e1) {
+        net=new Network(netInfo.getUserName(),netInfo.getNetworkName());
+      }
+      active.add(net.getName());
+      net.setVlan(netInfo.getVlan());
+      NetworkToken netToken=new NetworkToken(this.getCluster().getName(),netInfo.getUserName(),netInfo.getNetworkName(),netInfo.getVlan());
+      netToken=net.addTokenIfAbsent(netToken);
+    }
+    for (    Network net : Networks.getInstance().listValues(Networks.State.ACTIVE)) {
+      net.trim(reply.getAddrsPerNetwork());
+    }
+    List<Cluster> ccList=Clusters.getInstance().listValues();
+    int ccNum=ccList.size();
+    for (    Cluster c : ccList) {
+      ccNum-=c.getState().getMode();
+    }
+    if (ccNum != 0) {
+      EucalyptusProperties.disableNetworking=true;
+    }
+ else {
+      EucalyptusProperties.disableNetworking=false;
+    }
+    this.verified=true;
+  }
+ else {
+    LOG.warn("Received unknown message type. " + e.getMessage());
+  }
+}

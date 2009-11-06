@@ -9,7 +9,7 @@
   if (getTorrent == null)   getTorrent=false;
   Boolean getMetaData=request.getGetMetaData();
   if (getMetaData == null)   getMetaData=false;
-  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
@@ -20,7 +20,7 @@
       ObjectInfo objectInfo=objectInfos.get(0);
       if (objectInfo.canRead(userId)) {
         String objectName=objectInfo.getObjectName();
-        MappingHttpResponse httpResponse=new MappingHttpResponse(HttpVersion.HTTP_1_1);
+        DefaultHttpResponse httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.OK);
         if (getMetaData) {
           List<MetaDataInfo> metaDataInfos=objectInfo.getMetaData();
           for (          MetaDataInfo metaDataInfo : metaDataInfos) {
@@ -33,7 +33,7 @@
               LOG.warn("Bittorrent support has been disabled. Please check pre-requisites");
               throw new EucalyptusCloudException("Torrents disabled");
             }
-            EntityWrapper<TorrentInfo> dbTorrent=new EntityWrapper<TorrentInfo>();
+            EntityWrapper<TorrentInfo> dbTorrent=WalrusControl.getEntityWrapper();
             TorrentInfo torrentInfo=new TorrentInfo(bucketName,objectKey);
             TorrentInfo foundTorrentInfo;
             String absoluteObjectPath=storageManager.getObjectPath(bucketName,objectName);
@@ -66,24 +66,25 @@
             request.setRandomKey(randomKey);
             File torrent=new File(torrentFilePath);
             if (torrent.exists()) {
+              Date lastModified=objectInfo.getLastModified();
+              db.commit();
               long torrentLength=torrent.length();
-              storageManager.sendObject(request.getChannel(),httpResponse,bucketName,torrentFile,torrentLength,null,DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z","application/x-bittorrent","attachment; filename=" + objectKey + ".torrent;",request.getIsCompressed());
+              storageManager.sendObject(request.getChannel(),httpResponse,bucketName,torrentFile,torrentLength,null,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z","application/x-bittorrent","attachment; filename=" + objectKey + ".torrent;",request.getIsCompressed());
               reply.setEtag("");
-              reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN));
+              reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN));
               reply.setSize(torrentLength);
               Status status=new Status();
               status.setCode(200);
               status.setDescription("OK");
               reply.setStatus(status);
               reply.setContentType("binary/octet-stream");
-              db.commit();
               if (WalrusProperties.trackUsageStatistics) {
                 walrusStatistics.updateBytesOut(torrentLength);
-                walrusStatistics.dumpBytesOut();
               }
               return reply;
             }
  else {
+              db.rollback();
               String errorString="Could not get torrent file " + torrentFilePath;
               LOG.error(errorString);
               throw new EucalyptusCloudException(errorString);
@@ -91,9 +92,15 @@
           }
  else {
             db.rollback();
-            throw new AccessDeniedException(objectKey);
+            throw new AccessDeniedException("Key",objectKey);
           }
         }
+        Date lastModified=objectInfo.getLastModified();
+        Long size=objectInfo.getSize();
+        String etag=objectInfo.getEtag();
+        String contentType=objectInfo.getContentType();
+        String contentDisposition=objectInfo.getContentDisposition();
+        db.commit();
         if (request.getGetData()) {
           if (request.getInlineData()) {
             try {
@@ -114,29 +121,27 @@
  else {
             if (WalrusProperties.trackUsageStatistics) {
               walrusStatistics.updateBytesOut(objectInfo.getSize());
-              walrusStatistics.dumpBytesOut();
             }
-            storageManager.sendObject(request.getChannel(),httpResponse,bucketName,objectName,objectInfo.getSize(),objectInfo.getEtag(),DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z",objectInfo.getContentType(),objectInfo.getContentDisposition(),request.getIsCompressed());
+            storageManager.sendObject(request.getChannel(),httpResponse,bucketName,objectName,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z",contentType,contentDisposition,request.getIsCompressed());
           }
         }
  else {
-          storageManager.sendHeaders(request.getChannel(),httpResponse,objectInfo.getSize(),objectInfo.getEtag(),DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z",objectInfo.getContentType(),objectInfo.getContentDisposition());
+          storageManager.sendHeaders(request.getChannel(),httpResponse,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z",contentType,contentDisposition);
         }
-        reply.setEtag(objectInfo.getEtag());
-        reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
-        reply.setSize(objectInfo.getSize());
-        reply.setContentType(objectInfo.getContentType());
-        reply.setContentDisposition(objectInfo.getContentDisposition());
+        reply.setEtag(etag);
+        reply.setLastModified(DateUtils.format(lastModified,DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+        reply.setSize(size);
+        reply.setContentType(contentType);
+        reply.setContentDisposition(contentDisposition);
         Status status=new Status();
         status.setCode(200);
         status.setDescription("OK");
         reply.setStatus(status);
-        db.commit();
         return reply;
       }
  else {
         db.rollback();
-        throw new AccessDeniedException(objectKey);
+        throw new AccessDeniedException("Key",objectKey);
       }
     }
  else {

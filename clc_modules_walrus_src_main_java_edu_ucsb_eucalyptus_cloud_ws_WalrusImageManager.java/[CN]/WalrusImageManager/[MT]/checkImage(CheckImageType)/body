@@ -4,24 +4,30 @@
   String bucketName=request.getBucket();
   String objectKey=request.getKey();
   String userId=request.getUserId();
-  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
-  List<BucketInfo> bucketList=db.query(bucketInfo);
-  if (bucketList.size() > 0) {
+  BucketInfo bucket=null;
+  try {
+    bucket=db.getUnique(bucketInfo);
+  }
+ catch (  Throwable t) {
+    throw new EucalyptusCloudException("Unable to get bucket",t);
+  }
+  if (bucket != null) {
     EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
     ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
     if (objectInfos.size() > 0) {
       ObjectInfo objectInfo=objectInfos.get(0);
       if (objectInfo.canRead(userId)) {
+        db.commit();
         checkManifest(bucketName,objectKey,userId);
         reply.setSuccess(true);
-        db.commit();
         return reply;
       }
  else {
         db.rollback();
-        throw new AccessDeniedException(objectKey);
+        throw new AccessDeniedException("Key",objectKey);
       }
     }
  else {

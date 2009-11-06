@@ -1,41 +1,46 @@
 {
   SLAs sla=new SLAs();
-  List<ResourceToken> allocTokeList=null;
-  boolean failed=false;
-  boolean hasVms=false;
   try {
-    allocTokeList=sla.doVmAllocation(vmAllocInfo);
-    int addrCount=0;
-    for (    ResourceToken token : allocTokeList) {
-      addrCount+=token.getAmount();
+    vmAllocInfo.getAllocationTokens().addAll(sla.doVmAllocation(vmAllocInfo));
+  }
+ catch (  Throwable e) {
+    LOG.debug(e,e);
+    for (    ResourceToken token : vmAllocInfo.getAllocationTokens()) {
+      Clusters.getInstance().lookup(token.getCluster()).getNodeState().releaseToken(token);
     }
-    if (!EucalyptusProperties.disableNetworking && ("public".equals(vmAllocInfo.getRequest().getAddressingType()) || vmAllocInfo.getRequest().getAddressingType() == null)) {
-      NavigableSet<String> addresses=AddressManager.allocateAddresses(addrCount);
-      for (      ResourceToken token : allocTokeList) {
-        for (int i=0; i < token.getAmount(); i++) {
-          token.getAddresses().add(addresses.pollFirst());
+    throw new EucalyptusCloudException(e.getMessage());
+  }
+  try {
+    sla.doAddressAllocation(vmAllocInfo);
+  }
+ catch (  Throwable e) {
+    LOG.debug(e,e);
+    for (    ResourceToken token : vmAllocInfo.getAllocationTokens()) {
+      Clusters.getInstance().lookup(token.getCluster()).getNodeState().releaseToken(token);
+      for (      String addr : token.getAddresses()) {
+        AddressUtil.releaseAddress(addr);
+      }
+    }
+    throw new EucalyptusCloudException(e.getMessage());
+  }
+  try {
+    sla.doNetworkAllocation(vmAllocInfo);
+  }
+ catch (  Throwable e) {
+    LOG.debug(e,e);
+    for (    ResourceToken token : vmAllocInfo.getAllocationTokens()) {
+      Clusters.getInstance().lookup(token.getCluster()).getNodeState().releaseToken(token);
+      if (token.getPrimaryNetwork() != null) {
+        Network net=Networks.getInstance().lookup(token.getPrimaryNetwork().getName());
+        for (        Integer i : token.getPrimaryNetwork().getIndexes()) {
+          net.returnNetworkIndex(i);
         }
       }
-    }
-    vmAllocInfo.getAllocationTokens().addAll(allocTokeList);
-    sla.doNetworkAllocation(vmAllocInfo.getRequest().getUserId(),vmAllocInfo.getAllocationTokens(),vmAllocInfo.getNetworks());
-  }
- catch (  FailScriptFailException e) {
-    failed=true;
-    LOG.debug(e,e);
-  }
-catch (  NotEnoughResourcesAvailable e) {
-    failed=true;
-    LOG.debug(e,e);
-  }
-  if (failed) {
-    if (allocTokeList != null) {
-      for (      ResourceToken token : allocTokeList) {
-        Clusters.getInstance().lookup(token.getCluster()).getNodeState().releaseToken(token);
+      for (      String addr : token.getAddresses()) {
+        AddressUtil.releaseAddress(addr);
       }
-      throw new EucalyptusCloudException("Not enough resources available: addresses (try --addressing private)");
     }
-    throw new EucalyptusCloudException("Not enough resources available: vm resources.");
+    throw new EucalyptusCloudException(e);
   }
   return vmAllocInfo;
 }

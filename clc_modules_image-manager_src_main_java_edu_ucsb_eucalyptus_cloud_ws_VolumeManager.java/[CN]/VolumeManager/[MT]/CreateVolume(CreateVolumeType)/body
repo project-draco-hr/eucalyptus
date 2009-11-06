@@ -1,12 +1,22 @@
 {
-  if (!Clusters.getInstance().contains(request.getAvailabilityZone())) {
-    throw new EucalyptusCloudException("Zone does not exist: " + request.getAvailabilityZone());
+  if ((request.getSnapshotId() == null && request.getSize() == null)) {
+    throw new EucalyptusCloudException("One of size or snapshotId is required as a parameter.");
   }
-  if ((request.getSnapshotId() == null && request.getSize() == null) || (request.getSnapshotId() != null && request.getSize() != null)) {
-    throw new EucalyptusCloudException("One of 'snapshotId' or 'size' must be set.");
+  try {
+    Configuration.getClusterConfiguration(request.getAvailabilityZone());
+  }
+ catch (  Exception e) {
+    throw new EucalyptusCloudException("Zone does not exist: " + request.getAvailabilityZone(),e);
+  }
+  StorageControllerConfiguration sc;
+  try {
+    sc=Configuration.getStorageControllerConfiguration(request.getAvailabilityZone());
+  }
+ catch (  Exception e) {
+    throw new EucalyptusCloudException("Storage services are not available for the requested availability zone.",e);
   }
   EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
-  if (!(request.getSnapshotId() == null)) {
+  if (request.getSnapshotId() != null) {
     String userName=request.isAdministrator() ? null : request.getUserId();
     try {
       db.recast(Snapshot.class).getUnique(Snapshot.named(userName,request.getSnapshotId()));
@@ -31,15 +41,16 @@
     }
   }
   newVol.setState(State.GENERATING);
-  CreateStorageVolumeType scRequest=new CreateStorageVolumeType(newId,request.getSize(),request.getSnapshotId());
-  CreateStorageVolumeResponseType scReply=null;
   try {
-    scReply=(CreateStorageVolumeResponseType)Messaging.send(StorageProperties.STORAGE_REF,scRequest);
+    CreateStorageVolumeType req=new CreateStorageVolumeType(newId,request.getSize(),request.getSnapshotId());
+    req.setUserId(request.getUserId());
+    req.setEffectiveUserId(request.getEffectiveUserId());
+    StorageUtil.lookup(sc.getHostName()).send(req,CreateStorageVolumeResponseType.class);
   }
  catch (  EucalyptusCloudException e) {
     LOG.debug(e,e);
     db.rollback();
-    throw new EucalyptusCloudException("Error calling CreateStorageVolume:" + e.getMessage());
+    throw new EucalyptusCloudException("Error communicating with Storage Controller: CreateStorageVolume:" + e.getMessage());
   }
   db.commit();
   CreateVolumeResponseType reply=(CreateVolumeResponseType)request.getReply();

@@ -3,10 +3,23 @@
     MappingHttpMessage httpMessage=(MappingHttpMessage)event.getMessage();
     String content=httpMessage.getContent().toString("UTF-8");
     httpMessage.setMessageString(content);
-    ByteArrayInputStream byteIn=new ByteArrayInputStream(content.getBytes());
-    XMLStreamReader xmlStreamReader=XMLInputFactory.newInstance().createXMLStreamReader(byteIn);
-    StAXSOAPModelBuilder soapBuilder=new StAXSOAPModelBuilder(xmlStreamReader,SOAP11Constants.SOAP_ENVELOPE_NAMESPACE_URI);
-    SOAPEnvelope env=(SOAPEnvelope)soapBuilder.getDocumentElement();
+    HoldMe.canHas.lock();
+    SOAPEnvelope env=null;
+    try {
+      StAXSOAPModelBuilder soapBuilder=null;
+      try {
+        SOAPFactory factory=HoldMe.getOMSOAP11Factory();
+        soapBuilder=new StAXSOAPModelBuilder(HoldMe.getXMLStreamReader(content),factory,SOAP11Constants.SOAP_ENVELOPE_NAMESPACE_URI);
+      }
+ catch (      Exception e) {
+        SOAPFactory factory=HoldMe.getOMSOAP12Factory();
+        soapBuilder=new StAXSOAPModelBuilder(HoldMe.getXMLStreamReader(content),factory,SOAP12Constants.SOAP_ENVELOPE_NAMESPACE_URI);
+      }
+      env=(SOAPEnvelope)soapBuilder.getDocumentElement();
+    }
+  finally {
+      HoldMe.canHas.unlock();
+    }
     httpMessage.setSoapEnvelope(env);
   }
 }

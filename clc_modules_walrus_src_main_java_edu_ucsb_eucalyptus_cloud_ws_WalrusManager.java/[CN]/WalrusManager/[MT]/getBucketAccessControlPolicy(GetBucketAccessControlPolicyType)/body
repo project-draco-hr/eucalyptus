@@ -3,7 +3,7 @@
   String bucketName=request.getBucket();
   String userId=request.getUserId();
   String ownerId=null;
-  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   AccessControlListType accessControlList=new AccessControlListType();
@@ -15,14 +15,14 @@
       ArrayList<Grant> grants=new ArrayList<Grant>();
       for (      GrantInfo grantInfo : grantInfos) {
         String uId=grantInfo.getUserId();
-        UserInfo userInfo=new UserInfo(uId);
-        EntityWrapper<UserInfo> db2=new EntityWrapper<UserInfo>();
-        List<UserInfo> grantUserInfos=db2.query(userInfo);
-        db2.commit();
-        if (grantUserInfos.size() > 0) {
-          UserInfo grantUserInfo=grantUserInfos.get(0);
+        try {
+          User grantUserInfo=CredentialProvider.getUser(uId);
           bucket.readPermissions(grants);
           addPermission(grants,grantUserInfo,grantInfo);
+        }
+ catch (        NoSuchUserException e) {
+          db.rollback();
+          throw new AccessDeniedException("Bucket",bucketName);
         }
       }
       accessControlList.setGrants(grants);
@@ -32,15 +32,15 @@
     db.rollback();
     throw new NoSuchBucketException(bucketName);
   }
-  UserInfo userInfo=new UserInfo(ownerId);
-  EntityWrapper<UserInfo> db2=new EntityWrapper<UserInfo>();
-  List<UserInfo> ownerUserInfos=db2.query(userInfo);
-  db2.commit();
   AccessControlPolicyType accessControlPolicy=new AccessControlPolicyType();
-  if (ownerUserInfos.size() > 0) {
-    UserInfo ownerUserInfo=ownerUserInfos.get(0);
+  try {
+    User ownerUserInfo=CredentialProvider.getUser(ownerId);
     accessControlPolicy.setOwner(new CanonicalUserType(ownerUserInfo.getQueryId(),ownerUserInfo.getUserName()));
     accessControlPolicy.setAccessControlList(accessControlList);
+  }
+ catch (  NoSuchUserException e) {
+    db.rollback();
+    throw new AccessDeniedException("Bucket",bucketName);
   }
   reply.setAccessControlPolicy(accessControlPolicy);
   db.commit();

@@ -12,7 +12,7 @@
   Date copyIfUnmodifiedSince=request.getCopySourceIfUnmodifiedSince();
   Date copyIfModifiedSince=request.getCopySourceIfModifiedSince();
   if (metadataDirective == null)   metadataDirective="COPY";
-  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(sourceBucket);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
@@ -25,13 +25,13 @@
         if (copyIfMatch != null) {
           if (!copyIfMatch.equals(sourceObjectInfo.getEtag())) {
             db.rollback();
-            throw new PreconditionFailedException("CopySourceIfMatch " + copyIfMatch);
+            throw new PreconditionFailedException(sourceKey + " CopySourceIfMatch: " + copyIfMatch);
           }
         }
         if (copyIfNoneMatch != null) {
           if (copyIfNoneMatch.equals(sourceObjectInfo.getEtag())) {
             db.rollback();
-            throw new PreconditionFailedException("CopySourceIfNoneMatch " + copyIfNoneMatch);
+            throw new PreconditionFailedException(sourceKey + " CopySourceIfNoneMatch: " + copyIfNoneMatch);
           }
         }
         if (copyIfUnmodifiedSince != null) {
@@ -39,7 +39,7 @@
           long objectTime=sourceObjectInfo.getLastModified().getTime();
           if (unmodifiedTime < objectTime) {
             db.rollback();
-            throw new PreconditionFailedException("CopySourceIfUnmodifiedSince " + copyIfUnmodifiedSince.toString());
+            throw new PreconditionFailedException(sourceKey + " CopySourceIfUnmodifiedSince: " + copyIfUnmodifiedSince.toString());
           }
         }
         if (copyIfModifiedSince != null) {
@@ -47,7 +47,7 @@
           long objectTime=sourceObjectInfo.getLastModified().getTime();
           if (modifiedTime > objectTime) {
             db.rollback();
-            throw new PreconditionFailedException("CopySourceIfModifiedSince " + copyIfModifiedSince.toString());
+            throw new PreconditionFailedException(sourceKey + " CopySourceIfModifiedSince: " + copyIfModifiedSince.toString());
           }
         }
         BucketInfo destinationBucketInfo=new BucketInfo(destinationBucket);
@@ -63,12 +63,13 @@
               destinationObjectInfo=destinationObjectInfos.get(0);
               if (!destinationObjectInfo.canWrite(userId)) {
                 db.rollback();
-                throw new AccessDeniedException(destinationKey);
+                throw new AccessDeniedException("Key",destinationKey);
               }
             }
             if (destinationObjectInfo == null) {
               destinationObjectInfo=new ObjectInfo();
               List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+              destinationObjectInfo.setBucketName(destinationBucket);
               destinationObjectInfo.setObjectKey(destinationKey);
               destinationObjectInfo.addGrants(userId,grantInfos,accessControlList);
               destinationObjectInfo.setGrants(grantInfos);
@@ -85,6 +86,8 @@
             destinationObjectInfo.setSize(sourceObjectInfo.getSize());
             destinationObjectInfo.setStorageClass(sourceObjectInfo.getStorageClass());
             destinationObjectInfo.setOwnerId(sourceObjectInfo.getOwnerId());
+            destinationObjectInfo.setContentType(sourceObjectInfo.getContentType());
+            destinationObjectInfo.setContentDisposition(sourceObjectInfo.getContentDisposition());
             String etag=sourceObjectInfo.getEtag();
             Date lastModified=sourceObjectInfo.getLastModified();
             destinationObjectInfo.setEtag(etag);
@@ -100,6 +103,7 @@
             destinationObjectName=destinationObjectInfo.getObjectName();
             try {
               storageManager.copyObject(sourceBucket,sourceObjectName,destinationBucket,destinationObjectName);
+              if (WalrusProperties.trackUsageStatistics)               walrusStatistics.updateSpaceUsed(sourceObjectInfo.getSize());
             }
  catch (            Exception ex) {
               LOG.error(ex);
@@ -113,7 +117,7 @@
           }
  else {
             db.rollback();
-            throw new AccessDeniedException(destinationBucket);
+            throw new AccessDeniedException("Bucket",destinationBucket);
           }
         }
  else {
@@ -123,7 +127,7 @@
       }
  else {
         db.rollback();
-        throw new AccessDeniedException(sourceKey);
+        throw new AccessDeniedException("Key",sourceKey);
       }
     }
  else {

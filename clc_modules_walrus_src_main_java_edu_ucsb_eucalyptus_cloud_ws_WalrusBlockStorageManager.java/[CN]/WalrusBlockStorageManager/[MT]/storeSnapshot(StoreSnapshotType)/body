@@ -1,13 +1,32 @@
 {
   StoreSnapshotResponseType reply=(StoreSnapshotResponseType)request.getReply();
-  if (!WalrusProperties.enableSnapshots) {
-    LOG.warn("Snapshots not enabled. Please check pre-conditions and restart Walrus.");
-    return reply;
-  }
   String snapshotId=request.getKey();
   String bucketName=request.getBucket();
+  String snapSizeString=request.getSnapshotSize();
+  Long snapSize=0L;
+  if (snapSizeString != null) {
+    snapSize=Long.parseLong(snapSizeString);
+  }
+ else {
+    throw new InvalidArgumentException("Snapshot size");
+  }
+  int snapshotSize=(int)(snapSize / WalrusProperties.G);
+  if (WalrusProperties.shouldEnforceUsageLimits) {
+    int totalSnapshotSize=0;
+    WalrusSnapshotInfo snapInfo=new WalrusSnapshotInfo();
+    EntityWrapper<WalrusSnapshotInfo> db=WalrusControl.getEntityWrapper();
+    List<WalrusSnapshotInfo> sInfos=db.query(snapInfo);
+    for (    WalrusSnapshotInfo sInfo : sInfos) {
+      totalSnapshotSize+=sInfo.getSize();
+    }
+    if ((totalSnapshotSize + snapshotSize) > WalrusProperties.MAX_TOTAL_SNAPSHOT_SIZE) {
+      db.rollback();
+      throw new EntityTooLargeException(snapshotId);
+    }
+    db.commit();
+  }
   boolean createBucket=true;
-  EntityWrapper<WalrusSnapshotInfo> db=new EntityWrapper<WalrusSnapshotInfo>();
+  EntityWrapper<WalrusSnapshotInfo> db=WalrusControl.getEntityWrapper();
   WalrusSnapshotInfo snapshotInfo=new WalrusSnapshotInfo(snapshotId);
   List<WalrusSnapshotInfo> snapInfos=db.query(snapshotInfo);
   if (snapInfos.size() > 0) {
@@ -20,12 +39,12 @@
     CreateBucketType createBucketRequest=new CreateBucketType();
     createBucketRequest.setUserId(userId);
     createBucketRequest.setBucket(bucketName);
+    createBucketRequest.setEffectiveUserId(request.getEffectiveUserId());
     try {
       walrusManager.createBucket(createBucketRequest);
     }
  catch (    EucalyptusCloudException ex) {
       if (!(ex instanceof BucketAlreadyExistsException || ex instanceof BucketAlreadyOwnedByYouException)) {
-        db.rollback();
         throw ex;
       }
     }
@@ -35,28 +54,14 @@
   putObjectRequest.setBucket(bucketName);
   putObjectRequest.setKey(snapshotId);
   putObjectRequest.setRandomKey(request.getRandomKey());
+  putObjectRequest.setEffectiveUserId(request.getEffectiveUserId());
   try {
     PutObjectResponseType putObjectResponseType=walrusManager.putObject(putObjectRequest);
     reply.setEtag(putObjectResponseType.getEtag());
     reply.setLastModified(putObjectResponseType.getLastModified());
     reply.setStatusMessage(putObjectResponseType.getStatusMessage());
-    int snapshotSize=(int)(putObjectResponseType.getSize() / WalrusProperties.G);
-    if (WalrusProperties.shouldEnforceUsageLimits) {
-      int totalSnapshotSize=0;
-      WalrusSnapshotInfo snapInfo=new WalrusSnapshotInfo();
-      db=new EntityWrapper<WalrusSnapshotInfo>();
-      List<WalrusSnapshotInfo> sInfos=db.query(snapInfo);
-      for (      WalrusSnapshotInfo sInfo : sInfos) {
-        totalSnapshotSize+=sInfo.getSize();
-      }
-      if ((totalSnapshotSize + snapshotSize) > WalrusProperties.MAX_TOTAL_SNAPSHOT_SIZE) {
-        db.rollback();
-        throw new EntityTooLargeException(snapshotId);
-      }
-      db.commit();
-    }
     snapshotInfo=new WalrusSnapshotInfo(snapshotId);
-    db=new EntityWrapper<WalrusSnapshotInfo>();
+    db=WalrusControl.getEntityWrapper();
     snapshotInfo.setSnapshotBucket(bucketName);
     snapshotInfo.setSize(snapshotSize);
     db.add(snapshotInfo);

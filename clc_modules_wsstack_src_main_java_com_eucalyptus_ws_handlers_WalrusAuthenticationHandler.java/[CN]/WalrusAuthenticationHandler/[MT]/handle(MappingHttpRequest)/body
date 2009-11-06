@@ -2,28 +2,42 @@
   Map<String,String> parameters=httpRequest.getParameters();
   String verb=httpRequest.getMethod().getName();
   String addr=httpRequest.getUri();
-  if (httpRequest.containsHeader(StorageProperties.StorageSecurityParameters.EucaSignature.toString())) {
+  if (httpRequest.containsHeader(StorageProperties.StorageParameters.EucaSignature.toString())) {
     String date=httpRequest.getAndRemoveHeader(SecurityParameter.Date.toString());
-    String eucaCert=httpRequest.getAndRemoveHeader(StorageProperties.StorageSecurityParameters.EucaCert.toString());
-    String signature=httpRequest.getAndRemoveHeader(StorageProperties.StorageSecurityParameters.EucaSignature.toString());
+    String signature=httpRequest.getAndRemoveHeader(StorageProperties.StorageParameters.EucaSignature.toString());
+    String certString=null;
+    if (httpRequest.containsHeader(StorageProperties.StorageParameters.EucaCert.toString())) {
+      certString=httpRequest.getAndRemoveHeader(StorageProperties.StorageParameters.EucaCert.toString());
+    }
     String data=verb + "\n" + date+ "\n"+ addr+ "\n";
     Signature sig;
     boolean valid=false;
     try {
-      byte[] bytes=Base64.decode(eucaCert);
-      String certString=new String(bytes);
-      PEMReader pemReader=new PEMReader(new StringReader(certString));
-      X509Certificate cert=(X509Certificate)pemReader.readObject();
-      AbstractKeyStore keyStore=EucaKeyStore.getInstance();
-      if (keyStore.getCertificateAlias(cert) != null) {
-        PublicKey publicKey=cert.getPublicKey();
+      try {
+        PublicKey publicKey=SystemCredentialProvider.getCredentialProvider(Component.storage).getCertificate().getPublicKey();
         sig=Signature.getInstance("SHA1withRSA");
         sig.initVerify(publicKey);
         sig.update(data.getBytes());
         valid=sig.verify(Base64.decode(signature));
       }
- else {
-        LOG.warn("WalrusQuerySecurityHandler(): certificate not found in keystore");
+ catch (      Exception e) {
+        LOG.warn("Authentication: certificate not found in keystore");
+      }
+ finally {
+        if (!valid && certString != null) {
+          try {
+            X509Certificate nodeCert=Hashes.getPemCert(Base64.decode(certString));
+            String alias=CredentialProvider.getCertificateAlias(nodeCert);
+            PublicKey publicKey=nodeCert.getPublicKey();
+            sig=Signature.getInstance("SHA1withRSA");
+            sig.initVerify(publicKey);
+            sig.update(data.getBytes());
+            valid=sig.verify(Base64.decode(signature));
+          }
+ catch (          Exception e2) {
+            LOG.warn("Authentication exception: " + e2.getMessage());
+          }
+        }
       }
     }
  catch (    Exception ex) {
@@ -33,16 +47,14 @@
     if (!valid) {
       throw new AuthenticationException("User authentication failed.");
     }
-  }
- else   if (httpRequest.containsHeader(WalrusProperties.FormField.FormUploadPolicyData.toString())) {
-    String data=httpRequest.getAndRemoveHeader(WalrusProperties.FormField.FormUploadPolicyData.toString());
-    String auth_part=httpRequest.getAndRemoveHeader(SecurityParameter.Authorization.toString());
-    if (auth_part != null) {
-      String sigString[]=getSigInfo(auth_part);
-      String signature=sigString[1];
-      authenticate(httpRequest,sigString[0],signature,data);
+    try {
+      User user=CredentialProvider.getUser("admin");
+      user.setIsAdministrator(true);
+      httpRequest.setUser(user);
     }
-    throw new AuthenticationException("User authentication failed.");
+ catch (    NoSuchUserException e) {
+      throw new AuthenticationException("User authentication failed.");
+    }
   }
  else {
     String content_md5=httpRequest.getAndRemoveHeader("Content-MD5");

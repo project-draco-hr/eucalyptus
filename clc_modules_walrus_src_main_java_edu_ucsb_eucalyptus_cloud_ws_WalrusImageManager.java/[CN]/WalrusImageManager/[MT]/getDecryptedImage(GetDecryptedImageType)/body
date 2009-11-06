@@ -3,7 +3,7 @@
   String bucketName=request.getBucket();
   String objectKey=request.getKey();
   String userId=request.getUserId();
-  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
@@ -13,20 +13,29 @@
     if (objectInfos.size() > 0) {
       ObjectInfo objectInfo=objectInfos.get(0);
       if (objectInfo.canRead(userId) || request.isAdministrator()) {
-        WalrusSemaphore semaphore=imageMessenger.getSemaphore(bucketName + "/" + objectKey);
+        EucaSemaphore semaphore=EucaSemaphoreDirectory.getSemaphore(bucketName + "/" + objectKey);
         try {
           semaphore.acquire();
         }
  catch (        InterruptedException ex) {
           throw new EucalyptusCloudException("semaphore could not be acquired");
         }
-        EntityWrapper<ImageCacheInfo> db2=new EntityWrapper<ImageCacheInfo>();
+        EntityWrapper<ImageCacheInfo> db2=WalrusControl.getEntityWrapper();
         ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,objectKey);
         List<ImageCacheInfo> foundImageCacheInfos=db2.query(searchImageCacheInfo);
+        if (foundImageCacheInfos.size() > 0) {
+          ImageCacheInfo imageCacheInfo=foundImageCacheInfos.get(0);
+          if (imageCacheInfo.getInCache() && (!storageManager.objectExists(bucketName,imageCacheInfo.getImageName()))) {
+            db2.delete(imageCacheInfo);
+            db2.commit();
+            db2=WalrusControl.getEntityWrapper();
+            foundImageCacheInfos=db2.query(searchImageCacheInfo);
+          }
+        }
         if ((foundImageCacheInfos.size() == 0) || (!imageCachers.containsKey(bucketName + objectKey))) {
           db2.commit();
           cacheImage(bucketName,objectKey,userId,request.isAdministrator());
-          db2=new EntityWrapper<ImageCacheInfo>();
+          db2=WalrusControl.getEntityWrapper();
           foundImageCacheInfos=db2.query(searchImageCacheInfo);
         }
         ImageCacheInfo foundImageCacheInfo=null;
@@ -58,6 +67,7 @@ synchronized (monitor) {
               LOG.error(ex);
               db2.rollback();
               db.rollback();
+              semaphore.release();
               throw new EucalyptusCloudException("monitor failure");
             }
           }
@@ -65,10 +75,11 @@ synchronized (monitor) {
             LOG.error("Tired of waiting to cache image: " + bucketName + "/"+ objectKey+ " giving up");
             db2.rollback();
             db.rollback();
+            semaphore.release();
             throw new EucalyptusCloudException("caching failure");
           }
           db2.commit();
-          db2=new EntityWrapper<ImageCacheInfo>();
+          db2=WalrusControl.getEntityWrapper();
           foundImageCacheInfos=db2.query(searchImageCacheInfo);
           if (foundImageCacheInfos.size() > 0) {
             foundImageCacheInfo=foundImageCacheInfos.get(0);
@@ -78,6 +89,7 @@ synchronized (monitor) {
  else {
             db.rollback();
             db2.rollback();
+            semaphore.release();
             throw new NoSuchEntityException(objectKey);
           }
         }
@@ -86,15 +98,16 @@ synchronized (monitor) {
         reply.setSize(unencryptedSize);
         reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
         reply.setEtag("");
-        MappingHttpResponse httpResponse=new MappingHttpResponse(HttpVersion.HTTP_1_1);
+        DefaultHttpResponse httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.OK);
         storageManager.sendObject(request.getChannel(),httpResponse,bucketName,imageKey,unencryptedSize,null,DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),objectInfo.getContentType(),objectInfo.getContentDisposition(),request.getIsCompressed());
+        semaphore.release();
         db.commit();
         db2.commit();
         return reply;
       }
  else {
         db.rollback();
-        throw new AccessDeniedException(objectKey);
+        throw new AccessDeniedException("Key",objectKey);
       }
     }
  else {

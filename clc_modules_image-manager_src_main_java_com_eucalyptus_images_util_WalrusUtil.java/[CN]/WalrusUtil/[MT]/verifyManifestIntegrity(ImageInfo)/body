@@ -1,0 +1,44 @@
+{
+  String[] imagePathParts=imgInfo.getImageLocation().split("/");
+  GetObjectResponseType reply=null;
+  GetObjectType msg=new GetObjectType(imagePathParts[0],imagePathParts[1],true,false,true);
+  msg.setUserId(Component.eucalyptus.name());
+  msg.setEffectiveUserId(Component.eucalyptus.name());
+  try {
+    reply=(GetObjectResponseType)ServiceDispatcher.lookupSingle(Component.walrus).send(msg);
+  }
+ catch (  EucalyptusCloudException e) {
+    ImageManager.LOG.error(e);
+    ImageManager.LOG.debug(e,e);
+    throw new EucalyptusCloudException("Invalid manifest reference: " + imgInfo.getImageLocation(),e);
+  }
+  if (reply == null || reply.getBase64Data() == null)   throw new EucalyptusCloudException("Invalid manifest reference: " + imgInfo.getImageLocation());
+  XMLParser parser=new XMLParser(reply.getBase64Data());
+  String encryptedKey=parser.getValue("//ec2_encrypted_key");
+  String encryptedIV=parser.getValue("//ec2_encrypted_iv");
+  String signature=parser.getValue("//signature");
+  String image=parser.getXML("image");
+  String machineConfiguration=parser.getXML("machine_configuration");
+  List<String> aliases=Lists.newArrayList();
+  try {
+    for (    X509Cert x : CredentialProvider.getUser(imgInfo.getImageOwnerId()).getCertificates()) {
+      aliases.add(x.getAlias());
+    }
+  }
+ catch (  NoSuchUserException e) {
+    throw new EucalyptusCloudException("Invalid Manifest: Failed to verify signature because of missing (deleted?) user certificate.",e);
+  }
+  boolean found=false;
+  for (  String alias : aliases)   found|=ImageUtil.verifyManifestSignature(signature,alias,machineConfiguration + image);
+  if (!found)   throw new EucalyptusCloudException("Invalid Manifest: Failed to verify signature.");
+  try {
+    PrivateKey pk=SystemCredentialProvider.getCredentialProvider(Component.eucalyptus).getPrivateKey();
+    Cipher cipher=Cipher.getInstance("RSA/ECB/PKCS1Padding");
+    cipher.init(Cipher.DECRYPT_MODE,pk);
+    cipher.doFinal(Hashes.hexToBytes(encryptedKey));
+    cipher.doFinal(Hashes.hexToBytes(encryptedIV));
+  }
+ catch (  Exception ex) {
+    throw new EucalyptusCloudException("Invalid Manifest: Failed to recover keys.",ex);
+  }
+}

@@ -2,7 +2,7 @@
   DeleteBucketResponseType reply=(DeleteBucketResponseType)request.getReply();
   String bucketName=request.getBucket();
   String userId=request.getUserId();
-  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo searchBucket=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(searchBucket);
   if (bucketList.size() > 0) {
@@ -24,6 +24,7 @@
         db.delete(bucketFound);
         try {
           storageManager.deleteBucket(bucketName);
+          if (WalrusProperties.trackUsageStatistics)           walrusStatistics.decrementBucketCount();
         }
  catch (        IOException ex) {
           LOG.error(ex);
@@ -34,8 +35,13 @@
           String zone=WalrusProperties.WALRUS_SUBDOMAIN + ".";
           removeARecordType.setName(bucketName + "." + zone);
           removeARecordType.setZone(zone);
-          LOG.info("Removing mapping for " + removeARecordType.getName());
-          Messaging.send(DNSProperties.DNS_REF,removeARecordType);
+          try {
+            ServiceDispatcher.lookupSingle(Component.dns).send(removeARecordType);
+            LOG.info("Removing mapping for " + removeARecordType.getName());
+          }
+ catch (          Exception ex) {
+            LOG.error("Could not update DNS record",ex);
+          }
         }
         Status status=new Status();
         status.setCode(204);
@@ -49,7 +55,7 @@
     }
  else {
       db.rollback();
-      throw new AccessDeniedException(bucketName);
+      throw new AccessDeniedException("Bucket",bucketName);
     }
   }
  else {

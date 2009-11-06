@@ -1,0 +1,56 @@
+{
+  String ccAlias=String.format(Configuration.CLUSTER_KEY_FSTRING,newComponent.getName());
+  String ncAlias=String.format(Configuration.NODE_KEY_FSTRING,newComponent.getName());
+  String directory=SubDirectory.KEYS.toString() + File.separator + newComponent.getName();
+  File keyDir=new File(directory);
+  Configuration.LOG.info("creating keys in " + directory);
+  if (!keyDir.mkdir()) {
+    throw new EucalyptusCloudException("Failed to create cluster key directory: " + keyDir.getAbsolutePath());
+  }
+  FileWriter out=null;
+  try {
+    KeyTool keyTool=new KeyTool();
+    KeyPair clusterKp=keyTool.getKeyPair();
+    X509Certificate clusterX509=keyTool.getCertificate(clusterKp,EucalyptusProperties.getDName("cc-" + newComponent.getName()));
+    keyTool.writePem(directory + File.separator + "cluster-pk.pem",clusterKp.getPrivate());
+    keyTool.writePem(directory + File.separator + "cluster-cert.pem",clusterX509);
+    KeyPair nodeKp=keyTool.getKeyPair();
+    X509Certificate nodeX509=keyTool.getCertificate(nodeKp,EucalyptusProperties.getDName("nc-" + newComponent.getName()));
+    keyTool.writePem(directory + File.separator + "node-pk.pem",nodeKp.getPrivate());
+    keyTool.writePem(directory + File.separator + "node-cert.pem",nodeX509);
+    X509Certificate systemX509=SystemCredentialProvider.getCredentialProvider(Component.eucalyptus).getCertificate();
+    String hexSig=Hashes.getHexSignature();
+    keyTool.writePem(SubDirectory.KEYS.toString() + File.separator + "cloud-cert.pem",systemX509);
+    out=new FileWriter(directory + File.separator + "vtunpass");
+    out.write(hexSig);
+    out.flush();
+    out.close();
+    EntityWrapper<ClusterCredentials> credDb=Credentials.getEntityWrapper();
+    ClusterCredentials componentCredentials=new ClusterCredentials(newComponent.getName());
+    try {
+      List<ClusterCredentials> ccCreds=credDb.query(componentCredentials);
+      for (      ClusterCredentials ccert : ccCreds) {
+        credDb.delete(ccert);
+      }
+      componentCredentials.setClusterCertificate(X509Cert.fromCertificate(ccAlias,clusterX509));
+      componentCredentials.setNodeCertificate(X509Cert.fromCertificate(ncAlias,nodeX509));
+      credDb.add(componentCredentials);
+      credDb.commit();
+    }
+ catch (    Exception e) {
+      Configuration.LOG.error(e,e);
+      credDb.rollback();
+    }
+  }
+ catch (  Exception eee) {
+    throw new EucalyptusCloudException(eee);
+  }
+ finally {
+    if (out != null)     try {
+      out.close();
+    }
+ catch (    IOException e) {
+      Configuration.LOG.error(e);
+    }
+  }
+}

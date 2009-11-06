@@ -4,7 +4,7 @@
   String bucketName=request.getBucket();
   String locationConstraint=request.getLocationConstraint();
   if (userId == null) {
-    throw new AccessDeniedException(bucketName);
+    throw new AccessDeniedException("Bucket",bucketName);
   }
   AccessControlListType accessControlList=request.getAccessControlList();
   if (accessControlList == null) {
@@ -13,6 +13,7 @@
   makeBucket(userId,bucketName,locationConstraint,accessControlList,request.isAdministrator());
   try {
     storageManager.createBucket(bucketName);
+    if (WalrusProperties.trackUsageStatistics)     walrusStatistics.incrementBucketCount();
   }
  catch (  IOException ex) {
     LOG.error(ex);
@@ -27,11 +28,14 @@
     updateARecord.setName(bucketName + "." + zone);
     updateARecord.setTtl(604800);
     updateARecord.setZone(zone);
-    LOG.info("Mapping " + updateARecord.getName() + " to "+ address);
-    Messaging.send(DNSProperties.DNS_REF,updateARecord);
+    try {
+      ServiceDispatcher.lookupSingle(Component.dns).send(updateARecord);
+      LOG.info("Mapping " + updateARecord.getName() + " to "+ address);
+    }
+ catch (    Exception ex) {
+      LOG.error("Could not update DNS record",ex);
+    }
   }
-  CreateBucketResponseMessage createBucketResponse=new CreateBucketResponseMessage();
-  createBucketResponse.setBucket(bucketName);
-  reply.setCreateBucketResponse(createBucketResponse);
+  reply.setBucket(bucketName);
   return reply;
 }

@@ -1,0 +1,59 @@
+{
+  boolean shutdown=false;
+  Selector selector=this.selector;
+  long lastConnectTimeoutCheckTimeNanos=System.nanoTime();
+  for (; ; ) {
+    wakenUp.set(false);
+    try {
+      int selectedKeyCount=selector.select(500);
+      if (wakenUp.get()) {
+        selector.wakeup();
+      }
+      processRegisterTaskQueue();
+      if (selectedKeyCount > 0) {
+        processSelectedKeys(selector.selectedKeys());
+      }
+      long currentTimeNanos=System.nanoTime();
+      if (currentTimeNanos - lastConnectTimeoutCheckTimeNanos >= 500 * 1000000L) {
+        lastConnectTimeoutCheckTimeNanos=currentTimeNanos;
+        processConnectTimeout(selector.keys(),currentTimeNanos);
+      }
+      if (selector.keys().isEmpty()) {
+        if (shutdown || bossExecutor instanceof ExecutorService && ((ExecutorService)bossExecutor).isShutdown()) {
+synchronized (startStopLock) {
+            if (registerTaskQueue.isEmpty() && selector.keys().isEmpty()) {
+              started=false;
+              try {
+                selector.close();
+              }
+ catch (              IOException e) {
+                logger.warn("Failed to close a selector.",e);
+              }
+ finally {
+                this.selector=null;
+              }
+              break;
+            }
+ else {
+              shutdown=false;
+            }
+          }
+        }
+ else {
+          shutdown=true;
+        }
+      }
+ else {
+        shutdown=false;
+      }
+    }
+ catch (    Throwable t) {
+      logger.warn("Unexpected exception in the selector loop.",t);
+      try {
+        Thread.sleep(1000);
+      }
+ catch (      InterruptedException e) {
+      }
+    }
+  }
+}

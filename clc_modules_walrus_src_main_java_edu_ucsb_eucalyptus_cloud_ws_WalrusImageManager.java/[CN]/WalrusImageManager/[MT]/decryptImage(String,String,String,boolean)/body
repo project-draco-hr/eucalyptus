@@ -1,5 +1,5 @@
 {
-  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
@@ -30,10 +30,10 @@
         if (isAdministrator) {
           try {
             boolean verified=false;
-            List<String> aliases=Credentials.Users.getAliases();
+            List<String> aliases=CredentialProvider.getAliases();
             for (            String alias : aliases) {
-              X509Certificate cert=Credentials.Users.getCertificate(alias);
-              verified=canVerifySignature(sigVerifier,cert,signature,verificationString);
+              X509Certificate cert=CredentialProvider.getCertificate(alias);
+              if (cert != null)               verified=canVerifySignature(sigVerifier,cert,signature,verificationString);
               if (verified)               break;
             }
             if (!verified) {
@@ -47,25 +47,21 @@
           }
         }
  else {
-          EntityWrapper<UserInfo> db2=new EntityWrapper<UserInfo>();
-          UserInfo userInfo=new UserInfo(userId);
-          List<UserInfo> foundUserInfos=db2.query(userInfo);
-          if (foundUserInfos.size() == 0) {
-            db2.rollback();
-            db.rollback();
-            throw new AccessDeniedException(userId);
-          }
-          List<CertificateInfo> certInfos=foundUserInfos.get(0).getCertificates();
           boolean signatureVerified=false;
-          for (          CertificateInfo certInfo : certInfos) {
-            String alias=certInfo.getCertAlias();
+          User user=null;
+          try {
+            user=CredentialProvider.getUser(userId);
+          }
+ catch (          NoSuchUserException e) {
+            throw new AccessDeniedException(userId,e);
+          }
+          for (          X509Cert certInfo : user.getCertificates()) {
             try {
-              X509Certificate cert=Credentials.Users.getCertificate(alias);
+              X509Certificate cert=X509Cert.toCertificate(certInfo);
               signatureVerified=canVerifySignature(sigVerifier,cert,signature,verificationString);
               if (signatureVerified)               break;
             }
  catch (            Exception ex) {
-              db2.rollback();
               db.rollback();
               LOG.error(ex,ex);
               throw new DecryptionFailedException("signature verification");
@@ -74,9 +70,9 @@
           if (!signatureVerified) {
             throw new NotAuthorizedException("Invalid signature");
           }
-          db2.commit();
         }
         List<String> parts=parser.getValues("//image/parts/part/filename");
+        if (parts == null)         throw new DecryptionFailedException("Invalid manifest");
         ArrayList<String> qualifiedPaths=new ArrayList<String>();
         searchObjectInfo=new ObjectInfo();
         searchObjectInfo.setBucketName(bucketName);
@@ -96,7 +92,7 @@
         byte[] key;
         byte[] iv;
         try {
-          PrivateKey pk=(PrivateKey)EucaKeyStore.getInstance().getKey(EucalyptusProperties.NAME,EucalyptusProperties.NAME);
+          PrivateKey pk=SystemCredentialProvider.getCredentialProvider(Component.eucalyptus).getPrivateKey();
           Cipher cipher=Cipher.getInstance("RSA/ECB/PKCS1Padding");
           cipher.init(Cipher.DECRYPT_MODE,pk);
           String keyString=new String(cipher.doFinal(Hashes.hexToBytes(encryptedKey)));

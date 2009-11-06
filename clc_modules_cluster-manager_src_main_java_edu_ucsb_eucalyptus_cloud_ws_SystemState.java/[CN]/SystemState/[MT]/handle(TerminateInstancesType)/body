@@ -1,48 +1,34 @@
 {
   TerminateInstancesResponseType reply=(TerminateInstancesResponseType)request.getReply();
   reply.set_return(true);
-  if (request.isAdministrator()) {
-    for (    String instanceId : request.getInstancesSet()) {
+  for (  String instanceId : request.getInstancesSet()) {
+    try {
+      VmInstance v=VmInstances.getInstance().lookup(instanceId);
+      if (request.isAdministrator() || v.getOwnerId().equals(request.getUserId())) {
+        reply.getInstancesSet().add(new TerminateInstancesItemType(v.getInstanceId(),v.getState().getCode(),v.getState().getName(),VmState.SHUTTING_DOWN.getCode(),VmState.SHUTTING_DOWN.getName()));
+        v.setState(VmState.SHUTTING_DOWN);
+        v.resetStopWatch();
+        SystemState.cleanUp(v);
+        if (!EucalyptusProperties.disableNetworking) {
+          try {
+            Network net=v.getNetworks().get(0);
+            Cluster cluster=Clusters.getInstance().lookup(v.getPlacement());
+            SystemState.checkNetwork(cluster,net);
+          }
+ catch (          Throwable e) {
+            LOG.debug(e,e);
+          }
+        }
+      }
+    }
+ catch (    NoSuchElementException e) {
       try {
-        VmInstance v=VmInstances.getInstance().lookup(instanceId);
-        reply.getInstancesSet().add(new TerminateInstancesItemType(v.getInstanceId(),v.getState().getCode(),v.getState().getName(),VmState.SHUTTING_DOWN.getCode(),VmState.SHUTTING_DOWN.getName()));
-        v.setState(VmState.SHUTTING_DOWN);
-        v.resetStopWatch();
-        SystemState.cleanUp(v);
+        VmInstance v=VmInstances.getInstance().lookupDisabled(instanceId);
+        v.setState(VmState.BURIED);
       }
- catch (      NoSuchElementException e) {
-        try {
-          VmInstance v=VmInstances.getInstance().lookupDisabled(instanceId);
-          v.setState(VmState.BURIED);
-        }
- catch (        NoSuchElementException e1) {
-          LOG.debug(e,e);
-        }
+ catch (      NoSuchElementException e1) {
       }
     }
-    return reply;
-  }
-  StateSnapshot state=SystemState.getSnapshot(RULE_FILE);
-  try {
-    QueryResults res=state.findInstances(request.getUserId(),request.getInstancesSet());
-    if (res.size() == 0)     reply.set_return(false);
- else {
-      Iterator iter=res.iterator();
-      while (iter.hasNext()) {
-        QueryResult result=(QueryResult)iter.next();
-        VmInstance v=(VmInstance)result.get("vm");
-        reply.getInstancesSet().add(new TerminateInstancesItemType(v.getInstanceId(),v.getState().getCode(),v.getState().getName(),VmState.SHUTTING_DOWN.getCode(),VmState.SHUTTING_DOWN.getName()));
-        v.setState(VmState.SHUTTING_DOWN);
-        v.resetStopWatch();
-        SystemState.cleanUp(v);
-      }
-    }
-  }
- catch (  Exception e) {
-    LOG.debug(e,e);
-  }
- finally {
-    state.destroy();
   }
   return reply;
 }

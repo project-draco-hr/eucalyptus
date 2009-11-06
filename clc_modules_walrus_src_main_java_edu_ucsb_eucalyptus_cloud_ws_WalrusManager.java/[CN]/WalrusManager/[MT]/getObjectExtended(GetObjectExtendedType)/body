@@ -17,7 +17,7 @@
   String objectKey=request.getKey();
   String userId=request.getUserId();
   Status status=new Status();
-  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
@@ -33,30 +33,30 @@
         if ((byteRangeStart > objectInfo.getSize()) || (byteRangeStart > byteRangeEnd) || (byteRangeEnd > objectInfo.getSize())|| (byteRangeStart < 0 || byteRangeEnd < 0)) {
           throw new InvalidRangeException("Range: " + byteRangeStart + "-"+ byteRangeEnd+ "object: "+ bucketName+ "/"+ objectKey);
         }
-        MappingHttpResponse httpResponse=new MappingHttpResponse(HttpVersion.HTTP_1_1);
+        DefaultHttpResponse httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.OK);
         if (ifMatch != null) {
           if (!ifMatch.equals(etag) && !returnCompleteObjectOnFailure) {
             db.rollback();
-            throw new PreconditionFailedException(etag);
+            throw new PreconditionFailedException(objectKey + " etag: " + etag);
           }
         }
         if (ifNoneMatch != null) {
           if (ifNoneMatch.equals(etag) && !returnCompleteObjectOnFailure) {
             db.rollback();
-            throw new NotModifiedException(etag);
+            throw new NotModifiedException(objectKey + " ETag: " + etag);
           }
         }
         Date lastModified=objectInfo.getLastModified();
         if (ifModifiedSince != null) {
           if ((ifModifiedSince.getTime() >= lastModified.getTime()) && !returnCompleteObjectOnFailure) {
             db.rollback();
-            throw new NotModifiedException(lastModified.toString());
+            throw new NotModifiedException(objectKey + " LastModified: " + lastModified.toString());
           }
         }
         if (ifUnmodifiedSince != null) {
           if ((ifUnmodifiedSince.getTime() < lastModified.getTime()) && !returnCompleteObjectOnFailure) {
             db.rollback();
-            throw new PreconditionFailedException(lastModified.toString());
+            throw new PreconditionFailedException(objectKey + " lastModified: " + lastModified.toString());
           }
         }
         if (request.getGetMetaData()) {
@@ -65,24 +65,27 @@
             httpResponse.addHeader(WalrusProperties.AMZ_META_HEADER_PREFIX + metaDataInfo.getName(),metaDataInfo.getValue());
           }
         }
+        Long size=objectInfo.getSize();
+        String contentType=objectInfo.getContentType();
+        String contentDisposition=objectInfo.getContentDisposition();
+        db.commit();
         if (request.getGetData()) {
           if (WalrusProperties.trackUsageStatistics) {
-            walrusStatistics.updateBytesOut(objectInfo.getSize());
-            walrusStatistics.dumpBytesOut();
+            walrusStatistics.updateBytesOut(size);
           }
-          storageManager.sendObject(request.getChannel(),httpResponse,bucketName,objectName,byteRangeStart,byteRangeEnd,objectInfo.getSize(),objectInfo.getEtag(),DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),objectInfo.getContentType(),objectInfo.getContentDisposition(),request.getIsCompressed());
+          storageManager.sendObject(request.getChannel(),httpResponse,bucketName,objectName,byteRangeStart,byteRangeEnd,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),contentType,contentDisposition,request.getIsCompressed());
         }
  else {
-          storageManager.sendHeaders(request.getChannel(),httpResponse,objectInfo.getSize(),objectInfo.getEtag(),DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),objectInfo.getContentType(),objectInfo.getContentDisposition());
+          storageManager.sendHeaders(request.getChannel(),httpResponse,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),contentType,contentDisposition);
         }
-        reply.setEtag(objectInfo.getEtag());
-        reply.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+        reply.setEtag(etag);
+        reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
         if (byteRangeEnd > -1) {
-          if (byteRangeEnd <= objectInfo.getSize() && ((byteRangeEnd - byteRangeStart) > 0))           reply.setSize(byteRangeEnd - byteRangeStart);
+          if (byteRangeEnd <= size && ((byteRangeEnd - byteRangeStart) > 0))           reply.setSize(byteRangeEnd - byteRangeStart);
  else           reply.setSize(0L);
         }
  else {
-          reply.setSize(objectInfo.getSize());
+          reply.setSize(size);
         }
         status.setCode(200);
         status.setDescription("OK");
@@ -91,7 +94,7 @@
       }
  else {
         db.rollback();
-        throw new AccessDeniedException(objectKey);
+        throw new AccessDeniedException("Key",objectKey);
       }
     }
  else {

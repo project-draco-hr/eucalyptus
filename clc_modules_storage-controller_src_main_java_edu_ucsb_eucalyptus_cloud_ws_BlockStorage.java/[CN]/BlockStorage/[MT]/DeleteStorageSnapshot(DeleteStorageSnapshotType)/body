@@ -1,14 +1,12 @@
 {
   DeleteStorageSnapshotResponseType reply=(DeleteStorageSnapshotResponseType)request.getReply();
-  if (!WalrusProperties.sharedMode) {
-    if (!StorageProperties.enableSnapshots || !StorageProperties.enableStorage) {
-      BlockStorageChecker.checkWalrusConnection();
-      if (!StorageProperties.enableSnapshots)       LOG.error("Snapshots have been disabled. Please check connection to Walrus.");
-      return reply;
-    }
+  StorageProperties.updateWalrusUrl();
+  if (!StorageProperties.enableSnapshots) {
+    LOG.error("Snapshots have been disabled. Please check connection to Walrus.");
+    return reply;
   }
   String snapshotId=request.getSnapshotId();
-  EntityWrapper<SnapshotInfo> db=new EntityWrapper<SnapshotInfo>();
+  EntityWrapper<SnapshotInfo> db=StorageController.getEntityWrapper();
   SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
   List<SnapshotInfo> snapshotInfos=db.query(snapshotInfo);
   reply.set_return(true);
@@ -20,22 +18,12 @@
         SnapshotInfo snapInfo=new SnapshotInfo();
         snapInfo.setVolumeId(foundSnapshotInfo.getVolumeId());
         List<SnapshotInfo> snapInfos=db.query(snapInfo);
-        String dupedVolumeId=null;
-        if (snapInfos.size() == 1) {
-          dupedVolumeId=foundSnapshotInfo.getDupedVolumeId();
-        }
         blockManager.deleteSnapshot(snapshotId);
-        if (dupedVolumeId != null) {
-          blockManager.deleteVolume(dupedVolumeId);
-          volumeStorageManager.deleteObject("",dupedVolumeId);
-        }
         snapshotStorageManager.deleteObject("",snapshotId);
         db.delete(foundSnapshotInfo);
         db.commit();
-        if (!WalrusProperties.sharedMode) {
-          SnapshotDeleter snapshotDeleter=new SnapshotDeleter(snapshotId);
-          snapshotDeleter.start();
-        }
+        SnapshotDeleter snapshotDeleter=new SnapshotDeleter(snapshotId);
+        snapshotDeleter.start();
       }
  catch (      IOException ex) {
         LOG.error(ex);

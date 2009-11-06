@@ -10,7 +10,7 @@
   if (accessControlList == null) {
     accessControlList=new AccessControlListType();
   }
-  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
@@ -25,7 +25,7 @@
         if (objectInfo.getObjectKey().equals(objectKey)) {
           if (!objectInfo.canWrite(userId)) {
             db.rollback();
-            throw new AccessDeniedException(objectKey);
+            throw new AccessDeniedException("Key",objectKey);
           }
           foundObject=objectInfo;
           oldBucketSize=-foundObject.getSize();
@@ -56,8 +56,10 @@
         foundObject.setObjectName(objectName);
         try {
           FileIO fileIO=storageManager.prepareForWrite(bucketName,objectName);
-          fileIO.write(base64Data);
-          fileIO.finish();
+          if (fileIO != null) {
+            fileIO.write(base64Data);
+            fileIO.finish();
+          }
         }
  catch (        Exception ex) {
           throw new EucalyptusCloudException(ex);
@@ -71,13 +73,13 @@
           long newSize=bucketSize + oldBucketSize + size;
           if (newSize > WalrusProperties.MAX_BUCKET_SIZE) {
             db.rollback();
-            throw new EntityTooLargeException(objectKey);
+            throw new EntityTooLargeException("Key",objectKey);
           }
           bucket.setBucketSize(newSize);
         }
         if (WalrusProperties.trackUsageStatistics) {
           walrusStatistics.updateBytesIn(size);
-          walrusStatistics.dumpBytesIn();
+          walrusStatistics.updateSpaceUsed(size);
         }
         if (request.getMetaData() != null)         foundObject.replaceMetaData(request.getMetaData());
         foundObject.setStorageClass("STANDARD");
@@ -92,7 +94,7 @@
     }
  else {
       db.rollback();
-      throw new AccessDeniedException(bucketName);
+      throw new AccessDeniedException("Bucket",bucketName);
     }
   }
  else {

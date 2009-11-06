@@ -3,7 +3,7 @@
   String bucketName=request.getBucket();
   String objectKey=request.getKey();
   String userId=request.getUserId();
-  EntityWrapper<BucketInfo> db=new EntityWrapper<BucketInfo>();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfos=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfos);
   if (bucketList.size() > 0) {
@@ -24,20 +24,14 @@
         }
         Long size=foundObject.getSize();
         bucketInfo.setBucketSize(bucketInfo.getBucketSize() - size);
-        try {
-          storageManager.deleteObject(bucketName,objectName);
-        }
- catch (        IOException ex) {
-          db.rollback();
-          LOG.error(ex);
-          throw new EucalyptusCloudException(objectKey);
-        }
+        ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectName,size);
+        objectDeleter.start();
         reply.setCode("200");
         reply.setDescription("OK");
       }
  else {
         db.rollback();
-        throw new AccessDeniedException(objectKey);
+        throw new AccessDeniedException("Key",objectKey);
       }
     }
  else {

@@ -1,0 +1,35 @@
+{
+  InputStream inputStream;
+  if (outFile != null) {
+    inputStream=new FileInputStream(outFile);
+    ChunkedOutputStream chunkedOut=new ChunkedOutputStream(conn.getRequestOutputStream());
+    byte[] buffer=new byte[StorageProperties.TRANSFER_CHUNK_SIZE];
+    int bytesRead;
+    int numberProcessed=0;
+    long totalBytesProcessed=0;
+    while ((bytesRead=inputStream.read(buffer)) > 0) {
+      ByteArrayOutputStream out=new ByteArrayOutputStream();
+      GZIPOutputStream zip=new GZIPOutputStream(out);
+      zip.write(buffer,0,bytesRead);
+      zip.close();
+      chunkedOut.write(out.toByteArray());
+      totalBytesProcessed+=bytesRead;
+      if (++numberProcessed >= callback.getUpdateThreshold()) {
+        callback.run();
+        numberProcessed=0;
+      }
+    }
+    if (totalBytesProcessed == outFile.length()) {
+      callback.finish();
+    }
+ else {
+      callback.failed();
+    }
+    chunkedOut.finish();
+    inputStream.close();
+  }
+ else {
+    return false;
+  }
+  return true;
+}

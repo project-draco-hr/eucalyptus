@@ -1,18 +1,18 @@
 {
-  final OMFactory factory=OMAbstractFactory.getOMFactory();
+  final OMFactory factory=HoldMe.getOMFactory();
   if (param == null) {
-    throw new RuntimeException("Cannot bind null value");
+    throw new BindingException("Cannot bind null value");
   }
  else   if (!(param instanceof IMarshallable)) {
-    throw new RuntimeException("No JiBX <mapping> defined for class " + param.getClass());
+    throw new BindingException("No JiBX <mapping> defined for class " + param.getClass());
   }
   if (this.bindingFactory == null) {
     try {
       this.bindingFactory=BindingDirectory.getFactory(this.name,param.getClass());
     }
  catch (    final JiBXException e) {
-      Binding.LOG.error(e,e);
-      throw new RuntimeException(this.bindingErrorMsg);
+      LOG.debug(e,e);
+      throw new BindingException(this.bindingErrorMsg);
     }
   }
   final IMarshallable mrshable=(IMarshallable)param;
@@ -24,15 +24,17 @@
   if ((altNs != null) && !altNs.equals(origNs)) {
     try {
       final ByteArrayOutputStream bos=new ByteArrayOutputStream();
-      final XMLStreamWriter xmlStream=XMLOutputFactory.newInstance().createXMLStreamWriter(bos);
-      retVal.serialize(xmlStream);
-      xmlStream.flush();
-      xmlStream.close();
+      retVal.serialize(bos);
       String retString=bos.toString();
       retString=retString.replaceAll(origNs,altNs);
-      final ByteArrayInputStream bis=new ByteArrayInputStream(retString.getBytes());
-      final StAXOMBuilder stAXOMBuilder=new StAXOMBuilder(bis);
-      retVal=stAXOMBuilder.getDocumentElement();
+      HoldMe.canHas.lock();
+      try {
+        final StAXOMBuilder stAXOMBuilder=HoldMe.getStAXOMBuilder(HoldMe.getXMLStreamReader(retString));
+        retVal=stAXOMBuilder.getDocumentElement();
+      }
+  finally {
+        HoldMe.canHas.unlock();
+      }
     }
  catch (    final XMLStreamException e) {
       Binding.LOG.error(e,e);

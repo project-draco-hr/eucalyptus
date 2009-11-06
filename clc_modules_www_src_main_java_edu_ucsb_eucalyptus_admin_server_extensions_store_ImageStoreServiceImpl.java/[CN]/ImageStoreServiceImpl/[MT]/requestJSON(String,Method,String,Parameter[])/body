@@ -1,0 +1,51 @@
+{
+  UserInfoWeb user;
+  try {
+    user=EucalyptusWebBackendImpl.getUserRecord(sessionId);
+  }
+ catch (  Exception e) {
+    return errorJSON("Session authentication error: " + e.getMessage());
+  }
+  NameValuePair[] finalParams;
+  try {
+    finalParams=getFinalParameters(method,uri,params,user);
+  }
+ catch (  MalformedURLException e) {
+    return errorJSON("Malformed URL: " + uri);
+  }
+  HttpClient client=new HttpClient();
+  HttpMethod httpMethod;
+  if (method == Method.GET) {
+    GetMethod getMethod=new GetMethod(uri);
+    httpMethod=getMethod;
+    getMethod.setQueryString(finalParams);
+  }
+ else   if (method == Method.POST) {
+    PostMethod postMethod=new PostMethod(uri);
+    httpMethod=postMethod;
+    postMethod.addParameters(finalParams);
+  }
+ else {
+    throw new UnsupportedOperationException("Unknown method");
+  }
+  try {
+    int statusCode=client.executeMethod(httpMethod);
+    String str="";
+    InputStream in=httpMethod.getResponseBodyAsStream();
+    byte[] readBytes=new byte[1024];
+    int bytesRead=-1;
+    while ((bytesRead=in.read(readBytes)) > 0) {
+      str+=new String(readBytes,0,bytesRead);
+    }
+    return str;
+  }
+ catch (  HttpException e) {
+    return errorJSON("Protocol error: " + e.getMessage());
+  }
+catch (  IOException e) {
+    return errorJSON("Proxy error: " + e.getMessage());
+  }
+ finally {
+    httpMethod.releaseConnection();
+  }
+}

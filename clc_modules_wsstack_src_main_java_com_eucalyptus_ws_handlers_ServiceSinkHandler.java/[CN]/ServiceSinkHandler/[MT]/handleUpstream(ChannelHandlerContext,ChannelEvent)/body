@@ -1,26 +1,41 @@
 {
-  LOG.debug(this.getClass().getSimpleName() + "[incoming]: " + e);
-  if (e instanceof MessageEvent) {
+  LOG.trace(this.getClass().getSimpleName() + "[incoming]: " + e);
+  if (e instanceof ExceptionEvent) {
+    this.exceptionCaught(ctx,(ExceptionEvent)e);
+  }
+ else   if (e instanceof MessageEvent) {
     this.startTime=System.currentTimeMillis();
     final MessageEvent event=(MessageEvent)e;
     if (event.getMessage() instanceof MappingHttpMessage) {
-      MappingHttpMessage request=(MappingHttpMessage)event.getMessage();
-      User user=request.getUser();
-      requestLocal.set(ctx.getChannel(),request);
-      EucalyptusMessage msg=(EucalyptusMessage)request.getMessage();
-      if (user != null && msgReceiver == null) {
-        msg.setUserId(user.getUserName());
-        msg.setEffectiveUserId(user.getIsAdministrator() ? EucalyptusProperties.NAME : user.getUserName());
+      final MappingHttpMessage request=(MappingHttpMessage)event.getMessage();
+      final User user=request.getUser();
+      this.requestLocal.set(ctx.getChannel(),request);
+      final EucalyptusMessage msg=(EucalyptusMessage)request.getMessage();
+      final String userAgent=request.getHeader(HttpHeaders.Names.USER_AGENT);
+      if ((userAgent != null) && userAgent.matches(".*EucalyptusAdminAccess") && msg.getClass().getSimpleName().startsWith("Describe")) {
+        msg.setEffectiveUserId(msg.getUserId());
       }
-      LOG.info(EventRecord.create(this.getClass().getSimpleName(),msg.getUserId(),msg.getCorrelationId(),EventType.MSG_RECEIVED,msg.getClass().getSimpleName()));
+ else       if ((user != null) && (this.msgReceiver == null)) {
+        msg.setUserId(user.getUserName());
+        msg.setEffectiveUserId(user.getIsAdministrator() ? Component.eucalyptus.name() : user.getUserName());
+      }
+      LOG.info(EventRecord.here(Component.eucalyptus,EventType.MSG_RECEIVED,msg.getClass().getSimpleName()));
+      ReplyQueue.addReplyListener(msg.getCorrelationId(),ctx);
       if (this.msgReceiver == null) {
-        ReplyQueue.addReplyListener(msg.getCorrelationId(),ctx);
         Messaging.dispatch("vm://RequestQueue",msg);
       }
- else       if (user == null) {
-        MuleMessage reply=this.msgReceiver.routeMessage(new DefaultMuleMessage(this.msgReceiver.getConnector().getMessageAdapter(msg)));
-        ctx.getChannel().write(reply.getPayload());
+ else       if ((user == null) || ((user != null) && user.getIsAdministrator())) {
+        final MuleMessage reply=this.msgReceiver.routeMessage(new DefaultMuleMessage(msg));
+        if (reply != null)         ctx.getChannel().write(reply.getPayload());
       }
+ else {
+        ctx.getChannel().write(new MappingHttpResponse(request.getProtocolVersion(),HttpResponseStatus.FORBIDDEN));
+      }
+    }
+ else     if (e instanceof IdleStateEvent) {
+      LOG.debug("Closing idle connection: " + e);
+      e.getFuture().addListener(ChannelFutureListener.CLOSE);
+      ctx.sendUpstream(e);
     }
   }
 }

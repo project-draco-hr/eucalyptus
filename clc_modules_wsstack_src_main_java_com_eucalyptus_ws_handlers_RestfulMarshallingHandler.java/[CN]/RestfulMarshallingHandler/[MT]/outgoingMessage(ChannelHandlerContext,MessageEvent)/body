@@ -3,13 +3,27 @@
     MappingHttpResponse httpResponse=(MappingHttpResponse)event.getMessage();
     Binding binding=BindingManager.getBinding(BindingManager.sanitizeNamespace(this.namespace));
     ByteArrayOutputStream byteOut=new ByteArrayOutputStream();
-    if (httpResponse.getMessage() instanceof EucalyptusErrorMessageType) {
-      EucalyptusErrorMessageType errMsg=(EucalyptusErrorMessageType)httpResponse.getMessage();
-      Binding.createFault(errMsg.getSource(),errMsg.getMessage(),errMsg.getStatusMessage()).serialize(byteOut);
-    }
+    HoldMe.canHas.lock();
+    try {
+      if (httpResponse.getMessage() instanceof EucalyptusErrorMessageType) {
+        EucalyptusErrorMessageType errMsg=(EucalyptusErrorMessageType)httpResponse.getMessage();
+        byteOut.write(Binding.createRestFault(errMsg.getSource(),errMsg.getMessage(),errMsg.getCorrelationId()).getBytes());
+        httpResponse.setStatus(HttpResponseStatus.BAD_REQUEST);
+      }
  else {
-      OMElement omMsg=binding.toOM(httpResponse.getMessage(),this.namespace);
-      omMsg.serialize(byteOut);
+        try {
+          OMElement omMsg=binding.toOM(httpResponse.getMessage(),this.namespace);
+          omMsg.serialize(byteOut);
+        }
+ catch (        Exception e) {
+          binding=BindingManager.getBinding(BindingManager.sanitizeNamespace("http://ec2.amazonaws.com/doc/2009-04-04/"));
+          OMElement omMsg=binding.toOM(httpResponse.getMessage(),this.namespace);
+          omMsg.serialize(byteOut);
+        }
+      }
+    }
+  finally {
+      HoldMe.canHas.unlock();
     }
     byte[] req=byteOut.toByteArray();
     ChannelBuffer buffer=ChannelBuffers.copiedBuffer(req);

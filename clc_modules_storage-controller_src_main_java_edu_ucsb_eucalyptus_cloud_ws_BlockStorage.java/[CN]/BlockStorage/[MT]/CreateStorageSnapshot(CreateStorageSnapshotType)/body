@@ -1,21 +1,19 @@
 {
   CreateStorageSnapshotResponseType reply=(CreateStorageSnapshotResponseType)request.getReply();
-  if (!WalrusProperties.sharedMode) {
-    if (!StorageProperties.enableSnapshots || !StorageProperties.enableStorage) {
-      BlockStorageChecker.checkWalrusConnection();
-      if (!StorageProperties.enableSnapshots)       LOG.error("Snapshots have been disabled. Please check connection to Walrus.");
-      return reply;
-    }
+  StorageProperties.updateWalrusUrl();
+  if (!StorageProperties.enableSnapshots) {
+    LOG.error("Snapshots have been disabled. Please check connection to Walrus.");
+    return reply;
   }
   String volumeId=request.getVolumeId();
   String snapshotId=request.getSnapshotId();
-  EntityWrapper<VolumeInfo> db=new EntityWrapper<VolumeInfo>();
+  EntityWrapper<VolumeInfo> db=StorageController.getEntityWrapper();
   VolumeInfo volumeInfo=new VolumeInfo(volumeId);
   List<VolumeInfo> volumeInfos=db.query(volumeInfo);
   if (volumeInfos.size() > 0) {
     VolumeInfo foundVolumeInfo=volumeInfos.get(0);
     if (foundVolumeInfo.getStatus().equals(StorageProperties.Status.available.toString())) {
-      if (StorageProperties.shouldEnforceUsageLimits && WalrusProperties.sharedMode) {
+      if (StorageProperties.shouldEnforceUsageLimits) {
         int volSize=foundVolumeInfo.getSize();
         int totalSnapshotSize=0;
         SnapshotInfo snapInfo=new SnapshotInfo();
@@ -24,12 +22,12 @@
         for (        SnapshotInfo sInfo : snapInfos) {
           totalSnapshotSize+=blockManager.getSnapshotSize(sInfo.getSnapshotId());
         }
-        if ((totalSnapshotSize + volSize) > StorageProperties.MAX_TOTAL_SNAPSHOT_SIZE) {
+        if ((totalSnapshotSize + volSize) > WalrusProperties.MAX_TOTAL_SNAPSHOT_SIZE) {
           db.rollback();
           throw new EntityTooLargeException(snapshotId);
         }
       }
-      EntityWrapper<SnapshotInfo> db2=new EntityWrapper<SnapshotInfo>();
+      EntityWrapper<SnapshotInfo> db2=StorageController.getEntityWrapper();
       edu.ucsb.eucalyptus.cloud.entities.SnapshotInfo snapshotInfo=new edu.ucsb.eucalyptus.cloud.entities.SnapshotInfo(snapshotId);
       snapshotInfo.setUserName(foundVolumeInfo.getUserName());
       snapshotInfo.setVolumeId(volumeId);

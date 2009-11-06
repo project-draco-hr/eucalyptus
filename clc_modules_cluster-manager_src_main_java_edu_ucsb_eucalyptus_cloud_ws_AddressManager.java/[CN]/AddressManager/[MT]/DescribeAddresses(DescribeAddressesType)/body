@@ -1,27 +1,27 @@
 {
-  AddressManager.updateAddressingMode();
+  AddressUtil.updateAddressingMode();
   DescribeAddressesResponseType reply=(DescribeAddressesResponseType)request.getReply();
   boolean isAdmin=request.isAdministrator();
   for (  Address address : Addresses.getInstance().listValues()) {
-    try {
-      VmInstances.getInstance().lookup(address.getInstanceId());
-    }
- catch (    NoSuchElementException e) {
-      EntityWrapper<Address> db=new EntityWrapper<Address>();
+    if (address.isAssigned()) {
+      VmInstance vm=null;
       try {
-        Address addr=db.getUnique(new Address(address.getName()));
-        addr.unassign();
-        db.commit();
+        vm=VmInstances.getInstance().lookup(address.getInstanceId());
       }
- catch (      EucalyptusCloudException ex) {
-        db.rollback();
+ catch (      NoSuchElementException e) {
       }
-      address.unassign();
+      if (vm == null || VmState.TERMINATED.equals(vm.getState()) || VmState.BURIED.equals(vm.getState())) {
+        AddressUtil.clearAddress(address);
+      }
     }
     if (isAdmin || address.getUserId().equals(request.getUserId())) {
       reply.getAddressesSet().add(address.getDescription(isAdmin));
     }
   }
-  if (request.isAdministrator())   for (  Address address : Addresses.getInstance().listDisabledValues())   reply.getAddressesSet().add(new DescribeAddressesResponseItemType(address.getName(),Address.UNALLOCATED_USERID));
+  if (request.isAdministrator()) {
+    for (    Address address : Addresses.getInstance().listDisabledValues()) {
+      reply.getAddressesSet().add(new DescribeAddressesResponseItemType(address.getName(),Address.UNALLOCATED_USERID));
+    }
+  }
   return reply;
 }

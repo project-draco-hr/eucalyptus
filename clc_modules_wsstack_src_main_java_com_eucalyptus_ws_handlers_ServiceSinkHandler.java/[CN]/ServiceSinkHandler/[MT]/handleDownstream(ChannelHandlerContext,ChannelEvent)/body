@@ -1,31 +1,35 @@
 {
+  LOG.trace(this.getClass().getSimpleName() + "[outgoing]: " + e.getClass());
   if (e instanceof MessageEvent) {
-    MessageEvent msge=(MessageEvent)e;
-    if (msge.getMessage() instanceof IsData) {
-      ctx.sendDownstream(msge);
+    final MessageEvent msge=(MessageEvent)e;
+    if (msge.getMessage() instanceof NullPayload) {
+      msge.getFuture().cancel();
+    }
+ else     if (msge.getMessage() instanceof HttpResponse) {
+      ctx.sendDownstream(e);
+    }
+ else     if (msge.getMessage() instanceof IsData) {
+      ctx.sendDownstream(e);
     }
  else     if (msge.getMessage() instanceof EucalyptusMessage) {
-      MappingHttpMessage request=requestLocal.get(ctx.getChannel());
       EucalyptusMessage reply=(EucalyptusMessage)((MessageEvent)e).getMessage();
-      if (reply == null) {
-        LOG.warn("Received a null response for request: " + request.getMessageString());
-        reply=new EucalyptusErrorMessageType(this.getClass().getSimpleName(),(EucalyptusMessage)request.getMessage(),"Received a NULL reply");
+      if (reply instanceof WalrusDataGetResponseType && !(reply instanceof GetObjectResponseType && ((GetObjectResponseType)reply).getBase64Data() != null)) {
+        e.getFuture().cancel();
+        return;
       }
-      LOG.info(EventRecord.create(this.getClass().getSimpleName(),reply.getUserId(),reply.getCorrelationId(),EventType.MSG_SERVICED,(System.currentTimeMillis() - startTime)));
-      if (reply instanceof WalrusDataGetResponseType) {
-        if (reply instanceof GetObjectResponseType) {
-          GetObjectResponseType getObjectResponse=(GetObjectResponseType)reply;
-          if (getObjectResponse.getBase64Data() == null)           return;
-        }
  else {
-          return;
-        }
+        this.sendDownstreamNewEvent(ctx,e,reply);
       }
-      MappingHttpResponse response=new MappingHttpResponse(request.getProtocolVersion());
-      DownstreamMessageEvent newEvent=new DownstreamMessageEvent(ctx.getChannel(),e.getFuture(),response,null);
-      response.setMessage(reply);
-      ctx.sendDownstream(newEvent);
-      newEvent.getFuture().addListener(ChannelFutureListener.CLOSE);
     }
+ else {
+      e.getFuture().cancel();
+      LOG.debug("Non-specific type being written to the channel. Not dropping this message causes breakage:" + msge.getMessage().getClass());
+    }
+    if (e.getFuture().isCancelled()) {
+      LOG.debug("Cancelling send on : " + LogUtil.dumpObject(e));
+    }
+  }
+ else {
+    ctx.sendDownstream(e);
   }
 }

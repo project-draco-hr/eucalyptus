@@ -1,32 +1,72 @@
 {
   final Object o=event.getMessage();
   if (o instanceof MappingHttpMessage) {
-    final MappingHttpMessage httpRequest=(MappingHttpMessage)o;
-    final StAXOMBuilder doomBuilder=new StAXOMBuilder(DOOMAbstractFactory.getOMFactory(),httpRequest.getSoapEnvelope().getXMLStreamReader());
-    final OMElement elem=doomBuilder.getDocumentElement();
-    elem.build();
-    final Document doc=((Element)elem).getOwnerDocument();
-    final Vector v=new Vector();
-    final WSSecHeader wsheader=new WSSecHeader("",false);
-    wsheader.insertSecurityHeader(doc);
-    final WSSecSignature signer=new WSSecSignature();
-    signer.setKeyIdentifierType(WSConstants.BST_DIRECT_REFERENCE);
-    signer.setSigCanonicalization(WSConstants.C14N_EXCL_OMIT_COMMENTS);
-    signer.prepare(doc,this.credentials,wsheader);
-    if (this.shouldTimeStamp()) {
-      final WSSecTimestamp ts=new WSSecTimestamp();
-      ts.setTimeToLive(300);
-      ts.prepare(doc);
-      ts.prependToHeader(wsheader);
+    try {
+      final MappingHttpMessage httpRequest=(MappingHttpMessage)o;
+      OMElement elem=null;
+      Document doc=null;
+      SOAPEnvelope env=httpRequest.getSoapEnvelope();
+      HoldMe.canHas.lock();
+      try {
+        final StAXOMBuilder doomBuilder=HoldMe.getStAXOMBuilder(HoldMe.getDOOMFactory(),env.getXMLStreamReader());
+        elem=doomBuilder.getDocumentElement();
+        elem.build();
+        doc=((Element)elem).getOwnerDocument();
+      }
+  finally {
+        HoldMe.canHas.unlock();
+      }
+      final Vector v=new Vector();
+      final WSSecHeader wsheader=new WSSecHeader("",false);
+      wsheader.insertSecurityHeader(doc);
+      final WSSecSignature signer=new WSSecSignature();
+      signer.setKeyIdentifierType(WSConstants.BST_DIRECT_REFERENCE);
+      signer.setSigCanonicalization(WSConstants.C14N_EXCL_OMIT_COMMENTS);
+      try {
+        signer.prepare(doc,this.credentials,wsheader);
+      }
+ catch (      WSSecurityException e) {
+        LOG.error(e,e);
+        Channels.fireExceptionCaught(ctx,e);
+      }
+      if (this.shouldTimeStamp()) {
+        final WSSecTimestamp ts=new WSSecTimestamp();
+        ts.setTimeToLive(300);
+        ts.prepare(doc);
+        ts.prependToHeader(wsheader);
+      }
+      v.addAll(this.getSignatureParts());
+      signer.appendBSTElementToHeader(wsheader);
+      signer.appendToHeader(wsheader);
+      try {
+        signer.addReferencesToSign(v,wsheader);
+      }
+ catch (      WSSecurityException e) {
+        LOG.error(e,e);
+        Channels.fireExceptionCaught(ctx,e);
+      }
+      try {
+        signer.computeSignature();
+      }
+ catch (      WSSecurityException e) {
+        LOG.error(e,e);
+        Channels.fireExceptionCaught(ctx,e);
+      }
+      SOAPEnvelope envelope=null;
+      HoldMe.canHas.lock();
+      try {
+        final StAXSOAPModelBuilder stAXSOAPModelBuilder=new StAXSOAPModelBuilder(elem.getXMLStreamReader(),HoldMe.getOMSOAP11Factory(),null);
+        envelope=stAXSOAPModelBuilder.getSOAPEnvelope();
+        if (envelope != null)         envelope.build();
+      }
+  finally {
+        HoldMe.canHas.unlock();
+      }
+      httpRequest.setSoapEnvelope(envelope);
     }
-    v.addAll(this.getSignatureParts());
-    signer.appendBSTElementToHeader(wsheader);
-    signer.appendToHeader(wsheader);
-    signer.addReferencesToSign(v,wsheader);
-    signer.computeSignature();
-    final StAXSOAPModelBuilder stAXSOAPModelBuilder=new StAXSOAPModelBuilder(elem.getXMLStreamReader(),null);
-    final SOAPEnvelope envelope=stAXSOAPModelBuilder.getSOAPEnvelope();
-    envelope.build();
-    httpRequest.setSoapEnvelope(envelope);
+ catch (    OMException e) {
+      LOG.error(e,e);
+      Channels.fireExceptionCaught(ctx,e);
+    }
   }
 }

@@ -1,5 +1,5 @@
 {
-  EntityWrapper<LVMVolumeInfo> db=new EntityWrapper<LVMVolumeInfo>();
+  EntityWrapper<LVMVolumeInfo> db=StorageController.getEntityWrapper();
   LVMVolumeInfo lvmVolumeInfo=new LVMVolumeInfo(volumeId);
   LVMVolumeInfo foundLVMVolumeInfo=db.getUnique(lvmVolumeInfo);
   if (foundLVMVolumeInfo != null) {
@@ -7,7 +7,7 @@
     String vgName=foundLVMVolumeInfo.getVgName();
     String lvName=foundLVMVolumeInfo.getLvName();
     String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
-    int pid=foundLVMVolumeInfo.getVbladePid();
+    Integer pid=foundLVMVolumeInfo.getVbladePid();
     if (pid > 0) {
       String returnValue=aoeStatus(pid);
       if (returnValue.length() > 0) {
@@ -20,24 +20,32 @@
         }
       }
     }
-    String returnValue=removeLogicalVolume(absoluteLVName);
-    if (returnValue.length() == 0) {
-      throw new EucalyptusCloudException("Unable to remove logical volume " + absoluteLVName);
+    try {
+      String returnValue=removeLogicalVolume(absoluteLVName);
+      if (returnValue.length() == 0) {
+        throw new EucalyptusCloudException("Unable to remove logical volume " + absoluteLVName);
+      }
+      returnValue=removeVolumeGroup(vgName);
+      if (returnValue.length() == 0) {
+        throw new EucalyptusCloudException("Unable to remove volume group " + vgName);
+      }
+      returnValue=removePhysicalVolume(loDevName);
+      if (returnValue.length() == 0) {
+        throw new EucalyptusCloudException("Unable to remove physical volume " + loDevName);
+      }
+      returnValue=removeLoopback(loDevName);
+      db.delete(foundLVMVolumeInfo);
+      db.commit();
     }
-    returnValue=removeVolumeGroup(vgName);
-    if (returnValue.length() == 0) {
-      throw new EucalyptusCloudException("Unable to remove volume group " + vgName);
+ catch (    ExecutionException ex) {
+      db.rollback();
+      String error="Unable to run command: " + ex.getMessage();
+      LOG.error(error);
+      throw new EucalyptusCloudException(error);
     }
-    returnValue=removePhysicalVolume(loDevName);
-    if (returnValue.length() == 0) {
-      throw new EucalyptusCloudException("Unable to remove physical volume " + loDevName);
-    }
-    returnValue=removeLoopback(loDevName);
-    db.delete(foundLVMVolumeInfo);
-    db.commit();
   }
  else {
     db.rollback();
-    throw new EucalyptusCloudException();
+    throw new EucalyptusCloudException("Unable to find volume: " + volumeId);
   }
 }
