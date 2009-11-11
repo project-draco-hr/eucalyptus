@@ -1,4 +1,37 @@
 {
   SetBucketLoggingStatusResponseType reply=(SetBucketLoggingStatusResponseType)request.getReply();
+  String bucket=request.getBucket();
+  String targetBucket=request.getLoggingEnabled().getTargetBucket();
+  String targetPrefix=request.getLoggingEnabled().getTargetPrefix();
+  List<Grant> targetGrantsList=null;
+  TargetGrants targetGrants=request.getLoggingEnabled().getTargetGrants();
+  if (targetGrants != null)   targetGrantsList=targetGrants.getGrants();
+  if (targetPrefix == null)   targetPrefix="";
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
+  try {
+    BucketInfo bucketInfo=db.getUnique(new BucketInfo(bucket));
+    try {
+      BucketInfo targetBucketInfo=db.getUnique(new BucketInfo(targetBucket));
+      if (!targetBucketInfo.hasLoggingPerms()) {
+        db.rollback();
+        throw new InvalidTargetBucketForLoggingException(targetBucket);
+      }
+      bucketInfo.setTargetBucket(targetBucket);
+      bucketInfo.setTargetPrefix(targetPrefix);
+      bucketInfo.setLoggingEnabled(true);
+      if (targetGrantsList != null) {
+        targetBucketInfo.addGrants(targetGrantsList);
+      }
+    }
+ catch (    EucalyptusCloudException ex) {
+      db.rollback();
+      throw new InvalidTargetBucketForLoggingException(targetBucket);
+    }
+  }
+ catch (  EucalyptusCloudException ex) {
+    db.rollback();
+    throw new NoSuchBucketException(bucket);
+  }
+  db.commit();
   return reply;
 }
