@@ -1,24 +1,64 @@
 {
   logData=new LinkedBlockingQueue<BucketLogData>();
-  logger=Executors.newScheduledThreadPool(1);
-  logger.schedule(new Runnable(){
+  logFileMap=new ConcurrentHashMap<String,LogFileEntry>();
+  logger=Executors.newSingleThreadScheduledExecutor();
+  logger.scheduleAtFixedRate(new Runnable(){
     @Override public void run(){
       if (logData.size() > LOG_THRESHOLD) {
         ServiceDispatcher dispatcher=ServiceDispatcher.lookupSingle(Component.walrus);
         List<BucketLogData> data=new ArrayList<BucketLogData>();
         logData.drainTo(data);
         for (        BucketLogData entry : data) {
-          try {
-            PutObjectInlineType putRequest=new PutObjectInlineType();
-            putRequest.setBucket(entry.getTargetBucket());
-            putRequest.setKey(entry.getTargetPrefix() + "blah");
-            PutObjectInlineResponseType putResponse=(PutObjectInlineResponseType)dispatcher.send(putRequest);
+          String bucket=entry.getTargetBucket();
+          Calendar calendar=Calendar.getInstance();
+          String key=entry.getTargetPrefix() + calendar.get(Calendar.YEAR) + "-"+ calendar.get(Calendar.MONTH)+ "-"+ calendar.get(Calendar.DAY_OF_MONTH)+ "-"+ calendar.get(Calendar.MINUTE)+ "-"+ calendar.get(Calendar.SECOND)+ "-"+ UUID.randomUUID().toString();
+          if (!logFileMap.containsKey(bucket)) {
+            try {
+              String logFileName="logentry-" + UUID.randomUUID().toString();
+              FileChannel channel=new FileOutputStream(new File(WalrusProperties.bucketRootDirectory + "/" + bucket+ "/"+ logFileName)).getChannel();
+              logFileMap.put(bucket,new LogFileEntry(logFileName,channel));
+            }
+ catch (            FileNotFoundException e) {
+              LOG.error(e);
+            }
           }
- catch (          EucalyptusCloudException ex) {
+          try {
+            LogFileEntry logFileEntry=logFileMap.get(bucket);
+            FileChannel logChannel=logFileEntry.getChannel();
+            String tmplogstring="hiiii";
+            logChannel.write(ByteBuffer.wrap(tmplogstring.getBytes()),logChannel.size());
+            MessageDigest digest=Hashes.Digest.MD5.get();
+            digest.update(tmplogstring.getBytes());
+            String etag=Hashes.bytesToHex(digest.digest());
+            AddObjectType request=new AddObjectType();
+            request.setUserId("admin");
+            request.setEffectiveUserId("eucalyptus");
+            request.setBucket(bucket);
+            request.setKey(key);
+            request.setObjectName(logFileEntry.getLogFileName());
+            request.setEtag(etag);
+            try {
+              AddObjectResponseType addObjectResponse=(AddObjectResponseType)dispatcher.send(request);
+            }
+ catch (            EucalyptusCloudException e) {
+              LOG.error(e);
+            }
+          }
+ catch (          IOException e) {
+            LOG.error(e);
           }
         }
+        for (        String bucket : logFileMap.keySet()) {
+          try {
+            logFileMap.get(bucket).getChannel().close();
+          }
+ catch (          IOException e) {
+            LOG.error(e);
+          }
+        }
+        logFileMap.clear();
       }
     }
   }
-,5,TimeUnit.SECONDS);
+,1,1,TimeUnit.SECONDS);
 }
