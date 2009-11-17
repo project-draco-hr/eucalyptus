@@ -1,0 +1,64 @@
+{
+  logData=new LinkedBlockingQueue<BucketLogData>();
+  logFileMap=new ConcurrentHashMap<String,LogFileEntry>();
+  logger=Executors.newSingleThreadScheduledExecutor();
+  logger.scheduleAtFixedRate(new Runnable(){
+    @Override public void run(){
+      if (logData.size() > LOG_THRESHOLD) {
+        ServiceDispatcher dispatcher=ServiceDispatcher.lookupSingle(Component.walrus);
+        List<BucketLogData> data=new ArrayList<BucketLogData>();
+        logData.drainTo(data);
+        for (        BucketLogData entry : data) {
+          String bucket=entry.getTargetBucket();
+          String uuid=UUID.randomUUID().toString();
+          String key=entry.getTargetPrefix() + String.format("%1$tY-%1$tm-%1$td-%1$tH-%1$tM-%1$tS-",Calendar.getInstance()) + uuid;
+          if (!logFileMap.containsKey(bucket)) {
+            try {
+              String logFileName="logentry-" + uuid;
+              FileChannel channel=new FileOutputStream(new File(WalrusProperties.bucketRootDirectory + "/" + bucket+ "/"+ logFileName)).getChannel();
+              logFileMap.put(bucket,new LogFileEntry(logFileName,channel));
+            }
+ catch (            FileNotFoundException e) {
+              LOG.error(e);
+            }
+          }
+          try {
+            LogFileEntry logFileEntry=logFileMap.get(bucket);
+            FileChannel logChannel=logFileEntry.getChannel();
+            String logString=entry.toFormattedString();
+            logChannel.write(ByteBuffer.wrap(logString.getBytes()),logChannel.size());
+            MessageDigest digest=Hashes.Digest.MD5.get();
+            digest.update(logString.getBytes());
+            String etag=Hashes.bytesToHex(digest.digest());
+            AddObjectType request=new AddObjectType();
+            request.setUserId("admin");
+            request.setEffectiveUserId("eucalyptus");
+            request.setBucket(bucket);
+            request.setKey(key);
+            request.setObjectName(logFileEntry.getLogFileName());
+            request.setEtag(etag);
+            try {
+              dispatcher.send(request);
+            }
+ catch (            EucalyptusCloudException e) {
+              LOG.error(e);
+            }
+          }
+ catch (          IOException e) {
+            LOG.error(e);
+          }
+        }
+        for (        String bucket : logFileMap.keySet()) {
+          try {
+            logFileMap.get(bucket).getChannel().close();
+          }
+ catch (          IOException e) {
+            LOG.error(e);
+          }
+        }
+        logFileMap.clear();
+      }
+    }
+  }
+,1,LOG_PERIODICITY,TimeUnit.SECONDS);
+}
