@@ -1,25 +1,12 @@
 {
-  EntityWrapper<LVMVolumeInfo> db=StorageController.getEntityWrapper();
-  LVMVolumeInfo lvmVolumeInfo=new LVMVolumeInfo(volumeId);
-  LVMVolumeInfo foundLVMVolumeInfo=db.getUnique(lvmVolumeInfo);
+  VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
+  LVMVolumeInfo foundLVMVolumeInfo=volumeManager.getVolumeInfo(volumeId);
   if (foundLVMVolumeInfo != null) {
     String loDevName=foundLVMVolumeInfo.getLoDevName();
     String vgName=foundLVMVolumeInfo.getVgName();
     String lvName=foundLVMVolumeInfo.getLvName();
     String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
-    Integer pid=foundLVMVolumeInfo.getVbladePid();
-    if (pid > 0) {
-      String returnValue=aoeStatus(pid);
-      if (returnValue.length() > 0) {
-        exportManager.unexportVolume(pid);
-        int majorNumber=foundLVMVolumeInfo.getMajorNumber();
-        int minorNumber=foundLVMVolumeInfo.getMinorNumber();
-        File vbladePidFile=new File(eucaHome + EUCA_VAR_RUN_PATH + "/vblade-"+ majorNumber+ minorNumber+ ".pid");
-        if (vbladePidFile.exists()) {
-          vbladePidFile.delete();
-        }
-      }
-    }
+    volumeManager.unexportVolume(foundLVMVolumeInfo);
     try {
       String returnValue=removeLogicalVolume(absoluteLVName);
       if (returnValue.length() == 0) {
@@ -34,18 +21,18 @@
         throw new EucalyptusCloudException("Unable to remove physical volume " + loDevName);
       }
       returnValue=removeLoopback(loDevName);
-      db.delete(foundLVMVolumeInfo);
-      db.commit();
+      volumeManager.remove(foundLVMVolumeInfo);
+      volumeManager.finish();
     }
  catch (    ExecutionException ex) {
-      db.rollback();
+      volumeManager.abort();
       String error="Unable to run command: " + ex.getMessage();
       LOG.error(error);
       throw new EucalyptusCloudException(error);
     }
   }
  else {
-    db.rollback();
+    volumeManager.abort();
     throw new EucalyptusCloudException("Unable to find volume: " + volumeId);
   }
 }

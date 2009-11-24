@@ -1,0 +1,51 @@
+{
+  AddObjectResponseType reply=(AddObjectResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  String key=request.getKey();
+  String userId=request.getUserId();
+  String objectName=request.getObjectName();
+  AccessControlListType accessControlList=new AccessControlListType();
+  if (accessControlList == null) {
+    accessControlList=new AccessControlListType();
+  }
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    if (bucket.canWrite(userId)) {
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      ObjectInfo searchObjectInfo=new ObjectInfo();
+      searchObjectInfo.setBucketName(bucketName);
+      List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+      for (      ObjectInfo objectInfo : objectInfos) {
+        if (objectInfo.getObjectKey().equals(key)) {
+          db.rollback();
+          throw new EucalyptusCloudException("object already exists " + key);
+        }
+      }
+      ObjectInfo objectInfo=new ObjectInfo(bucketName,key);
+      objectInfo.setObjectName(objectName);
+      List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+      objectInfo.addGrants(userId,grantInfos,accessControlList);
+      objectInfo.setGrants(grantInfos);
+      dbObject.add(objectInfo);
+      objectInfo.setObjectKey(key);
+      objectInfo.setOwnerId(userId);
+      objectInfo.setSize(storageManager.getSize(bucketName,objectName));
+      objectInfo.setEtag(request.getEtag());
+      objectInfo.setLastModified(new Date());
+      objectInfo.setStorageClass("STANDARD");
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException("Bucket",bucketName);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  return reply;
+}

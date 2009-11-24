@@ -1,14 +1,13 @@
 {
-  EntityWrapper<LVMVolumeInfo> db=StorageController.getEntityWrapper();
-  LVMVolumeInfo lvmVolumeInfo=new LVMVolumeInfo(snapshotId);
-  LVMVolumeInfo foundSnapshotInfo=db.getUnique(lvmVolumeInfo);
+  VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
+  LVMVolumeInfo foundSnapshotInfo=volumeManager.getVolumeInfo(snapshotId);
   int size=-1;
   if (foundSnapshotInfo != null) {
     String status=foundSnapshotInfo.getStatus();
     if (status.equals(StorageProperties.Status.available.toString())) {
       String vgName="vg-" + Hashes.getRandom(4);
       String lvName="lv-" + Hashes.getRandom(4);
-      lvmVolumeInfo=new LVMVolumeInfo();
+      LVMVolumeInfo lvmVolumeInfo=volumeManager.getVolumeInfo();
       try {
         String rawFileName=StorageProperties.storageRootDirectory + "/" + volumeId;
         File snapshotFile=new File(StorageProperties.storageRootDirectory + PATH_SEPARATOR + foundSnapshotInfo.getVolumeId());
@@ -20,10 +19,7 @@
         String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
         duplicateLogicalVolume(foundSnapshotInfo.getLoFileName(),absoluteLVName);
         try {
-          int vbladePid=exportVolume(lvmVolumeInfo,vgName,lvName);
-          if (vbladePid < 0) {
-            throw new EucalyptusCloudException("Unable to export volume: " + volumeId);
-          }
+          volumeManager.exportVolume(lvmVolumeInfo,vgName,lvName);
         }
  catch (        EucalyptusCloudException ex) {
           String returnValue=removeLogicalVolume(absoluteLVName);
@@ -39,11 +35,11 @@
         lvmVolumeInfo.setLvName(lvName);
         lvmVolumeInfo.setStatus(StorageProperties.Status.available.toString());
         lvmVolumeInfo.setSize(size);
-        db.add(lvmVolumeInfo);
-        db.commit();
+        volumeManager.add(lvmVolumeInfo);
+        volumeManager.finish();
       }
  catch (      ExecutionException ex) {
-        db.rollback();
+        volumeManager.abort();
         String error="Unable to run command: " + ex.getMessage();
         LOG.error(error);
         throw new EucalyptusCloudException(error);
@@ -51,7 +47,7 @@
     }
   }
  else {
-    db.rollback();
+    volumeManager.abort();
     throw new EucalyptusCloudException("Unable to find snapshot: " + snapshotId);
   }
   return size;
