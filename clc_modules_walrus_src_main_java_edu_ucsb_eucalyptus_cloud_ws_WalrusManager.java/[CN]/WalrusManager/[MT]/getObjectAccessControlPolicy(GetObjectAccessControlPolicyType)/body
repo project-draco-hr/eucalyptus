@@ -7,8 +7,10 @@
   EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
+  BucketLogData logData;
   AccessControlListType accessControlList=new AccessControlListType();
   if (bucketList.size() > 0) {
+    logData=bucketList.get(0).getLoggingEnabled() ? request.getLogData() : null;
     EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
     ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
@@ -16,7 +18,6 @@
       ObjectInfo objectInfo=objectInfos.get(0);
       if (objectInfo.canReadACP(userId)) {
         BucketInfo bucket=bucketList.get(0);
-        BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
         if (logData != null) {
           updateLogData(bucket,logData);
           logData.setObjectSize(objectInfo.getSize());
@@ -33,19 +34,19 @@
             addPermission(grants,userInfo,grantInfo);
           }
  catch (          NoSuchUserException e) {
-            throw new AccessDeniedException("Key",objectKey);
+            throw new AccessDeniedException("Key",objectKey,logData);
           }
         }
         accessControlList.setGrants(grants);
       }
  else {
         db.rollback();
-        throw new AccessDeniedException("Key",objectKey);
+        throw new AccessDeniedException("Key",objectKey,logData);
       }
     }
  else {
       db.rollback();
-      throw new NoSuchEntityException(objectKey);
+      throw new NoSuchEntityException(objectKey,logData);
     }
   }
  else {
@@ -59,7 +60,7 @@
     accessControlPolicy.setAccessControlList(accessControlList);
   }
  catch (  NoSuchUserException e) {
-    throw new AccessDeniedException("Key",objectKey);
+    throw new AccessDeniedException("Key",objectKey,logData);
   }
   reply.setAccessControlPolicy(accessControlPolicy);
   db.commit();
