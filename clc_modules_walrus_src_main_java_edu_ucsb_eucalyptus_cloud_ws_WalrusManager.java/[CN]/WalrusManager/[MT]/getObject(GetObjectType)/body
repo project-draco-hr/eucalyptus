@@ -72,14 +72,6 @@
               db.commit();
               long torrentLength=torrent.length();
               storageManager.sendObject(request.getChannel(),httpResponse,bucketName,torrentFile,torrentLength,null,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z","application/x-bittorrent","attachment; filename=" + objectKey + ".torrent;",request.getIsCompressed());
-              reply.setEtag("");
-              reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN));
-              reply.setSize(torrentLength);
-              Status status=new Status();
-              status.setCode(200);
-              status.setDescription("OK");
-              reply.setStatus(status);
-              reply.setContentType("binary/octet-stream");
               if (WalrusProperties.trackUsageStatistics) {
                 walrusStatistics.updateBytesOut(torrentLength);
               }
@@ -122,7 +114,7 @@
  catch (            IOException ex) {
               db.rollback();
               LOG.error(ex);
-              return null;
+              throw new EucalyptusCloudException("Unable to read object: " + bucketName + "/"+ objectName);
             }
           }
  else {
@@ -130,10 +122,12 @@
               walrusStatistics.updateBytesOut(objectInfo.getSize());
             }
             storageManager.sendObject(request.getChannel(),httpResponse,bucketName,objectName,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z",contentType,contentDisposition,request.getIsCompressed());
+            return null;
           }
         }
  else {
           storageManager.sendHeaders(request.getChannel(),httpResponse,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z",contentType,contentDisposition);
+          return null;
         }
         reply.setEtag(etag);
         reply.setLastModified(DateUtils.format(lastModified,DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
@@ -144,7 +138,7 @@
         status.setCode(200);
         status.setDescription("OK");
         reply.setStatus(status);
-        return null;
+        return reply;
       }
  else {
         db.rollback();
