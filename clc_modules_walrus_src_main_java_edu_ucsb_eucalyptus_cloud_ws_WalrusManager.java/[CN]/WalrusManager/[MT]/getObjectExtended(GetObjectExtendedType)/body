@@ -21,6 +21,8 @@
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
     EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
     ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
@@ -69,15 +71,19 @@
         String contentType=objectInfo.getContentType();
         String contentDisposition=objectInfo.getContentDisposition();
         db.commit();
+        if (logData != null) {
+          updateLogData(bucket,logData);
+          logData.setObjectSize(size);
+        }
         if (request.getGetData()) {
           if (WalrusProperties.trackUsageStatistics) {
             walrusStatistics.updateBytesOut(size);
           }
-          storageManager.sendObject(request.getChannel(),httpResponse,bucketName,objectName,byteRangeStart,byteRangeEnd,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),contentType,contentDisposition,request.getIsCompressed());
+          storageManager.sendObject(request.getChannel(),httpResponse,bucketName,objectName,byteRangeStart,byteRangeEnd,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),contentType,contentDisposition,request.getIsCompressed(),logData);
           return null;
         }
  else {
-          storageManager.sendHeaders(request.getChannel(),httpResponse,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),contentType,contentDisposition);
+          storageManager.sendHeaders(request.getChannel(),httpResponse,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),contentType,contentDisposition,logData);
           return null;
         }
       }
