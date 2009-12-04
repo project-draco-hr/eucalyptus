@@ -13,6 +13,8 @@
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
     EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
     ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
@@ -69,26 +71,15 @@
               Date lastModified=objectInfo.getLastModified();
               db.commit();
               long torrentLength=torrent.length();
-              storageManager.sendObject(request.getChannel(),httpResponse,bucketName,torrentFile,torrentLength,null,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z","application/x-bittorrent","attachment; filename=" + objectKey + ".torrent;",request.getIsCompressed());
-              reply.setEtag("");
-              reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN));
-              reply.setSize(torrentLength);
-              Status status=new Status();
-              status.setCode(200);
-              status.setDescription("OK");
-              reply.setStatus(status);
-              reply.setContentType("binary/octet-stream");
-              if (WalrusProperties.trackUsageStatistics) {
-                walrusStatistics.updateBytesOut(torrentLength);
-              }
-              BucketInfo bucket=bucketList.get(0);
-              BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
               if (logData != null) {
                 updateLogData(bucket,logData);
                 logData.setObjectSize(torrentLength);
-                reply.setLogData(logData);
               }
-              return reply;
+              storageManager.sendObject(request.getChannel(),httpResponse,bucketName,torrentFile,torrentLength,null,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z","application/x-bittorrent","attachment; filename=" + objectKey + ".torrent;",request.getIsCompressed(),logData);
+              if (WalrusProperties.trackUsageStatistics) {
+                walrusStatistics.updateBytesOut(torrentLength);
+              }
+              return null;
             }
  else {
               db.rollback();
@@ -99,7 +90,7 @@
           }
  else {
             db.rollback();
-            throw new AccessDeniedException("Key",objectKey);
+            throw new AccessDeniedException("Key",objectKey,logData);
           }
         }
         Date lastModified=objectInfo.getLastModified();
@@ -108,6 +99,10 @@
         String contentType=objectInfo.getContentType();
         String contentDisposition=objectInfo.getContentDisposition();
         db.commit();
+        if (logData != null) {
+          updateLogData(bucket,logData);
+          logData.setObjectSize(size);
+        }
         if (request.getGetData()) {
           if (request.getInlineData()) {
             try {
@@ -122,18 +117,20 @@
  catch (            IOException ex) {
               db.rollback();
               LOG.error(ex);
-              return reply;
+              throw new EucalyptusCloudException("Unable to read object: " + bucketName + "/"+ objectName);
             }
           }
  else {
             if (WalrusProperties.trackUsageStatistics) {
               walrusStatistics.updateBytesOut(objectInfo.getSize());
             }
-            storageManager.sendObject(request.getChannel(),httpResponse,bucketName,objectName,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z",contentType,contentDisposition,request.getIsCompressed());
+            storageManager.sendObject(request.getChannel(),httpResponse,bucketName,objectName,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z",contentType,contentDisposition,request.getIsCompressed(),logData);
+            return null;
           }
         }
  else {
-          storageManager.sendHeaders(request.getChannel(),httpResponse,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z",contentType,contentDisposition);
+          storageManager.sendHeaders(request.getChannel(),httpResponse,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z",contentType,contentDisposition,logData);
+          return null;
         }
         reply.setEtag(etag);
         reply.setLastModified(DateUtils.format(lastModified,DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
@@ -148,12 +145,12 @@
       }
  else {
         db.rollback();
-        throw new AccessDeniedException("Key",objectKey);
+        throw new AccessDeniedException("Key",objectKey,logData);
       }
     }
  else {
       db.rollback();
-      throw new NoSuchEntityException(objectKey);
+      throw new NoSuchEntityException(objectKey,logData);
     }
   }
  else {
