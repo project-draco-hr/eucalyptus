@@ -1,19 +1,23 @@
 {
   File volumeDir=new File(StorageProperties.storageRootDirectory);
   volumeDir.mkdirs();
+  VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
   String vgName="vg-" + Hashes.getRandom(4);
   String lvName="lv-" + Hashes.getRandom(4);
-  LVMVolumeInfo lvmVolumeInfo=new LVMVolumeInfo();
+  LVMVolumeInfo lvmVolumeInfo=null;
+  if (exportManager instanceof AOEManager) {
+    lvmVolumeInfo=new AOEVolumeInfo();
+  }
+ else {
+    lvmVolumeInfo=new ISCSIVolumeInfo();
+  }
   String rawFileName=StorageProperties.storageRootDirectory + "/" + volumeId;
   long absoluteSize=size * StorageProperties.GB + LVM_HEADER_LENGTH;
   try {
     String loDevName=createLoopback(rawFileName,absoluteSize);
     createLogicalVolume(loDevName,vgName,lvName);
     try {
-      int vbladePid=exportVolume(lvmVolumeInfo,vgName,lvName);
-      if (vbladePid < 0) {
-        throw new EucalyptusCloudException("Unable to export volume: " + volumeId);
-      }
+      volumeManager.exportVolume(lvmVolumeInfo,vgName,lvName);
     }
  catch (    EucalyptusCloudException ex) {
       LOG.error(ex);
@@ -34,10 +38,10 @@
   }
  catch (  ExecutionException ex) {
     String error="Unable to run command: " + ex.getMessage();
+    volumeManager.abort();
     LOG.error(error);
     throw new EucalyptusCloudException(error);
   }
-  EntityWrapper<LVMVolumeInfo> db=StorageController.getEntityWrapper();
-  db.add(lvmVolumeInfo);
-  db.commit();
+  volumeManager.add(lvmVolumeInfo);
+  volumeManager.finish();
 }

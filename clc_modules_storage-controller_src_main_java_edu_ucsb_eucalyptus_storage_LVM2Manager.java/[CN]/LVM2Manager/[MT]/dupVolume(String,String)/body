@@ -1,11 +1,10 @@
 {
-  EntityWrapper<LVMVolumeInfo> db=StorageController.getEntityWrapper();
-  LVMVolumeInfo lvmVolumeInfo=new LVMVolumeInfo(volumeId);
-  LVMVolumeInfo foundVolumeInfo=db.getUnique(lvmVolumeInfo);
+  VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
+  LVMVolumeInfo foundVolumeInfo=volumeManager.getVolumeInfo(volumeId);
   if (foundVolumeInfo != null) {
     String vgName="vg-" + Hashes.getRandom(4);
     String lvName="lv-" + Hashes.getRandom(4);
-    lvmVolumeInfo=new LVMVolumeInfo();
+    LVMVolumeInfo lvmVolumeInfo=volumeManager.getVolumeInfo();
     File volumeFile=new File(StorageProperties.storageRootDirectory + PATH_SEPARATOR + foundVolumeInfo.getVolumeId());
     String rawFileName=StorageProperties.storageRootDirectory + "/" + dupVolumeId;
     int size=(int)(volumeFile.length() / StorageProperties.GB);
@@ -22,19 +21,18 @@
       lvmVolumeInfo.setLvName(lvName);
       lvmVolumeInfo.setStatus(StorageProperties.Status.available.toString());
       lvmVolumeInfo.setSize(size);
-      lvmVolumeInfo.setVbladePid(-1);
-      db.add(lvmVolumeInfo);
-      db.commit();
+      volumeManager.add(lvmVolumeInfo);
+      volumeManager.finish();
     }
  catch (    ExecutionException ex) {
-      db.rollback();
+      volumeManager.abort();
       String error="Unable to run command: " + ex.getMessage();
       LOG.error(error);
       throw new EucalyptusCloudException(error);
     }
   }
  else {
-    db.rollback();
+    volumeManager.abort();
     throw new EucalyptusCloudException("Could not dup volume " + volumeId);
   }
 }

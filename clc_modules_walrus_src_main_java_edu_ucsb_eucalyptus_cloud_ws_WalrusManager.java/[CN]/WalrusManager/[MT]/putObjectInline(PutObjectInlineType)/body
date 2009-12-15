@@ -15,6 +15,7 @@
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
     BucketInfo bucket=bucketList.get(0);
+    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
     if (bucket.canWrite(userId)) {
       EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
       ObjectInfo searchObjectInfo=new ObjectInfo();
@@ -25,7 +26,7 @@
         if (objectInfo.getObjectKey().equals(objectKey)) {
           if (!objectInfo.canWrite(userId)) {
             db.rollback();
-            throw new AccessDeniedException("Key",objectKey);
+            throw new AccessDeniedException("Key",objectKey,logData);
           }
           foundObject=objectInfo;
           oldBucketSize=-foundObject.getSize();
@@ -66,14 +67,14 @@
         }
         md5=Hashes.getHexString(Hashes.Digest.MD5.get().digest(base64Data));
         foundObject.setEtag(md5);
-        Long size=Long.parseLong(request.getContentLength());
+        Long size=(long)base64Data.length;
         foundObject.setSize(size);
         if (WalrusProperties.shouldEnforceUsageLimits && !request.isAdministrator()) {
           Long bucketSize=bucket.getBucketSize();
           long newSize=bucketSize + oldBucketSize + size;
           if (newSize > WalrusProperties.MAX_BUCKET_SIZE) {
             db.rollback();
-            throw new EntityTooLargeException("Key",objectKey);
+            throw new EntityTooLargeException("Key",objectKey,logData);
           }
           bucket.setBucketSize(newSize);
         }
@@ -85,6 +86,11 @@
         foundObject.setStorageClass("STANDARD");
         lastModified=new Date();
         foundObject.setLastModified(lastModified);
+        if (logData != null) {
+          updateLogData(bucket,logData);
+          logData.setObjectSize(size);
+          reply.setLogData(logData);
+        }
       }
  catch (      Exception ex) {
         LOG.error(ex);
@@ -94,7 +100,7 @@
     }
  else {
       db.rollback();
-      throw new AccessDeniedException("Bucket",bucketName);
+      throw new AccessDeniedException("Bucket",bucketName,logData);
     }
   }
  else {

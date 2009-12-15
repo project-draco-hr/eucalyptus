@@ -10,19 +10,60 @@
   if (accessControlList == null) {
     accessControlList=new AccessControlListType();
   }
-  makeBucket(userId,bucketName,locationConstraint,accessControlList,request.isAdministrator());
-  try {
-    storageManager.createBucket(bucketName);
-    if (WalrusProperties.trackUsageStatistics)     walrusStatistics.incrementBucketCount();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
+  if (WalrusProperties.shouldEnforceUsageLimits && !request.isAdministrator()) {
+    BucketInfo searchBucket=new BucketInfo();
+    searchBucket.setOwnerId(userId);
+    List<BucketInfo> bucketList=db.query(searchBucket);
+    if (bucketList.size() >= WalrusProperties.MAX_BUCKETS_PER_USER) {
+      db.rollback();
+      throw new TooManyBucketsException(bucketName);
+    }
   }
- catch (  IOException ex) {
-    LOG.error(ex);
-    throw new EucalyptusCloudException(bucketName);
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    if (bucketList.get(0).getOwnerId().equals(userId)) {
+      db.rollback();
+      throw new BucketAlreadyOwnedByYouException(bucketName);
+    }
+    db.rollback();
+    throw new BucketAlreadyExistsException(bucketName);
   }
+ else {
+    BucketInfo bucket=new BucketInfo(userId,bucketName,new Date());
+    ArrayList<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+    bucket.addGrants(userId,grantInfos,accessControlList);
+    bucket.setGrants(grantInfos);
+    bucket.setBucketSize(0L);
+    bucket.setLoggingEnabled(false);
+    bucket.setHidden(false);
+    if (locationConstraint != null)     bucket.setLocation(locationConstraint);
+ else     bucket.setLocation("US");
+    db.add(bucket);
+    try {
+      storageManager.createBucket(bucketName);
+      if (WalrusProperties.trackUsageStatistics)       walrusStatistics.incrementBucketCount();
+    }
+ catch (    IOException ex) {
+      LOG.error(ex);
+      db.rollback();
+      throw new EucalyptusCloudException("Unable to create bucket: " + bucketName);
+    }
+  }
+  db.commit();
   if (WalrusProperties.enableVirtualHosting) {
     UpdateARecordType updateARecord=new UpdateARecordType();
     updateARecord.setUserId(userId);
-    String address=WalrusProperties.WALRUS_IP;
+    URI walrusUri;
+    String address=null;
+    try {
+      walrusUri=new URI(EucalyptusProperties.getWalrusUrl());
+      address=walrusUri.getHost();
+    }
+ catch (    URISyntaxException e) {
+      throw new EucalyptusCloudException("Could not get Walrus URL");
+    }
     String zone=WalrusProperties.WALRUS_SUBDOMAIN + ".";
     updateARecord.setAddress(address);
     updateARecord.setName(bucketName + "." + zone);

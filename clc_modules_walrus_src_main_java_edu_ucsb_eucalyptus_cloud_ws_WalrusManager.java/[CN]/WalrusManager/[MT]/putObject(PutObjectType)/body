@@ -18,7 +18,9 @@
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
     BucketInfo bucket=bucketList.get(0);
+    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
     if (bucket.canWrite(userId)) {
+      if (logData != null)       reply.setLogData(logData);
       ObjectInfo foundObject=null;
       EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
       ObjectInfo searchObject=new ObjectInfo();
@@ -29,7 +31,7 @@
           if (!objectInfo.canWrite(userId)) {
             db.rollback();
             messenger.removeQueue(key,randomKey);
-            throw new AccessDeniedException("Key",objectKey);
+            throw new AccessDeniedException("Key",objectKey,logData);
           }
           foundObject=objectInfo;
           oldBucketSize=-foundObject.getSize();
@@ -130,11 +132,18 @@
                 walrusStatistics.updateBytesIn(size);
                 walrusStatistics.updateSpaceUsed(size);
               }
+              if (logData != null) {
+                logData.setObjectSize(size);
+                updateLogData(bucket,logData);
+              }
               dbObject.commit();
+              if (logData != null) {
+                logData.setTurnAroundTime(Long.parseLong(new String(dataMessage.getPayload())));
+              }
             }
  else {
               dbObject.rollback();
-              throw new NoSuchEntityException("Could not find object: " + bucketName + "/"+ objectKey);
+              throw new NoSuchEntityException("Could not find object: " + bucketName + "/"+ objectKey,logData);
             }
             WalrusMonitor monitor=messenger.getMonitor(key);
 synchronized (monitor) {
@@ -177,13 +186,13 @@ synchronized (monitor) {
  catch (      InterruptedException ex) {
         LOG.error(ex,ex);
         messenger.removeQueue(key,randomKey);
-        throw new EucalyptusCloudException();
+        throw new EucalyptusCloudException("Transfer interrupted: " + key + "."+ randomKey);
       }
     }
  else {
       db.rollback();
       messenger.removeQueue(key,randomKey);
-      throw new AccessDeniedException("Bucket",bucketName);
+      throw new AccessDeniedException("Bucket",bucketName,logData);
     }
   }
  else {

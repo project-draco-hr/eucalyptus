@@ -12,6 +12,8 @@
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
     EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
     ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
@@ -19,7 +21,7 @@
       ObjectInfo objectInfo=objectInfos.get(0);
       if (!objectInfo.canWriteACP(userId)) {
         db.rollback();
-        throw new AccessDeniedException("Key",objectKey);
+        throw new AccessDeniedException("Key",objectKey,logData);
       }
       List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
       objectInfo.resetGlobalGrants();
@@ -43,12 +45,17 @@
  else {
         LOG.warn("Bittorrent support has been disabled. Please check pre-requisites");
       }
+      if (logData != null) {
+        updateLogData(bucket,logData);
+        logData.setObjectSize(objectInfo.getSize());
+        reply.setLogData(logData);
+      }
       reply.setCode("204");
       reply.setDescription("OK");
     }
  else {
       db.rollback();
-      throw new NoSuchEntityException(objectKey);
+      throw new NoSuchEntityException(objectKey,logData);
     }
   }
  else {
