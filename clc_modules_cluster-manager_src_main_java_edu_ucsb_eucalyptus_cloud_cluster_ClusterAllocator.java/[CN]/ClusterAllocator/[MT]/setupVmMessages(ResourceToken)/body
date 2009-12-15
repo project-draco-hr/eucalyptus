@@ -4,6 +4,7 @@
   int vlan=token.getPrimaryNetwork().getVlan();
   if (vlan < 0)   vlan=9;
   List<String> networkNames=Lists.newArrayList(token.getPrimaryNetwork().getNetworkName());
+  final List<String> addresses=Lists.newArrayList(token.getAddresses());
   RunInstancesType request=this.vmAllocInfo.getRequest();
   VmImageInfo imgInfo=this.vmAllocInfo.getImageInfo();
   VmTypeInfo vmInfo=this.vmAllocInfo.getVmTypeInfo();
@@ -15,5 +16,15 @@
   }
   VmRunType run=new VmRunType(request,rsvId,request.getUserData(),token.getAmount(),imgInfo,vmInfo,keyInfo,token.getInstanceIds(),macs,vlan,networkNames,networkIndexes);
   LOG.debug(LogUtil.subheader(run.toString()));
-  this.msgMap.put(State.CREATE_VMS,QueuedEvent.make(new VmRunCallback(this,token),run));
+  QueuedEventCallback<VmRunType> cb=new VmRunCallback(this,token).onSuccess(new SuccessCallback<VmRunResponseType>(){
+    @Override public void apply(    VmRunResponseType response){
+      for (      VmInfo vmInfo : response.getVms()) {
+        Address addr=Addresses.getInstance().lookup(addresses.remove(0));
+        VmInstance vm=VmInstances.getInstance().lookup(vmInfo.getInstanceId());
+        new AssignAddressCallback(addr.assign(vm.getInstanceId(),vm.getNetworkConfig().getIpAddress()),vm).dispatch(addr.getCluster());
+      }
+    }
+  }
+);
+  this.msgMap.put(State.CREATE_VMS,QueuedEvent.make(cb,run));
 }

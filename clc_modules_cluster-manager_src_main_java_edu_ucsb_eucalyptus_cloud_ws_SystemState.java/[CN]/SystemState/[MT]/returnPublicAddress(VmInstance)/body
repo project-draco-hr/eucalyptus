@@ -1,5 +1,5 @@
 {
-  if (EucalyptusProperties.disableNetworking) {
+  if (!Clusters.getInstance().hasNetworking()) {
     return;
   }
  else {
@@ -7,15 +7,13 @@
       LOG.debug(EventRecord.caller(SystemState.class,EventType.VM_TERMINATING,vm.getInstanceId()));
       Address address=Addresses.getInstance().lookup(vm.getNetworkConfig().getIgnoredPublicIp());
       if (vm.getInstanceId().equals(address.getInstanceId())) {
-        if (address.isSystemAllocated()) {
+        if (address.isSystemOwned()) {
           LOG.debug(EventRecord.caller(SystemState.class,EventType.VM_TERMINATING,"SYSTEM_ADDRESS",address.toString()));
-          AddressUtil.releaseAddress(address);
+          Addresses.getAddressManager().releaseAddress(address);
         }
- else {
-          if (address.isAssigned()) {
-            LOG.debug(EventRecord.caller(SystemState.class,EventType.VM_TERMINATING,"USER_ADDRESS",address.toString()));
-            AddressUtil.unassignAddressFromVm(address,vm);
-          }
+ else         if (address.isAssigned()) {
+          LOG.debug(EventRecord.caller(SystemState.class,EventType.VM_TERMINATING,"USER_ADDRESS",address.toString()));
+          new UnassignAddressCallback(address.unassign(),vm).dispatch(address.getCluster());
         }
       }
     }

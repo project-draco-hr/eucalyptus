@@ -1,13 +1,16 @@
 {
-  AddressUtil.updateAddressingMode();
-  int addrCount=0;
-  for (  Address a : Addresses.getInstance().listValues()) {
-    if (request.getUserId().equals(a.getUserId()))     addrCount++;
-  }
-  if (addrCount >= edu.ucsb.eucalyptus.util.EucalyptusProperties.getSystemConfiguration().getMaxUserPublicAddresses() && !request.isAdministrator())   throw new EucalyptusCloudException(ExceptionList.ERR_SYS_INSUFFICIENT_ADDRESS_CAPACITY);
-  String userId=request.getUserId();
-  Address address=Addresses.getInstance().getNextAvailable(userId);
   AllocateAddressResponseType reply=(AllocateAddressResponseType)request.getReply();
+  Addresses.checkUserLimits(request);
+  String userId=request.getUserId();
+  Address address;
+  try {
+    address=Addresses.getAddressManager().allocateNext(userId);
+  }
+ catch (  NotEnoughResourcesAvailable e) {
+    LOG.debug(e,e);
+    throw new EucalyptusCloudException(e);
+  }
   reply.setPublicIp(address.getName());
+  address.clearPending();
   return reply;
 }

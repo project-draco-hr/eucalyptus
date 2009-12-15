@@ -1,29 +1,24 @@
 {
-  AddressUtil.updateAddressingMode();
   ReleaseAddressResponseType reply=(ReleaseAddressResponseType)request.getReply();
   reply.set_return(false);
-  Address address=null;
-  try {
-    address=Addresses.getInstance().lookup(request.getPublicIp());
-    if (!request.isAdministrator() && !address.getUserId().equals(request.getUserId()))     return reply;
-    if (address.isAssigned() && !address.isPending()) {
+  Addresses.updateAddressingMode();
+  Address address=Addresses.checkPermissionsAndGet(request.getUserId(),request.isAdministrator(),request.getPublicIp());
+  if (address.isAssigned()) {
+    try {
+      VmInstance oldVm=VmInstances.getInstance().lookup(address.getInstanceId());
+      Addresses.getAddressManager().dispatchUnassignAddress(address.unassign(),oldVm);
       try {
-        VmInstance oldVm=VmInstances.getInstance().lookup(address.getInstanceId());
-        AddressUtil.unassignAddressFromVm(address,oldVm);
-        AddressUtil.tryAssignSystemAddress(oldVm);
+        Addresses.getAddressManager().assignSystemAddress(oldVm);
       }
- catch (      NoSuchElementException e) {
+ catch (      NotEnoughResourcesAvailable e) {
+        LOG.debug(e,e);
+        throw new EucalyptusCloudException(e);
       }
     }
-    if (Component.eucalyptus.name().equals(address.getUserId()) && !edu.ucsb.eucalyptus.util.EucalyptusProperties.getSystemConfiguration().isDoDynamicPublicAddresses()) {
-      LOG.debug("Not de-allocating system owned address in static public addressing mode: " + address.getName());
-      return reply;
+ catch (    NoSuchElementException e) {
     }
-    AddressUtil.releaseAddress(address);
-    reply.set_return(true);
   }
- catch (  NoSuchElementException e) {
-    return reply;
-  }
+  Addresses.getAddressManager().releaseAddress(address);
+  reply.set_return(true);
   return reply;
 }

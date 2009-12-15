@@ -2,18 +2,13 @@
   if (e.getMessage() instanceof MappingHttpResponse) {
     MappingHttpResponse resp=(MappingHttpResponse)e.getMessage();
     DescribePublicAddressesResponseType reply=(DescribePublicAddressesResponseType)resp.getMessage();
+    this.getCluster().getState().setPublicAddressing(reply.get_return());
     if (reply.get_return()) {
-      EucalyptusProperties.disableNetworking=false;
-      if (!AddressUtil.initialize(this.getCluster().getName(),Pair.getPaired(reply.getAddresses(),reply.getMapping()))) {
-        AddressUtil.update(this.getCluster().getName(),Pair.getPaired(reply.getAddresses(),reply.getMapping()));
-      }
-      for (      Address a : Addresses.getInstance().listValues()) {
-        if (!a.isAllocated())         a.release();
-      }
+      List<ClusterAddressInfo> addrInfo=ClusterAddressInfo.fromLists(reply.getAddresses(),reply.getMapping());
+      Addresses.getAddressManager().update(this.getCluster(),addrInfo);
     }
  else {
       LOG.warn("Response from cluster [" + this.getCluster().getName() + "]: "+ reply.getStatusMessage());
-      EucalyptusProperties.disableNetworking=true;
     }
     this.verified=true;
   }
