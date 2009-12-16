@@ -2,36 +2,34 @@
   AssociateAddressResponseType reply=(AssociateAddressResponseType)request.getReply();
   reply.set_return(false);
   Addresses.updateAddressingMode();
-  LOG.debug("Associate: " + request.getPublicIp() + " => "+ request.getInstanceId());
-  Address address=Addresses.checkPermissionsAndGet(request.getUserId(),request.isAdministrator(),request.getPublicIp());
-  VmInstance vm=VmInstances.checkPermissionsAndGet(request.getUserId(),request.isAdministrator(),request.getInstanceId());
+  Address address=Addresses.restrictedLookup(request.getUserId(),request.isAdministrator(),request.getPublicIp());
+  VmInstance vm=VmInstances.restrictedLookup(request.getUserId(),request.isAdministrator(),request.getInstanceId());
+  LOG.info(EventRecord.here(AddressManager.class,Events.ASSOCIATE,address.toString(),vm.toString()));
   NetworkConfigType netConfig=vm.getNetworkConfig();
   reply.set_return(true);
-  if (vm.getNetworkConfig().isConfigured()) {
-    String currentPublicIp=vm.getNetworkConfig().getIgnoredPublicIp();
+  if (vm.hasPublicAddress()) {
     try {
-      Address currentAddr=Addresses.getInstance().lookup(currentPublicIp);
-      LOG.debug("Dispatching unassign message for: " + address);
+      Address currentAddr=Addresses.getInstance().lookup(vm.getNetworkConfig().getIgnoredPublicIp());
+      LOG.info(EventRecord.here(AddressManager.class,Events.UNASSIGNFROMVM,currentAddr.toString(),vm.toString()));
       if (currentAddr.isAssigned()) {
-        Addresses.getAddressManager().dispatchUnassignAddress(address.unassign(),vm);
+        Addresses.unassign(address);
       }
     }
  catch (    Exception e) {
+      LOG.debug(e,e);
     }
   }
   if (address.isAssigned() && address.getUserId().equals(request.getUserId()) && !address.isPending()) {
-    LOG.debug("Dispatching unassign message for: " + address);
     try {
       VmInstance oldVm=VmInstances.getInstance().lookup(address.getInstanceId());
-      if (address.isAssigned()) {
-        Addresses.getAddressManager().dispatchUnassignAddress(address.unassign(),oldVm);
-      }
-      Addresses.getAddressManager().assignSystemAddress(oldVm);
+      LOG.info(EventRecord.here(AddressManager.class,Events.UNASSIGNFROMVM,address.toString(),oldVm.toString()));
+      Addresses.unassign(address);
     }
  catch (    Exception e) {
       LOG.error(e,e);
     }
   }
-  Addresses.getAddressManager().dispatchAssignAddress(address.assign(vm.getInstanceId(),vm.getNetworkConfig().getIpAddress()),vm);
+  LOG.info(EventRecord.here(AddressManager.class,Events.ASSOCIATE,address.toString(),vm.toString()));
+  Addresses.assign(address,vm);
   return reply;
 }
