@@ -1,0 +1,27 @@
+{
+  List<ResourceAllocator> pending=Lists.newArrayList(new NodeResourceAllocator(),new AddressAllocator(),new PrivateNetworkAllocator(),new SubnetIndexAllocator());
+  List<ResourceAllocator> finished=Lists.newArrayList();
+  for (  ResourceAllocator allocator : pending) {
+    try {
+      allocator.allocate(vmAllocInfo);
+      finished.add(allocator);
+    }
+ catch (    FailScriptFailException e) {
+      if (e.getCause() != null) {
+        throw new EucalyptusCloudException(e.getCause().getMessage(),e.getCause());
+      }
+ else {
+        throw new EucalyptusCloudException(e.getMessage(),e);
+      }
+    }
+catch (    Throwable e) {
+      LOG.debug(e,e);
+      allocator.fail(vmAllocInfo,e);
+      for (      ResourceAllocator rollback : Iterables.reverse(finished)) {
+        rollback.fail(vmAllocInfo,e);
+      }
+      throw new EucalyptusCloudException(e.getMessage(),e);
+    }
+  }
+  return vmAllocInfo;
+}
