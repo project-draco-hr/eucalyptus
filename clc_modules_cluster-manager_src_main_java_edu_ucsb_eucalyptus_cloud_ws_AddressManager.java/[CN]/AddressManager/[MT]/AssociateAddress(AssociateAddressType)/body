@@ -2,34 +2,43 @@
   AssociateAddressResponseType reply=(AssociateAddressResponseType)request.getReply();
   reply.set_return(false);
   Addresses.updateAddressingMode();
-  Address address=Addresses.restrictedLookup(request.getUserId(),request.isAdministrator(),request.getPublicIp());
-  VmInstance vm=VmInstances.restrictedLookup(request.getUserId(),request.isAdministrator(),request.getInstanceId());
+  final Address address=Addresses.restrictedLookup(request.getUserId(),request.isAdministrator(),request.getPublicIp());
+  final VmInstance vm=VmInstances.restrictedLookup(request.getUserId(),request.isAdministrator(),request.getInstanceId());
   LOG.info(EventRecord.here(AddressManager.class,Events.ASSOCIATE,address.toString(),vm.toString()));
-  NetworkConfigType netConfig=vm.getNetworkConfig();
-  reply.set_return(true);
-  if (vm.hasPublicAddress()) {
-    try {
-      Address currentAddr=Addresses.getInstance().lookup(vm.getNetworkConfig().getIgnoredPublicIp());
-      LOG.info(EventRecord.here(AddressManager.class,Events.UNASSIGNFROMVM,currentAddr.toString(),vm.toString()));
-      if (currentAddr.isAssigned()) {
-        Addresses.unassign(address);
+  final VmInstance oldVm=findCurrentAssignedVm(address);
+  final Address oldAddr=findVmExistingAddress(vm);
+  final SuccessCallback assignTarget=new SuccessCallback(){
+    public void apply(    Object t){
+      LOG.info(EventRecord.here(AddressManager.class,Events.ASSOCIATE,address.toString(),vm.toString()));
+      AddressCategory.assign(address,vm).dispatch(address.getCluster());
+      if (oldVm != null) {
+        Addresses.system(oldVm);
       }
     }
- catch (    Exception e) {
-      LOG.debug(e,e);
+  }
+;
+  final SuccessCallback unassignBystander=new SuccessCallback(){
+    public void apply(    Object t){
+      if (oldAddr != null) {
+        boolean system=oldAddr.isSystemOwned();
+        LOG.info(EventRecord.here(AddressManager.class,Events.DISASSOCIATE,oldAddr.toString()));
+        AddressCategory.unassign(oldAddr).onSuccess(assignTarget).dispatch(oldAddr.getCluster());
+        if (system) {
+          LOG.info(EventRecord.here(AddressManager.class,Events.RELEASE,oldAddr.toString()));
+          oldAddr.release();
+        }
+      }
+ else {
+        assignTarget.apply(t);
+      }
     }
   }
-  if (address.isAssigned() && address.getUserId().equals(request.getUserId()) && !address.isPending()) {
-    try {
-      VmInstance oldVm=VmInstances.getInstance().lookup(address.getInstanceId());
-      LOG.info(EventRecord.here(AddressManager.class,Events.UNASSIGNFROMVM,address.toString(),oldVm.toString()));
-      Addresses.unassign(address);
-    }
- catch (    Exception e) {
-      LOG.error(e,e);
-    }
+;
+  if (address.isAssigned()) {
+    address.unassign().getCallback().onSuccess(unassignBystander).dispatch(oldAddr.getCluster());
   }
-  LOG.info(EventRecord.here(AddressManager.class,Events.ASSOCIATE,address.toString(),vm.toString()));
-  Addresses.assign(address,vm);
+ else {
+    unassignBystander.apply(null);
+  }
   return reply;
 }

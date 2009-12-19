@@ -1,17 +1,27 @@
 {
+  Cluster cluster=Clusters.getInstance().lookup(vm.getPlacement());
+  QueuedEventCallback cb=new TerminateCallback(vm.getInstanceId());
   SystemState.returnNetworkIndex(vm);
-  final Address address=Addresses.getInstance().lookup(vm.getNetworkConfig().getIgnoredPublicIp());
-  new TerminateCallback(vm.getInstanceId()).onSuccess(new SuccessCallback(){
-    public void apply(    Object t){
-      if (address.isSystemOwned()) {
-        LOG.debug(EventRecord.caller(SystemState.class,EventType.VM_TERMINATING,"SYSTEM_ADDRESS",address.toString()));
-        Addresses.release(address);
-      }
+  try {
+    final Address address=Addresses.getInstance().lookup(vm.getNetworkConfig().getIgnoredPublicIp());
+    cb.onSuccess(new SuccessCallback(){
+      public void apply(      Object t){
+        if (address.isSystemOwned()) {
+          LOG.debug(EventRecord.caller(SystemState.class,EventType.VM_TERMINATING,"SYSTEM_ADDRESS",address.toString()));
+          Addresses.release(address);
+        }
  else {
-        LOG.debug(EventRecord.caller(SystemState.class,EventType.VM_TERMINATING,"USER_ADDRESS",address.toString()));
-        Addresses.unassign(address);
+          LOG.debug(EventRecord.caller(SystemState.class,EventType.VM_TERMINATING,"USER_ADDRESS",address.toString()));
+          AddressCategory.unassign(address).dispatch(address.getCluster());
+        }
       }
     }
+);
   }
-).dispatch(vm.getPlacement());
+ catch (  NoSuchElementException e) {
+  }
+catch (  Throwable e1) {
+    LOG.debug(e1,e1);
+  }
+  cb.dispatch(cluster);
 }
