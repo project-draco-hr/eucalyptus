@@ -7,8 +7,13 @@
   LOG.info(EventRecord.here(AddressManager.class,Events.ASSOCIATE,address.toString(),vm.toString()));
   final VmInstance oldVm=findCurrentAssignedVm(address);
   final Address oldAddr=findVmExistingAddress(vm);
+  final boolean system=oldAddr != null ? oldAddr.isSystemOwned() : false;
   final SuccessCallback assignTarget=new SuccessCallback(){
     public void apply(    Object t){
+      if (system) {
+        LOG.info(EventRecord.here(AddressManager.class,Events.RELEASE,oldAddr.toString()));
+        oldAddr.release();
+      }
       LOG.info(EventRecord.here(AddressManager.class,Events.ASSOCIATE,address.toString(),vm.toString()));
       AddressCategory.assign(address,vm).dispatch(address.getCluster());
       if (oldVm != null) {
@@ -20,13 +25,8 @@
   final SuccessCallback unassignBystander=new SuccessCallback(){
     public void apply(    Object t){
       if (oldAddr != null) {
-        boolean system=oldAddr.isSystemOwned();
         LOG.info(EventRecord.here(AddressManager.class,Events.DISASSOCIATE,oldAddr.toString()));
         AddressCategory.unassign(oldAddr).onSuccess(assignTarget).dispatch(oldAddr.getCluster());
-        if (system) {
-          LOG.info(EventRecord.here(AddressManager.class,Events.RELEASE,oldAddr.toString()));
-          Addresses.release(oldAddr);
-        }
       }
  else {
         assignTarget.apply(t);

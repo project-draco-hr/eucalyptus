@@ -2,15 +2,25 @@
   DisassociateAddressResponseType reply=(DisassociateAddressResponseType)request.getReply();
   reply.set_return(false);
   Addresses.updateAddressingMode();
-  Address address=Addresses.restrictedLookup(request.getUserId(),request.isAdministrator(),request.getPublicIp());
+  final Address address=Addresses.restrictedLookup(request.getUserId(),request.isAdministrator(),request.getPublicIp());
   reply.set_return(true);
   if (address.isSystemOwned() && !request.isAdministrator()) {
     throw new EucalyptusCloudException("Only administrators can unassign system owned addresses: " + address.toString());
   }
  else {
     try {
-      AddressCategory.unassign(address).dispatch(address.getCluster());
       LOG.info(EventRecord.here(AddressManager.class,Events.DISASSOCIATE,address.toString()));
+      if (address.isSystemOwned()) {
+        AddressCategory.unassign(address).onSuccess(new SuccessCallback(){
+          public void apply(          Object t){
+            address.release();
+          }
+        }
+).dispatch(address.getCluster());
+      }
+ else {
+        AddressCategory.unassign(address).dispatch(address.getCluster());
+      }
     }
  catch (    Throwable e) {
       LOG.debug(e,e);
