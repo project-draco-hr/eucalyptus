@@ -21,6 +21,8 @@
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
     EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
     ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
@@ -69,28 +71,21 @@
         String contentType=objectInfo.getContentType();
         String contentDisposition=objectInfo.getContentDisposition();
         db.commit();
+        if (logData != null) {
+          updateLogData(bucket,logData);
+          logData.setObjectSize(size);
+        }
         if (request.getGetData()) {
           if (WalrusProperties.trackUsageStatistics) {
             walrusStatistics.updateBytesOut(size);
           }
-          storageManager.sendObject(request.getChannel(),httpResponse,bucketName,objectName,byteRangeStart,byteRangeEnd,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),contentType,contentDisposition,request.getIsCompressed());
+          storageManager.sendObject(request.getChannel(),httpResponse,bucketName,objectName,byteRangeStart,byteRangeEnd,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),contentType,contentDisposition,request.getIsCompressed(),logData);
+          return null;
         }
  else {
-          storageManager.sendHeaders(request.getChannel(),httpResponse,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),contentType,contentDisposition);
+          storageManager.sendHeaders(request.getChannel(),httpResponse,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),contentType,contentDisposition,logData);
+          return null;
         }
-        reply.setEtag(etag);
-        reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
-        if (byteRangeEnd > -1) {
-          if (byteRangeEnd <= size && ((byteRangeEnd - byteRangeStart) > 0))           reply.setSize(byteRangeEnd - byteRangeStart);
- else           reply.setSize(0L);
-        }
- else {
-          reply.setSize(size);
-        }
-        status.setCode(200);
-        status.setDescription("OK");
-        reply.setContentType("binary/octet-stream");
-        reply.setStatus(status);
       }
  else {
         db.rollback();
@@ -106,6 +101,4 @@
     db.rollback();
     throw new NoSuchBucketException(bucketName);
   }
-  db.commit();
-  return reply;
 }
