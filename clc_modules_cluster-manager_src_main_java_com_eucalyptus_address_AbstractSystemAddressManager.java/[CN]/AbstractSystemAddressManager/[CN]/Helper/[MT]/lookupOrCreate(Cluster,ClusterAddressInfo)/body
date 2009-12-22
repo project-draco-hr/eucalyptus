@@ -1,21 +1,33 @@
 {
   try {
-    return Addresses.getInstance().lookupDisabled(addrInfo.getAddress());
-  }
- catch (  NoSuchElementException e2) {
-  }
-  try {
-    return Addresses.getInstance().lookup(addrInfo.getAddress());
-  }
- catch (  NoSuchElementException e) {
-  }
-  try {
     if (addrInfo.getInstanceIp() != null && !"".equals(addrInfo.getInstanceIp())) {
       VmInstance vm=VmInstances.getInstance().lookupByInstanceIp(addrInfo.getInstanceIp());
-      return new Address(addrInfo.getAddress(),cluster.getName(),Component.eucalyptus.name(),vm.getInstanceId(),vm.getNetworkConfig().getIpAddress());
+      try {
+        Address addr=Addresses.getInstance().lookupDisabled(addrInfo.getAddress());
+        addr.allocate(Component.eucalyptus.name());
+        addr.assign(vm.getInstanceId(),addrInfo.getInstanceIp()).clearPending();
+      }
+ catch (      NoSuchElementException e2) {
+        try {
+          Address addr=Addresses.getInstance().lookup(addrInfo.getAddress());
+          if (!addr.isAssigned()) {
+            addr.assign(vm.getInstanceId(),addrInfo.getInstanceIp()).clearPending();
+          }
+          return addr;
+        }
+ catch (        NoSuchElementException e) {
+          return new Address(addrInfo.getAddress(),cluster.getName(),Component.eucalyptus.name(),vm.getInstanceId(),vm.getNetworkConfig().getIpAddress());
+        }
+      }
     }
  else {
-      return new Address(addrInfo.getAddress(),cluster.getName());
+      Address addr=new Address(addrInfo.getAddress(),cluster.getName());
+      try {
+        addr.init();
+      }
+ catch (      Throwable e) {
+        LOG.debug(e,e);
+      }
     }
   }
  catch (  NoSuchElementException e) {
