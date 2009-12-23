@@ -5,11 +5,19 @@
     if (HttpMethod.GET.equals(request.getMethod())) {
       handleGet(ctx,request);
     }
- else     if (!initialized) {
-      initialized=true;
-      handleInitialize(ctx,request);
+ else     if (!initialized.get() && pending.compareAndSet(false,true)) {
+      try {
+        handleInitialize(ctx,request);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex,ex);
+        throw ex;
+      }
+ finally {
+        pending.set(false);
+      }
     }
- else     if (request.getMessage() instanceof HeartbeatType) {
+ else     if (initialized.get() && request.getMessage() instanceof HeartbeatType) {
       handleHeartbeat(request);
     }
  else {
