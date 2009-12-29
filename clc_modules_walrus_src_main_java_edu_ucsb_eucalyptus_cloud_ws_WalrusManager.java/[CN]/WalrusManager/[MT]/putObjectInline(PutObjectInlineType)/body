@@ -53,7 +53,11 @@
       }
       foundObject.setObjectKey(objectKey);
       try {
-        byte[] base64Data=request.getBase64Data().getBytes();
+        if (request.getBase64Data().getBytes().length > WalrusProperties.MAX_INLINE_DATA_SIZE) {
+          db.rollback();
+          throw new InlineDataTooLargeException(bucketName + "/" + objectKey);
+        }
+        byte[] base64Data=Hashes.base64decode(request.getBase64Data()).getBytes();
         foundObject.setObjectName(objectName);
         try {
           FileIO fileIO=storageManager.prepareForWrite(bucketName,objectName);
@@ -63,6 +67,7 @@
           }
         }
  catch (        Exception ex) {
+          db.rollback();
           throw new EucalyptusCloudException(ex);
         }
         md5=Hashes.getHexString(Hashes.Digest.MD5.get().digest(base64Data));
