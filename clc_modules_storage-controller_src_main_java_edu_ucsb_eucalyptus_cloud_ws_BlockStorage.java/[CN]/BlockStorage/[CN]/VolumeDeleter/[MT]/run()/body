@@ -1,0 +1,30 @@
+{
+  try {
+    blockManager.deleteVolume(volumeId);
+    volumeStorageManager.deleteObject("",volumeId);
+  }
+ catch (  EucalyptusCloudException e1) {
+    LOG.error(e1);
+    return;
+  }
+catch (  IOException e) {
+    LOG.error(e);
+    return;
+  }
+  EntityWrapper<VolumeInfo> db=StorageController.getEntityWrapper();
+  VolumeInfo foundVolume;
+  try {
+    foundVolume=db.getUnique(new VolumeInfo(volumeId));
+    db.delete(foundVolume);
+    db.commit();
+    EucaSemaphoreDirectory.removeSemaphore(volumeId);
+    if (StorageProperties.trackUsageStatistics) {
+      blockStorageStatistics.decrementVolumeCount();
+      blockStorageStatistics.updateSpaceUsed(-(foundVolume.getSize() * StorageProperties.GB));
+    }
+  }
+ catch (  EucalyptusCloudException e) {
+    db.rollback();
+    LOG.error(e);
+  }
+}
