@@ -1,26 +1,21 @@
 {
-  EntityWrapper<ImageInfo> db=new EntityWrapper<ImageInfo>();
   List<ImageDetails> repList=Lists.newArrayList();
+  EntityWrapper<ImageInfo> db=new EntityWrapper<ImageInfo>();
   try {
     for (    String execUserId : executable) {
-      try {
-        if ("all".equals(execUserId))         continue;
-        UserInfo execUser=db.recast(UserInfo.class).getUnique(new UserInfo(execUserId));
-        List<ImageInfo> results=db.query(new ImageInfo());
-        for (        ImageInfo img : results) {
-          ImageDetails imgDetails=img.getAsImageDetails();
-          if (img.isAllowed(execUser) && img.getImageOwnerId().equals(user.getUserName())) {
-            repList.add(imgDetails);
-          }
+      if ("all".equals(execUserId))       continue;
+      final UserInfo execUser=db.recast(UserInfo.class).getUnique(UserInfo.named(execUserId));
+      Iterable<ImageInfo> results=Iterables.filter(db.query(ImageInfo.ALL),new Predicate<ImageInfo>(){
+        @Override public boolean apply(        ImageInfo arg0){
+          return arg0.isAllowed(execUser) || arg0.getPublic();
         }
       }
- catch (      Throwable e) {
-        LOG.debug(e,e);
-      }
+);
+      repList.addAll(Lists.transform(Lists.newArrayList(results),ImageInfo.TO_IMAGE_DETAILS));
     }
     db.commit();
   }
- catch (  Exception e) {
+ catch (  Throwable e) {
     LOG.debug(e,e);
     db.commit();
   }

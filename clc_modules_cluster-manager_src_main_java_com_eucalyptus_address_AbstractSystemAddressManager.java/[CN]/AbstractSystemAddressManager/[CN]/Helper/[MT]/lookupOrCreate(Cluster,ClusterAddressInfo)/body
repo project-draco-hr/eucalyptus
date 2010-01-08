@@ -1,0 +1,76 @@
+{
+  Address addr=null;
+  try {
+    addr=Addresses.getInstance().lookupDisabled(addrInfo.getAddress());
+  }
+ catch (  NoSuchElementException e1) {
+    try {
+      addr=Addresses.getInstance().lookup(addrInfo.getAddress());
+    }
+ catch (    NoSuchElementException e) {
+      addr=new Address(addrInfo.getAddress(),cluster.getName());
+    }
+  }
+  if (addrInfo.getInstanceIp() != null && !"".equals(addrInfo.getInstanceIp())) {
+    try {
+      VmInstance vm=VmInstances.getInstance().lookupByInstanceIp(addrInfo.getInstanceIp());
+      if (VmInstance.DEFAULT_IP.equals(vm.getNetworkConfig().getIgnoredPublicIp())) {
+        vm.getNetworkConfig().setIgnoredPublicIp(addrInfo.getAddress());
+        if (!addr.isAllocated()) {
+          try {
+            addr.allocate(Component.eucalyptus.name());
+          }
+ catch (          Throwable e1) {
+            LOG.debug(e1,e1);
+          }
+        }
+        if (!addr.isAssigned() && !addr.isPending()) {
+          try {
+            addr.assign(vm.getInstanceId(),addrInfo.getInstanceIp()).clearPending();
+          }
+ catch (          Throwable e1) {
+            LOG.debug(e1,e1);
+          }
+        }
+      }
+    }
+ catch (    NoSuchElementException e) {
+      if (!addr.isPending()) {
+        final boolean isSystemOwned=addr.isSystemOwned();
+        final Address a=addr;
+        try {
+          new UnassignAddressCallback(addrInfo).then(new SuccessCallback(){
+            @Override public void apply(            Object t){
+              if (isSystemOwned) {
+                Addresses.getAddressManager().releaseSystemAddress(a);
+              }
+            }
+          }
+).dispatch(cluster);
+        }
+ catch (        Throwable e1) {
+          LOG.debug(e1,e1);
+        }
+      }
+    }
+  }
+ else {
+    if (!addr.isPending()) {
+      try {
+        VmInstance vm=VmInstances.getInstance().lookupByPublicIp(addrInfo.getAddress());
+        vm.getNetworkConfig().setIgnoredPublicIp(VmInstance.DEFAULT_IP);
+      }
+ catch (      NoSuchElementException e) {
+        if (addr.isAssigned()) {
+          try {
+            addr.unassign().clearPending();
+          }
+ catch (          Throwable e1) {
+            LOG.debug(e1,e1);
+          }
+        }
+      }
+    }
+  }
+  return addr;
+}
