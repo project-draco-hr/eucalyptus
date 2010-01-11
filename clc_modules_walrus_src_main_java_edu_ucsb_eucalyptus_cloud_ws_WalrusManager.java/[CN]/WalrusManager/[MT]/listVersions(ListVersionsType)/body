@@ -1,4 +1,145 @@
 {
   ListVersionsResponseType reply=(ListVersionsResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  String userId=request.getUserId();
+  String prefix=request.getPrefix();
+  if (prefix == null)   prefix="";
+  int maxKeys=-1;
+  String maxKeysString=request.getMaxKeys();
+  if (maxKeysString != null)   maxKeys=Integer.parseInt(maxKeysString);
+ else   maxKeys=WalrusProperties.MAX_KEYS;
+  String delimiter=request.getDelimiter();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  bucketInfo.setHidden(false);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  ArrayList<PrefixEntry> prefixes=new ArrayList<PrefixEntry>();
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
+    if (bucket.canRead(userId)) {
+      if (bucket.isVersioningDisabled()) {
+        db.rollback();
+        throw new EucalyptusCloudException("Versioning has not been enabled for bucket: " + bucketName);
+      }
+      if (logData != null) {
+        updateLogData(bucket,logData);
+        reply.setLogData(logData);
+      }
+      if (request.isAdministrator()) {
+        EntityWrapper<WalrusSnapshotInfo> dbSnap=db.recast(WalrusSnapshotInfo.class);
+        WalrusSnapshotInfo walrusSnapInfo=new WalrusSnapshotInfo();
+        walrusSnapInfo.setSnapshotBucket(bucketName);
+        List<WalrusSnapshotInfo> walrusSnaps=dbSnap.query(walrusSnapInfo);
+        if (walrusSnaps.size() > 0) {
+          db.rollback();
+          throw new NoSuchBucketException(bucketName);
+        }
+      }
+      reply.setName(bucketName);
+      reply.setIsTruncated(false);
+      if (maxKeys >= 0)       reply.setMaxKeys(maxKeys);
+      reply.setPrefix(prefix);
+      if (delimiter != null)       reply.setDelimiter(delimiter);
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      ObjectInfo searchObjectInfo=new ObjectInfo();
+      searchObjectInfo.setBucketName(bucketName);
+      List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+      if (objectInfos.size() > 0) {
+        int howManyProcessed=0;
+        if (objectInfos.size() < maxKeys)         Collections.sort(objectInfos);
+        ArrayList<VersionEntry> versions=new ArrayList<VersionEntry>();
+        ArrayList<DeleteMarkerEntry> deleteMarkers=new ArrayList<DeleteMarkerEntry>();
+        for (        ObjectInfo objectInfo : objectInfos) {
+          String objectKey=objectInfo.getObjectKey();
+          if (prefix != null) {
+            if (!objectKey.startsWith(prefix)) {
+              continue;
+            }
+ else {
+              if (delimiter != null) {
+                String[] parts=objectKey.substring(prefix.length()).split(delimiter);
+                if (parts.length > 1) {
+                  String prefixString=parts[0] + delimiter;
+                  boolean foundPrefix=false;
+                  for (                  PrefixEntry prefixEntry : prefixes) {
+                    if (prefixEntry.getPrefix().equals(prefixString)) {
+                      foundPrefix=true;
+                      break;
+                    }
+                  }
+                  if (!foundPrefix) {
+                    prefixes.add(new PrefixEntry(prefixString));
+                    if (maxKeys >= 0) {
+                      if (howManyProcessed++ >= maxKeys) {
+                        reply.setIsTruncated(true);
+                        break;
+                      }
+                    }
+                  }
+                  continue;
+                }
+              }
+            }
+          }
+          if (maxKeys >= 0) {
+            if (howManyProcessed++ >= maxKeys) {
+              reply.setIsTruncated(true);
+              break;
+            }
+          }
+          if (!objectInfo.getDeleted()) {
+            VersionEntry versionEntry=new VersionEntry();
+            versionEntry.setKey(objectKey);
+            versionEntry.setVersionId(objectInfo.getVersionId());
+            versionEntry.setEtag(objectInfo.getEtag());
+            versionEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+            String displayName=objectInfo.getOwnerId();
+            try {
+              User userInfo=CredentialProvider.getUser(displayName);
+              versionEntry.setOwner(new CanonicalUserType(userInfo.getQueryId(),displayName));
+            }
+ catch (            NoSuchUserException e) {
+              db.rollback();
+              throw new AccessDeniedException("Bucket",bucketName,logData);
+            }
+            versionEntry.setSize(objectInfo.getSize());
+            versionEntry.setStorageClass(objectInfo.getStorageClass());
+            versions.add(versionEntry);
+          }
+ else {
+            DeleteMarkerEntry deleteMarkerEntry=new DeleteMarkerEntry();
+            deleteMarkerEntry.setKey(objectKey);
+            deleteMarkerEntry.setVersionId(objectInfo.getVersionId());
+            deleteMarkerEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+            String displayName=objectInfo.getOwnerId();
+            try {
+              User userInfo=CredentialProvider.getUser(displayName);
+              deleteMarkerEntry.setOwner(new CanonicalUserType(userInfo.getQueryId(),displayName));
+            }
+ catch (            NoSuchUserException e) {
+              db.rollback();
+              throw new AccessDeniedException("Bucket",bucketName,logData);
+            }
+            deleteMarkers.add(deleteMarkerEntry);
+          }
+        }
+        reply.setVersions(versions);
+        reply.setDeleteMarkers(deleteMarkers);
+        if (prefix != null) {
+          reply.setCommonPrefixes(prefixes);
+        }
+      }
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException("Bucket",bucketName,logData);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
   return reply;
 }
