@@ -12,6 +12,9 @@
       this.requestLocal.set(ctx.getChannel(),request);
       final EucalyptusMessage msg=(EucalyptusMessage)request.getMessage();
       final String userAgent=request.getHeader(HttpHeaders.Names.USER_AGENT);
+      if (msg.getCorrelationId() == null) {
+        msg.setCorrelationId(UUID.randomUUID().toString());
+      }
       if ((userAgent != null) && userAgent.matches(".*EucalyptusAdminAccess") && msg.getClass().getSimpleName().startsWith("Describe")) {
         msg.setEffectiveUserId(msg.getUserId());
       }
@@ -19,7 +22,7 @@
         msg.setUserId(user.getUserName());
         msg.setEffectiveUserId(user.getIsAdministrator() ? Component.eucalyptus.name() : user.getUserName());
       }
-      LOG.info(EventRecord.here(Component.eucalyptus,EventType.MSG_RECEIVED,msg.getClass().getSimpleName()));
+      LOG.trace(EventRecord.here(Component.eucalyptus,EventType.MSG_RECEIVED,msg.getClass().getSimpleName()));
       ReplyQueue.addReplyListener(msg.getCorrelationId(),ctx);
       if (this.msgReceiver == null) {
         Messaging.dispatch("vm://RequestQueue",msg);
@@ -33,7 +36,7 @@
       }
     }
  else     if (e instanceof IdleStateEvent) {
-      LOG.debug("Closing idle connection: " + e);
+      LOG.warn("Closing idle connection: " + e);
       e.getFuture().addListener(ChannelFutureListener.CLOSE);
       ctx.sendUpstream(e);
     }

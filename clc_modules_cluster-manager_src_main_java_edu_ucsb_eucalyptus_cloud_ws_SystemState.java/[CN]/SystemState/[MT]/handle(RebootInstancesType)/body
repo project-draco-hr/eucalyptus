@@ -1,34 +1,16 @@
 {
   RebootInstancesResponseType reply=(RebootInstancesResponseType)request.getReply();
   reply.set_return(true);
-  if (request.isAdministrator()) {
-    for (    String instanceId : request.getInstancesSet()) {
-      try {
-        VmInstance v=VmInstances.getInstance().lookup(instanceId);
+  for (  String instanceId : request.getInstancesSet()) {
+    try {
+      VmInstance v=VmInstances.getInstance().lookup(instanceId);
+      if (request.isAdministrator() || v.getOwnerId().equals(request.getUserId())) {
         SystemState.dispatchReboot(v.getPlacement(),v.getInstanceId(),new INTERNAL());
       }
- catch (      NoSuchElementException e) {
-        throw new EucalyptusCloudException(e.getMessage());
-      }
-      return reply;
     }
-  }
-  StateSnapshot state=SystemState.getSnapshot(RULE_FILE);
-  try {
-    QueryResults res=state.findInstances(request.getUserId(),request.getInstancesSet());
-    if (res.size() == 0) {
-      reply.set_return(false);
-      return reply;
+ catch (    NoSuchElementException e) {
+      throw new EucalyptusCloudException(e.getMessage());
     }
-    Iterator iter=res.iterator();
-    while (iter.hasNext()) {
-      QueryResult result=(QueryResult)iter.next();
-      VmInstance v=(VmInstance)result.get("vm");
-      SystemState.dispatchReboot(v.getPlacement(),v.getInstanceId(),new INTERNAL());
-    }
-  }
-  finally {
-    state.destroy();
   }
   return reply;
 }
