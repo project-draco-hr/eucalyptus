@@ -1,2 +1,31 @@
 {
+  String volumeId;
+  boolean locallyCreated;
+  EntityWrapper<EquallogicVolumeInfo> db=StorageController.getEntityWrapper();
+  try {
+    EquallogicVolumeInfo volumeInfo=db.getUnique(new EquallogicVolumeInfo(snapshotId));
+    volumeId=volumeInfo.getSnapshotOf();
+    locallyCreated=volumeInfo.getLocallyCreated();
+  }
+ catch (  EucalyptusCloudException ex) {
+    LOG.error("Unable to clean failed snapshot: " + snapshotId);
+    return;
+  }
+ finally {
+    db.commit();
+  }
+  if (connectionManager.deleteSnapshot(volumeId,snapshotId,locallyCreated)) {
+    try {
+      db=StorageController.getEntityWrapper();
+      EquallogicVolumeInfo snapInfo=db.getUnique(new EquallogicVolumeInfo(snapshotId));
+      db.delete(snapInfo);
+    }
+ catch (    EucalyptusCloudException ex) {
+      LOG.error("Unable to clean failed snapshot: " + snapshotId);
+      return;
+    }
+ finally {
+      db.commit();
+    }
+  }
 }
