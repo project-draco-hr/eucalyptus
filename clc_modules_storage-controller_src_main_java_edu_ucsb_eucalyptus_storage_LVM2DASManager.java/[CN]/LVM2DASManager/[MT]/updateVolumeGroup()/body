@@ -1,0 +1,36 @@
+{
+  if (volumeGroup == null) {
+    if (StorageProperties.DAS_PARTITION != null) {
+      try {
+        String returnValue=getPhysicalVolume(StorageProperties.DAS_PARTITION);
+        if (!returnValue.matches("(?s:.*)PV Name.*" + StorageProperties.DAS_PARTITION + "(?s:.*)")) {
+          returnValue=createPhysicalVolume(StorageProperties.DAS_PARTITION);
+          if (returnValue.length() == 0) {
+            throw new EucalyptusCloudException("Unable to create physical volume on device: " + StorageProperties.DAS_PARTITION);
+          }
+        }
+        returnValue=getVolumeGroupsVerbose();
+        if (!returnValue.matches("(?s:.*)PV Name.*" + StorageProperties.DAS_PARTITION + "(?s:.*)")) {
+          volumeGroup="vg-" + Hashes.getRandom(10);
+          returnValue=createVolumeGroup(StorageProperties.DAS_PARTITION,volumeGroup);
+          if (returnValue.length() == 0) {
+            throw new EucalyptusCloudException("Unable to create volume group: " + volumeGroup + " physical volume: "+ StorageProperties.DAS_PARTITION);
+          }
+        }
+ else {
+          Pattern volumeGroupPattern=Pattern.compile("(?s:.*VG Name)(.*)\n.*");
+          Matcher m=volumeGroupPattern.matcher(returnValue);
+          if (m.find())           volumeGroup=m.group(1).trim();
+ else           throw new EucalyptusCloudException("Unable to get volume group for physical volume: " + StorageProperties.DAS_PARTITION);
+        }
+      }
+ catch (      ExecutionException e) {
+        LOG.error(e);
+        throw new EucalyptusCloudException(e);
+      }
+    }
+ else {
+      throw new EucalyptusCloudException("DAS partition not yet configured. Please specify partition.");
+    }
+  }
+}
