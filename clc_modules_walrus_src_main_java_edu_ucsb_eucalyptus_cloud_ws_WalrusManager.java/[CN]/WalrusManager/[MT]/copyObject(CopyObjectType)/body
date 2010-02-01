@@ -3,6 +3,7 @@
   String userId=request.getUserId();
   String sourceBucket=request.getSourceBucket();
   String sourceKey=request.getSourceObject();
+  String sourceVersionId=request.getSourceVersionId();
   String destinationBucket=request.getDestinationBucket();
   String destinationKey=request.getDestinationObject();
   String metadataDirective=request.getMetadataDirective();
@@ -16,19 +17,14 @@
   BucketInfo bucketInfo=new BucketInfo(sourceBucket);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
-    boolean versioning=!bucketList.get(0).isVersioningDisabled();
     EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
     ObjectInfo searchObjectInfo=new ObjectInfo(sourceBucket,sourceKey);
-    String copySourceVersionId=request.getVersionId();
-    searchObjectInfo.setVersionId(copySourceVersionId);
+    searchObjectInfo.setVersionId(sourceVersionId);
+    if (sourceVersionId == null)     searchObjectInfo.setLast(true);
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
     if (objectInfos.size() > 0) {
       ObjectInfo sourceObjectInfo=objectInfos.get(0);
       if (sourceObjectInfo.canRead(userId)) {
-        if (versioning) {
-          if (copySourceVersionId != null)           reply.setVersionId(copySourceVersionId);
- else           reply.setCopySourceVersionId(sourceObjectInfo.getVersionId());
-        }
         if (copyIfMatch != null) {
           if (!copyIfMatch.equals(sourceObjectInfo.getEtag())) {
             db.rollback();
@@ -62,9 +58,18 @@
         if (destinationBuckets.size() > 0) {
           BucketInfo foundDestinationBucketInfo=destinationBuckets.get(0);
           if (foundDestinationBucketInfo.canWrite(userId)) {
+            String destinationVersionId=sourceVersionId;
             ObjectInfo destinationObjectInfo=null;
             String destinationObjectName;
             ObjectInfo destSearchObjectInfo=new ObjectInfo(destinationBucket,destinationKey);
+            if (foundDestinationBucketInfo.isVersioningEnabled()) {
+              if (sourceVersionId != null)               destinationVersionId=sourceVersionId;
+ else               destinationVersionId=UUID.randomUUID().toString().replaceAll("-","");
+            }
+ else {
+              destinationVersionId=WalrusProperties.NULL_VERSION_ID;
+            }
+            destSearchObjectInfo.setVersionId(destinationVersionId);
             List<ObjectInfo> destinationObjectInfos=dbObject.query(destSearchObjectInfo);
             if (destinationObjectInfos.size() > 0) {
               destinationObjectInfo=destinationObjectInfos.get(0);
@@ -99,6 +104,8 @@
             Date lastModified=sourceObjectInfo.getLastModified();
             destinationObjectInfo.setEtag(etag);
             destinationObjectInfo.setLastModified(lastModified);
+            destinationObjectInfo.setVersionId(destinationVersionId);
+            destinationObjectInfo.setLast(true);
             if (!metadataDirective.equals("REPLACE")) {
               destinationObjectInfo.setMetaData(sourceObjectInfo.cloneMetaData());
             }
@@ -119,6 +126,10 @@
             }
             reply.setEtag(etag);
             reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+            if (destinationBucketInfo.isVersioningEnabled()) {
+              reply.setCopySourceVersionId(sourceVersionId);
+              reply.setVersionId(destinationVersionId);
+            }
             db.commit();
             return reply;
           }
