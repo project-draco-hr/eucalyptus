@@ -1,0 +1,60 @@
+{
+  DeleteVersionResponseType reply=(DeleteVersionResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  String objectKey=request.getKey();
+  String userId=request.getUserId();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
+  BucketInfo bucketInfos=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfos);
+  if (bucketList.size() > 0) {
+    BucketInfo bucketInfo=bucketList.get(0);
+    BucketLogData logData=bucketInfo.getLoggingEnabled() ? request.getLogData() : null;
+    ObjectInfo foundObject=null;
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+    if (request.getVersionid() == null) {
+      db.rollback();
+      throw new EucalyptusCloudException("versionId is null");
+    }
+    searchObjectInfo.setVersionId(request.getVersionid());
+    List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+    if (objectInfos.size() > 0) {
+      foundObject=objectInfos.get(0);
+    }
+    if (foundObject != null) {
+      if (foundObject.canWrite(userId)) {
+        dbObject.delete(foundObject);
+        if (!foundObject.getDeleted()) {
+          String objectName=foundObject.getObjectName();
+          for (          GrantInfo grantInfo : foundObject.getGrants()) {
+            db.getEntityManager().remove(grantInfo);
+          }
+          Long size=foundObject.getSize();
+          bucketInfo.setBucketSize(bucketInfo.getBucketSize() - size);
+          ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectName,size);
+          objectDeleter.start();
+        }
+        reply.setCode("200");
+        reply.setDescription("OK");
+        if (logData != null) {
+          updateLogData(bucketInfo,logData);
+          reply.setLogData(logData);
+        }
+      }
+ else {
+        db.rollback();
+        throw new AccessDeniedException("Key",objectKey,logData);
+      }
+    }
+ else {
+      db.rollback();
+      throw new NoSuchEntityException(objectKey,logData);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  return reply;
+}

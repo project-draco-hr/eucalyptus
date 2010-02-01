@@ -9,39 +9,78 @@
   if (bucketList.size() > 0) {
     BucketInfo bucketInfo=bucketList.get(0);
     BucketLogData logData=bucketInfo.getLoggingEnabled() ? request.getLogData() : null;
-    ObjectInfo foundObject=null;
-    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
-    List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
-    if (objectInfos.size() > 0) {
-      foundObject=objectInfos.get(0);
-    }
-    if (foundObject != null) {
-      if (foundObject.canWrite(userId)) {
-        dbObject.delete(foundObject);
-        String objectName=foundObject.getObjectName();
-        for (        GrantInfo grantInfo : foundObject.getGrants()) {
-          db.getEntityManager().remove(grantInfo);
+    if (bucketInfo.isVersioningEnabled()) {
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      ObjectInfo searchDeletedObjectInfo=new ObjectInfo(bucketName,objectKey);
+      searchDeletedObjectInfo.setDeleted(true);
+      try {
+        dbObject.getUnique(searchDeletedObjectInfo);
+        db.rollback();
+        throw new NoSuchEntityException(objectKey,logData);
+      }
+ catch (      NoSuchEntityException ex) {
+        throw ex;
+      }
+catch (      EucalyptusCloudException ex) {
+        ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+        searchObjectInfo.setLast(true);
+        List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+        for (        ObjectInfo objInfo : objectInfos) {
+          objInfo.setLast(false);
         }
-        Long size=foundObject.getSize();
-        bucketInfo.setBucketSize(bucketInfo.getBucketSize() - size);
-        ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectName,size);
-        objectDeleter.start();
+        ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
+        deleteMarker.setDeleted(true);
+        deleteMarker.setLast(true);
+        deleteMarker.setOwnerId(userId);
+        deleteMarker.setLastModified(new Date());
+        deleteMarker.setVersionId(UUID.randomUUID().toString().replaceAll("-",""));
+        dbObject.add(deleteMarker);
         reply.setCode("200");
         reply.setDescription("OK");
-        if (logData != null) {
-          updateLogData(bucketInfo,logData);
-          reply.setLogData(logData);
+      }
+    }
+ else {
+      ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+      searchObjectInfo.setVersionId(WalrusProperties.NULL_VERSION_ID);
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+      if (objectInfos.size() > 0) {
+        ObjectInfo nullObject=objectInfos.get(0);
+        if (nullObject.canWrite(userId)) {
+          dbObject.delete(nullObject);
+          String objectName=nullObject.getObjectName();
+          for (          GrantInfo grantInfo : nullObject.getGrants()) {
+            db.getEntityManager().remove(grantInfo);
+          }
+          Long size=nullObject.getSize();
+          bucketInfo.setBucketSize(bucketInfo.getBucketSize() - size);
+          ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectName,size);
+          objectDeleter.start();
+          reply.setCode("200");
+          reply.setDescription("OK");
+          if (logData != null) {
+            updateLogData(bucketInfo,logData);
+            reply.setLogData(logData);
+          }
+          if (bucketInfo.isVersioningSuspended()) {
+            ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
+            deleteMarker.setDeleted(true);
+            deleteMarker.setLast(true);
+            deleteMarker.setOwnerId(userId);
+            deleteMarker.setLastModified(new Date());
+            deleteMarker.setVersionId(UUID.randomUUID().toString().replaceAll("-",""));
+            dbObject.add(deleteMarker);
+          }
+        }
+ else {
+          db.rollback();
+          throw new AccessDeniedException("Key",objectKey,logData);
         }
       }
  else {
         db.rollback();
-        throw new AccessDeniedException("Key",objectKey,logData);
+        throw new NoSuchEntityException(objectKey,logData);
       }
-    }
- else {
-      db.rollback();
-      throw new NoSuchEntityException(objectKey,logData);
     }
   }
  else {

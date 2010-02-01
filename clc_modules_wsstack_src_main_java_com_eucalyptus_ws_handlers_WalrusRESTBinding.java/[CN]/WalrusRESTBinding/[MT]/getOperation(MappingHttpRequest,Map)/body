@@ -89,8 +89,13 @@
         putQueue=getWriteMessenger().interruptAllAndGetQueue(key,randomKey);
         handleFirstChunk(httpRequest,(ChannelBuffer)formFields.get(WalrusProperties.IGNORE_PREFIX + "FirstDataChunk"),contentLength);
       }
- else       if (WalrusProperties.HTTPVerb.PUT.toString().equals(verb) && params.containsKey(WalrusProperties.OperationParameter.logging.toString())) {
-        getTargetBucketParams(operationParams,httpRequest);
+ else       if (WalrusProperties.HTTPVerb.PUT.toString().equals(verb)) {
+        if (params.containsKey(WalrusProperties.OperationParameter.logging.toString())) {
+          getTargetBucketParams(operationParams,httpRequest);
+        }
+ else         if (params.containsKey(WalrusProperties.OperationParameter.versioning.toString())) {
+          getVersioningStatus(operationParams,httpRequest);
+        }
       }
     }
  else {
@@ -118,6 +123,11 @@
       if (verb.equals(WalrusProperties.HTTPVerb.PUT.toString())) {
         if (httpRequest.containsHeader(WalrusProperties.COPY_SOURCE.toString())) {
           String copySource=httpRequest.getHeader(WalrusProperties.COPY_SOURCE.toString());
+          String[] sourceParts=copySource.split("&");
+          if (sourceParts.length > 1) {
+            operationParams.put("SourceVersionId",sourceParts[1].replaceFirst("versionId=","").trim());
+          }
+          copySource=sourceParts[0];
           String[] sourceTarget=getTarget(copySource);
           String sourceObjectKey="";
           String sourceSplitOn="";
@@ -215,6 +225,9 @@
           operationParams.put("GetMetaData",Boolean.TRUE);
         }
       }
+    }
+    if (params.containsKey(WalrusProperties.OperationParameter.versionId.toString())) {
+      if (!verb.equals(WalrusProperties.HTTPVerb.DELETE.toString()))       operationParams.put("VersionId",params.remove(WalrusProperties.OperationParameter.versionId.toString()));
     }
   }
   if (verb.equals(WalrusProperties.HTTPVerb.PUT.toString()) && params.containsKey(WalrusProperties.OperationParameter.acl.toString())) {

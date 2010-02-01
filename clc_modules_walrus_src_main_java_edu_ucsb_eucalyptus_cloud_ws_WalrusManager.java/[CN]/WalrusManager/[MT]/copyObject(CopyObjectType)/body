@@ -3,6 +3,7 @@
   String userId=request.getUserId();
   String sourceBucket=request.getSourceBucket();
   String sourceKey=request.getSourceObject();
+  String sourceVersionId=request.getSourceVersionId();
   String destinationBucket=request.getDestinationBucket();
   String destinationKey=request.getDestinationObject();
   String metadataDirective=request.getMetadataDirective();
@@ -18,6 +19,8 @@
   if (bucketList.size() > 0) {
     EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
     ObjectInfo searchObjectInfo=new ObjectInfo(sourceBucket,sourceKey);
+    searchObjectInfo.setVersionId(sourceVersionId);
+    if (sourceVersionId == null)     searchObjectInfo.setLast(true);
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
     if (objectInfos.size() > 0) {
       ObjectInfo sourceObjectInfo=objectInfos.get(0);
@@ -55,9 +58,18 @@
         if (destinationBuckets.size() > 0) {
           BucketInfo foundDestinationBucketInfo=destinationBuckets.get(0);
           if (foundDestinationBucketInfo.canWrite(userId)) {
+            String destinationVersionId=sourceVersionId;
             ObjectInfo destinationObjectInfo=null;
             String destinationObjectName;
             ObjectInfo destSearchObjectInfo=new ObjectInfo(destinationBucket,destinationKey);
+            if (foundDestinationBucketInfo.isVersioningEnabled()) {
+              if (sourceVersionId != null)               destinationVersionId=sourceVersionId;
+ else               destinationVersionId=UUID.randomUUID().toString().replaceAll("-","");
+            }
+ else {
+              destinationVersionId=WalrusProperties.NULL_VERSION_ID;
+            }
+            destSearchObjectInfo.setVersionId(destinationVersionId);
             List<ObjectInfo> destinationObjectInfos=dbObject.query(destSearchObjectInfo);
             if (destinationObjectInfos.size() > 0) {
               destinationObjectInfo=destinationObjectInfos.get(0);
@@ -66,7 +78,9 @@
                 throw new AccessDeniedException("Key",destinationKey);
               }
             }
+            boolean addNew=false;
             if (destinationObjectInfo == null) {
+              addNew=true;
               destinationObjectInfo=new ObjectInfo();
               List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
               destinationObjectInfo.setBucketName(destinationBucket);
@@ -74,7 +88,6 @@
               destinationObjectInfo.addGrants(userId,grantInfos,accessControlList);
               destinationObjectInfo.setGrants(grantInfos);
               destinationObjectInfo.setObjectName(destinationKey.replaceAll("/","-") + Hashes.getRandom(4));
-              dbObject.add(destinationObjectInfo);
             }
  else {
               if (destinationObjectInfo.canWriteACP(userId)) {
@@ -92,6 +105,9 @@
             Date lastModified=sourceObjectInfo.getLastModified();
             destinationObjectInfo.setEtag(etag);
             destinationObjectInfo.setLastModified(lastModified);
+            destinationObjectInfo.setVersionId(destinationVersionId);
+            destinationObjectInfo.setLast(true);
+            destinationObjectInfo.setDeleted(false);
             if (!metadataDirective.equals("REPLACE")) {
               destinationObjectInfo.setMetaData(sourceObjectInfo.cloneMetaData());
             }
@@ -110,8 +126,13 @@
               db.rollback();
               throw new EucalyptusCloudException("Could not rename " + sourceObjectName + " to "+ destinationObjectName);
             }
+            if (addNew)             dbObject.add(destinationObjectInfo);
             reply.setEtag(etag);
             reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+            if (destinationBucketInfo.isVersioningEnabled()) {
+              reply.setCopySourceVersionId(sourceVersionId);
+              reply.setVersionId(destinationVersionId);
+            }
             db.commit();
             return reply;
           }
