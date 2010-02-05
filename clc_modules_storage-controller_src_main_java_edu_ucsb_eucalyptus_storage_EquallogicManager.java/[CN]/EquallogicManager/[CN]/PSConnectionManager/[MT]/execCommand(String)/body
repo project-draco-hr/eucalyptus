@@ -1,28 +1,22 @@
 {
+  EqlTask task=new EqlTask(command);
   try {
-    JSch jsch=new JSch();
-    Session session;
-    session=jsch.getSession(username,host);
-    session.setConfig("StrictHostKeyChecking","no");
-    session.setPassword(password);
-    session.connect();
-    Channel channel=session.openChannel("shell");
-    channel.setInputStream(new ByteArrayInputStream(command.getBytes()));
-    ByteArrayOutputStream bytesOut=new ByteArrayOutputStream();
-    channel.setOutputStream(bytesOut);
-    channel.connect();
-    try {
-      Thread.sleep(2000);
+    sessionManager.addTask(task);
+    if (task.getValue() == null) {
+synchronized (task) {
+        task.wait(TASK_TIMEOUT);
+      }
     }
- catch (    InterruptedException e) {
-      LOG.error(e);
+    if (task.getValue() == null) {
+      LOG.error("Unable to execute command: " + task.getCommand());
+      return "";
     }
-    channel.disconnect();
-    session.disconnect();
-    return bytesOut.toString();
+ else {
+      return task.getValue();
+    }
   }
- catch (  JSchException e1) {
-    LOG.error(e1,e1);
-    throw new EucalyptusCloudException(e1);
+ catch (  InterruptedException e) {
+    LOG.error(e);
+    return "";
   }
 }
