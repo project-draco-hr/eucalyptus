@@ -89,8 +89,13 @@
         putQueue=getWriteMessenger().interruptAllAndGetQueue(key,randomKey);
         handleFirstChunk(httpRequest,(ChannelBuffer)formFields.get(WalrusProperties.IGNORE_PREFIX + "FirstDataChunk"),contentLength);
       }
- else       if (WalrusProperties.HTTPVerb.PUT.toString().equals(verb) && params.containsKey(WalrusProperties.OperationParameter.logging.toString())) {
-        getTargetBucketParams(operationParams,httpRequest);
+ else       if (WalrusProperties.HTTPVerb.PUT.toString().equals(verb)) {
+        if (params.containsKey(WalrusProperties.OperationParameter.logging.toString())) {
+          getTargetBucketParams(operationParams,httpRequest);
+        }
+ else         if (params.containsKey(WalrusProperties.OperationParameter.versioning.toString())) {
+          getVersioningStatus(operationParams,httpRequest);
+        }
       }
     }
  else {
@@ -105,6 +110,12 @@
       objectKey+=splitOn + target[i];
       splitOn="/";
     }
+    try {
+      objectKey=WalrusUtil.URLdecode(objectKey);
+    }
+ catch (    UnsupportedEncodingException e) {
+      throw new BindingException("Unable to get key: " + e.getMessage());
+    }
     operationParams.put("Bucket",target[0]);
     operationParams.put("Key",objectKey);
     operationParams.put("Operation",verb.toUpperCase() + "." + "OBJECT");
@@ -112,6 +123,11 @@
       if (verb.equals(WalrusProperties.HTTPVerb.PUT.toString())) {
         if (httpRequest.containsHeader(WalrusProperties.COPY_SOURCE.toString())) {
           String copySource=httpRequest.getHeader(WalrusProperties.COPY_SOURCE.toString());
+          String[] sourceParts=copySource.split("&");
+          if (sourceParts.length > 1) {
+            operationParams.put("SourceVersionId",sourceParts[1].replaceFirst("versionId=","").trim());
+          }
+          copySource=sourceParts[0];
           String[] sourceTarget=getTarget(copySource);
           String sourceObjectKey="";
           String sourceSplitOn="";
@@ -119,6 +135,12 @@
             for (int i=1; i < sourceTarget.length; ++i) {
               sourceObjectKey+=sourceSplitOn + sourceTarget[i];
               sourceSplitOn="/";
+            }
+            try {
+              sourceObjectKey=WalrusUtil.URLdecode(sourceObjectKey);
+            }
+ catch (            UnsupportedEncodingException e) {
+              throw new BindingException("Unable to get source key: " + e.getMessage());
             }
             operationParams.put("SourceBucket",sourceTarget[0]);
             operationParams.put("SourceObject",sourceObjectKey);
@@ -203,6 +225,9 @@
           operationParams.put("GetMetaData",Boolean.TRUE);
         }
       }
+    }
+    if (params.containsKey(WalrusProperties.OperationParameter.versionId.toString())) {
+      if (!verb.equals(WalrusProperties.HTTPVerb.DELETE.toString()))       operationParams.put("VersionId",params.remove(WalrusProperties.OperationParameter.versionId.toString()));
     }
   }
   if (verb.equals(WalrusProperties.HTTPVerb.PUT.toString()) && params.containsKey(WalrusProperties.OperationParameter.acl.toString())) {
