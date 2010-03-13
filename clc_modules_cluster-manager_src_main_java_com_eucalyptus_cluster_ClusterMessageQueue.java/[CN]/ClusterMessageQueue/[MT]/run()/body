@@ -1,29 +1,27 @@
 {
   while (!this.finished.get()) {
-    final String clusterName=this.clusterName;
-    try {
-      final QueuedEvent event=this.msgQueue.poll(this.pollInterval,TimeUnit.MILLISECONDS);
-      final long start=System.currentTimeMillis();
-      if (event != null) {
-        LOG.debug("-> Dequeued message of type " + event.getCallback().getClass().getSimpleName());
+    workers.execute(new Runnable(){
+      @Override public void run(){
         try {
-          final int queueLength=this.msgQueue.size();
-          workers.execute(new Runnable(){
-            @Override public void run(){
+          final QueuedEvent event=msgQueue.poll(pollInterval,TimeUnit.MILLISECONDS);
+          final long start=System.currentTimeMillis();
+          if (event != null) {
+            LOG.debug("-> Dequeued message of type " + event.getCallback().getClass().getSimpleName());
+            try {
               Clusters.sendClusterEvent(clusterName,event);
               event.getCallback().waitForResponse();
-              LOG.debug(EventRecord.here(event.getCallback().getClass(),EventType.QUEUE,clusterName,EventType.QUEUE_TIME.name(),Long.toString(start - event.getStartTime()),EventType.SERVICE_TIME.name(),Long.toString(System.currentTimeMillis() - start),EventType.QUEUE_LENGTH.name(),Long.toString(queueLength)));
+              LOG.debug(EventRecord.here(event.getCallback().getClass(),EventType.QUEUE,clusterName,EventType.QUEUE_TIME.name(),Long.toString(start - event.getStartTime()),EventType.SERVICE_TIME.name(),Long.toString(System.currentTimeMillis() - start),EventType.QUEUE_LENGTH.name(),Long.toString(msgQueue.size())));
+            }
+ catch (            final Throwable e) {
+              LOG.debug(e,e);
             }
           }
-);
         }
  catch (        final Throwable e) {
-          LOG.debug(e,e);
+          LOG.error(e,e);
         }
       }
     }
- catch (    final Throwable e) {
-      LOG.error(e,e);
-    }
+);
   }
 }
