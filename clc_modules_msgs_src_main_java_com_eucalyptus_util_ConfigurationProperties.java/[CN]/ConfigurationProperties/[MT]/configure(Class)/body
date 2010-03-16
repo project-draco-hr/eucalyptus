@@ -1,0 +1,45 @@
+{
+  ConfigurableClass a=(ConfigurableClass)c.getAnnotation(ConfigurableClass.class);
+  if (a == null) {
+    throw new RuntimeException("Attempt to configure a class which does not declare itself Configurable: " + c.getName());
+  }
+  String propsFileName=SubDirectory.CONF + File.separator + a.alias()+ ".properties";
+  File propsFile=new File(propsFileName);
+  if (!propsFile.exists()) {
+    ConfigurationProperties.reset(c);
+  }
+  Properties props=new Properties();
+  try {
+    props.load(new FileReader(propsFile));
+  }
+ catch (  FileNotFoundException e) {
+    LOG.debug(e,e);
+  }
+catch (  IOException e) {
+    LOG.debug(e,e);
+  }
+  Map<String,String> properties=Maps.fromProperties(props);
+  List<String> missingFields=Lists.newArrayList();
+  for (  String fieldName : properties.keySet()) {
+    try {
+      Field f=c.getDeclaredField(fieldName);
+      Configurable fieldConf=f.getAnnotation(Configurable.class);
+      String value=properties.get(fieldName);
+      if (value != null) {
+        try {
+          f.set(null,fieldTypeMap.get(c.getName() + f.getName()).parse(value));
+          LOG.debug("-> " + canonicalize(c,f) + " = "+ f.get(null));
+        }
+ catch (        Exception e) {
+          LOG.warn("Failed to parse " + propsFileName + " "+ canonicalize(c,f)+ " = "+ value+ "as type "+ fieldTypeMap.get(canonicalize(c,f)),e);
+        }
+      }
+    }
+ catch (    Exception e) {
+      missingFields.add(fieldName);
+    }
+  }
+  if (!missingFields.isEmpty()) {
+    throw new RuntimeException("Failed to parse values from " + propsFileName + ": "+ missingFields);
+  }
+}
