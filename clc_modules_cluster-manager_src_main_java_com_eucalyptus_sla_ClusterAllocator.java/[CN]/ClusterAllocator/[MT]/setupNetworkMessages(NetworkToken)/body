@@ -1,7 +1,7 @@
 {
   if (networkToken != null) {
-    StartNetworkType msg=new StartNetworkType(this.vmAllocInfo.getRequest(),networkToken.getVlan(),networkToken.getNetworkName());
-    this.msgMap.put(State.CREATE_NETWORK,QueuedEvent.make(new StartNetworkCallback(networkToken),msg));
+    QueuedEventCallback callback=new StartNetworkCallback(networkToken).regarding(vmAllocInfo.getRequest());
+    this.msgMap.put(State.CREATE_NETWORK,callback);
   }
   try {
     RunInstancesType request=this.vmAllocInfo.getRequest();
@@ -13,7 +13,7 @@
       msg.setUserId(networkToken.getUserName());
       msg.setEffectiveUserId(networkToken.getUserName());
       if (!network.getRules().isEmpty()) {
-        this.msgMap.put(State.CREATE_NETWORK_RULES,QueuedEvent.make(ConfigureNetworkCallback.CALLBACK,msg));
+        this.addRequest(State.CREATE_NETWORK_RULES,new ConfigureNetworkCallback(msg));
       }
       for (      Network otherNetwork : Networks.getInstance().listValues()) {
         if (otherNetwork.isPeer(network.getUserName(),network.getNetworkName())) {
@@ -22,7 +22,9 @@
           ConfigureNetworkType omsg=new ConfigureNetworkType(otherNetwork.getRules());
           omsg.setUserId(otherNetwork.getUserName());
           omsg.setEffectiveUserId(Component.eucalyptus.name());
-          this.msgMap.put(State.CREATE_NETWORK_RULES,QueuedEvent.make(ConfigureNetworkCallback.CALLBACK,omsg));
+          if (!otherNetwork.getRules().isEmpty()) {
+            this.addRequest(State.CREATE_NETWORK_RULES,new ConfigureNetworkCallback(omsg));
+          }
         }
       }
     }
