@@ -1,0 +1,36 @@
+{
+  VmRunResponseType reply=(VmRunResponseType)response;
+  try {
+    Clusters.getInstance().lookup(token.getCluster()).getNodeState().redeemToken(token);
+  }
+ catch (  Throwable e) {
+    this.fail(e);
+    LOG.debug(e,e);
+    return;
+  }
+  try {
+    if (reply != null && reply.get_return()) {
+      for (      VmInfo vmInfo : reply.getVms()) {
+        VmInstance vm=VmInstances.getInstance().lookup(vmInfo.getInstanceId());
+        vm.getNetworkConfig().setIpAddress(vmInfo.getNetParams().getIpAddress());
+        if (VmInstance.DEFAULT_IP.equals(vm.getNetworkConfig().getIgnoredPublicIp())) {
+          vm.getNetworkConfig().setIgnoredPublicIp(vmInfo.getNetParams().getIgnoredPublicIp());
+        }
+        String dnsDomain="dns-disabled";
+        try {
+          dnsDomain=edu.ucsb.eucalyptus.cloud.entities.SystemConfiguration.getSystemConfiguration().getDnsDomain();
+        }
+ catch (        Exception e) {
+        }
+        vm.getNetworkConfig().updateDns(dnsDomain);
+      }
+    }
+ else {
+      this.fail(new EucalyptusClusterException("RunInstances returned false." + this.getRequest()));
+    }
+  }
+ catch (  Exception e) {
+    LOG.debug(e,e);
+    throw e;
+  }
+}
