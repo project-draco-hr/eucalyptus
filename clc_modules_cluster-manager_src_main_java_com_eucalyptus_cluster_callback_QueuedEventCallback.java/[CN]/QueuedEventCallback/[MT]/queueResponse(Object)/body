@@ -1,0 +1,33 @@
+{
+  if (o instanceof MappingHttpResponse) {
+    MappingHttpResponse httpResponse=(MappingHttpResponse)o;
+    if (httpResponse.getMessage() != null) {
+      o=httpResponse.getMessage();
+    }
+ else {
+      o=new EucalyptusClusterException(httpResponse.getMessageString());
+    }
+  }
+  this.canHas.lock();
+  try {
+    if (!this.response.compareAndSet(null,o)) {
+      if (!(o instanceof Throwable)) {
+        LOG.debug(LogUtil.subheader("Received spurious second response: " + LogUtil.dumpObject(o)));
+      }
+      o=this.response.getAndSet(o);
+      LOG.debug(LogUtil.subheader("Previous response was: " + LogUtil.dumpObject(this.response.get())));
+    }
+ else {
+      if (o instanceof Throwable) {
+        LOG.error("Caught exception in asynchronous response handler.",(Throwable)o);
+      }
+ else {
+        LOG.debug(this.getClass().getSimpleName() + " Got response of: " + LogUtil.dumpObject(o));
+      }
+    }
+    this.ready.signalAll();
+  }
+  finally {
+    this.canHas.unlock();
+  }
+}
