@@ -1,0 +1,34 @@
+{
+  VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
+  LVMVolumeInfo volInfo=volumeManager.getVolumeInfo(volumeId);
+  if (volInfo != null) {
+    volumeManager.finish();
+    throw new EucalyptusCloudException("Volume " + volumeId + " already exists. Import failed.");
+  }
+  volumeManager.finish();
+  createVolume(volumeId,size);
+  volumeManager=new VolumeEntityWrapperManager();
+  LVMVolumeInfo volumeInfo=volumeManager.getVolumeInfo(volumeId);
+  if (volumeInfo != null) {
+    try {
+      FileInputStream inStream=new FileInputStream(new File(volumePath));
+      FileChannel inChannel=inStream.getChannel();
+      FileOutputStream outStream=new FileOutputStream(new File(lvmRootDirectory + File.pathSeparator + volumeInfo.getVgName()+ File.pathSeparator+ volumeInfo.getLvName()));
+      FileChannel outChannel=outStream.getChannel();
+      inChannel.transferTo(0,inChannel.size(),outChannel);
+      inChannel.close();
+      inStream.close();
+      outChannel.close();
+      outStream.close();
+    }
+ catch (    IOException e) {
+      LOG.error(e);
+      throw new EucalyptusCloudException(e);
+    }
+    volumeManager.finish();
+  }
+ else {
+    volumeManager.abort();
+    throw new EucalyptusCloudException("Unable to find volume with id: " + volumeId);
+  }
+}
