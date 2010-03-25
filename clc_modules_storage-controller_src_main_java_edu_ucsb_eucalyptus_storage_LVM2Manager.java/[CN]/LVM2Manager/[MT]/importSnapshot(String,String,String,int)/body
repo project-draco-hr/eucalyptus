@@ -1,0 +1,33 @@
+{
+  VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
+  LVMVolumeInfo snapInfo=volumeManager.getVolumeInfo(snapshotId);
+  if (snapInfo != null) {
+    volumeManager.finish();
+    throw new EucalyptusCloudException("Snapshot " + snapshotId + " already exists. Import failed.");
+  }
+  volumeManager.finish();
+  String snapFileName=storageRootDirectory + File.separator + snapshotId;
+  try {
+    FileInputStream inStream=new FileInputStream(new File(snapPath));
+    FileChannel inChannel=inStream.getChannel();
+    FileOutputStream outStream=new FileOutputStream(new File(snapFileName));
+    FileChannel outChannel=outStream.getChannel();
+    inChannel.transferTo(0,inChannel.size(),outChannel);
+    inChannel.close();
+    inStream.close();
+    outChannel.close();
+    outStream.close();
+  }
+ catch (  IOException e) {
+    LOG.error(e);
+    throw new EucalyptusCloudException(e);
+  }
+  volumeManager=new VolumeEntityWrapperManager();
+  LVMVolumeInfo snapshotInfo=volumeManager.getVolumeInfo();
+  snapshotInfo.setVolumeId(snapshotId);
+  snapshotInfo.setLoFileName(snapFileName);
+  snapshotInfo.setSize(size);
+  snapshotInfo.setSnapshotOf(volumeId);
+  volumeManager.add(snapshotInfo);
+  volumeManager.finish();
+}
