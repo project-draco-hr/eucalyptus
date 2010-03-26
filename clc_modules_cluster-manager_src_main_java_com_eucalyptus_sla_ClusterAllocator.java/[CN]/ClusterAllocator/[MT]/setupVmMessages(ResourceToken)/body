@@ -1,6 +1,4 @@
 {
-  List<String> macs=Lists.newArrayList();
-  for (  String instanceId : token.getInstanceIds())   macs.add(VmInstances.getAsMAC(instanceId));
   Integer vlan=null;
   List<String> networkNames=null;
   ArrayList<String> networkIndexes=Lists.newArrayList();
@@ -19,23 +17,28 @@
   }
   final List<String> addresses=Lists.newArrayList(token.getAddresses());
   RunInstancesType request=this.vmAllocInfo.getRequest();
-  VmImageInfo imgInfo=this.vmAllocInfo.getImageInfo();
-  VmTypeInfo vmInfo=this.vmAllocInfo.getVmTypeInfo();
   String rsvId=this.vmAllocInfo.getReservationId();
+  VmImageInfo imgInfo=this.vmAllocInfo.getImageInfo();
   VmKeyInfo keyInfo=this.vmAllocInfo.getKeyInfo();
-  VmRunType run=new VmRunType(request,rsvId,request.getUserData(),token.getAmount(),imgInfo,vmInfo,keyInfo,token.getInstanceIds(),macs,vlan,networkNames,networkIndexes);
-  QueuedEventCallback<VmRunType> cb=new VmRunCallback(this,token);
-  if (!addresses.isEmpty()) {
-    cb.then(new SuccessCallback<VmRunResponseType>(){
-      @Override public void apply(      VmRunResponseType response){
-        for (        VmInfo vmInfo : response.getVms()) {
-          Address addr=Addresses.getInstance().lookup(addresses.remove(0));
-          VmInstance vm=VmInstances.getInstance().lookup(vmInfo.getInstanceId());
-          AddressCategory.assign(addr,vm).dispatch(addr.getCluster());
-        }
+  VmTypeInfo vmInfo=this.vmAllocInfo.getVmTypeInfo();
+  String userData=this.vmAllocInfo.getUserData();
+  QueuedEventCallback cb=null;
+  try {
+    int index=0;
+    for (    ResourceToken childToken : this.cluster.getNodeState().splitToken(token)) {
+      List<String> instanceIds=Lists.newArrayList(token.getInstanceIds().get(index));
+      List<String> netIndexes=Lists.newArrayList(networkIndexes.get(index));
+      List<String> addrList=Lists.newArrayList();
+      if (!addresses.isEmpty()) {
+        addrList.add(addresses.get(index));
       }
+      cb=makeRunRequest(request,childToken,rsvId,instanceIds,imgInfo,keyInfo,vmInfo,vlan,networkNames,netIndexes,addrList,userData);
+      this.messages.addRequest(State.CREATE_VMS,cb);
+      index++;
     }
-);
   }
-  this.msgMap.put(State.CREATE_VMS,QueuedEvent.make(cb,run));
+ catch (  NoSuchTokenException e) {
+    cb=makeRunRequest(request,token,rsvId,token.getInstanceIds(),imgInfo,keyInfo,vmInfo,vlan,networkNames,networkIndexes,addresses,userData);
+  }
+  this.messages.addRequest(State.CREATE_VMS,cb);
 }
