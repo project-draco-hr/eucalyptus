@@ -3,6 +3,7 @@
   reply.set_return(false);
   EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
   String userName=request.isAdministrator() ? null : request.getUserId();
+  boolean reallyFailed=false;
   try {
     Volume vol=db.getUnique(Volume.named(userName,request.getVolumeId()));
     for (    VmInstance vm : VmInstances.getInstance().listValues()) {
@@ -13,17 +14,34 @@
         }
       }
     }
-    db.delete(vol);
-    db.getSession().flush();
-    if (!vol.getState().equals(State.ANNILATED)) {
-      StorageUtil.dispatchAll(new DeleteStorageVolumeType(vol.getDisplayName()));
+    if (State.FAIL.equals(vol.getState())) {
+      db.delete(vol);
+      db.commit();
+      return reply;
     }
-    db.commit();
+    DeleteStorageVolumeResponseType scReply=StorageUtil.send(vol.getCluster(),new DeleteStorageVolumeType(vol.getDisplayName()));
+    if (scReply.get_return()) {
+      db.delete(vol);
+      db.getSession().flush();
+      if (!vol.getState().equals(State.ANNILATED)) {
+        StorageUtil.dispatchAll(new DeleteStorageVolumeType(vol.getDisplayName()));
+      }
+      db.commit();
+    }
+ else {
+      reallyFailed=true;
+      throw new EucalyptusCloudException("Storage Controller returned false:  Contact the administrator to report the problem.");
+    }
   }
  catch (  EucalyptusCloudException e) {
     LOG.debug(e,e);
     db.rollback();
-    return reply;
+    if (reallyFailed) {
+      throw e;
+    }
+ else {
+      return reply;
+    }
   }
   reply.set_return(true);
   return reply;
