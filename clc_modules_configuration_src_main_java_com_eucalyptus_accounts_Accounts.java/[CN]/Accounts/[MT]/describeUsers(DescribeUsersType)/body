@@ -1,33 +1,31 @@
 {
   DescribeUsersResponseType reply=request.getReply();
-  EntityWrapper<UserInfo> db=new EntityWrapper<UserInfo>();
-  try {
-    List<UserGroupEntity> groupList=db.recast(UserGroupEntity.class).query(new UserGroupEntity());
-    for (    User u : Users.listAllUsers()) {
+  final EntityWrapper<UserInfo> db=EntityWrapper.get(new UserInfo());
+  Function<User,UserInfoType> mapUser=new Function<User,UserInfoType>(){
+    @Override public UserInfoType apply(    User u){
+      UserInfo otherInfo;
       try {
-        UserInfo otherInfo=db.getUnique(UserInfo.named(u.getName()));
-        String accessKey=u.getQueryId();
-        String secretKey=u.getSecretKey();
-        X509Certificate cert=u.getX509Certificate();
-        String dn=cert.getSubjectX500Principal().toString();
-        String certSerial=cert.getSerialNumber().toString();
-        ArrayList<String> groups=Lists.newArrayList();
-        db.recast(UserGroupEntity.class).query(new UserGroupEntity());
-        for (        UserGroupEntity g : groupList) {
-          if (g.getUsers().contains(otherInfo)) {
-            groups.add(g.getName());
-          }
-        }
-        UserInfoType userInfo=new UserInfoType(u.getName(),otherInfo.getEmail(),otherInfo.getCertificateCode(),otherInfo.getConfirmationCode(),accessKey,secretKey,dn,certSerial,groups,u.getIsAdministrator(),u.getIsEnabled(),otherInfo.isConfirmed());
-        reply.getUsers().add(userInfo);
+        otherInfo=db.getUnique(UserInfo.named(u.getName()));
       }
  catch (      EucalyptusCloudException e) {
+        otherInfo=new UserInfo();
+      }
+      return new UserInfoType(u,otherInfo.getEmail(),otherInfo.getCertificateCode(),otherInfo.getConfirmationCode());
+    }
+  }
+;
+  List<UserInfoType> userList=Lists.newArrayList();
+  if (request.getUserNames().isEmpty()) {
+    userList=Lists.transform(Users.listAllUsers(),mapUser);
+  }
+ else {
+    for (    String name : request.getUserNames()) {
+      try {
+        userList.add(mapUser.apply(Users.lookupUser(name)));
+      }
+ catch (      NoSuchUserException e) {
       }
     }
-    db.commit();
-  }
- catch (  Exception e) {
-    db.rollback();
   }
   return reply;
 }

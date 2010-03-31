@@ -1,23 +1,27 @@
 {
   DeleteUserResponseType reply=request.getReply();
   reply.set_return(false);
-  String userName=request.getUserName();
-  EntityWrapper<UserInfo> db=new EntityWrapper<UserInfo>();
+  UserInfo userInfo=UserInfo.named(request.getUserName());
+  EntityWrapper<UserInfo> db=EntityWrapper.get(userInfo);
   try {
-    UserInfo userInfo=db.getUnique(UserInfo.named(userName));
-    db.delete(userInfo);
-    db.commit();
+    UserInfo deleteUserInfo=db.getUnique(userInfo);
+    db.delete(deleteUserInfo);
     try {
-      Users.deleteUser(userName);
+      Users.deleteUser(request.getUserName());
     }
  catch (    NoSuchUserException e) {
-      LOG.trace(e,e);
+      db.rollback();
+      throw new EucalyptusCloudException("No such user exists: " + request.getUserName(),e);
     }
+catch (    UnsupportedOperationException e) {
+      db.rollback();
+      throw new EucalyptusCloudException("System is configured to be read only.",e);
+    }
+    db.commit();
     reply.set_return(true);
   }
- catch (  EucalyptusCloudException e) {
-    db.rollback();
-    throw new EucalyptusCloudException("No such user: " + userName);
+ catch (  Exception e1) {
+    throw new EucalyptusCloudException("System is configured to be read only.");
   }
   return reply;
 }
