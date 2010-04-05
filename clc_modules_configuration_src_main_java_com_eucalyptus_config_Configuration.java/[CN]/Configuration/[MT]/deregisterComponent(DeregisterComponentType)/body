@@ -1,39 +1,27 @@
 {
   DeregisterComponentResponseType reply=(DeregisterComponentResponseType)request.getReply();
-  reply.set_return(true);
-  EntityWrapper<ComponentConfiguration> db=null;
-  ComponentConfiguration componentConfig=null;
+  reply.set_return(false);
+  ServiceBuilder builder=builders.get(request.getClass());
   try {
-    db=Configuration.getEntityWrapper();
-    ComponentConfiguration searchConfig=ConfigurationUtil.getConfigurationInstance(request);
-    searchConfig.setName(request.getName());
-    componentConfig=db.getUnique(searchConfig);
-    db.delete(componentConfig);
-    db.commit();
+    if (!builder.checkRemove(request.getName())) {
+      return reply;
+    }
   }
  catch (  Exception e) {
-    db.rollback();
-    return reply;
+    throw new ServiceRegistrationException(e.getMessage(),e);
   }
-  if (request instanceof DeregisterClusterType) {
-    try {
-      ConfigurationUtil.removeClusterCredentials(request.getName());
-    }
- catch (    Exception e) {
-      LOG.error("BUG: removed cluster but failed to remove the credentials.");
-    }
-    try {
-      db=Configuration.getEntityWrapper();
-      StorageControllerConfiguration searchConfig=new StorageControllerConfiguration();
-      searchConfig.setName(request.getName());
-      ComponentConfiguration scComponentConfig=db.getUnique(searchConfig);
-      db.delete(scComponentConfig);
-      db.commit();
-    }
- catch (    Exception e) {
-      db.rollback();
-    }
+  ComponentConfiguration conf;
+  try {
+    conf=registry.lookupByName(request.getName(),builder.newInstance());
+    registry.remove(conf);
+    builder.fireStop(conf);
+    reply.set_return(true);
   }
-  fireStopComponent(componentConfig);
+ catch (  EucalyptusCloudException e) {
+    throw e;
+  }
+catch (  Exception e) {
+    LOG.debug(e,e);
+  }
   return reply;
 }

@@ -1,0 +1,42 @@
+{
+  LOG.info(LogUtil.header("Initializing component resources."));
+  Transition.anonymous(LoadConfigs.class).transition(Stage.list());
+  LOG.info(LogUtil.header("Initializing singleton component services."));
+  Lifecycles.State.DISABLED.to(Lifecycles.State.PRIMORDIAL,new Committor<com.eucalyptus.bootstrap.Component>(){
+    @Override public void commit(    com.eucalyptus.bootstrap.Component c) throws Exception {
+      if (c.isDummy()) {
+        Components.create(c.name());
+      }
+    }
+  }
+).transition(Components.delegate.list());
+  LOG.info(LogUtil.header("Initializing component service configurations."));
+  Lifecycles.State.PRIMORDIAL.to(Lifecycles.State.INITIALIZED,new Committor<Component>(){
+    @Override public void commit(    Component object) throws Exception {
+      Resource rsc=object.getConfiguration().getResource();
+      if (rsc != null) {
+        LOG.info("Stage " + currentStage != null ? Bootstrap.getCurrentStage().name() : "null" + " loaded component resources for: " + object + " @ "+ rsc.getOrigin());
+        for (        ConfigResource cfg : rsc.getConfigurations()) {
+          LOG.info("-> " + cfg.getUrl());
+        }
+      }
+    }
+  }
+).transition(Components.list());
+  LOG.info(LogUtil.header("Initializing discoverable bootstrap resources."));
+  Bootstrap.doDiscovery();
+  LOG.info(LogUtil.header("Preparing to initialize the system."));
+  for (  Component c : Components.list()) {
+    LOG.info(c.describe());
+  }
+  LOG.info(LogUtil.header("Initializing bootstrappers."));
+  Bootstrap.initBootstrappers();
+  LOG.info(LogUtil.header("Initialized system: ready to start bootstrap."));
+  for (  Component c : Components.list()) {
+    LOG.info(String.format("Component.%-15.15s enabled=%-5.5s local=%-5.5s",c.getName(),c.getLifecycle().isEnabled(),c.getLifecycle().isLocal()));
+    for (    Bootstrapper b : c.getConfiguration().getBootstrappers()) {
+      LOG.info(String.format("- Component.%-13.13s bootstrapper=%s",c.name(),b.getClass().getCanonicalName()));
+    }
+  }
+  Lifecycles.State.INITIALIZED.to(Lifecycles.State.LOADED).transition(Components.list());
+}

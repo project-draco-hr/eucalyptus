@@ -1,33 +1,19 @@
 {
   try {
-    for (    Resource r : Resource.values()) {
-      if (r.getBootstrappers().isEmpty()) {
-        LOG.info("Skipping " + r + "... nothing to do.");
-      }
- else {
-        LOG.info(LogUtil.header("Loading " + r));
-      }
-      for (      Bootstrapper b : r.getBootstrappers()) {
-        if (!Bootstrapper.delayedDependsCheck(b)) {
-          LOG.info("-X Skipping load since depends check failed: " + b.getClass());
-        }
- else {
-          try {
-            LOG.info("-> load: " + b.getClass());
-            boolean result=b.load(r);
-          }
- catch (          Throwable e) {
-            LOG.error(b.getClass().getSimpleName() + " threw an error in load( ): " + e.getMessage(),e);
-            LOG.fatal(e,e);
-            return false;
-          }
-        }
-      }
+    Bootstrap.Stage stage=Bootstrap.transition();
+    do {
+      stage.load();
     }
+ while ((stage=Bootstrap.transition()) != null);
   }
- catch (  Throwable e) {
-    LOG.fatal(e,e);
+ catch (  BootstrapException e) {
+    throw e;
+  }
+catch (  Throwable t) {
+    LOG.fatal(t,t);
     System.exit(1);
+    throw t;
   }
+  Lifecycles.State.INITIALIZED.to(Lifecycles.State.LOADED).transition(Components.list());
   return true;
 }

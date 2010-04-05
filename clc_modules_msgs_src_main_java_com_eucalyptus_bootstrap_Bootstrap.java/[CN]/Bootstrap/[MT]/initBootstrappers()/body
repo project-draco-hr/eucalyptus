@@ -1,0 +1,27 @@
+{
+  for (  Bootstrapper bootstrap : BootstrapperDiscovery.getBootstrappers()) {
+    com.eucalyptus.bootstrap.Component comp, old=com.eucalyptus.bootstrap.Component.any;
+    String bc=bootstrap.getClass().getCanonicalName();
+    Bootstrap.Stage stage=From(bootstrap).get(RunDuring.class).value();
+    Provides p=From(bootstrap).get(Provides.class);
+    comp=(p.value() == null ? old : p.value());
+    if (!comp.isDummy() && !comp.isEnabled() && Components.contains(comp)) {
+      EventRecord.here(Bootstrap.class,EventType.BOOTSTRAPPER_SKIPPED,currentStage.name(),bc,"Provides",comp.name(),"Component." + comp.name() + ".isEnabled",comp.isEnabled().toString()).info();
+    }
+ else     if (!bootstrap.checkLocal()) {
+      EventRecord.here(Bootstrap.class,EventType.BOOTSTRAPPER_SKIPPED,currentStage.name(),bc,"DependsLocal",comp.name(),"Component." + comp.name() + ".isLocal",comp.isLocal().toString()).info();
+    }
+ else     if (!bootstrap.checkRemote()) {
+      EventRecord.here(Bootstrap.class,EventType.BOOTSTRAPPER_SKIPPED,currentStage.name(),bc,"DependsRemote",comp.name(),"Component." + comp.name() + ".isLocal",comp.isLocal().toString()).info();
+    }
+ else     if (!Components.contains(comp)) {
+      throw BootstrapException.throwFatal("Bootstrap class provides a component for which registration failed (" + comp.name() + "): "+ bc);
+    }
+ else {
+      EventRecord.here(Bootstrap.class,EventType.BOOTSTRAPPER_ADDED,currentStage.name(),bc,"Provides",comp.name(),"Component." + comp.name() + ".isEnabled",comp.isEnabled().toString()).info();
+      Component realComponent=Components.lookup(comp);
+      realComponent.getConfiguration().addBootstrapper(bootstrap);
+      stage.addBootstrapper(bootstrap);
+    }
+  }
+}
