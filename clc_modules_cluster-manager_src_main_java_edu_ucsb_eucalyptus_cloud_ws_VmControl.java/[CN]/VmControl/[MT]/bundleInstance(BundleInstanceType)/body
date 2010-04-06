@@ -1,0 +1,31 @@
+{
+  BundleInstanceResponseType reply=request.getReply();
+  reply.set_return(true);
+  String instanceId=request.getInstanceId();
+  try {
+    VmInstance v=VmInstances.getInstance().lookup(instanceId);
+    if (request.isAdministrator() || v.getOwnerId().equals(request.getUserId())) {
+      BundleTask bundleTask=new BundleTask(v.getInstanceId().replaceFirst("i-","bun-"),v.getInstanceId(),request.getBucket(),request.getPrefix());
+      if (v.startBundleTask(bundleTask)) {
+        reply.setTask(bundleTask);
+      }
+ else       if (v.getBundleTask() == null) {
+        v.resetBundleTask();
+        v.startBundleTask(bundleTask);
+        reply.setTask(bundleTask);
+      }
+ else {
+        throw new EucalyptusCloudException("Instance is already being bundled: " + v.getBundleTask().getBundleId());
+      }
+      BundleCallback callback=new BundleCallback(request);
+      callback.dispatch(v.getPlacement());
+    }
+ else {
+      throw new EucalyptusCloudException("Failed to find instance: " + request.getInstanceId());
+    }
+  }
+ catch (  NoSuchElementException e) {
+    throw new EucalyptusCloudException("Failed to find instance: " + request.getInstanceId());
+  }
+  return reply;
+}
