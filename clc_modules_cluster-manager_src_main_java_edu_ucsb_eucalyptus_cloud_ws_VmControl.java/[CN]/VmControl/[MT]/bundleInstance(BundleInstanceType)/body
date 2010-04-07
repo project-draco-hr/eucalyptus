@@ -1,7 +1,15 @@
 {
   BundleInstanceResponseType reply=request.getReply();
   reply.set_return(true);
+  String walrusUrl=SystemConfiguration.getWalrusUrl();
   String instanceId=request.getInstanceId();
+  User user;
+  try {
+    user=CredentialProvider.getUser(request.getUserId());
+  }
+ catch (  NoSuchUserException e1) {
+    throw new EucalyptusCloudException("Failed to lookup the specified user's information: " + request.getUserId());
+  }
   try {
     VmInstance v=VmInstances.getInstance().lookup(instanceId);
     if (request.isAdministrator() || v.getOwnerId().equals(request.getUserId())) {
@@ -17,8 +25,12 @@
  else {
         throw new EucalyptusCloudException("Instance is already being bundled: " + v.getBundleTask().getBundleId());
       }
+      LOG.info(EventRecord.here(BundleCallback.class,EventType.BUNDLE_PENDING,request.getUserId(),v.getBundleTask().getBundleId(),v.getInstanceId()));
       BundleCallback callback=new BundleCallback(request);
+      request.setUrl(walrusUrl);
+      request.setAwsAccessKeyId(user.getQueryId());
       callback.dispatch(v.getPlacement());
+      return reply;
     }
  else {
       throw new EucalyptusCloudException("Failed to find instance: " + request.getInstanceId());
@@ -27,5 +39,4 @@
  catch (  NoSuchElementException e) {
     throw new EucalyptusCloudException("Failed to find instance: " + request.getInstanceId());
   }
-  return reply;
 }
