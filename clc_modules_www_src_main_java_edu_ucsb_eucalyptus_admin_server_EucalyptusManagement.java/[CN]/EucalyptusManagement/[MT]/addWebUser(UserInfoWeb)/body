@@ -1,28 +1,38 @@
 {
-  EntityWrapper<UserInfo> dbWrapper=new EntityWrapper<UserInfo>();
-  List<UserInfo> userList=dbWrapper.query(new UserInfo(webUser.getUserName()));
-  if (userList.size() != 0) {
-    dbWrapper.rollback();
+  User user=null;
+  try {
+    user=Users.lookupUser(webUser.getUserName());
     throw EucalyptusManagement.makeFault("User already exists");
   }
-  webUser.setConfirmationCode(UserManagement.generateConfirmationCode(webUser.getUserName()));
-  webUser.setCertificateCode(UserManagement.generateCertificateCode(webUser.getUserName()));
-  webUser.setSecretKey(UserManagement.generateSecretKey(webUser.getUserName()));
-  webUser.setQueryId(UserManagement.generateQueryId(webUser.getUserName()));
-  UserInfo newUser=EucalyptusManagement.fromClient(webUser);
-  newUser.setReservationId(0l);
-  try {
-    NetworkGroupUtil.createUserNetworkRulesGroup(newUser.getUserName(),NetworkRulesGroup.NETWORK_DEFAULT_NAME,"default group");
-  }
- catch (  EucalyptusCloudException e1) {
-    LOG.debug(e1,e1);
-  }
-  dbWrapper.add(newUser);
-  dbWrapper.commit();
-  try {
-    CredentialProvider.addUser(newUser.getUserName(),newUser.isAdministrator());
-  }
- catch (  UserExistsException e) {
-    LOG.error(e);
+ catch (  NoSuchUserException e) {
+    try {
+      user=Users.addUser(webUser.getUserName(),webUser.isAdministrator(),webUser.isEnabled());
+      EntityWrapper<UserInfo> dbWrapper=new EntityWrapper<UserInfo>("eucalyptus_general");
+      try {
+        UserInfo userInfo=Composites.updateNew(webUser,UserInfo.class);
+        userInfo.setConfirmationCode(Crypto.generateSessionToken(webUser.getUserName()));
+        try {
+          NetworkGroupUtil.createUserNetworkRulesGroup(userInfo.getUserName(),NetworkRulesGroup.NETWORK_DEFAULT_NAME,"default group");
+        }
+ catch (        EucalyptusCloudException e1) {
+          LOG.debug(e1,e1);
+        }
+        dbWrapper.add(userInfo);
+        dbWrapper.commit();
+      }
+ catch (      Exception e1) {
+        dbWrapper.rollback();
+        LOG.error(e1,e1);
+        throw EucalyptusManagement.makeFault("Error adding user: " + e1.getMessage());
+      }
+    }
+ catch (    UserExistsException e1) {
+      LOG.error(e1,e1);
+      throw EucalyptusManagement.makeFault("User already exists");
+    }
+catch (    UnsupportedOperationException e1) {
+      LOG.error(e1,e1);
+      throw EucalyptusManagement.makeFault("Error adding user: " + e1.getMessage());
+    }
   }
 }

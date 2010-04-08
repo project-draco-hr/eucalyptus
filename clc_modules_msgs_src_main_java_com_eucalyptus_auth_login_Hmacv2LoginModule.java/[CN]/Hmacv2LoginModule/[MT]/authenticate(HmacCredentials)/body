@@ -1,0 +1,26 @@
+{
+  String sig=credentials.getSignature();
+  SecurityContext.enqueueSignature(sig);
+  User user=Users.lookupQueryId(credentials.getQueryId());
+  String secretKey=user.getSecretKey();
+  String canonicalString=this.makeSubjectString(credentials.getVerb(),credentials.getHeaderHost(),credentials.getServicePath(),credentials.getParameters());
+  String canonicalStringWithPort=this.makeSubjectString(credentials.getVerb(),credentials.getHeaderHost() + ":" + credentials.getHeaderPort(),credentials.getServicePath(),credentials.getParameters());
+  String computedSig=this.getSignature(secretKey,canonicalString,credentials.getSignatureMethod());
+  String computedSigWithPort=this.getSignature(secretKey,canonicalStringWithPort,credentials.getSignatureMethod());
+  if (!computedSig.equals(sig) && !computedSigWithPort.equals(sig)) {
+    sig=URLDecoder.decode(sig).replaceAll("=","");
+    computedSig=this.getSignature(secretKey,canonicalString.replaceAll("\\+","%2B"),credentials.getSignatureMethod()).replaceAll("\\+"," ");
+    computedSigWithPort=this.getSignature(secretKey,canonicalStringWithPort.replaceAll("\\+","%2B"),credentials.getSignatureMethod()).replaceAll("\\+"," ");
+    if (!computedSig.equals(sig) && !computedSigWithPort.equals(sig)) {
+      computedSig=this.getSignature(secretKey,canonicalString.replaceAll("\\+","%20"),credentials.getSignatureMethod()).replaceAll("\\+"," ");
+      computedSigWithPort=this.getSignature(secretKey,canonicalStringWithPort.replaceAll("\\+","%20"),credentials.getSignatureMethod()).replaceAll("\\+"," ");
+      if (!computedSig.equals(sig) && !computedSigWithPort.equals(sig)) {
+        return false;
+      }
+    }
+  }
+  super.setCredential(credentials.getQueryId());
+  super.setPrincipal(user);
+  super.getGroups().addAll(Groups.lookupGroups(super.getPrincipal()));
+  return true;
+}
