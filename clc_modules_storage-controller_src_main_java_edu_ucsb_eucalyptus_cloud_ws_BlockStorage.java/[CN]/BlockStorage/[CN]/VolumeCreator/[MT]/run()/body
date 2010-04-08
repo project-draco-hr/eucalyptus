@@ -7,7 +7,9 @@
       List<SnapshotInfo> foundSnapshotInfos=db.query(snapshotInfo);
       if (foundSnapshotInfos.size() == 0) {
         db.commit();
-        getSnapshot(snapshotId);
+        int sizeExpected=getSnapshotSize(snapshotId);
+        String snapDestination=blockManager.prepareSnapshot(snapshotId,sizeExpected);
+        getSnapshot(snapshotId,snapDestination);
         size=blockManager.createVolume(volumeId,snapshotId);
       }
  else {
@@ -46,7 +48,7 @@
       if (success) {
         if (StorageProperties.shouldEnforceUsageLimits && StorageProperties.trackUsageStatistics) {
           int totalVolumeSize=(int)(blockStorageStatistics.getTotalSpaceUsed() / StorageProperties.GB);
-          if ((totalVolumeSize + size) > StorageProperties.MAX_TOTAL_VOLUME_SIZE || (size > StorageProperties.MAX_VOLUME_SIZE)) {
+          if ((totalVolumeSize + size) > StorageInfo.getStorageInfo().getMaxTotalVolumeSizeInGb() || (size > StorageInfo.getStorageInfo().getMaxVolumeSizeInGB())) {
             LOG.error("Volume size limit exceeeded");
             db.commit();
             checker.cleanFailedVolume(volumeId);
@@ -54,6 +56,10 @@
           }
         }
         foundVolumeInfo.setStatus(StorageProperties.Status.available.toString());
+        if (StorageProperties.trackUsageStatistics) {
+          blockStorageStatistics.incrementVolumeCount();
+          blockStorageStatistics.updateSpaceUsed((size * StorageProperties.GB));
+        }
       }
  else {
         foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
@@ -66,10 +72,6 @@
       throw new EucalyptusCloudException();
     }
     db.commit();
-    if (StorageProperties.trackUsageStatistics) {
-      blockStorageStatistics.incrementVolumeCount();
-      blockStorageStatistics.updateSpaceUsed((size * StorageProperties.GB));
-    }
   }
  catch (  EucalyptusCloudException ex) {
     db.rollback();
