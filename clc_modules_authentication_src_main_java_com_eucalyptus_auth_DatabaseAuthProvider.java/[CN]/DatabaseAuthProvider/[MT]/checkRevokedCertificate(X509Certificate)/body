@@ -1,7 +1,6 @@
 {
   String certPem=B64.url.encString(PEMFiles.getBytes(cert));
   UserEntity searchUser=new UserEntity();
-  searchUser.setCertificate(certPem);
   X509Cert searchCert=new X509Cert();
   searchCert.setPemCertificate(certPem);
   searchUser.setEnabled(true);
@@ -10,19 +9,15 @@
     Example qbeUser=Example.create(searchUser).enableLike(MatchMode.EXACT);
     Example qbeCert=Example.create(searchCert).enableLike(MatchMode.EXACT);
     List<User> users=(List<User>)session.createCriteria(User.class).setCacheable(true).add(qbeUser).createCriteria("oldCertificates").setCacheable(true).add(qbeCert).list();
-    User ret=users.size() == 1 ? users.get(0) : null;
-    int size=users.size();
-    if (ret != null) {
-      return ret;
+    if (users.isEmpty() || users.size() > 1) {
+      session.close();
+      throw new NoSuchCertificateException("Failed to identify user (found " + users.size() + ") from certificate information: "+ cert.getSubjectX500Principal().toString());
     }
  else {
-      throw new GeneralSecurityException((size == 0) ? "No user with the specified certificate." : "Multiple users with the same certificate.");
+      return true;
     }
   }
- catch (  Throwable t) {
-    throw new NoSuchUserException(t);
-  }
- finally {
+  finally {
     try {
       session.close();
     }
