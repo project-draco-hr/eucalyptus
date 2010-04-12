@@ -1,58 +1,15 @@
 {
   RegisterComponentResponseType reply=(RegisterComponentResponseType)request.getReply();
+  reply.set_return(false);
+  String name=request.getName(), host=request.getHost();
+  Integer port=request.getPort();
+  ServiceBuilder builder=builders.get(request.getClass());
+  if (!builder.checkAdd(name,host,port)) {
+    return reply;
+  }
+  host=NetworkUtil.tryToResolve(host);
+  ServiceConfiguration newComponent=builder.add(name,host,port);
+  builder.fireStart(newComponent);
   reply.set_return(true);
-  boolean isGood;
-  try {
-    if (!NetworkUtil.testGoodAddress(request.getHost())) {
-      throw new EucalyptusCloudException("Components cannot be registered using local, link-local, or multicast addresses.");
-    }
-    if (request instanceof RegisterClusterType && !ConfigurationUtil.testClusterCredentialsDirectory(request.getName())) {
-      throw new EucalyptusCloudException("Cluster registration failed because the key directory cannot be created.");
-    }
-  }
- catch (  EucalyptusCloudException e) {
-    throw e;
-  }
-catch (  Exception e1) {
-    throw new EucalyptusCloudException(e1.getMessage(),e1);
-  }
-  try {
-    if (ConfigurationUtil.checkComponentExists(request)) {
-      return reply;
-    }
-  }
- catch (  Exception e2) {
-    throw new EucalyptusCloudException(e2);
-  }
-  if (request instanceof RegisterStorageControllerType && NetworkUtil.testLocal(request.getHost()) && !Component.storage.isLocal()) {
-    throw new EucalyptusCloudException("You do not have a local storage controller enabled (or it is not installed).");
-  }
- else   if (request instanceof RegisterWalrusType && NetworkUtil.testLocal(request.getHost()) && !Component.walrus.isLocal()) {
-    throw new EucalyptusCloudException("You do not have a local walrus enabled (or it is not installed).");
-  }
- else   if (request instanceof RegisterStorageControllerType) {
-    try {
-      Configuration.getClusterConfiguration(request.getName());
-    }
- catch (    Exception e1) {
-      throw new EucalyptusCloudException("Storage controllers may only be registered with a corresponding Cluster of the same name.  No cluster found with the name: " + request.getName());
-    }
-  }
-  EntityWrapper<ComponentConfiguration> db=Configuration.getEntityWrapper();
-  ComponentConfiguration newComponent;
-  try {
-    newComponent=ConfigurationUtil.getConfigurationInstance(request,request.getName(),NetworkUtil.tryToResolve(request.getHost()),request.getPort());
-    db.add(newComponent);
-    db.commit();
-  }
- catch (  Exception e) {
-    db.rollback();
-    LOG.error(e,e);
-    throw new EucalyptusCloudException(e);
-  }
-  if (request instanceof RegisterClusterType) {
-    ConfigurationUtil.setupClusterCredentials(newComponent);
-  }
-  fireStartComponent(newComponent);
   return reply;
 }

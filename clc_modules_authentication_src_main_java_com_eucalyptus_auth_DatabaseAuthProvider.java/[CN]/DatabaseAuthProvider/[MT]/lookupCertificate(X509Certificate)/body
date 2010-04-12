@@ -1,0 +1,32 @@
+{
+  String certPem=B64.url.encString(PEMFiles.getBytes(cert));
+  UserEntity searchUser=new UserEntity();
+  searchUser.setEnabled(true);
+  X509Cert searchCert=new X509Cert();
+  searchCert.setPemCertificate(certPem);
+  searchCert.setRevoked(null);
+  Session session=DatabaseUtil.getEntityManagerFactory(Authentication.DB_NAME).getSessionFactory().openSession();
+  try {
+    Example qbeUser=Example.create(searchUser).enableLike(MatchMode.EXACT);
+    Example qbeCert=Example.create(searchCert).enableLike(MatchMode.EXACT);
+    List<UserEntity> users=(List<UserEntity>)session.createCriteria(UserEntity.class).setCacheable(true).add(qbeUser).createCriteria("certificates").setCacheable(true).add(qbeCert).list();
+    UserEntity ret=users.size() == 1 ? users.get(0) : null;
+    int size=users.size();
+    if (ret != null) {
+      return new UserProxy(ret);
+    }
+ else {
+      throw new GeneralSecurityException((size == 0) ? "No user with the specified certificate." : "Multiple users with the same certificate.");
+    }
+  }
+ catch (  Throwable t) {
+    throw new NoSuchUserException(t);
+  }
+ finally {
+    try {
+      session.close();
+    }
+ catch (    Throwable t) {
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  this.parent=parent;
+  if (origin == null) {
+    this.origin=URI.create("/dev/null");
+    for (    Keys prop : Keys.values()) {
+      this.properties.put(prop.getKey(),prop.getDefaultValue());
+    }
+  }
+ else {
+    this.origin=origin;
+    Properties props=new Properties();
+    try {
+      props.load(this.origin.toURL().openStream());
+      this.properties.putAll(Maps.fromProperties(props));
+    }
+ catch (    IOException e1) {
+      throw BootstrapException.throwError("Error loading component resources.  Failed to load: " + origin.toString());
+    }
+    if (!this.properties.containsKey("name")) {
+      LOG.error(this.properties);
+      throw BootstrapException.throwError("Error loading component resources.  Failed to find 'name' property in: " + origin.toString());
+    }
+    try {
+      for (      String rscName : this.properties.keySet()) {
+        if (rscName.startsWith(KEY_MODEL_PREFIX)) {
+          String rscPath=this.properties.get(rscName);
+          EventRecord.caller(Resource.class,EventType.BOOTSTRAP_RESOURCES_SERVICE_CONFIG,this.parent.getName(),rscPath).info();
+          this.configurations.add(new ConfigResource(rscPath));
+        }
+      }
+    }
+ catch (    IOException e) {
+      throw BootstrapException.throwFatal("Processing " + this.origin + " caused an error: "+ e.getMessage(),e);
+    }
+    for (    Keys prop : Keys.values()) {
+      if (!this.properties.containsKey(prop.getKey())) {
+        this.properties.put(prop.getKey(),prop.getDefaultValue());
+        EventRecord.caller(Resource.class,EventType.BOOTSTRAP_RESOURCES_SERVICE_CONFIG,this.parent.getName(),"default",prop.name(),prop.getKey(),prop.getDefaultValue()).info();
+      }
+    }
+  }
+}
