@@ -1,4 +1,8 @@
 {
+  String eucaHomeDir=System.getProperty("euca.home");
+  if (eucaHomeDir == null) {
+    throw new EucalyptusCloudException("euca.home not set");
+  }
   EntityWrapper<EquallogicVolumeInfo> db=StorageController.getEntityWrapper();
   try {
     db.getUnique(new EquallogicVolumeInfo(snapshotId));
@@ -13,19 +17,14 @@
   if (iqn != null) {
     String deviceName=connectionManager.connectTarget(iqn);
     try {
-      FileInputStream inStream=new FileInputStream(new File(snapPath));
-      FileChannel inChannel=inStream.getChannel();
-      FileOutputStream outStream=new FileOutputStream(new File(deviceName));
-      FileChannel outChannel=outStream.getChannel();
-      inChannel.transferTo(0,inChannel.size(),outChannel);
-      inChannel.close();
-      inStream.close();
-      outChannel.close();
-      outStream.close();
+      SystemUtil.run(new String[]{eucaHomeDir + StorageProperties.EUCA_ROOT_WRAPPER,"dd","if=" + snapPath,"of=" + deviceName,"bs=" + StorageProperties.blockSize});
     }
- catch (    IOException e) {
+ catch (    ExecutionException e) {
       LOG.error(e);
       throw new EucalyptusCloudException(e);
+    }
+ finally {
+      connectionManager.disconnectTarget(iqn);
     }
     EquallogicVolumeInfo volumeInfo=new EquallogicVolumeInfo(volumeId,iqn,size);
     volumeInfo.setSnapshotOf(volumeId);
