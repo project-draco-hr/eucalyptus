@@ -1,20 +1,19 @@
 {
   try {
     Network existingNet=Networks.getInstance().lookup(net.getName());
-    ConfigureNetworkType msg=null;
+    List<PacketFilterRule> rules=Lists.newArrayList();
     if (net.getRules().isEmpty()) {
-      msg=Admin.makeMsg(ConfigureNetworkType.class);
-      msg.setUserId(existingNet.getUserName());
-      for (      PacketFilterRule pf : existingNet.getRules())       msg.getRules().add(PacketFilterRule.revoke(pf));
+      for (      PacketFilterRule pf : existingNet.getRules())       rules.add(PacketFilterRule.revoke(pf));
       existingNet.setRules(net.getRules());
     }
  else {
       existingNet.setRules(net.getRules());
-      msg=Admin.makeMsg(ConfigureNetworkType.class);
-      msg.setUserId(existingNet.getUserName());
-      msg.setRules(existingNet.getRules());
+      rules.addAll(existingNet.getRules());
     }
-    ConfigureNetworkCallback.CALLBACK.fireEventAsyncToAllClusters(msg);
+    ConfigureNetworkCallback configureNetwork=new ConfigureNetworkCallback(existingNet.getUserName(),rules);
+    for (    Cluster c : Clusters.getInstance().listValues()) {
+      configureNetwork.newInstance().dispatch(c);
+    }
   }
  catch (  NoSuchElementException e) {
     LOG.error("Changed network rules not applied to inactive network: " + net.getName());

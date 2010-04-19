@@ -1,12 +1,9 @@
 {
-  this.msgMap=Multimaps.newHashMultimap();
   this.vmAllocInfo=vmAllocInfo;
-  this.pendingEvents=new ConcurrentLinkedQueue<QueuedEvent>();
-  this.state=State.START;
-  this.rollback=new AtomicBoolean(false);
   if (vmToken != null) {
     try {
       this.cluster=Clusters.getInstance().lookup(vmToken.getCluster());
+      this.messages=new StatefulMessageSet<State>(cluster,State.values());
       for (      NetworkToken networkToken : vmToken.getNetworkTokens())       this.setupNetworkMessages(networkToken);
       this.setupVmMessages(vmToken);
     }
@@ -39,6 +36,18 @@
  catch (      Throwable e1) {
         LOG.debug(e1);
         LOG.trace(e1,e1);
+      }
+      for (      String vmId : vmToken.getInstanceIds()) {
+        try {
+          VmInstance vm=VmInstances.getInstance().lookup(vmId);
+          vm.setState(VmState.TERMINATED);
+          vm.resetStopWatch();
+          vm.setReason(SystemState.INSTANCE_FAILED + " " + e.getMessage());
+          VmInstances.getInstance().disable(vmId);
+        }
+ catch (        Exception e1) {
+          LOG.debug(e1,e1);
+        }
       }
     }
   }
