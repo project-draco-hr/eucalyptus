@@ -90,7 +90,7 @@ synchronized (monitor) {
           }
           if (WalrusDataMessage.isStart(dataMessage)) {
             tempObjectName=objectName + "." + Hashes.getRandom(12);
-            digest=Hashes.Digest.MD5.get();
+            digest=Digest.MD5.get();
             try {
               fileIO=storageManager.prepareForWrite(bucketName,tempObjectName);
             }
@@ -127,7 +127,7 @@ synchronized (monitor) {
                 foundObject.setGrants(grantInfos);
               }
               if (WalrusProperties.enableTorrents) {
-                EntityWrapper<TorrentInfo> dbTorrent=db.recast(TorrentInfo.class);
+                EntityWrapper<TorrentInfo> dbTorrent=dbObject.recast(TorrentInfo.class);
                 TorrentInfo torrentInfo=new TorrentInfo(bucketName,objectKey);
                 List<TorrentInfo> torrentInfos=dbTorrent.query(torrentInfo);
                 if (torrentInfos.size() > 0) {
@@ -166,7 +166,7 @@ synchronized (monitor) {
             if (WalrusProperties.shouldEnforceUsageLimits && !request.isAdministrator()) {
               Long bucketSize=bucket.getBucketSize();
               long newSize=bucketSize + oldBucketSize + size;
-              if (newSize > WalrusProperties.MAX_BUCKET_SIZE) {
+              if (newSize > (WalrusInfo.getWalrusInfo().getStorageMaxBucketSizeInMB() * WalrusProperties.M)) {
                 messenger.removeQueue(key,randomKey);
                 dbObject.rollback();
                 throw new EntityTooLargeException("Key",objectKey);
@@ -192,6 +192,7 @@ synchronized (monitor) {
               monitor.setMd5(md5);
               monitor.notifyAll();
             }
+            messenger.removeMonitor(key);
             messenger.removeQueue(key,randomKey);
             LOG.info("Transfer complete: " + key);
             break;
