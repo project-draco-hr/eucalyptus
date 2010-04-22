@@ -1,9 +1,23 @@
 {
   WalrusInfo walrusInfo=WalrusInfo.getWalrusInfo();
-  WalrusProperties.NAME=walrusInfo.getName();
-  WalrusProperties.MAX_BUCKETS_PER_USER=walrusInfo.getStorageMaxBucketsPerUser();
-  WalrusProperties.MAX_BUCKET_SIZE=walrusInfo.getStorageMaxBucketSizeInMB() * WalrusProperties.M;
-  WalrusProperties.bucketRootDirectory=walrusInfo.getStorageDir();
-  WalrusProperties.IMAGE_CACHE_SIZE=walrusInfo.getStorageMaxCacheSizeInMB() * WalrusProperties.M;
-  WalrusProperties.MAX_TOTAL_SNAPSHOT_SIZE=walrusInfo.getStorageMaxTotalSnapshotSizeInGb();
+  storageManager=new FileSystemStorageManager(walrusInfo.getStorageDir());
+  walrusImageManager=new WalrusImageManager(storageManager,imageMessenger);
+  walrusManager=new WalrusManager(storageManager,walrusImageManager);
+  WalrusManager.configure();
+  walrusBlockStorageManager=new WalrusBlockStorageManager(storageManager,walrusManager);
+  String limits=System.getProperty(WalrusProperties.USAGE_LIMITS_PROPERTY);
+  if (limits != null) {
+    WalrusProperties.shouldEnforceUsageLimits=Boolean.parseBoolean(limits);
+  }
+  try {
+    walrusManager.check();
+  }
+ catch (  EucalyptusCloudException ex) {
+    LOG.error("Error initializing walrus",ex);
+    SystemUtil.shutdownWithError(ex.getMessage());
+  }
+  Tracker.initialize();
+  if (System.getProperty("euca.virtualhosting.disable") != null) {
+    WalrusProperties.enableVirtualHosting=false;
+  }
 }
