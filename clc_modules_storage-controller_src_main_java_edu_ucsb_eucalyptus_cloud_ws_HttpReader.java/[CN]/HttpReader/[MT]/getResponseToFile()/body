@@ -3,26 +3,43 @@
   FileOutputStream fileOutputStream=null;
   BufferedOutputStream bufferedOut=null;
   try {
-    File compressedFile=new File(file.getAbsolutePath() + ".gz");
-    assert(method != null);
+    File outFile;
+    if (compressed)     outFile=new File(tempPath + File.separator + file.getName()+ Hashes.getRandom(16)+ ".gz");
+ else     outFile=file;
     httpClient.executeMethod(method);
     InputStream httpIn;
     httpIn=method.getResponseBodyAsStream();
     int bytesRead;
-    fileOutputStream=new FileOutputStream(compressedFile);
+    fileOutputStream=new FileOutputStream(outFile);
     bufferedOut=new BufferedOutputStream(fileOutputStream);
     while ((bytesRead=httpIn.read(bytes)) > 0) {
       bufferedOut.write(bytes,0,bytesRead);
     }
+    bufferedOut.close();
     if (compressed) {
-      SystemUtil.run(new String[]{"/bin/gunzip",compressedFile.getAbsolutePath()});
+      try {
+        Runtime rt=Runtime.getRuntime();
+        Process proc=rt.exec(new String[]{"/bin/gunzip","-c",outFile.getAbsolutePath()});
+        StreamConsumer error=new StreamConsumer(proc.getErrorStream());
+        StreamConsumer output=new StreamConsumer(proc.getInputStream(),file);
+        error.start();
+        output.start();
+        output.join();
+        error.join();
+      }
+ catch (      Throwable t) {
+        LOG.error(t);
+      }
+      if (!outFile.delete()) {
+        LOG.error("Unable to delete temporary file: " + outFile.getAbsolutePath());
+      }
     }
-    method.releaseConnection();
   }
  catch (  Exception ex) {
     LOG.error(ex,ex);
   }
  finally {
+    method.releaseConnection();
     if (bufferedOut != null) {
       try {
         bufferedOut.close();
