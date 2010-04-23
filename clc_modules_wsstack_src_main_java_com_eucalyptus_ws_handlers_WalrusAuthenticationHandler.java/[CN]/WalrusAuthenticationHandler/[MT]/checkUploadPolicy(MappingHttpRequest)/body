@@ -1,0 +1,30 @@
+{
+  Map<String,String> fields=new HashMap<String,String>();
+  String policy=httpRequest.getAndRemoveHeader(WalrusProperties.Headers.S3UploadPolicy.toString());
+  fields.put(WalrusProperties.FormField.policy.toString(),policy);
+  String policySignature=httpRequest.getAndRemoveHeader(WalrusProperties.Headers.S3UploadPolicySignature.toString());
+  if (policySignature == null)   throw new AuthenticationException("Policy signature must be specified with policy.");
+  String awsAccessKeyId=httpRequest.getAndRemoveHeader(SecurityParameter.AWSAccessKeyId.toString());
+  if (awsAccessKeyId == null)   throw new AuthenticationException("AWSAccessKeyID must be specified.");
+  fields.put(WalrusProperties.FormField.signature.toString(),policySignature);
+  fields.put(SecurityParameter.AWSAccessKeyId.toString(),awsAccessKeyId);
+  String acl=httpRequest.getAndRemoveHeader(WalrusProperties.AMZ_ACL.toString());
+  if (acl != null)   fields.put(WalrusProperties.FormField.acl.toString(),acl);
+  String operationPath=httpRequest.getServicePath().replaceAll(WalrusProperties.walrusServicePath,"");
+  String[] target=WalrusUtil.getTarget(operationPath);
+  if (target != null) {
+    fields.put(WalrusProperties.FormField.bucket.toString(),target[0]);
+    if (target.length > 1)     fields.put(WalrusProperties.FormField.key.toString(),target[1]);
+  }
+  UploadPolicyChecker.checkPolicy(httpRequest,fields);
+  String data=httpRequest.getAndRemoveHeader(WalrusProperties.FormField.FormUploadPolicyData.toString());
+  String auth_part=httpRequest.getAndRemoveHeader(SecurityParameter.Authorization.toString());
+  if (auth_part != null) {
+    String sigString[]=getSigInfo(auth_part);
+    String signature=sigString[1];
+    authenticate(httpRequest,sigString[0],signature,data);
+  }
+ else {
+    throw new AuthenticationException("User authentication failed. Invalid policy signature.");
+  }
+}

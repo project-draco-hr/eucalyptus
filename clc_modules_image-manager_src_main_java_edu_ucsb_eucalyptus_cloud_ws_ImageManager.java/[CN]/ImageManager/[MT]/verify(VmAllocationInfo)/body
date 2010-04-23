@@ -32,6 +32,8 @@
     db.rollback();
     throw new EucalyptusCloudException("The requested image is deregistered.");
   }
+  ImageInfo kernelInfo=null;
+  ImageInfo ramdiskInfo=null;
   String defaultKernelId=null;
   String defaultRamdiskId=null;
   try {
@@ -45,10 +47,6 @@
     db.rollback();
     throw new EucalyptusCloudException("Unable to determine required kernel image.");
   }
-  boolean nord=(ImageUtil.isSet(msg.getKernelId()) && !ImageUtil.isSet(msg.getRamdiskId()));
-  nord|=(!ImageUtil.isSet(msg.getKernelId()) && ImageUtil.isSet(diskInfo.getKernelId()) && !ImageUtil.isSet(diskInfo.getRamdiskId())&& !ImageUtil.isSet(msg.getRamdiskId()));
-  String ramdiskId=nord ? null : ImageUtil.getImageInfobyId(msg.getRamdiskId(),diskInfo.getRamdiskId(),defaultRamdiskId);
-  ImageInfo kernelInfo=null;
   try {
     kernelInfo=db.getUnique(new ImageInfo(kernelId));
   }
@@ -56,40 +54,48 @@
     db.rollback();
     throw new EucalyptusCloudException("Failed to find kernel image: " + kernelId);
   }
-  if (!diskInfo.isAllowed(user)) {
-    db.rollback();
-    throw new EucalyptusCloudException("You do not have permission to launch: " + diskInfo.getImageId());
-  }
   if (!kernelInfo.isAllowed(user)) {
     db.rollback();
     throw new EucalyptusCloudException("You do not have permission to launch: " + kernelInfo.getImageId());
   }
-  ImageInfo ramdiskInfo=null;
-  if (ramdiskId != null) {
-    try {
-      ramdiskInfo=db.getUnique(new ImageInfo(ramdiskId));
-    }
- catch (    EucalyptusCloudException e) {
-      db.rollback();
-      throw new EucalyptusCloudException("Failed to find ramdisk image: " + ramdiskId);
-    }
-    if (!ramdiskInfo.isAllowed(user)) {
-      db.rollback();
-      throw new EucalyptusCloudException("You do not have permission to launch: " + ramdiskInfo.getImageId());
-    }
-  }
-  db.commit();
-  ArrayList<String> ancestorIds=ImageUtil.getAncestors(msg.getUserId(),diskInfo.getImageLocation());
-  Long imgSize=ImageUtil.getSize(msg.getUserId(),diskInfo.getImageLocation());
   if (!"kernel".equals(kernelInfo.getImageType())) {
+    db.rollback();
     throw new EucalyptusCloudException("Image specified is not a kernel: " + kernelInfo.toString());
   }
-  if ((ramdiskInfo != null) && !"ramdisk".equals(ramdiskInfo.getImageType())) {
-    throw new EucalyptusCloudException("Image specified is not a ramdisk: " + ramdiskInfo.toString());
+  if (!ImageManager.IMAGE_PLATFORM_WINDOWS.equals(diskInfo.getPlatform())) {
+    boolean nord=(ImageUtil.isSet(msg.getKernelId()) && !ImageUtil.isSet(msg.getRamdiskId()));
+    nord|=(!ImageUtil.isSet(msg.getKernelId()) && ImageUtil.isSet(diskInfo.getKernelId()) && !ImageUtil.isSet(diskInfo.getRamdiskId())&& !ImageUtil.isSet(msg.getRamdiskId()));
+    String ramdiskId=nord ? null : ImageUtil.getImageInfobyId(msg.getRamdiskId(),diskInfo.getRamdiskId(),defaultRamdiskId);
+    if (!diskInfo.isAllowed(user)) {
+      db.rollback();
+      throw new EucalyptusCloudException("You do not have permission to launch: " + diskInfo.getImageId());
+    }
+    if (ramdiskId != null) {
+      try {
+        ramdiskInfo=db.getUnique(new ImageInfo(ramdiskId));
+      }
+ catch (      EucalyptusCloudException e) {
+        db.rollback();
+        throw new EucalyptusCloudException("Failed to find ramdisk image: " + ramdiskId);
+      }
+      if (!ramdiskInfo.isAllowed(user)) {
+        db.rollback();
+        throw new EucalyptusCloudException("You do not have permission to launch: " + ramdiskInfo.getImageId());
+      }
+    }
+    db.commit();
+    if ((ramdiskInfo != null) && !"ramdisk".equals(ramdiskInfo.getImageType())) {
+      throw new EucalyptusCloudException("Image specified is not a ramdisk: " + ramdiskInfo.toString());
+    }
+    ImageUtil.checkStoredImage(ramdiskInfo);
   }
+ else {
+    db.commit();
+  }
+  ArrayList<String> ancestorIds=ImageUtil.getAncestors(msg.getUserId(),diskInfo.getImageLocation());
+  Long imgSize=ImageUtil.getSize(msg.getUserId(),diskInfo.getImageLocation());
   ImageUtil.checkStoredImage(kernelInfo);
   ImageUtil.checkStoredImage(diskInfo);
-  ImageUtil.checkStoredImage(ramdiskInfo);
   VmImageInfo vmImgInfo=ImageUtil.getVmImageInfo(walrusUrl,diskInfo,kernelInfo,ramdiskInfo,productCodes);
   vmImgInfo.setAncestorIds(ancestorIds);
   vmImgInfo.setSize(imgSize);
