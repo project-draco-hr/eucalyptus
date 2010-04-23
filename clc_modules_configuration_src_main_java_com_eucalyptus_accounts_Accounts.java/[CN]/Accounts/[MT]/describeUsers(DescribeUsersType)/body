@@ -1,34 +1,36 @@
 {
   DescribeUsersResponseType reply=request.getReply();
-  EntityWrapper<UserInfo> db=new EntityWrapper<UserInfo>();
-  try {
-    List<UserGroupInfo> groupList=db.recast(UserGroupInfo.class).query(new UserGroupInfo());
-    for (    User u : CredentialProvider.getAllUsers()) {
+  final EntityWrapper<UserInfo> db=EntityWrapper.get(new UserInfo());
+  Function<User,UserInfoType> mapUser=new Function<User,UserInfoType>(){
+    @Override public UserInfoType apply(    User u){
+      UserInfo otherInfo;
       try {
-        UserInfo otherInfo=db.getUnique(UserInfo.named(u.getUserName()));
-        String accessKey=u.getQueryId();
-        String secretKey=u.getSecretKey();
-        ArrayList<String> certs=Lists.newArrayList();
-        ArrayList<String> groups=Lists.newArrayList();
-        for (        X509Cert cert : u.getCertificates()) {
-          certs.add(cert.getAlias());
-        }
-        db.recast(UserGroupInfo.class).query(new UserGroupInfo());
-        for (        UserGroupInfo g : groupList) {
-          if (g.getUsers().contains(otherInfo)) {
-            groups.add(g.getName());
-          }
-        }
-        UserInfoType userInfo=new UserInfoType(u.getUserName(),otherInfo.getEmail(),otherInfo.getCertificateCode(),otherInfo.getConfirmationCode(),accessKey,secretKey,certs,groups,u.getIsAdministrator(),u.getIsEnabled(),otherInfo.isConfirmed());
-        reply.getUsers().add(userInfo);
+        otherInfo=db.getUnique(new UserInfo(u.getName()));
+        return new UserInfoType(u,otherInfo.getEmail(),otherInfo.getConfirmationCode());
       }
  catch (      EucalyptusCloudException e) {
+        return new UserInfoType(u,null,null);
       }
     }
-    db.commit();
   }
- catch (  Exception e) {
-    db.rollback();
+;
+  List<UserInfoType> userList=reply.getUsers();
+  if (request.getUserNames().isEmpty()) {
+    List<User> allUsers=Users.listAllUsers();
+    List<UserInfoType> allUserInfo=Lists.transform(allUsers,mapUser);
+    userList.addAll(allUserInfo);
   }
+ else {
+    for (    String name : request.getUserNames()) {
+      try {
+        User user=Users.lookupUser(name);
+        UserInfoType userInfo=mapUser.apply(user);
+        userList.add(userInfo);
+      }
+ catch (      NoSuchUserException e) {
+      }
+    }
+  }
+  db.commit();
   return reply;
 }

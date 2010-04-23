@@ -1,0 +1,24 @@
+{
+  String certPem=B64.url.encString(PEMFiles.getBytes(cert));
+  UserEntity searchUser=new UserEntity();
+  searchUser.setEnabled(true);
+  X509Cert searchCert=new X509Cert();
+  searchCert.setPemCertificate(certPem);
+  searchCert.setRevoked(true);
+  EntityWrapper<UserEntity> db=EntityWrapper.get(searchUser);
+  Session session=db.getSession();
+  try {
+    Example qbeUser=Example.create(searchUser).enableLike(MatchMode.EXACT);
+    Example qbeCert=Example.create(searchCert).enableLike(MatchMode.EXACT);
+    List<User> users=(List<User>)session.createCriteria(User.class).setCacheable(true).add(qbeUser).createCriteria("certificates").setCacheable(true).add(qbeCert).list();
+    if (users.isEmpty() || users.size() > 1) {
+      throw new NoSuchCertificateException("Failed to identify user (found " + users.size() + ") from certificate information: "+ cert.getSubjectX500Principal().toString());
+    }
+ else {
+      return true;
+    }
+  }
+  finally {
+    db.rollback();
+  }
+}

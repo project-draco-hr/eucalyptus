@@ -1,0 +1,25 @@
+{
+  if (event.getMessage() instanceof MappingHttpRequest) {
+    MappingHttpRequest httpRequest=(MappingHttpRequest)event.getMessage();
+    Map<String,String> parameters=httpRequest.getParameters();
+    ByteArrayOutputStream bos=new ByteArrayOutputStream();
+    httpRequest.getContent().readBytes(bos,httpRequest.getContent().readableBytes());
+    String blah=bos.toString();
+    bos.close();
+    if (!parameters.containsKey(SecurityParameter.AWSAccessKeyId.toString())) {
+      throw new AuthenticationException("Missing required parameter: " + SecurityParameter.AWSAccessKeyId);
+    }
+    if (!parameters.containsKey(SecurityParameter.Signature.toString())) {
+      throw new AuthenticationException("Missing required parameter: " + SecurityParameter.Signature);
+    }
+    String sig=parameters.remove(SecurityParameter.Signature.toString());
+    String sigVersion=parameters.get(RequiredQueryParams.SignatureVersion.toString());
+    String sigMethod=parameters.get(SecurityParameter.SignatureMethod.toString());
+    sigMethod=((sigMethod == null) ? "HMACSHA" : sigMethod);
+    Hmac hmac=Hmac.valueOf("HmacSHA" + sigMethod.substring(7));
+    SecurityContext.getLoginContext(new HmacCredentials(httpRequest.getCorrelationId(),httpRequest,sig,Integer.valueOf(sigVersion),hmac)).login();
+    parameters.remove(RequiredQueryParams.SignatureVersion.toString());
+    parameters.remove(SecurityParameter.SignatureMethod.toString());
+    parameters.remove(SecurityParameter.AWSAccessKeyId.toString());
+  }
+}

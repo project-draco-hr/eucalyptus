@@ -27,7 +27,6 @@
         if (!valid && certString != null) {
           try {
             X509Certificate nodeCert=Hashes.getPemCert(Base64.decode(certString));
-            String alias=CredentialProvider.getCertificateAlias(nodeCert);
             PublicKey publicKey=nodeCert.getPublicKey();
             sig=Signature.getInstance("SHA1withRSA");
             sig.initVerify(publicKey);
@@ -49,16 +48,13 @@
     }
     String effectiveUserID=httpRequest.getAndRemoveHeader(SecurityParameter.AWSAccessKeyId.toString());
     try {
-      User user=null;
-      if (httpRequest.getUser() == null) {
-        if (effectiveUserID != null) {
-          user=CredentialProvider.getUserFromQueryId(effectiveUserID);
-        }
- else {
-          user=CredentialProvider.getUser("admin");
-          user.setIsAdministrator(true);
-        }
-        httpRequest.setUser(user);
+      User user=Users.lookupUser("admin");
+      user.setAdministrator(true);
+      try {
+        Contexts.lookup(httpRequest.getCorrelationId()).setUser(user);
+      }
+ catch (      NoSuchContextException e) {
+        LOG.debug(e,e);
       }
     }
  catch (    NoSuchUserException e) {
