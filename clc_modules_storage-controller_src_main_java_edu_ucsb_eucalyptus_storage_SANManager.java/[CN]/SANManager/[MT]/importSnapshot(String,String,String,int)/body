@@ -1,0 +1,35 @@
+{
+  String eucaHomeDir=System.getProperty("euca.home");
+  if (eucaHomeDir == null) {
+    throw new EucalyptusCloudException("euca.home not set");
+  }
+  EntityWrapper<EquallogicVolumeInfo> db=StorageController.getEntityWrapper();
+  try {
+    db.getUnique(new EquallogicVolumeInfo(snapshotId));
+    throw new EucalyptusCloudException("Snapshot " + snapshotId + " already exists. Import failed.");
+  }
+ catch (  EucalyptusCloudException ex) {
+  }
+ finally {
+    db.commit();
+  }
+  String iqn=connectionManager.createVolume(snapshotId,size);
+  if (iqn != null) {
+    String deviceName=connectionManager.connectTarget(iqn);
+    try {
+      SystemUtil.run(new String[]{eucaHomeDir + StorageProperties.EUCA_ROOT_WRAPPER,"dd","if=" + snapPath,"of=" + deviceName,"bs=" + StorageProperties.blockSize});
+    }
+ catch (    ExecutionException e) {
+      LOG.error(e);
+      throw new EucalyptusCloudException(e);
+    }
+ finally {
+      connectionManager.disconnectTarget(iqn);
+    }
+    EquallogicVolumeInfo volumeInfo=new EquallogicVolumeInfo(volumeId,iqn,size);
+    volumeInfo.setSnapshotOf(volumeId);
+    db=StorageController.getEntityWrapper();
+    db.add(volumeInfo);
+    db.commit();
+  }
+}
