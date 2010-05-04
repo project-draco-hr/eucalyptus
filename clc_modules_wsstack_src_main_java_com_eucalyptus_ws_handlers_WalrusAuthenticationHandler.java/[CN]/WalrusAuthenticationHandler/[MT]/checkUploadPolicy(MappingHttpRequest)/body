@@ -21,8 +21,18 @@
   String auth_part=httpRequest.getAndRemoveHeader(SecurityParameter.Authorization.toString());
   if (auth_part != null) {
     String sigString[]=getSigInfo(auth_part);
+    if (sigString.length < 2) {
+      throw new AuthenticationException("Invalid authentication header");
+    }
+    String accessKeyId=sigString[0];
     String signature=sigString[1];
-    authenticate(httpRequest,sigString[0],signature,data);
+    try {
+      SecurityContext.getLoginContext(new WalrusWrappedCredentials(httpRequest.getCorrelationId(),data,accessKeyId,signature)).login();
+    }
+ catch (    Exception ex) {
+      LOG.error(ex);
+      throw new AuthenticationException(ex);
+    }
   }
  else {
     throw new AuthenticationException("User authentication failed. Invalid policy signature.");
