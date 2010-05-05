@@ -1,0 +1,73 @@
+{
+  if (this.classFileSets.isEmpty()) {
+    throw new BuildException("No classes were provided to bind.");
+  }
+ else   if (this.bindingFileSets.isEmpty()) {
+    throw new BuildException("No bindings were provided to bind.");
+  }
+ else {
+    try {
+      System.setProperty("java.class.path",((AntClassLoader)BuildBindings.class.getClassLoader()).getClasspath());
+    }
+ catch (    Exception e) {
+      System.err.println("Failed setting classpath from Ant task");
+    }
+    Path path=new Path(getProject());
+    for (    String p : paths()) {
+      path.add(new Path(getProject(),p));
+    }
+    for (    File f : new File("lib").listFiles(new FilenameFilter(){
+      @Override public boolean accept(      File dir,      String name){
+        return name.endsWith(".jar");
+      }
+    }
+)) {
+      path.add(new Path(getProject(),f.getAbsolutePath()));
+    }
+    ClassLoader old=Thread.currentThread().getContextClassLoader();
+    List<BindingGenerator> generators=BindingGenerator.getGenerators();
+    try {
+      AntClassLoader loader=this.getProject().createClassLoader(path);
+      Thread.currentThread().setContextClassLoader(loader);
+      BindingGenerator.MSG_TYPE=loader.forceLoadClass("edu.ucsb.eucalyptus.msgs.BaseMessage");
+      BindingGenerator.DATA_TYPE=loader.forceLoadClass("edu.ucsb.eucalyptus.msgs.EucalyptusData");
+      loader.forceLoadClass("org.jibx.binding.model.JiBX_bindingFactory");
+      for (      FileSet fs : this.classFileSets) {
+        for (        String classFileName : fs.getDirectoryScanner(getProject()).getIncludedFiles()) {
+          try {
+            Class c=loader.forceLoadClass(classFileName.replaceFirst("[^/]*/[^/]*/","").replaceAll("/",".").replaceAll("\\.class.{0,1}",""));
+            if (BindingGenerator.MSG_TYPE.isAssignableFrom(c) || BindingGenerator.DATA_TYPE.isAssignableFrom(c)) {
+              System.out.println("Preparing bindings for: " + c.getCanonicalName());
+              for (              BindingGenerator gen : generators) {
+                System.out.println("MAPPING: " + gen.getClass().getSimpleName() + ":"+ c.getCanonicalName());
+                gen.processClass(c);
+              }
+            }
+          }
+ catch (          ClassNotFoundException e) {
+            e.printStackTrace();
+            System.exit(-1);
+          }
+        }
+      }
+    }
+ catch (    ClassNotFoundException e1) {
+      e1.printStackTrace();
+      System.exit(-1);
+    }
+ finally {
+      for (      BindingGenerator gen : generators) {
+        gen.close();
+      }
+      Thread.currentThread().setContextClassLoader(old);
+    }
+    Compile compiler=new Compile(true,true,false,false,true);
+    try {
+      compiler.compile(paths(),new String[]{"/bzr/grze_main/clc/modules/msgs/src/main/resources/msgs-binding.xml"});
+    }
+ catch (    JiBXException e) {
+      e.printStackTrace(System.err);
+      log(e.getMessage());
+    }
+  }
+}
