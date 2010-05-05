@@ -39,8 +39,8 @@
           LOG.error(ex,ex);
           throw new DecryptionFailedException("SHA1withRSA not found");
         }
-        X509Certificate cert=user.getX509Certificate();
         try {
+          X509Certificate cert=user.getX509Certificate();
           PublicKey publicKey=cert.getPublicKey();
           sigVerifier.initVerify(publicKey);
           sigVerifier.update((machineConfiguration + image).getBytes());
@@ -50,6 +50,20 @@
           db.rollback();
           LOG.error(ex,ex);
           throw new DecryptionFailedException("signature verification");
+        }
+        if (!signatureVerified) {
+          try {
+            X509Certificate cert=SystemCredentialProvider.getCredentialProvider(Component.eucalyptus).getCertificate();
+            PublicKey publicKey=cert.getPublicKey();
+            sigVerifier.initVerify(publicKey);
+            sigVerifier.update((machineConfiguration + image).getBytes());
+            signatureVerified=sigVerifier.verify(Hashes.hexToBytes(signature));
+          }
+ catch (          Exception ex) {
+            db.rollback();
+            LOG.error(ex,ex);
+            throw new DecryptionFailedException("signature verification");
+          }
         }
         if (!signatureVerified) {
           throw new NotAuthorizedException("Invalid signature");

@@ -36,6 +36,10 @@
               if (verified)               break;
             }
             if (!verified) {
+              X509Certificate cert=SystemCredentialProvider.getCredentialProvider(Component.eucalyptus).getCertificate();
+              if (cert != null)               verified=canVerifySignature(sigVerifier,cert,signature,verificationString);
+            }
+            if (!verified) {
               throw new NotAuthorizedException("Invalid signature");
             }
           }
@@ -54,14 +58,25 @@
  catch (          NoSuchUserException e) {
             throw new AccessDeniedException(userId,e);
           }
-          X509Certificate cert=user.getX509Certificate();
           try {
+            X509Certificate cert=user.getX509Certificate();
             signatureVerified=canVerifySignature(sigVerifier,cert,signature,verificationString);
           }
  catch (          Exception ex) {
             db.rollback();
             LOG.error(ex,ex);
             throw new DecryptionFailedException("signature verification");
+          }
+          if (!signatureVerified) {
+            try {
+              X509Certificate cert=SystemCredentialProvider.getCredentialProvider(Component.eucalyptus).getCertificate();
+              if (cert != null)               signatureVerified=canVerifySignature(sigVerifier,cert,signature,verificationString);
+            }
+ catch (            Exception ex) {
+              db.rollback();
+              LOG.error(ex,ex);
+              throw new DecryptionFailedException("signature verification");
+            }
           }
           if (!signatureVerified) {
             throw new NotAuthorizedException("Invalid signature");

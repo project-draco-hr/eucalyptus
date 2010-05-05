@@ -1,0 +1,30 @@
+{
+  try {
+    Cluster cluster=null;
+    VmInstance v=VmInstances.getInstance().lookup(request.getInstanceId());
+    if (!VmState.RUNNING.equals(v.getState())) {
+      throw new NoSuchElementException("Instance " + request.getInstanceId() + " is not in a running state.");
+    }
+    if (request.isAdministrator() || v.getOwnerId().equals(request.getUserId())) {
+      cluster=Clusters.getInstance().lookup(v.getPlacement());
+    }
+ else {
+      throw new NoSuchElementException("Instance " + request.getInstanceId() + " does not exist.");
+    }
+    RequestContext.getEventContext().setStopFurtherProcessing(true);
+    if (v.getPasswordData() == null) {
+      new PasswordDataCallback(request).dispatch(cluster);
+    }
+ else {
+      GetPasswordDataResponseType reply=request.getReply();
+      reply.set_return(true);
+      reply.setOutput(v.getPasswordData());
+      reply.setTimestamp(new Date());
+      reply.setInstanceId(v.getInstanceId());
+      Messaging.dispatch("vm://ReplyQueue",reply);
+    }
+  }
+ catch (  NoSuchElementException e) {
+    Messaging.dispatch("vm://ReplyQueue",new EucalyptusErrorMessageType(RequestContext.getEventContext().getService().getComponent().getClass().getSimpleName(),request,e.getMessage()));
+  }
+}

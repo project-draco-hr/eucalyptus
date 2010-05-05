@@ -1,0 +1,48 @@
+{
+  EntityWrapper<ISCSIMetaInfo> db=StorageProperties.getEntityWrapper();
+  ISCSIMetaInfo metaInfo=new ISCSIMetaInfo();
+  try {
+    List<ISCSIMetaInfo> metaInfoList=db.query(metaInfo);
+    if (metaInfoList.size() <= 0) {
+      metaInfo.setStore_prefix(STORE_PREFIX);
+      metaInfo.setStoreNumber(0);
+      metaInfo.setStoreUser("eucalyptus");
+      metaInfo.setTid(1);
+      db.add(metaInfo);
+      db.commit();
+    }
+  }
+ catch (  Exception e) {
+    db.rollback();
+    LOG.error(e);
+  }
+  EntityWrapper<CHAPUserInfo> dbUser=StorageProperties.getEntityWrapper();
+  try {
+    CHAPUserInfo userInfo=dbUser.getUnique(new CHAPUserInfo("eucalyptus"));
+    if (!checkUser("eucalyptus")) {
+      try {
+        addUser("eucalyptus",userInfo.getEncryptedPassword());
+      }
+ catch (      ExecutionException e1) {
+        LOG.error(e1);
+        return;
+      }
+    }
+  }
+ catch (  EucalyptusCloudException ex) {
+    String password=Hashes.getRandom(16);
+    try {
+      addUser("eucalyptus",password);
+    }
+ catch (    ExecutionException e1) {
+      LOG.error(e1);
+      dbUser.rollback();
+      return;
+    }
+    CHAPUserInfo userInfo=new CHAPUserInfo("eucalyptus",password);
+    dbUser.add(userInfo);
+  }
+ finally {
+    dbUser.commit();
+  }
+}

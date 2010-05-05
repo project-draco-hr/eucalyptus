@@ -1,0 +1,42 @@
+{
+synchronized (blockManager) {
+    StorageProperties.enableStorage=StorageProperties.enableSnapshots=false;
+    EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
+    VolumeInfo volumeInfo=new VolumeInfo();
+    volumeInfo.setStatus(StorageProperties.Status.available.toString());
+    List<VolumeInfo> volumeInfos=db.query(volumeInfo);
+    List<VolumeInfo> volumes=new ArrayList<VolumeInfo>();
+    volumes.addAll(volumeInfos);
+    SnapshotInfo snapInfo=new SnapshotInfo();
+    snapInfo.setStatus(StorageProperties.Status.completed.toString());
+    EntityWrapper<SnapshotInfo> dbSnap=db.recast(SnapshotInfo.class);
+    List<SnapshotInfo> snapshotInfos=dbSnap.query(snapInfo);
+    List<SnapshotInfo> snapshots=new ArrayList<SnapshotInfo>();
+    snapshots.addAll(snapshotInfos);
+    db.commit();
+    for (    VolumeInfo volume : volumes) {
+      try {
+        String volumeId=volume.getVolumeId();
+        String volumePath=fromBlockManager.getVolumePath(volumeId);
+        blockManager.importVolume(volumeId,volumePath,volume.getSize());
+        fromBlockManager.finishVolume(volumeId);
+      }
+ catch (      EucalyptusCloudException ex) {
+        LOG.error(ex);
+      }
+    }
+    for (    SnapshotInfo snap : snapshots) {
+      try {
+        String snapshotId=snap.getSnapshotId();
+        String snapPath=fromBlockManager.getSnapshotPath(snapshotId);
+        int size=fromBlockManager.getSnapshotSize(snapshotId);
+        blockManager.importSnapshot(snapshotId,snap.getVolumeId(),snapPath,size);
+        fromBlockManager.finishVolume(snapshotId);
+      }
+ catch (      EucalyptusCloudException ex) {
+        LOG.error(ex);
+      }
+    }
+    StorageProperties.enableStorage=StorageProperties.enableSnapshots=true;
+  }
+}
