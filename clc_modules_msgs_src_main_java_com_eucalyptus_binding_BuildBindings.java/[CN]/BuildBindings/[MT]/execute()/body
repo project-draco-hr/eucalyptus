@@ -1,4 +1,14 @@
 {
+  PrintStream buildLog;
+  try {
+    buildLog=new PrintStream(new FileOutputStream("bind.log",false));
+    System.setOut(buildLog);
+    System.setErr(buildLog);
+  }
+ catch (  FileNotFoundException e2) {
+    System.setOut(oldOut);
+    System.setErr(oldErr);
+  }
   if (this.classFileSets.isEmpty()) {
     throw new BuildException("No classes were provided to bind.");
   }
@@ -37,37 +47,41 @@
           try {
             Class c=loader.forceLoadClass(classFileName.replaceFirst("[^/]*/[^/]*/","").replaceAll("/",".").replaceAll("\\.class.{0,1}",""));
             if (BindingGenerator.MSG_TYPE.isAssignableFrom(c) || BindingGenerator.DATA_TYPE.isAssignableFrom(c)) {
-              System.out.println("Preparing bindings for: " + c.getCanonicalName());
               for (              BindingGenerator gen : generators) {
-                System.out.println("MAPPING: " + gen.getClass().getSimpleName() + ":"+ c.getCanonicalName());
                 gen.processClass(c);
               }
             }
           }
  catch (          ClassNotFoundException e) {
-            e.printStackTrace();
-            System.exit(-1);
+            error(e);
           }
         }
       }
     }
  catch (    ClassNotFoundException e1) {
-      e1.printStackTrace();
-      System.exit(-1);
+      error(e1);
     }
  finally {
-      for (      BindingGenerator gen : generators) {
-        gen.close();
+      try {
+        for (        BindingGenerator gen : generators) {
+          gen.close();
+        }
+      }
+ catch (      Throwable e) {
+        error(e);
       }
       Thread.currentThread().setContextClassLoader(old);
     }
-    Compile compiler=new Compile(true,true,false,false,true);
     try {
-      compiler.compile(paths(),new String[]{"/bzr/grze_main/clc/modules/msgs/src/main/resources/msgs-binding.xml"});
+      Compile compiler=new Compile(true,true,false,false,true);
+      compiler.compile(paths(),bindings());
     }
- catch (    JiBXException e) {
-      e.printStackTrace(System.err);
-      log(e.getMessage());
+ catch (    Throwable e) {
+      error(e);
+    }
+ finally {
+      System.setOut(oldOut);
+      System.setErr(oldErr);
     }
   }
 }
