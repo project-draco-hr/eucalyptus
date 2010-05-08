@@ -1,2 +1,47 @@
 {
+  DisassociateAddressResponseType reply=(DisassociateAddressResponseType)request.getReply();
+  reply.set_return(false);
+  Addresses.updateAddressingMode();
+  final Address address=Addresses.restrictedLookup(request.getUserId(),request.isAdministrator(),request.getPublicIp());
+  reply.set_return(true);
+  final String vmId=address.getInstanceId();
+  if (address.isSystemOwned() && !request.isAdministrator()) {
+    throw new EucalyptusCloudException("Only administrators can unassign system owned addresses: " + address.toString());
+  }
+ else {
+    try {
+      EventRecord.here(AddressManager.class,EventType.ADDRESS_UNASSIGNING,address.toString()).info();
+      if (address.isSystemOwned()) {
+        AddressCategory.unassign(address).then(new UnconditionalCallback(){
+          public void apply(){
+            Addresses.getAddressManager().releaseSystemAddress(address);
+            try {
+              Addresses.system(VmInstances.getInstance().lookup(vmId));
+            }
+ catch (            Exception e) {
+              LOG.debug(e,e);
+            }
+          }
+        }
+).dispatch(address.getCluster());
+      }
+ else {
+        AddressCategory.unassign(address).then(new UnconditionalCallback(){
+          @Override public void apply(){
+            try {
+              Addresses.system(VmInstances.getInstance().lookup(vmId));
+            }
+ catch (            Exception e) {
+              LOG.debug(e,e);
+            }
+          }
+        }
+).dispatch(address.getCluster());
+      }
+    }
+ catch (    Throwable e) {
+      LOG.debug(e,e);
+    }
+  }
+  return reply;
 }
