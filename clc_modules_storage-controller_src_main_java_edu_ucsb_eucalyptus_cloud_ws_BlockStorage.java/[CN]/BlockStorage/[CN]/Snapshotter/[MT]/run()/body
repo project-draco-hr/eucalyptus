@@ -1,6 +1,6 @@
 {
+  EucaSemaphore semaphore=EucaSemaphoreDirectory.getSolitarySemaphore(volumeId);
   try {
-    EucaSemaphore semaphore=EucaSemaphoreDirectory.getSolitarySemaphore(volumeId);
     try {
       semaphore.acquire();
     }
@@ -15,8 +15,33 @@
     snapshotFileName=returnValues.get(0);
     transferSnapshot(returnValues.get(1));
     blockManager.finishVolume(snapshotId);
+    SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
+    EntityWrapper<SnapshotInfo> db=StorageProperties.getEntityWrapper();
+    try {
+      SnapshotInfo snapshotInfo=db.getUnique(snapInfo);
+      snapshotInfo.setStatus(StorageProperties.Status.available.toString());
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error(e);
+    }
+ finally {
+      db.commit();
+    }
   }
  catch (  Exception ex) {
+    semaphore.release();
+    SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
+    EntityWrapper<SnapshotInfo> db=StorageProperties.getEntityWrapper();
+    try {
+      SnapshotInfo snapshotInfo=db.getUnique(snapInfo);
+      snapshotInfo.setStatus(StorageProperties.Status.failed.toString());
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error(e);
+    }
+ finally {
+      db.commit();
+    }
     LOG.error(ex);
   }
 }
