@@ -1,5 +1,60 @@
 {
-  PrintWriter out=resp.getWriter();
-  out.println("yhalothar.");
-  out.flush();
+  String temp=req.getParameter("type");
+  LOG.info("Report request of type=" + temp);
+  String reportType=null;
+  if (temp instanceof String) {
+    reportType=(String)temp;
+  }
+  String baseDir=this.getServletConfig().getInitParameter("PWD");
+  String url=String.format("%s_%s?createDatabaseIfNotExist=true",Component.db.getUri().toString(),"auth");
+  final JRExporter exporter;
+  if ("pdf".equals(reportType)) {
+    res.setContentType("application/pdf");
+    res.setHeader("Content-Disposition","file; filename=FIXME.pdf");
+    exporter=new JRPdfExporter();
+    exporter.setParameter(JRExporterParameter.OUTPUT_STREAM,res.getOutputStream());
+  }
+ else   if ("csv".equals(reportType)) {
+    res.setContentType("text/plain");
+    res.setHeader("Content-Disposition","file; filename=FIXME.csv");
+    exporter=new JRCsvExporter();
+    exporter.setParameter(JRExporterParameter.OUTPUT_STREAM,res.getOutputStream());
+  }
+ else   if ("xls".equals(reportType)) {
+    res.setContentType("application/vnd.ms-excel");
+    res.setHeader("Content-Disposition","file; filename=FIXME.xls");
+    exporter=new JRXlsExporter();
+    exporter.setParameter(JRExporterParameter.OUTPUT_STREAM,res.getOutputStream());
+  }
+ else {
+    baseDir="/";
+    PrintWriter out=res.getWriter();
+    res.setContentType("text/html");
+    exporter=new JRHtmlExporter();
+    exporter.setParameter(new JRExporterParameter("EUCA_WWW_DIR"){
+    }
+,baseDir);
+    exporter.setParameter(JRExporterParameter.OUTPUT_WRITER,res.getWriter());
+  }
+  try {
+    JasperDesign jasperDesign=JRXmlLoader.load(BaseDirectory.CONF.toString() + File.separator + "report2.jrxml");
+    JasperReport jasperReport=JasperCompileManager.compileReport(jasperDesign);
+    Connection jdbcConnection=DriverManager.getConnection(url,"eucalyptus",Hmacs.generateSystemSignature());
+    JasperPrint jasperPrint=JasperFillManager.fillReport(jasperReport,null,jdbcConnection);
+    exporter.setParameter(JRExporterParameter.JASPER_PRINT,jasperPrint);
+    exporter.exportReport();
+  }
+ catch (  Exception ex) {
+    res.setContentType("text/html");
+    LOG.error("Could not create the report stream " + ex.getMessage() + " "+ ex.getLocalizedMessage());
+    ex.printStackTrace(res.getWriter());
+  }
+ finally {
+    if (exporter instanceof JRHtmlExporter) {
+      res.getWriter().close();
+    }
+ else {
+      res.getOutputStream().close();
+    }
+  }
 }
