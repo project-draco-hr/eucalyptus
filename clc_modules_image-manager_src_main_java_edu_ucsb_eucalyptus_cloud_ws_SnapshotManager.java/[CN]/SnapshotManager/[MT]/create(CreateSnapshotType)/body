@@ -2,9 +2,34 @@
   EntityWrapper<Snapshot> db=SnapshotManager.getEntityWrapper();
   String userName=request.isAdministrator() ? null : request.getUserId();
   Volume vol=db.recast(Volume.class).getUnique(Volume.named(userName,request.getVolumeId()));
-  if (!vol.isReady()) {
+  StorageControllerConfiguration sc;
+  try {
+    sc=Configuration.getStorageControllerConfiguration(vol.getCluster());
+  }
+ catch (  Exception e) {
     db.rollback();
-    throw new EucalyptusCloudException("Volume " + request.getVolumeId() + " not yet ready");
+    throw new EucalyptusCloudException("Failed to find the storage controller information for volume: " + vol.getDisplayName() + " at "+ vol.getCluster(),e);
+  }
+  if (!vol.isReady()) {
+    DescribeStorageVolumesType descVols=new DescribeStorageVolumesType(Lists.newArrayList(vol.getDisplayName()));
+    try {
+      DescribeStorageVolumesResponseType volState=ServiceDispatcher.lookup(Component.storage,sc.getHostName()).send(descVols,DescribeStorageVolumesResponseType.class);
+      if (!volState.getVolumeSet().isEmpty()) {
+        vol.setMappedState(volState.getVolumeSet().get(0).getStatus());
+      }
+ else {
+        throw new EucalyptusCloudException("Failed to update the volume state " + request.getVolumeId() + " not yet ready");
+      }
+    }
+ catch (    Exception e1) {
+      LOG.debug(e1,e1);
+      db.rollback();
+      throw new EucalyptusCloudException("Failed to update the volume state " + request.getVolumeId() + " not yet ready");
+    }
+    if (!vol.isReady()) {
+      db.rollback();
+      throw new EucalyptusCloudException("Volume " + request.getVolumeId() + " not yet ready");
+    }
   }
   String newId=null;
   Snapshot snap=null;
@@ -18,14 +43,6 @@
       db.add(snap);
       break;
     }
-  }
-  StorageControllerConfiguration sc;
-  try {
-    sc=Configuration.getStorageControllerConfiguration(vol.getCluster());
-  }
- catch (  Exception e) {
-    db.rollback();
-    throw new EucalyptusCloudException("Failed to find the storage controller information for volume: " + vol.getDisplayName() + " at "+ vol.getCluster(),e);
   }
   CreateStorageSnapshotType scRequest=new CreateStorageSnapshotType(vol.getDisplayName(),newId);
   CreateStorageSnapshotResponseType scReply=null;

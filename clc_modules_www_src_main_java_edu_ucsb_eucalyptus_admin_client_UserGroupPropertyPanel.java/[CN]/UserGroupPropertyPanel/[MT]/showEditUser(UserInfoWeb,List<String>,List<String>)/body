@@ -1,0 +1,112 @@
+{
+  this.cleanup();
+  setHeaderText("Editing " + user.getUserName());
+  HorizontalPanel action=addActionBar();
+  addTitle("Edit user <i>" + user.getUserName() + "</i>");
+  addSeparator();
+  Grid grid=addDataGrid(13);
+  int i=0;
+  final CheckBox admin=addCheckBoxRow(grid,i++,"Administrator",user.isAdministrator(),false);
+  final PasswordTextBox password=addPasswordRow(grid,i++,"Password",user.getPassword(),false);
+  final PasswordTextBox password2=addPasswordRow(grid,i++,"Retype Password",user.getPassword(),false);
+  final TextBox fullName=addTextBoxRow(grid,i++,"Full Name",user.getRealName(),false);
+  final TextBox email=addTextBoxRow(grid,i++,"Email",user.getEmail(),false);
+  final CheckBox skipConfirmation;
+  if (!user.isConfirmed()) {
+    skipConfirmation=addCheckBoxRow(grid,i++,"Skip Email Confirmation",false,false);
+  }
+ else {
+    skipConfirmation=null;
+  }
+  final CheckBox approved;
+  if (!user.isApproved()) {
+    approved=addCheckBoxRow(grid,i++,"Approved",user.isApproved(),false);
+  }
+ else {
+    approved=null;
+  }
+  final CheckBox enabled=addCheckBoxRow(grid,i++,"Enabled",user.isEnabled(),false);
+  final TextBox phone=addTextBoxRow(grid,i++,"Phone Number",user.getTelephoneNumber(),false);
+  final TextBox affiliation=addTextBoxRow(grid,i++,"Role",user.getAffiliation(),false);
+  final TextBox pi=addTextBoxRow(grid,i++,"Department",user.getProjectPIName(),false);
+  final TextArea description=addTextAreaRow(grid,i++,"Notes",user.getProjectDescription(),false);
+  final ListBox groups=addListRow(grid,i++,"Groups",UserGroupUtils.removeSpecialGroups(groupNames),selectedGroupNames,false);
+  if (user.isAdministrator()) {
+    password.setEnabled(false);
+    password2.setEnabled(false);
+    if (approved != null) {
+      approved.setEnabled(false);
+    }
+    enabled.setEnabled(false);
+  }
+  action.add(new EucaButton("Finish",new ClickHandler(){
+    public void onClick(    ClickEvent event){
+      UserInfoWeb updatedUser=new UserInfoWeb();
+      String passwordValue=password.getText();
+      String password2Value=password2.getText();
+      if (!passwordValue.equals(user.getPassword())) {
+        if (!passwordValue.equals(password2Value)) {
+          showStatus("Passwords do not match.",true);
+          return;
+        }
+        if (passwordValue.toLowerCase().contains(user.getUserName().toLowerCase())) {
+          showStatus("Password can not contain user name",true);
+          return;
+        }
+        if (passwordValue.length() < UserGroupControl.MIN_PASSWORD_LENGTH) {
+          showStatus("Password must have at least " + UserGroupControl.MIN_PASSWORD_LENGTH + " characters.",true);
+          return;
+        }
+        updatedUser.setPassword(GWTUtils.md5(passwordValue));
+      }
+ else {
+        updatedUser.setPassword(user.getPassword());
+      }
+      String fullNameValue=fullName.getText();
+      if (fullNameValue.length() <= 0) {
+        showStatus("Full name can not be empty.",true);
+        return;
+      }
+      String emailValue=email.getText();
+      if (emailValue.length() <= 0) {
+        showStatus("Email can not be empty.",true);
+        return;
+      }
+      updatedUser.setUserName(user.getUserName());
+      updatedUser.setAdministrator(admin.getValue());
+      updatedUser.setRealName(fullNameValue);
+      updatedUser.setEmail(emailValue);
+      if (skipConfirmation == null) {
+        updatedUser.setConfirmed(user.isConfirmed());
+      }
+ else {
+        updatedUser.setConfirmed(skipConfirmation.getValue());
+      }
+      if (approved == null) {
+        updatedUser.setApproved(user.isApproved());
+      }
+ else {
+        updatedUser.setApproved(approved.getValue());
+      }
+      updatedUser.setEnabled(enabled.getValue());
+      updatedUser.setTelephoneNumber(phone.getText());
+      updatedUser.setAffiliation(affiliation.getText());
+      updatedUser.setProjectPIName(pi.getText());
+      updatedUser.setProjectDescription(description.getText());
+      List<String> addToGroups=new ArrayList<String>();
+      for (int i=0; i < groups.getItemCount(); i++) {
+        if (groups.isItemSelected(i)) {
+          addToGroups.add(groups.getItemText(i));
+        }
+      }
+      control.updateUser(updatedUser,addToGroups);
+    }
+  }
+));
+  action.add(new EucaButton("Cancel",new ClickHandler(){
+    public void onClick(    ClickEvent event){
+      control.displaySelectedUsers();
+    }
+  }
+));
+}
