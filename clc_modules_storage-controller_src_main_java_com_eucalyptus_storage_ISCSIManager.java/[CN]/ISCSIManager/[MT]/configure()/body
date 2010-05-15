@@ -4,7 +4,7 @@
   try {
     List<ISCSIMetaInfo> metaInfoList=db.query(metaInfo);
     if (metaInfoList.size() <= 0) {
-      metaInfo.setStore_prefix(STORE_PREFIX);
+      metaInfo.setStorePrefix(StorageProperties.STORE_PREFIX);
       metaInfo.setStoreNumber(0);
       metaInfo.setStoreUser("eucalyptus");
       metaInfo.setTid(1);
@@ -21,7 +21,7 @@
     CHAPUserInfo userInfo=dbUser.getUnique(new CHAPUserInfo("eucalyptus"));
     if (!checkUser("eucalyptus")) {
       try {
-        addUser("eucalyptus",userInfo.getEncryptedPassword());
+        addUser("eucalyptus",BlockStorageUtil.decryptSCTargetPassword(userInfo.getEncryptedPassword()));
       }
  catch (      ExecutionException e1) {
         LOG.error(e1);
@@ -30,7 +30,7 @@
     }
   }
  catch (  EucalyptusCloudException ex) {
-    String password=Hashes.getRandom(16);
+    String password=Hashes.getRandom(20);
     try {
       addUser("eucalyptus",password);
     }
@@ -39,8 +39,14 @@
       dbUser.rollback();
       return;
     }
-    CHAPUserInfo userInfo=new CHAPUserInfo("eucalyptus",password);
-    dbUser.add(userInfo);
+    CHAPUserInfo userInfo;
+    try {
+      userInfo=new CHAPUserInfo("eucalyptus",BlockStorageUtil.encryptSCTargetPassword(password));
+      dbUser.add(userInfo);
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error(e);
+    }
   }
  finally {
     dbUser.commit();
