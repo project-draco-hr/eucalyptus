@@ -12,7 +12,8 @@
     for (    HeartbeatComponentType component : msg.getComponents()) {
       LOG.info(LogUtil.subheader("Registering local component: " + LogUtil.dumpObject(component)));
       System.setProperty("euca." + component.getComponent() + ".name",component.getName());
-      Components.lookup(component.getName()).buildService();
+      Component comp=Components.lookup(component.getComponent());
+      comp.buildService(comp.getUri(addr.getAddress().getHostAddress(),comp.getConfiguration().getDefaultPort()));
       initializedComponents.add(component.getComponent());
     }
     if (!initializedComponents.contains(Components.delegate.storage.name())) {
@@ -24,8 +25,13 @@
     if (!initializedComponents.contains(Components.delegate.vmwarebroker.name())) {
       Components.lookup(Components.delegate.vmwarebroker).markDisabled();
     }
+    for (    Bootstrap.Stage stage : Bootstrap.Stage.values()) {
+      stage.updateBootstrapDependencies();
+    }
     System.setProperty("euca.db.password",Hmacs.generateSystemSignature());
-    System.setProperty("euca.db.url",String.format("jdbc:mysql://%s:%d/eucalyptus",addr.getHostName(),8777));
+    System.setProperty("euca.db.url",String.format("jdbc:mysql://%s:%d/eucalyptus",addr.getAddress().getHostAddress(),8777));
+    System.setProperty("euca.db.host",addr.getAddress().getHostAddress());
+    System.setProperty("euca.db.port","8777");
     try {
       GroovyUtil.evaluateScript("after_database.groovy");
     }
