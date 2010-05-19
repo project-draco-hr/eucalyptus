@@ -1,0 +1,41 @@
+{
+  TerminateInstancesResponseType reply=(TerminateInstancesResponseType)request.getReply();
+  try {
+    final List<TerminateInstancesItemType> results=reply.getInstancesSet();
+    final Boolean admin=request.isAdministrator();
+    final String userId=request.getUserId();
+    boolean result=Iterables.any(request.getInstancesSet(),new Predicate<String>(){
+      @Override public boolean apply(      String instanceId){
+        try {
+          VmInstance v=VmInstances.getInstance().lookup(instanceId);
+          if (admin || v.getOwnerId().equals(userId)) {
+            int oldCode=v.getState().getCode(), newCode=VmState.SHUTTING_DOWN.getCode();
+            String oldState=v.getState().getName(), newState=VmState.SHUTTING_DOWN.getName();
+            results.add(new TerminateInstancesItemType(v.getInstanceId(),oldCode,oldState,newCode,newState));
+            if (VmState.RUNNING.equals(v.getState()) || VmState.PENDING.equals(v.getState())) {
+              v.setState(VmState.SHUTTING_DOWN);
+            }
+          }
+          return true;
+        }
+ catch (        NoSuchElementException e) {
+          try {
+            VmInstances.getInstance().lookupDisabled(instanceId).setState(VmState.BURIED);
+            return true;
+          }
+ catch (          NoSuchElementException e1) {
+            return false;
+          }
+        }
+      }
+    }
+);
+    reply.set_return(result);
+    return reply;
+  }
+ catch (  Throwable e) {
+    LOG.error(e);
+    LOG.debug(e,e);
+    throw new EucalyptusCloudException(e.getMessage());
+  }
+}
