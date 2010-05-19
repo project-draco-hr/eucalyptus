@@ -3,11 +3,15 @@
     UserEntity searchUser=new UserEntity();
     searchUser.setEnabled(true);
     searchUser.setX509Certificate(cert);
-    List<User> users=EucaLdapHelper.getUsers(searchUser,null);
-    if (users.size() != 1) {
-      throw new NoSuchUserException((users.size() == 0) ? "No user with the specified certificate." : "Multiple users with the same certificate.");
+    User found;
+    if ((found=LdapCache.getInstance().getUserByCert(searchUser.getCertificates().get(0).getPemCertificate())) == null) {
+      found=EucaLdapHelper.getUsers(searchUser,null).get(0);
+      LdapCache.getInstance().addUser(found);
     }
-    return users.get(0);
+    if (found.isEnabled()) {
+      return found;
+    }
+    throw new EntryNotFoundException("Found user is not enabled");
   }
  catch (  EntryNotFoundException e) {
     LOG.error(e,e);
@@ -15,6 +19,6 @@
   }
 catch (  LdapException e) {
     LOG.error(e,e);
+    throw new NoSuchUserException(e);
   }
-  return null;
 }
