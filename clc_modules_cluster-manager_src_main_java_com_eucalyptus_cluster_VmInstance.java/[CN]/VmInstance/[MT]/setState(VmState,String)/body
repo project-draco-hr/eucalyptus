@@ -4,32 +4,30 @@
   if (!this.getState().equals(state)) {
     EventRecord.caller(VmInstance.class,EventType.VM_STATE,this.instanceId,this.ownerId,this.state.getReference().name(),this.launchTime);
     LOG.info(String.format("%s state change: %s -> %s",this.getInstanceId(),this.getState(),state));
-  }
-  this.state.set(state,this.state.isMarked());
-  this.reason=reason;
-  if (VmState.PENDING.equals(oldState) && VmState.SHUTTING_DOWN.equals(this.getState())) {
-    try {
-      VmInstances.cleanUp(this);
+    this.reason=reason;
+    if (this.state.isMarked() && VmState.PENDING.equals(this.getState()) && VmState.SHUTTING_DOWN.equals(state)) {
+      this.state.set(state,true);
     }
- catch (    Throwable t) {
-      LOG.debug(t,t);
+ else     if (!this.state.isMarked()) {
+      this.state.set(state,false);
+      if (VmState.PENDING.equals(oldState) && VmState.SHUTTING_DOWN.equals(this.getState())) {
+        if (this.state.isMarked()) {
+          this.pendingTerminate=true;
+        }
+ else {
+          VmInstances.cleanUp(this);
+        }
+      }
+ else       if (VmState.TERMINATED.equals(this.getState())) {
+        VmInstances.getInstance().disable(this.getName());
+        VmInstances.cleanUp(this);
+      }
+ else       if (VmState.SHUTTING_DOWN.equals(this.getState()) || VmState.BURIED.equals(this.getState())) {
+        VmInstances.cleanUp(this);
+      }
     }
-  }
- else   if (VmState.TERMINATED.equals(this.getState())) {
-    VmInstances.getInstance().disable(this.getName());
-    try {
-      VmInstances.cleanUp(this);
-    }
- catch (    Throwable t) {
-      LOG.debug(t,t);
-    }
-  }
- else   if (VmState.SHUTTING_DOWN.equals(this.getState()) || VmState.BURIED.equals(this.getState())) {
-    try {
-      VmInstances.cleanUp(this);
-    }
- catch (    Throwable t) {
-      LOG.debug(t,t);
+ else {
+      LOG.debug("Ignoring events for state transition because the instance is marked as pending: " + oldState + " to "+ newState);
     }
   }
 }
