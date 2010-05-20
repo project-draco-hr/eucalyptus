@@ -1,0 +1,26 @@
+{
+  VmInstances.flushBuried();
+  String originCluster=request.getOriginCluster();
+  for (  VmInfo runVm : request.getVms()) {
+    SystemState.updateVmInstance(originCluster,runVm);
+  }
+  final Set<String> unreportedVms=VmInstances.getInstance().getKeys();
+  final List<String> runningVmIds=Lists.transform(request.getVms(),new Function<VmInfo,String>(){
+    @Override public String apply(    VmInfo arg0){
+      String vmId=arg0.getImageId();
+      unreportedVms.remove(vmId);
+      return vmId;
+    }
+  }
+);
+  for (  String vmId : unreportedVms) {
+    try {
+      VmInstance vm=VmInstances.getInstance().lookup(vmId);
+      if (vm.getSplitTime() > SHUT_DOWN_TIME) {
+        vm.setState(VmState.TERMINATED,INSTANCE_EXPIRED);
+      }
+    }
+ catch (    NoSuchElementException e) {
+    }
+  }
+}
