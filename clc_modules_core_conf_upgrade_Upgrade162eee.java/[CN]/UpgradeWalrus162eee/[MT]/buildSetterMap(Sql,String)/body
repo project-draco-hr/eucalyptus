@@ -1,0 +1,32 @@
+{
+  Map<String,Method> setterMap=new HashMap<String,Method>();
+  try {
+    Object firstRow=conn.firstRow("SELECT * FROM " + entityKey);
+    if (firstRow == null) {
+      LOG.error("Unable to find anything in table: " + entityKey);
+      return null;
+    }
+    if (firstRow instanceof Map) {
+      Set<String> columnNames=((Map)firstRow).keySet();
+      Class definingClass=entityMap.get(entityKey);
+      Field[] fields=definingClass.getDeclaredFields();
+      addToSetterMap(setterMap,columnNames,definingClass,fields);
+      Class superClass=entityMap.get(entityKey).getSuperclass();
+      while (superClass.isAnnotationPresent(MappedSuperclass.class)) {
+        Field[] superFields=superClass.getDeclaredFields();
+        addToSetterMap(setterMap,columnNames,superClass,superFields);
+        if (superClass.equals(AbstractPersistent.class))         break;
+        superClass=superClass.getSuperclass();
+      }
+      for (      String column : columnNames) {
+        if (!setterMap.containsKey(column)) {
+          LOG.warn("No corresponding field for column: " + column + " found");
+        }
+      }
+    }
+  }
+ catch (  SQLException e) {
+    LOG.error(e);
+  }
+  return setterMap;
+}
