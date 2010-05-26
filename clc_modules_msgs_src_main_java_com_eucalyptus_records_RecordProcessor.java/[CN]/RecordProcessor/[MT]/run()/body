@@ -1,0 +1,46 @@
+{
+  if (!finished) {
+    LOG.info("Started records storage thread.");
+    Record rec=EventRecord.here(SystemBootstrapper.class,EventClass.SYSTEM,EventType.SYSTEM_START,"STARTED");
+    RecordLevel.INFO.enqueue(rec);
+  }
+  do {
+    String msg="";
+    int total=0;
+    try {
+      TimeUnit.MILLISECONDS.sleep(5000);
+      List<Record> savedRecords=Lists.newArrayList();
+      for (      RecordLevel level : RecordLevel.values()) {
+        List<Record> records=level.drain();
+        savedRecords.addAll(records);
+        msg+=level.name() + ":" + records.size()+ " ";
+      }
+      if (!savedRecords.isEmpty()) {
+        long start=System.currentTimeMillis();
+        EntityWrapper<BaseRecord> db=EntityWrapper.get(BaseRecord.class);
+        try {
+          for (          Record record : savedRecords) {
+            if (record instanceof BaseRecord) {
+              db.add((BaseRecord)record);
+            }
+ else {
+              LOG.debug("Received system event record of a type which cannot be stored: " + record.getClass().getCanonicalName());
+            }
+          }
+          db.commit();
+          LOG.debug("Saving " + savedRecords.size() + " records total in "+ (System.currentTimeMillis() - start)+ " msec. "+ msg);
+        }
+ catch (        Exception e) {
+          LOG.error(e,e);
+        }
+      }
+ else {
+        LOG.debug("Found nothing to save from the event record queues.");
+      }
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+ while (!finished);
+  LOG.info("Terminated records storage thread.");
+}
