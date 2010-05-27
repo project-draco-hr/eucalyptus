@@ -1,18 +1,40 @@
 {
+  String sessionId=Param.session.get(req);
   String name=Param.name.get(req);
   String type=Param.type.get(req);
-  String url=String.format("%s_%s?createDatabaseIfNotExist=true",Component.db.getUri().toString(),"records");
-  Type reportType=Type.valueOf(type);
-  final JRExporter exporter=reportType.setup(res);
+  String pageStr=Param.page.get(req);
+  SessionInfo session;
   try {
-    JasperDesign jasperDesign=JRXmlLoader.load(BaseDirectory.CONF.toString() + File.separator + name+ ".jrxml");
-    JasperReport jasperReport=JasperCompileManager.compileReport(jasperDesign);
-    Connection jdbcConnection=DriverManager.getConnection(url,"eucalyptus",Hmacs.generateSystemSignature());
-    JasperPrint jasperPrint=JasperFillManager.fillReport(jasperReport,null,jdbcConnection);
+    session=EucalyptusWebBackendImpl.verifySession(sessionId);
+    User user=null;
+    try {
+      user=Users.lookupUser(session.getUserId());
+    }
+ catch (    Exception e) {
+      hasError("User does not exist",res);
+      return;
+    }
+    if (!user.isAdministrator()) {
+      hasError("Only administrators can view reports.",res);
+      return;
+    }
+  }
+ catch (  SerializableException e1) {
+    LOG.debug(e1,e1);
+    hasError("Error obtaining session info.",res);
+    return;
+  }
+  LOG.debug("Got request for " + name + " page number "+ pageStr+ " of type "+ type);
+  Type reportType=Type.valueOf(type);
+  final JRExporter exporter=reportType.setup(req,res,name);
+  try {
+    ReportCache reportCache=getReportManager(name);
+    JasperPrint jasperPrint=reportCache.getPendingPrint();
     exporter.setParameter(JRExporterParameter.JASPER_PRINT,jasperPrint);
     exporter.exportReport();
   }
  catch (  Throwable ex) {
+    LOG.error(ex,ex);
     res.setContentType("text/plain");
     LOG.error("Could not create the report stream " + ex.getMessage() + " "+ ex.getLocalizedMessage());
     ex.printStackTrace(res.getWriter());

@@ -4,12 +4,21 @@
   EntityWrapper<ImageInfo> db=new EntityWrapper<ImageInfo>();
   try {
     ImageInfo imgInfo=db.getUnique(new ImageInfo(request.getImageId()));
-    if (!request.getUserId().equals(imgInfo.getImageOwnerId()) && !request.isAdministrator())     throw new EucalyptusCloudException("Not allowed to modify image: " + imgInfo.getImageId());
-    imgInfo.getPermissions().clear();
-    if (!LdapConfiguration.ENABLE_LDAP) {
-      imgInfo.getPermissions().add(UserInfoStore.getUserInfo(new UserInfo(imgInfo.getImageOwnerId())));
+    if (request.getUserId().equals(imgInfo.getImageOwnerId()) || request.isAdministrator()) {
+      imgInfo.getPermissions().clear();
+      db.commit();
+      imgInfo.grantPermission(Users.lookupUser(request.getUserId()));
+      try {
+        imgInfo.grantPermission(Groups.lookupGroup("all"));
+      }
+ catch (      NoSuchGroupException e) {
+        LOG.error(e,e);
+      }
     }
-    db.commit();
+ else {
+      db.rollback();
+      reply.set_return(false);
+    }
   }
  catch (  EucalyptusCloudException e) {
     db.rollback();

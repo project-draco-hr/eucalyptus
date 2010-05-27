@@ -76,16 +76,24 @@
   EntityWrapper<ImageInfo> db=new EntityWrapper<ImageInfo>();
   try {
     db.add(imageInfo);
-    UserInfo user=UserInfoStore.getUserInfo(new UserInfo(request.getUserId()));
-    if (!LdapConfiguration.ENABLE_LDAP) {
-      imageInfo.getPermissions().add(user);
-    }
     db.commit();
-    LOG.info("Registering image pk=" + imageInfo.getId() + " ownerId="+ user.getUserName());
+    LOG.info("Registering image pk=" + imageInfo.getId() + " ownerId="+ request.getUserId());
+  }
+ catch (  Exception e) {
+    db.rollback();
+    throw new EucalyptusCloudException("failed to register image.");
+  }
+  try {
+    imageInfo.grantPermission(Users.lookupUser(request.getUserId()));
   }
  catch (  NoSuchUserException e) {
-    db.rollback();
-    throw new EucalyptusCloudException("can not find user info");
+    LOG.debug(e,e);
+  }
+  try {
+    imageInfo.grantPermission(Groups.lookupGroup("all"));
+  }
+ catch (  NoSuchGroupException e) {
+    LOG.error(e,e);
   }
   LOG.info("Triggering cache population in Walrus for: " + imageInfo.getId());
   WalrusUtil.checkValid(imageInfo);
