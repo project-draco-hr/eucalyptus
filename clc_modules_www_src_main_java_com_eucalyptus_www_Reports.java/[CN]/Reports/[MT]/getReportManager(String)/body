@@ -1,5 +1,6 @@
 {
   try {
+    final boolean jdbc=!(new File(SubDirectory.REPORTS.toString() + File.separator + name+ ".groovy").exists());
     if (reportCache.containsKey(name) && !reportCache.get(name).isExpired()) {
       return reportCache.get(name);
     }
@@ -10,8 +11,40 @@
         @Override public JasperPrint call() throws Exception {
           String url=String.format("jdbc:%s_%s",Component.db.getUri().toString(),"records");
           JasperReport jasperReport=JasperCompileManager.compileReport(jasperDesign);
-          Connection jdbcConnection=DriverManager.getConnection(url,"eucalyptus",Hmacs.generateSystemSignature());
-          JasperPrint jasperPrint=JasperFillManager.fillReport(jasperReport,null,jdbcConnection);
+          JasperPrint jasperPrint;
+          if (jdbc) {
+            Connection jdbcConnection=DriverManager.getConnection(url,"eucalyptus",Hmacs.generateSystemSignature());
+            jasperPrint=JasperFillManager.fillReport(jasperReport,null,jdbcConnection);
+          }
+ else {
+            FileReader fileReader=null;
+            try {
+              final List results=new ArrayList();
+              fileReader=new FileReader(SubDirectory.REPORTS + File.separator + name+ ".groovy");
+              Binding binding=new Binding(new HashMap(){
+{
+                  put("results",results);
+                }
+              }
+);
+              makeScriptEngine().run(name + ".groovy",binding);
+              JRBeanCollectionDataSource data=new JRBeanCollectionDataSource(results);
+              jasperPrint=JasperFillManager.fillReport(jasperReport,null,data);
+            }
+ catch (            Throwable e) {
+              LOG.debug(e,e);
+              throw new RuntimeException(e);
+            }
+ finally {
+              if (fileReader != null)               try {
+                fileReader.close();
+              }
+ catch (              IOException e) {
+                LOG.error(e,e);
+                throw e;
+              }
+            }
+          }
           return jasperPrint;
         }
       }
