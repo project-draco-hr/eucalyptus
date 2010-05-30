@@ -1,47 +1,31 @@
 {
-  String sessionId=Param.session.get(req);
-  String name=Param.name.get(req);
-  String type=Param.type.get(req);
-  String pageStr=Param.page.get(req);
-  String flush=Param.page.get(req);
-  Boolean doFlush=Boolean.parseBoolean(flush);
-  SessionInfo session;
-  try {
-    session=EucalyptusWebBackendImpl.verifySession(sessionId);
-    User user=null;
+  for (  Param p : Param.values()) {
     try {
-      user=Users.lookupUser(session.getUserId());
+      p.get(req);
     }
- catch (    Exception e) {
-      hasError("User does not exist",res);
-      return;
-    }
-    if (!user.isAdministrator()) {
-      hasError("Only administrators can view reports.",res);
-      return;
+ catch (    IllegalArgumentException e) {
+      if (p.isRequired()) {
+        LOG.debug(e,e);
+        throw new RuntimeException(e);
+      }
     }
   }
- catch (  SerializableException e1) {
-    LOG.debug(e1,e1);
-    hasError("Error obtaining session info.",res);
-    return;
-  }
-  LOG.debug("Got request for " + name + " page number "+ pageStr+ " of type "+ type+ " flush="+ doFlush);
-  Type reportType=Type.valueOf(type);
-  final JRExporter exporter=reportType.setup(req,res,name);
   try {
-    ReportCache reportCache=getReportManager(name,doFlush);
-    JasperPrint jasperPrint=reportCache.getPendingPrint();
-    exporter.setParameter(JRExporterParameter.JASPER_PRINT,jasperPrint);
-    exporter.exportReport();
+    this.verifyUser(Param.session.get());
   }
- catch (  Throwable ex) {
-    LOG.error(ex,ex);
-    res.setContentType("text/plain");
-    LOG.error("Could not create the report stream " + ex.getMessage() + " "+ ex.getLocalizedMessage());
-    ex.printStackTrace(res.getWriter());
+ catch (  NoSuchFieldException e) {
+    LOG.debug(e,e);
+    throw new RuntimeException(e);
   }
- finally {
-    reportType.close(res);
+  Date startTime=this.parseTime(Param.startTime);
+  Date endTime=this.parseTime(Param.endTime);
+  for (  Param p : Param.values()) {
+    try {
+      LOG.debug(String.format("REPORT: %10.10s=%s",p.name(),p.get()));
+    }
+ catch (    NoSuchFieldException e1) {
+      LOG.debug(String.format("REPORT: %10.10s=%s",p.name(),e1.getMessage()));
+    }
   }
+  this.exportReport(req,res);
 }
