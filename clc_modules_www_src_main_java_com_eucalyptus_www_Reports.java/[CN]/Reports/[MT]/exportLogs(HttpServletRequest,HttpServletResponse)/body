@@ -3,30 +3,42 @@
     String serviceFq=Param.name.get(req).replaceAll("service-","");
     String type=serviceFq.replaceAll("@.*","");
     String host=serviceFq.replaceAll(".*@","");
-    LOG.debug("LOG:  serviceFq=%s  type=%s  host=%s");
-    PrintWriter out=res.getWriter();
+    LOG.debug(String.format("LOG:  serviceFq=%s  type=%s  host=%s",serviceFq,type,host));
+    final PrintWriter out=res.getWriter();
     try {
       res.setContentType("text/plain");
       for (      ClusterConfiguration c : Configuration.getClusterConfigurations()) {
         out.println("Looking for CC info: " + c.toString());
         if (c.getHostName().equals(host)) {
+          Cluster cluster=Clusters.getInstance().lookup(c.getName());
           out.println("Sending request to: " + c.toString());
-          LogDataCallback cb=new LogDataCallback();
-          GetLogsResponseType reply=cb.send(c.getName());
-          out.println("Reposnse: " + reply.getLogs());
-          return;
+          try {
+            NodeLogInfo logInfo=cluster.getLastLog();
+            if (logInfo != null) {
+              out.write(new String(Base64.decode(logInfo.getCcLog())));
+              out.flush();
+            }
+ else {
+              out.println("ERROR getting log information for " + host);
+              out.println(logInfo.toString());
+            }
+          }
+ catch (          Exception e) {
+            LOG.debug(e,e);
+            e.printStackTrace(out);
+          }
         }
       }
+      out.close();
     }
  catch (    EucalyptusCloudException e) {
       LOG.debug(e,e);
       e.printStackTrace(out);
+      out.close();
     }
 catch (    Exception e) {
       LOG.debug(e,e);
       e.printStackTrace(out);
-    }
- finally {
       out.close();
     }
   }

@@ -1,0 +1,44 @@
+{
+  JasperPrint jasperPrint;
+  final boolean jdbc=!(new File(SubDirectory.REPORTS.toString() + File.separator + reportCache.getName()+ ".groovy").exists());
+  if (jdbc) {
+    String url=String.format("jdbc:%s_%s",Component.db.getUri().toString(),"records");
+    Connection jdbcConnection=DriverManager.getConnection(url,"eucalyptus",Hmacs.generateSystemSignature());
+    jasperPrint=JasperFillManager.fillReport(reportCache.getJasperReport(),null,jdbcConnection);
+  }
+ else {
+    FileReader fileReader=null;
+    try {
+      final List results=new ArrayList();
+      fileReader=new FileReader(SubDirectory.REPORTS + File.separator + reportCache.getName()+ ".groovy");
+      Binding binding=new Binding(new HashMap(){
+{
+          put("results",results);
+        }
+      }
+);
+      try {
+        makeScriptEngine().run(reportCache.getName() + ".groovy",binding);
+      }
+ catch (      Exception e) {
+        LOG.debug(e,e);
+      }
+      JRBeanCollectionDataSource data=new JRBeanCollectionDataSource(results);
+      jasperPrint=JasperFillManager.fillReport(reportCache.getJasperReport(),null,data);
+    }
+ catch (    Throwable e) {
+      LOG.debug(e,e);
+      throw new RuntimeException(e);
+    }
+ finally {
+      if (fileReader != null)       try {
+        fileReader.close();
+      }
+ catch (      IOException e) {
+        LOG.error(e,e);
+        throw e;
+      }
+    }
+  }
+  return jasperPrint;
+}

@@ -1,0 +1,38 @@
+{
+  final NodeInfo nodeInfo=Iterables.find(this.nodeMap.values(),new Predicate<NodeInfo>(){
+    @Override public boolean apply(    NodeInfo arg0){
+      return nodeIp.equals(arg0.getName());
+    }
+  }
+);
+  if (nodeInfo == null) {
+    throw new EucalyptusClusterException("Error obtaining node log files for: " + nodeIp);
+  }
+  if (this.logUpdate.compareAndSet(false,true)) {
+    final Cluster self=this;
+    try {
+      new LogDataCallback(nodeInfo.getServiceTag()){
+        @Override public void verify(        GetLogsResponseType msg){
+          try {
+            nodeInfo.setLogs(msg.getLogs());
+            String ccLog=new String(Base64.decode(msg.getLogs().getCcLog())).replaceFirst(".*\b","");
+            self.logUpdate.set(false);
+            LOG.debug("Got NC Log: " + new String(Base64.decode(nodeInfo.getLogs().getNcLog())).substring(0,1000));
+          }
+ catch (          Throwable e) {
+            LOG.error(e,e);
+          }
+        }
+        @Override public void fail(        Throwable t){
+          self.logUpdate.set(false);
+          LOG.error(t,t);
+        }
+      }
+.send(self);
+    }
+ catch (    Throwable t) {
+      LOG.debug(t,t);
+    }
+  }
+  return nodeInfo.getLogs();
+}

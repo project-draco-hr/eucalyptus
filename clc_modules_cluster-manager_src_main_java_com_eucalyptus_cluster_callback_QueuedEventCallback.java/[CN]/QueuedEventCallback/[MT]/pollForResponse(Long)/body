@@ -1,20 +1,22 @@
 {
   boolean ret=false;
-  this.canHas.lock();
-  try {
-    if (this.response.get() != null) {
-      return true;
-    }
+  if (this.response.get() != null) {
+    ret=true;
+  }
  else {
+    this.canHas.lock();
+    try {
       ret=this.ready.await(waitMillis,TimeUnit.MILLISECONDS);
-      EventRecord.here(NioResponseHandler.class,EventType.MSG_AWAIT_RESPONSE,EventType.MSG_POLL_INTERNAL.toString(),waitMillis.toString()).debug();
+      ret|=this.response.get() != null;
+      EventRecord.here(this.getClass(),EventType.MSG_AWAIT_RESPONSE,EventType.MSG_POLL_INTERNAL.toString(),waitMillis.toString()).debug();
+    }
+ catch (    InterruptedException e) {
+      throw e;
+    }
+ finally {
+      this.canHas.unlock();
     }
   }
- catch (  InterruptedException e) {
-    throw e;
-  }
- finally {
-    this.canHas.unlock();
-  }
+  LOG.debug("Current value of response is: " + this.response.get());
   return ret;
 }
