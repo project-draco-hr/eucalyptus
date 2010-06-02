@@ -1,0 +1,33 @@
+{
+  SessionInfo session=verifySession(sessionId);
+  UserInfoWeb reqUser=verifyUser(session,session.getUserId(),true);
+  if (!reqUser.isAdministrator()) {
+    throw new Exception("Only admin can view reports.");
+  }
+  List<ReportInfo> reports=new ArrayList<ReportInfo>();
+  for (  Component c : Components.list()) {
+    for (    Service s : c.getServices()) {
+      reports.addAll(EucalyptusWebBackendImpl.getServiceLogInfo(s));
+    }
+  }
+  SortedSet<String> sortedReports=new TreeSet<String>();
+  for (  File report : SubDirectory.REPORTS.getFile().listFiles(new FilenameFilter(){
+    @Override public boolean accept(    File arg0,    String arg1){
+      return arg1.endsWith(".jrxml");
+    }
+  }
+)) {
+    sortedReports.add(report.getName().replaceAll(".jrxml",""));
+  }
+  for (  String reportName : sortedReports) {
+    try {
+      ReportCache reportCache=Reports.getReportManager(reportName,false);
+      reports.add(new ReportInfo(reportCache.getReportGroup(),reportCache.getReportName(),reportName,1));
+    }
+ catch (    Throwable e) {
+      LOG.error(e,e);
+      LOG.error("Failed to read report file: " + reportName + " because of: "+ e.getMessage());
+    }
+  }
+  return reports;
+}
