@@ -1,0 +1,46 @@
+{
+  UnconditionalCallback cleanup=new UnconditionalCallback(){
+    public void apply(){
+      if (address != null) {
+        try {
+          if (address.isSystemOwned()) {
+            EventRecord.caller(SystemState.class,EventType.VM_TERMINATING,"SYSTEM_ADDRESS",address.toString()).debug();
+            Addresses.release(address);
+          }
+ else {
+            EventRecord.caller(SystemState.class,EventType.VM_TERMINATING,"USER_ADDRESS",address.toString()).debug();
+            AddressCategory.unassign(address).dispatch(address.getCluster());
+          }
+        }
+ catch (        IllegalStateException e) {
+        }
+catch (        Throwable e) {
+          LOG.debug(e,e);
+        }
+      }
+      vm.updateNetworkIndex(-1);
+      try {
+        if (networkFqName != null) {
+          Network net=Networks.getInstance().lookup(networkFqName);
+          if (networkIndex > 0 && vm.getNetworkNames().size() > 0) {
+            net.returnNetworkIndex(networkIndex);
+            EventRecord.caller(SystemState.class,EventType.VM_TERMINATING,"NETWORK_INDEX",networkFqName,Integer.toString(networkIndex)).debug();
+          }
+          if (!Networks.getInstance().lookup(networkFqName).hasTokens()) {
+            StopNetworkCallback stopNet=new StopNetworkCallback(new NetworkToken(cluster.getName(),net.getUserName(),net.getNetworkName(),net.getVlan()));
+            for (            Cluster c : Clusters.getInstance().listValues()) {
+              stopNet.newInstance().dispatch(cluster);
+            }
+          }
+        }
+      }
+ catch (      NoSuchElementException e1) {
+      }
+catch (      Throwable e1) {
+        LOG.debug(e1,e1);
+      }
+    }
+  }
+;
+  return cleanup;
+}

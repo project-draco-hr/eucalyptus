@@ -1,9 +1,13 @@
 {
   String clusterName=vmInfo.getRequest().getAvailabilityZone();
-  if (clusterName != null && !"default".equals(clusterName)) {
-    singleCluster(vmInfo);
+  String vmTypeName=vmInfo.getRequest().getInstanceType();
+  Integer amount=vmInfo.getRequest().getMinCount();
+  Cluster authorizedCluster=this.doPrivilegedLookup(clusterName,vmTypeName);
+  VmTypeAvailability vmAvailability=authorizedCluster.getNodeState().getAvailability(vmTypeName);
+  if (vmAvailability.getAvailable() < amount) {
+    throw new NotEnoughResourcesAvailable("Not enough resources (" + vmAvailability.getAvailable() + " < "+ amount+ ": vm instances.");
   }
- else {
-    scriptedAllocator(vmInfo);
-  }
+  Context ctx=Contexts.lookup();
+  ResourceToken token=authorizedCluster.getNodeState().getResourceAllocation(ctx.getCorrelationId(),ctx.getUser().getName(),vmTypeName,amount);
+  vmInfo.getAllocationTokens().add(token);
 }

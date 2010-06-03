@@ -1,0 +1,43 @@
+{
+  VmState state=VmState.Mapper.get(runVm.getStateName());
+  VmInstance vm=null;
+  try {
+    vm=VmInstances.getInstance().lookup(runVm.getInstanceId());
+  }
+ catch (  NoSuchElementException e) {
+    try {
+      vm=VmInstances.getInstance().lookupDisabled(runVm.getInstanceId());
+      if (!VmState.BURIED.equals(vm.getState()) && vm.getSplitTime() > BURY_TIME) {
+        vm.setState(VmState.BURIED,Reason.BURIED);
+      }
+      return;
+    }
+ catch (    NoSuchElementException e1) {
+      if (VmState.PENDING.equals(state) || VmState.RUNNING.equals(state)) {
+        SystemState.restoreInstance(originCluster,runVm);
+      }
+      return;
+    }
+  }
+  long splitTime=vm.getSplitTime();
+  VmState oldState=vm.getState();
+  vm.setServiceTag(runVm.getServiceTag());
+  if (VmState.SHUTTING_DOWN.equals(vm.getState()) && splitTime > SHUT_DOWN_TIME) {
+    vm.setState(VmState.TERMINATED,Reason.EXPIRED);
+  }
+ else   if (VmState.SHUTTING_DOWN.equals(vm.getState()) && VmState.SHUTTING_DOWN.equals(VmState.Mapper.get(runVm.getStateName()))) {
+    vm.setState(VmState.TERMINATED,Reason.APPEND,"DONE");
+  }
+ else {
+    vm.updateAddresses(runVm.getNetParams().getIpAddress(),runVm.getNetParams().getIgnoredPublicIp());
+    vm.setState(VmState.Mapper.get(runVm.getStateName()),Reason.APPEND,"UPDATE");
+    vm.updateNetworkIndex(runVm.getNetParams().getNetworkIndex());
+    vm.setVolumes(runVm.getVolumes());
+    try {
+      Network network=Networks.getInstance().lookup(runVm.getOwnerId() + "-" + runVm.getGroupNames().get(0));
+      network.extantNetworkIndex(vm.getPlacement(),vm.getNetworkIndex());
+    }
+ catch (    Exception e) {
+    }
+  }
+}
