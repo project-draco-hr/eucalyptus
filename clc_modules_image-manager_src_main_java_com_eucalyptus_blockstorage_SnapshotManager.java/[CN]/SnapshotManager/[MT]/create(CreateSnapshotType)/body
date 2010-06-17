@@ -1,0 +1,68 @@
+{
+  EntityWrapper<Snapshot> db=SnapshotManager.getEntityWrapper();
+  String userName=request.isAdministrator() ? null : request.getUserId();
+  Volume vol=db.recast(Volume.class).getUnique(Volume.named(userName,request.getVolumeId()));
+  StorageControllerConfiguration sc;
+  try {
+    sc=Configuration.getStorageControllerConfiguration(vol.getCluster());
+  }
+ catch (  Exception e) {
+    db.rollback();
+    throw new EucalyptusCloudException("Failed to find the storage controller information for volume: " + vol.getDisplayName() + " at "+ vol.getCluster(),e);
+  }
+  if (!vol.isReady()) {
+    DescribeStorageVolumesType descVols=new DescribeStorageVolumesType(Lists.newArrayList(vol.getDisplayName()));
+    try {
+      DescribeStorageVolumesResponseType volState=ServiceDispatcher.lookup(Component.storage,sc.getHostName()).send(descVols,DescribeStorageVolumesResponseType.class);
+      if (!volState.getVolumeSet().isEmpty()) {
+        vol.setMappedState(volState.getVolumeSet().get(0).getStatus());
+      }
+ else {
+        throw new EucalyptusCloudException("Failed to update the volume state " + request.getVolumeId() + " not yet ready");
+      }
+    }
+ catch (    Exception e1) {
+      LOG.debug(e1,e1);
+      db.rollback();
+      throw new EucalyptusCloudException("Failed to update the volume state " + request.getVolumeId() + " not yet ready");
+    }
+    if (!vol.isReady()) {
+      db.rollback();
+      throw new EucalyptusCloudException("Volume " + request.getVolumeId() + " not yet ready");
+    }
+  }
+  String newId=null;
+  Snapshot snap=null;
+  while (true) {
+    newId=Crypto.generateId(request.getUserId(),ID_PREFIX);
+    try {
+      db.getUnique(Snapshot.ownedBy(newId));
+    }
+ catch (    EucalyptusCloudException e) {
+      snap=new Snapshot(request.getUserId(),newId,vol.getDisplayName());
+      db.add(snap);
+      break;
+    }
+  }
+  CreateStorageSnapshotType scRequest=new CreateStorageSnapshotType(vol.getDisplayName(),newId);
+  CreateStorageSnapshotResponseType scReply=null;
+  try {
+    scReply=StorageUtil.lookup(sc.getHostName()).send(scRequest,CreateStorageSnapshotResponseType.class);
+    snap.setCluster(sc.getName());
+    snap.setMappedState(scReply.getStatus());
+  }
+ catch (  EucalyptusCloudException e) {
+    LOG.debug(e,e);
+    db.rollback();
+    throw new EucalyptusCloudException("Error calling CreateStorageSnapshot:" + e.getMessage());
+  }
+  db.commit();
+  EventRecord.here(SnapshotManager.class,EventClass.SNAPSHOT,EventType.SNAPSHOT_CREATE,"user=" + snap.getUserName(),"snapshot=" + snap.getDisplayName(),"volume=" + snap.getParentVolume()).info();
+  CreateSnapshotResponseType reply=(CreateSnapshotResponseType)request.getReply();
+  edu.ucsb.eucalyptus.msgs.Snapshot snapMsg=snap.morph(new edu.ucsb.eucalyptus.msgs.Snapshot());
+  snapMsg.setProgress("0%");
+  snapMsg.setOwnerId(snap.getUserName());
+  snapMsg.setVolumeSize(vol.getSize().toString());
+  reply.setSnapshot(snapMsg);
+  return reply;
+}

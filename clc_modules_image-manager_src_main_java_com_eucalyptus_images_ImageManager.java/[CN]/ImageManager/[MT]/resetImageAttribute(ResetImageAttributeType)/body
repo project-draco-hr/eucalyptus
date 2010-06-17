@@ -1,0 +1,32 @@
+{
+  ResetImageAttributeResponseType reply=(ResetImageAttributeResponseType)request.getReply();
+  reply.set_return(true);
+  EntityWrapper<ImageInfo> db=new EntityWrapper<ImageInfo>();
+  try {
+    ImageInfo imgInfo=db.getUnique(new ImageInfo(request.getImageId()));
+    if (request.getUserId().equals(imgInfo.getImageOwnerId()) || request.isAdministrator()) {
+      imgInfo.getPermissions().clear();
+      db.commit();
+      imgInfo.grantPermission(Users.lookupUser(request.getUserId()));
+      try {
+        imgInfo.grantPermission(Groups.lookupGroup("all"));
+      }
+ catch (      NoSuchGroupException e) {
+        LOG.error(e,e);
+      }
+    }
+ else {
+      db.rollback();
+      reply.set_return(false);
+    }
+  }
+ catch (  EucalyptusCloudException e) {
+    db.rollback();
+    reply.set_return(false);
+  }
+catch (  NoSuchUserException e) {
+    db.rollback();
+    reply.set_return(false);
+  }
+  return reply;
+}

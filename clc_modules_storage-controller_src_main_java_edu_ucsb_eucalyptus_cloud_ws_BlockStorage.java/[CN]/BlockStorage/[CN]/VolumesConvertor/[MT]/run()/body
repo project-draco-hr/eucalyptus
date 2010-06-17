@@ -1,0 +1,47 @@
+{
+synchronized (blockManager) {
+    StorageProperties.enableStorage=StorageProperties.enableSnapshots=false;
+    EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
+    VolumeInfo volumeInfo=new VolumeInfo();
+    volumeInfo.setStatus(StorageProperties.Status.available.toString());
+    List<VolumeInfo> volumeInfos=db.query(volumeInfo);
+    List<VolumeInfo> volumes=new ArrayList<VolumeInfo>();
+    volumes.addAll(volumeInfos);
+    SnapshotInfo snapInfo=new SnapshotInfo();
+    snapInfo.setStatus(StorageProperties.Status.available.toString());
+    EntityWrapper<SnapshotInfo> dbSnap=db.recast(SnapshotInfo.class);
+    List<SnapshotInfo> snapshotInfos=dbSnap.query(snapInfo);
+    List<SnapshotInfo> snapshots=new ArrayList<SnapshotInfo>();
+    snapshots.addAll(snapshotInfos);
+    db.commit();
+    for (    VolumeInfo volume : volumes) {
+      try {
+        String volumeId=volume.getVolumeId();
+        LOG.info("Converting volume: " + volumeId);
+        String volumePath=fromBlockManager.getVolumePath(volumeId);
+        blockManager.importVolume(volumeId,volumePath,volume.getSize());
+        fromBlockManager.finishVolume(volumeId);
+        LOG.info("Done converting volume: " + volumeId);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex);
+      }
+    }
+    for (    SnapshotInfo snap : snapshots) {
+      try {
+        String snapshotId=snap.getSnapshotId();
+        LOG.info("Converting snapshot: " + snapshotId);
+        String snapPath=fromBlockManager.getSnapshotPath(snapshotId);
+        int size=fromBlockManager.getSnapshotSize(snapshotId);
+        blockManager.importSnapshot(snapshotId,snap.getVolumeId(),snapPath,size);
+        fromBlockManager.finishVolume(snapshotId);
+        LOG.info("Done converting snapshot: " + snapshotId);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex);
+      }
+    }
+    LOG.info("Conversion complete");
+    StorageProperties.enableStorage=StorageProperties.enableSnapshots=true;
+  }
+}
