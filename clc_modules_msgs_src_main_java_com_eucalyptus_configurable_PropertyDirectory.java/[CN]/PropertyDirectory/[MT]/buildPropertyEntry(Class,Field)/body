@@ -1,18 +1,38 @@
 {
   for (  ConfigurablePropertyBuilder b : builders) {
     try {
-      ConfigurableProperty prop=b.buildProperty(c,field);
+      ConfigurableProperty prop=null;
+      try {
+        prop=b.buildProperty(c,field);
+      }
+ catch (      ConfigurablePropertyException e) {
+        throw e;
+      }
+catch (      Throwable t) {
+        LOG.error("Failed to prepare configurable field: " + c.getCanonicalName() + "."+ field.getName());
+        System.exit(1);
+      }
       if (prop != null) {
-        if (!fqMap.containsKey(prop.getQualifiedName())) {
-          fqMap.put(prop.getQualifiedName(),prop);
-          fqPrefixMap.put(prop.getEntrySetName(),prop);
-          return prop;
+        ConfigurableClass configurableAnnot=(ConfigurableClass)c.getAnnotation(ConfigurableClass.class);
+        if (configurableAnnot.deferred()) {
+          if (!fqPendingMap.containsKey(prop.getQualifiedName())) {
+            fqPendingMap.put(prop.getQualifiedName(),prop);
+            fqPendingPrefixMap.put(prop.getEntrySetName(),prop);
+            return prop;
+          }
         }
  else {
-          RuntimeException r=new RuntimeException("Duplicate configurable field in same config file: \n" + "-> " + fqMap.get(prop.getQualifiedName()).getDefiningClass().getCanonicalName() + "."+ field.getName()+ "\n"+ "-> "+ c.getCanonicalName()+ "."+ field.getName()+ "\n");
-          LOG.fatal(r,r);
-          System.exit(1);
-          throw r;
+          if (!fqMap.containsKey(prop.getQualifiedName())) {
+            fqMap.put(prop.getQualifiedName(),prop);
+            fqPrefixMap.put(prop.getEntrySetName(),prop);
+            return prop;
+          }
+ else {
+            RuntimeException r=new RuntimeException("Duplicate configurable field in same config file: \n" + "-> " + fqMap.get(prop.getQualifiedName()).getDefiningClass().getCanonicalName() + "."+ field.getName()+ "\n"+ "-> "+ c.getCanonicalName()+ "."+ field.getName()+ "\n");
+            LOG.fatal(r,r);
+            System.exit(1);
+            throw r;
+          }
         }
       }
     }

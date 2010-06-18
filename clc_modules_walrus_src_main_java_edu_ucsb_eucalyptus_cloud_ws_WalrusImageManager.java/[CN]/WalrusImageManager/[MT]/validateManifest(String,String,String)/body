@@ -1,0 +1,115 @@
+{
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  BucketInfo bucket=null;
+  try {
+    bucket=db.getUnique(bucketInfo);
+  }
+ catch (  Throwable t) {
+    throw new EucalyptusCloudException("Unable to get bucket: " + bucketName,t);
+  }
+  if (bucket != null) {
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+    List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+    if (objectInfos.size() > 0) {
+      ObjectInfo objectInfo=objectInfos.get(0);
+      if (objectInfo.canRead(userId)) {
+        String objectName=objectInfo.getObjectName();
+        File file=new File(storageManager.getObjectPath(bucketName,objectName));
+        XMLParser parser=new XMLParser(file);
+        String image=parser.getXML("image");
+        String machineConfiguration=parser.getXML("machine_configuration");
+        String verificationString=machineConfiguration + image;
+        FileInputStream inStream=null;
+        FileInputStream fileInputStream=null;
+        try {
+          PrivateKey pk=SystemCredentialProvider.getCredentialProvider(Component.eucalyptus).getPrivateKey();
+          Signature sigCloud=Signature.getInstance("SHA1withRSA");
+          sigCloud.initSign(pk);
+          sigCloud.update(verificationString.getBytes());
+          String signature=new String(Hashes.bytesToHex(sigCloud.sign()));
+          DocumentBuilder docBuilder=DocumentBuilderFactory.newInstance().newDocumentBuilder();
+          fileInputStream=new FileInputStream(file);
+          Document docRoot=docBuilder.parse(fileInputStream);
+          Element sigElement=docRoot.createElement("signature");
+          sigElement.setTextContent(signature);
+          Node manifestElem=docRoot.getFirstChild();
+          manifestElem.appendChild(sigElement);
+          fileInputStream.close();
+          Source source=new DOMSource(docRoot);
+          Result result=new StreamResult(file);
+          Transformer xformer=TransformerFactory.newInstance().newTransformer();
+          xformer.transform(source,result);
+          try {
+            MessageDigest digest=Digest.MD5.get();
+            inStream=new FileInputStream(file);
+            byte[] bytes=new byte[WalrusProperties.IO_CHUNK_SIZE];
+            int bytesRead=-1;
+            long totalBytesRead=0;
+            try {
+              while ((bytesRead=inStream.read(bytes,0,bytes.length)) > 0) {
+                digest.update(bytes,0,bytesRead);
+                totalBytesRead+=bytesRead;
+              }
+            }
+ catch (            IOException e) {
+              LOG.error(e);
+              throw new EucalyptusCloudException(e);
+            }
+ finally {
+              try {
+                inStream.close();
+              }
+ catch (              IOException e) {
+                LOG.error(e);
+                throw new EucalyptusCloudException(e);
+              }
+            }
+            String md5=Hashes.bytesToHex(digest.digest());
+            objectInfo.setEtag(md5);
+            objectInfo.setSize(totalBytesRead);
+          }
+ catch (          FileNotFoundException e) {
+            LOG.error(e,e);
+            throw new EucalyptusCloudException(e);
+          }
+        }
+ catch (        Exception ex) {
+          if (inStream != null) {
+            try {
+              inStream.close();
+            }
+ catch (            IOException e) {
+              LOG.error(e);
+            }
+          }
+          if (fileInputStream != null) {
+            try {
+              fileInputStream.close();
+            }
+ catch (            IOException e) {
+              LOG.error(e);
+            }
+          }
+          db.rollback();
+          LOG.error(ex,ex);
+          throw new EucalyptusCloudException("Unable to sign manifest: " + bucketName + "/"+ objectKey);
+        }
+        db.commit();
+      }
+ else {
+        db.rollback();
+        throw new AccessDeniedException("Key",objectKey);
+      }
+    }
+ else {
+      db.rollback();
+      throw new NoSuchEntityException(objectKey);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+}

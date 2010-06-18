@@ -1,0 +1,37 @@
+{
+  ValidateImageResponseType reply=(ValidateImageResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  String manifestKey=request.getKey();
+  String userId=request.getUserId();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(bucketInfo);
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
+    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,manifestKey);
+    searchObjectInfo.setDeleted(false);
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+    if (objectInfos.size() > 0) {
+      ObjectInfo objectInfo=objectInfos.get(0);
+      if (objectInfo.canRead(userId)) {
+        validateManifest(bucketName,manifestKey,userId);
+        db.commit();
+      }
+ else {
+        db.rollback();
+        throw new AccessDeniedException("Key",manifestKey,logData);
+      }
+    }
+ else {
+      db.rollback();
+      throw new NoSuchEntityException(manifestKey,logData);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  return reply;
+}

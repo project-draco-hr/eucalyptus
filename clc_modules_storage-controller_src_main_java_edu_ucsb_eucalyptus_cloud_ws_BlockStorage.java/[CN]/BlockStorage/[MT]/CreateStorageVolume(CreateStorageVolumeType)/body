@@ -17,22 +17,30 @@
       if (((totalVolumeSize + sizeAsInt) > StorageInfo.getStorageInfo().getMaxTotalVolumeSizeInGb()) || (sizeAsInt > StorageInfo.getStorageInfo().getMaxVolumeSizeInGB()))       throw new EntityTooLargeException(volumeId);
     }
   }
-  EntityWrapper<VolumeInfo> db=StorageController.getEntityWrapper();
+  EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
   VolumeInfo volumeInfo=new VolumeInfo(volumeId);
   List<VolumeInfo> volumeInfos=db.query(volumeInfo);
   if (volumeInfos.size() > 0) {
     db.rollback();
     throw new VolumeAlreadyExistsException(volumeId);
   }
+  if (snapshotId != null) {
+    SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
+    snapInfo.setStatus(StorageProperties.Status.available.toString());
+    EntityWrapper<SnapshotInfo> dbSnap=db.recast(SnapshotInfo.class);
+    List<SnapshotInfo> snapInfos=dbSnap.query(snapInfo);
+    if (snapInfos.size() != 1) {
+      db.rollback();
+      throw new NoSuchEntityException("Snapshot " + snapshotId + " does not exist or is unavailable");
+    }
+    volumeInfo.setSnapshotId(snapshotId);
+    reply.setSnapshotId(snapshotId);
+  }
   volumeInfo.setUserName(userId);
   volumeInfo.setSize(sizeAsInt);
   volumeInfo.setStatus(StorageProperties.Status.creating.toString());
   Date creationDate=new Date();
   volumeInfo.setCreateTime(creationDate);
-  if (snapshotId != null) {
-    volumeInfo.setSnapshotId(snapshotId);
-    reply.setSnapshotId(snapshotId);
-  }
   db.add(volumeInfo);
   reply.setVolumeId(volumeId);
   reply.setCreateTime(DateUtils.format(creationDate.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
