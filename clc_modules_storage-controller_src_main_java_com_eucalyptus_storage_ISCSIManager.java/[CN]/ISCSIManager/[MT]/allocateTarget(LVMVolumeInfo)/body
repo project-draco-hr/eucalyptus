@@ -1,20 +1,49 @@
 {
   if (volumeInfo instanceof ISCSIVolumeInfo) {
     ISCSIVolumeInfo iscsiVolumeInfo=(ISCSIVolumeInfo)volumeInfo;
-    ISCSIMetaInfo metaInfo=new ISCSIMetaInfo();
     EntityWrapper<ISCSIMetaInfo> db=StorageProperties.getEntityWrapper();
-    List<ISCSIMetaInfo> metaInfoList=db.query(metaInfo);
+    List<ISCSIMetaInfo> metaInfoList=db.query(new ISCSIMetaInfo(StorageProperties.NAME));
+    int tid=-1, storeNumber=-1;
     if (metaInfoList.size() > 0) {
       ISCSIMetaInfo foundMetaInfo=metaInfoList.get(0);
-      int storeNumber=foundMetaInfo.getStoreNumber();
-      int tid=foundMetaInfo.getTid();
-      iscsiVolumeInfo.setStoreName(foundMetaInfo.getStorePrefix() + StorageProperties.NAME + ":store"+ storeNumber);
-      iscsiVolumeInfo.setStoreUser(foundMetaInfo.getStoreUser());
-      iscsiVolumeInfo.setTid(tid);
-      iscsiVolumeInfo.setLun(1);
-      foundMetaInfo.setStoreNumber(++storeNumber);
-      foundMetaInfo.setTid(++tid);
+      storeNumber=foundMetaInfo.getStoreNumber();
+      tid=foundMetaInfo.getTid();
     }
     db.commit();
+    int i=tid;
+    do {
+      try {
+        String returnValue=SystemUtil.run(new String[]{"sudo","tgtadm","--lld","iscsi","--op","show","--mode","target","--tid",String.valueOf(i)});
+        if (returnValue.length() == 0) {
+          tid=i;
+          break;
+        }
+      }
+ catch (      ExecutionException e) {
+        LOG.error(e);
+        iscsiVolumeInfo.setTid(-1);
+        return;
+      }
+      i=(i + 1) % Integer.MAX_VALUE;
+    }
+ while (i != tid);
+    if (tid > 0) {
+      db=StorageProperties.getEntityWrapper();
+      metaInfoList=db.query(new ISCSIMetaInfo(StorageProperties.NAME));
+      if (metaInfoList.size() > 0) {
+        ISCSIMetaInfo foundMetaInfo=metaInfoList.get(0);
+        foundMetaInfo.setStoreNumber(++storeNumber);
+        foundMetaInfo.setTid(tid + 1);
+        iscsiVolumeInfo.setStoreName(foundMetaInfo.getStorePrefix() + StorageProperties.NAME + ":store"+ storeNumber);
+        iscsiVolumeInfo.setStoreUser(foundMetaInfo.getStoreUser());
+        iscsiVolumeInfo.setTid(tid);
+        iscsiVolumeInfo.setLun(1);
+      }
+      db.commit();
+    }
+ else {
+      iscsiVolumeInfo.setTid(-1);
+      LOG.fatal("Unable to allocate ISCSI target id.");
+    }
   }
 }
