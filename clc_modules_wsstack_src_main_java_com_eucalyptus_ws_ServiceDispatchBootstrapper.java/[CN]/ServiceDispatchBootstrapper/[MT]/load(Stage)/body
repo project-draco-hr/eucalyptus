@@ -1,32 +1,44 @@
 {
   for (  com.eucalyptus.bootstrap.Component c : com.eucalyptus.bootstrap.Component.values()) {
-    if (ignored.contains(c))     continue;
-    try {
-      Component comp=Components.lookup(c);
+    if (c.hasDispatcher() && c.isAlwaysLocal()) {
+      try {
+        Component comp=Components.lookup(c);
+      }
+ catch (      NoSuchElementException e) {
+        throw BootstrapException.throwFatal("Failed to lookup component which is alwaysLocal: " + c.name(),e);
+      }
     }
- catch (    NoSuchElementException e) {
-      throw Exceptions.uncatchable("Failed to lookup required component: " + c.name());
+ else     if (c.hasDispatcher()) {
+      try {
+        Component comp=Components.lookup(c);
+      }
+ catch (      NoSuchElementException e) {
+        Exceptions.eat("Failed to lookup component which may have dispatcher references: " + c.name(),e);
+      }
     }
   }
   LOG.trace("Touching class: " + ServiceDispatcher.class);
   boolean failed=false;
+  Component euca=Components.lookup(Components.delegate.eucalyptus);
   for (  Component comp : Components.list()) {
     EventRecord.here(ServiceVerifyBootstrapper.class,EventType.COMPONENT_INFO,comp.getName(),comp.isEnabled().toString()).info();
     for (    ServiceConfiguration s : comp.list()) {
-      try {
-        if (comp.isEnabled()) {
+      if (euca.isLocal() && euca.getPeer().hasDispatcher()) {
+        try {
           comp.buildService(s);
         }
-      }
- catch (      Throwable ex) {
-        LOG.warn(ex);
-        LOG.error(ex,ex);
-        failed=true;
+ catch (        ServiceRegistrationException ex) {
+          LOG.error(ex,ex);
+          failed=true;
+        }
+catch (        Throwable ex) {
+          BootstrapException.throwFatal("load(): Building service failed: " + Components.componentToString().apply(comp),ex);
+        }
       }
     }
   }
   if (failed) {
-    BootstrapException.throwFatal("Failures occurred while attempting to start component services.  See the log files for more information.");
+    BootstrapException.throwFatal("Failures occurred while attempting to load component services.  See the log files for more information.");
   }
   return true;
 }
