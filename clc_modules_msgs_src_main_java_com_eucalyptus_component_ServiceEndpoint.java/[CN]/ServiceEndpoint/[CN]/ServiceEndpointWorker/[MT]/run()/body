@@ -1,0 +1,24 @@
+{
+  LOG.info("Starting message queue: " + Thread.currentThread().getName() + " for endpoint: "+ ServiceEndpoint.this.get());
+  while (!ServiceEndpoint.this.finished.get()) {
+    try {
+      QueuedRequest event;
+      if ((event=ServiceEndpoint.this.msgQueue.poll(ServiceEndpoint.this.pollInterval,TimeUnit.MILLISECONDS)) != null) {
+        LOG.debug("-> Dequeued message of type " + event.getCallback().getClass().getSimpleName());
+        final long start=System.nanoTime();
+        event.getRequest().sendSync(ServiceEndpoint.this);
+        EventRecord.here(ServiceEndpointWorker.class,EventType.QUEUE,ServiceEndpoint.this.getParent().getName()).append(event.getCallback().getClass().getSimpleName()).append(EventType.QUEUE_TIME.name(),Long.toString(start - event.getStartTime())).append(EventType.SERVICE_TIME.name(),Long.toString(System.currentTimeMillis() - start)).append(EventType.QUEUE_LENGTH.name(),Long.toString(ServiceEndpoint.this.msgQueue.size())).info();
+      }
+    }
+ catch (    InterruptedException e1) {
+      return;
+    }
+catch (    final ExecutionException e) {
+      LOG.error(e.getCause(),e.getCause());
+    }
+catch (    final Throwable e) {
+      LOG.error(e,e);
+    }
+  }
+  LOG.debug("Shutting down cluster message queue: " + Thread.currentThread().getName());
+}

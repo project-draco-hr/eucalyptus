@@ -1,26 +1,44 @@
 {
+  HeartbeatType msg=(HeartbeatType)request.getMessage();
+  LOG.info(LogUtil.header("Got heartbeat event: " + LogUtil.dumpObject(msg)));
   InetSocketAddress addr=(InetSocketAddress)ctx.getChannel().getRemoteAddress();
+  InetSocketAddress localAddr=(InetSocketAddress)ctx.getChannel().getLocalAddress();
   LOG.info(LogUtil.subheader("Using " + addr.getHostName() + " as the database address."));
   try {
-    this.prepareComponent(Components.delegate.db,addr);
-    this.prepareComponent(Components.delegate.dns,addr);
-    this.prepareComponent(Components.delegate.eucalyptus,addr);
-    this.prepareComponent(Components.delegate.cluster,addr);
-    this.prepareComponent(Components.delegate.jetty,addr);
-    HeartbeatType msg=(HeartbeatType)request.getMessage();
-    LOG.info(LogUtil.header("Got heartbeat event: " + LogUtil.dumpObject(msg)));
-    for (    HeartbeatComponentType component : msg.getComponents()) {
-      LOG.info(LogUtil.subheader("Registering local component: " + LogUtil.dumpObject(component)));
+    this.prepareComponent("db",addr.getHostName());
+    this.prepareComponent("dns",addr.getHostName());
+    this.prepareComponent("eucalyptus",addr.getHostName());
+  }
+ catch (  ServiceRegistrationException ex1) {
+    LOG.error(ex1,ex1);
+    System.exit(123);
+  }
+  for (  HeartbeatComponentType component : msg.getComponents()) {
+    LOG.info(LogUtil.subheader("Registering local component: " + LogUtil.dumpObject(component)));
+    try {
+      final Component comp=safeLookupComponent(component.getComponent());
+      URI uri=comp.getUri(localAddr.getHostName(),8773);
+      ServiceConfiguration config=new ComponentConfiguration(comp.getName(),uri.getHost(),8773,uri.getPath()){
+        @Override public com.eucalyptus.bootstrap.Component getComponent(){
+          return comp.getPeer();
+        }
+        @Override public Boolean isLocal(){
+          return true;
+        }
+      }
+;
       System.setProperty("euca." + component.getComponent() + ".name",component.getName());
-      Component comp=Components.lookup(component.getComponent());
-      comp.buildService();
+      comp.buildService(config);
       initializedComponents.add(component.getComponent());
     }
-    if (!initializedComponents.contains(Components.delegate.storage.name())) {
-      Components.lookup(Components.delegate.storage).markDisabled();
+ catch (    Exception ex) {
+      LOG.warn(LogUtil.header("Failed registering local component " + LogUtil.dumpObject(component) + ":  Are the required packages installed?\n The cause of the error: "+ ex.getMessage()));
+      LOG.error(ex,ex);
     }
+  }
+  try {
     if (!initializedComponents.contains(Components.delegate.walrus.name())) {
-      Components.lookup(Components.delegate.walrus).markDisabled();
+      this.prepareComponent("walrus",addr.getHostName());
     }
     for (    Bootstrap.Stage stage : Bootstrap.Stage.values()) {
       stage.updateBootstrapDependencies();
