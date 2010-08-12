@@ -1,0 +1,41 @@
+{
+  List<String> macs=Lists.transform(childToken.getInstanceIds(),new Function<String,String>(){
+    @Override public String apply(    String instanceId){
+      return VmInstances.getAsMAC(instanceId);
+    }
+  }
+);
+  NetworkToken primaryNet=childToken.getPrimaryNetwork();
+  int vlan;
+  List<String> netIndexes;
+  List<String> networkNames;
+  if (primaryNet != null) {
+    vlan=primaryNet.getVlan();
+    networkNames=Lists.newArrayList(primaryNet.getNetworkName());
+    netIndexes=Lists.newArrayList(Iterables.transform(primaryNet.getIndexes(),Functions.TO_STRING));
+  }
+ else {
+    vlan=-1;
+    networkNames=Lists.newArrayList("default");
+    netIndexes=Lists.newArrayList("-1");
+  }
+  VmRunType run=new VmRunType(rsvId,request.getUserData(),childToken.getAmount(),imgInfo,vmInfo,keyInfo,childToken.getInstanceIds(),macs,vlan,networkNames,netIndexes).regardingUserRequest(request);
+  VmRunCallback cb=new VmRunCallback(run,childToken);
+  if (!childToken.getAddresses().isEmpty()) {
+    final String address=childToken.getAddresses().get(0);
+    cb.then(new SuccessCallback<VmRunResponseType>(){
+      @Override public void apply(      VmRunResponseType response){
+        final Address addr=Addresses.getInstance().lookup(address);
+        final VmInstance vm=VmInstances.getInstance().lookup(childToken.getInstanceIds().get(0));
+        addr.assign(vm.getInstanceId(),vm.getPrivateAddress()).getCallback().then(new SuccessCallback(){
+          public void apply(          BaseMessage response){
+            vm.updatePublicAddress(addr.getName());
+          }
+        }
+).dispatch(addr.getCluster());
+      }
+    }
+);
+  }
+  return cb;
+}
