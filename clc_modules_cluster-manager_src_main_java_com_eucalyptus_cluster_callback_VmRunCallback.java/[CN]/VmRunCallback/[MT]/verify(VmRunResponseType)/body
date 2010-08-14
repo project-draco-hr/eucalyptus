@@ -8,11 +8,42 @@
     return;
   }
   try {
-    if (reply != null && reply.get_return()) {
+    if (reply != null && !reply.getVms().isEmpty()) {
+      Set<String> liveIds=Sets.newHashSet();
       for (      VmInfo vmInfo : reply.getVms()) {
-        VmInstance vm=VmInstances.getInstance().lookup(vmInfo.getInstanceId());
-        vm.updateAddresses(vmInfo.getNetParams().getIpAddress(),vmInfo.getNetParams().getIgnoredPublicIp());
-        vm.clearPending();
+        liveIds.add(vmInfo.getInstanceId());
+        try {
+          VmInstance vm=VmInstances.getInstance().lookup(vmInfo.getInstanceId());
+          vm.updateAddresses(vmInfo.getNetParams().getIpAddress(),vmInfo.getNetParams().getIgnoredPublicIp());
+          vm.clearPending();
+        }
+ catch (        Throwable ex) {
+          Exceptions.eat("UNIDENTIFIED VM: " + vmInfo.toString());
+        }
+      }
+      Set<String> requestIds=Sets.newHashSet(token.getInstanceIds());
+      requestIds.removeAll(liveIds);
+      for (      String id : requestIds) {
+        int idx=token.getInstanceIds().indexOf(id);
+        try {
+          VmInstance vm=VmInstances.getInstance().lookup(id);
+          vm.clearPending();
+          vm.setState(VmState.TERMINATED,Reason.FAILED,"This instance failed to be run by the CC.");
+          LOG.error("Failed virtual machine: " + vm.toString());
+        }
+ catch (        Throwable ex) {
+          LOG.trace("Failed virtual machine: " + id);
+        }
+        if (idx > 0 && token.getAddresses().size() > idx) {
+          try {
+            String addr=token.getAddresses().get(idx);
+            LOG.warn("Failed virtual machine: " + id + " releasing address: "+ addr);
+            Addresses.getInstance().lookup(addr).release();
+          }
+ catch (          Throwable ex) {
+            LOG.error(ex,ex);
+          }
+        }
       }
     }
  else {
