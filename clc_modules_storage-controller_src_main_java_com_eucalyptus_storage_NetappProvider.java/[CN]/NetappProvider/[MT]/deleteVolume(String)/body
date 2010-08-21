@@ -1,0 +1,53 @@
+{
+  volumeId=sanitizeVolumeId(volumeId);
+  if (volumeExists(volumeId)) {
+    try {
+      EntityWrapper<IgroupInfo> db=StorageProperties.getEntityWrapper();
+      try {
+        IgroupInfo igroup=db.getUnique(new IgroupInfo(volumeId));
+        NaElement request=makeRequest("igroup-destroy","initiator-group-name",igroup.getiGroupName());
+        NaElement reply=execCommand(request);
+        db.delete(igroup);
+      }
+ catch (      EucalyptusCloudException ex) {
+        if (volumeId.startsWith("snap")) {
+          String groupName=null;
+          try {
+            IgroupInfo igroup=db.getUnique(new IgroupInfo(StorageProperties.NAME));
+            groupName=igroup.getiGroupName();
+          }
+ catch (          EucalyptusCloudException e) {
+            LOG.warn("Unable to find initiator group for: " + StorageProperties.NAME);
+          }
+          if (groupName != null) {
+            String lunPath="/vol/" + volumeId + "/lun1";
+            try {
+              unmapLun(lunPath,groupName);
+            }
+ catch (            EucalyptusCloudException e) {
+              LOG.warn(e);
+            }
+          }
+        }
+      }
+ finally {
+        db.commit();
+      }
+      NaElement request=makeRequest("lun-destroy","path","/vol/" + volumeId + "/lun1");
+      NaElement reply=execCommand(request);
+      request=makeRequest("volume-offline","name",volumeId);
+      reply=execCommand(request);
+      request=makeRequest("volume-destroy","name",volumeId);
+      reply=execCommand(request);
+      return true;
+    }
+ catch (    EucalyptusCloudException ex) {
+      LOG.error(ex);
+      return false;
+    }
+  }
+ else {
+    LOG.error("Volume not found: " + volumeId);
+    return true;
+  }
+}
