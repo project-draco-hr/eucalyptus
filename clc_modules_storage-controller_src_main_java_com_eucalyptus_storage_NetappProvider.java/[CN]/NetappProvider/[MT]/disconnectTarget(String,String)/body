@@ -1,0 +1,53 @@
+{
+  snapshotId=sanitizeVolumeId(snapshotId);
+  if (volumeExists(snapshotId)) {
+    String igroupName;
+    EntityWrapper<IgroupInfo> db=StorageProperties.getEntityWrapper();
+    try {
+      IgroupInfo igroup=db.getUnique(new IgroupInfo(StorageProperties.NAME));
+      igroupName=igroup.getiGroupName();
+    }
+ catch (    EucalyptusCloudException ex) {
+      LOG.error(ex);
+      throw ex;
+    }
+ finally {
+      db.commit();
+    }
+    String lunPath="/vol/" + snapshotId + "/lun1";
+    try {
+      unmapLun(lunPath,igroupName);
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error(e);
+      throw e;
+    }
+    try {
+      String encryptedPassword="not_required";
+      try {
+        SANInfo sanInfo=SANInfo.getStorageInfo();
+        String deviceString=null;
+        String[] parts=iqn.split(",");
+        if (parts.length > 1) {
+          deviceString=System.getProperty("euca.home") + "," + sanInfo.getSanHost()+ ","+ parts[0]+ ","+ encryptedPassword+ ","+ parts[1]+ ","+ StorageProperties.IscsiAuthType.HBA.toString();
+        }
+ else {
+          throw new EucalyptusCloudException("Invalid remote device string.");
+        }
+        String returnValue=SystemUtil.run(new String[]{"sudo",BaseDirectory.LIB.toString() + File.separator + "disconnect_iscsitarget_sc.pl",deviceString});
+        if (returnValue.length() == 0) {
+          throw new EucalyptusCloudException("Unable to disconnect target");
+        }
+      }
+ catch (      ExecutionException e) {
+        throw new EucalyptusCloudException("Unable to connect to storage target");
+      }
+    }
+ catch (    EucalyptusCloudException ex) {
+      throw new EucalyptusCloudException(ex);
+    }
+  }
+ else {
+    throw new EucalyptusCloudException("Snapshot not found: " + snapshotId);
+  }
+}

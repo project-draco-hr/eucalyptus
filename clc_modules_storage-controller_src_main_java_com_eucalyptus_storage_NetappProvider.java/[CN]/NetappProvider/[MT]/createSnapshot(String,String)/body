@@ -1,0 +1,104 @@
+{
+  volumeId=sanitizeVolumeId(volumeId);
+  snapshotId=sanitizeVolumeId(snapshotId);
+  if (volumeExists(volumeId)) {
+    try {
+      createCloneAndWaitForCompletion(volumeId,snapshotId);
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error("Unable to create snapshot: " + snapshotId);
+      NaElement request=makeRequest("volume-offline","name",snapshotId);
+      NaElement reply=execCommand(request);
+      request=makeRequest("volume-destroy","name",snapshotId);
+      reply=execCommand(request);
+      throw e;
+    }
+  }
+ else {
+    throw new EucalyptusCloudException("Volume not found: " + volumeId);
+  }
+  EntityWrapper<IgroupInfo> db=StorageProperties.getEntityWrapper();
+  String igroupName;
+  try {
+    IgroupInfo igroup=db.getUnique(new IgroupInfo(StorageProperties.NAME));
+    igroupName=igroup.getiGroupName();
+  }
+ catch (  EucalyptusCloudException ex) {
+    List<IgroupInfo> igroups=db.query(new IgroupInfo(StorageProperties.NAME));
+    if (igroups.size() > 1) {
+      for (      IgroupInfo igroup : igroups) {
+        try {
+          removeIgroup(igroup.getiGroupName(),true);
+        }
+ catch (        EucalyptusCloudException e) {
+          LOG.error(e);
+        }
+        db.delete(igroup);
+      }
+    }
+    igroupName="igroup" + Hashes.getRandom(16);
+    try {
+      createIgroup(igroupName);
+      try {
+        addInitiator(igroupName,StorageProperties.IQN);
+      }
+ catch (      EucalyptusCloudException e) {
+        removeInitiator(igroupName,StorageProperties.IQN);
+        removeIgroup(igroupName,true);
+      }
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error(e);
+      NaElement request=makeRequest("volume-offline","name",snapshotId);
+      NaElement reply=execCommand(request);
+      request=makeRequest("volume-destroy","name",snapshotId);
+      reply=execCommand(request);
+      db.rollback();
+      throw e;
+    }
+    IgroupInfo igroup=new IgroupInfo(igroupName,StorageProperties.NAME,StorageProperties.IQN);
+    db.add(igroup);
+  }
+ finally {
+    try {
+      db.commit();
+    }
+ catch (    Exception e) {
+      db=StorageProperties.getEntityWrapper();
+      try {
+        IgroupInfo igroup=db.getUnique(new IgroupInfo(StorageProperties.NAME));
+        igroupName=igroup.getiGroupName();
+        LOG.info("Got igroup: " + igroupName);
+        db.commit();
+      }
+ catch (      EucalyptusCloudException ex) {
+        db.rollback();
+        LOG.error("Unable to get initiator group for: " + StorageProperties.NAME);
+        throw ex;
+      }
+    }
+  }
+  String lunPath="/vol/" + snapshotId + "/lun1";
+  try {
+    NaElement request=makeRequest("lun-online","path",lunPath);
+    NaElement reply=execCommand(request);
+    int lun=mapLun(lunPath,igroupName);
+    String iqn=targetIqn + "," + lun;
+    checkAddInitiatorAuth(StorageProperties.IQN);
+    return iqn;
+  }
+ catch (  EucalyptusCloudException e) {
+    LOG.error(e);
+    try {
+      unmapLun(lunPath,igroupName);
+    }
+ catch (    EucalyptusCloudException ex) {
+      LOG.warn(ex);
+    }
+    NaElement request=makeRequest("volume-offline","name",snapshotId);
+    NaElement reply=execCommand(request);
+    request=makeRequest("volume-destroy","name",snapshotId);
+    reply=execCommand(request);
+    throw e;
+  }
+}

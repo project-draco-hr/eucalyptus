@@ -1,0 +1,37 @@
+{
+  volumeId=sanitizeVolumeId(volumeId);
+  snapshotId=sanitizeVolumeId(snapshotId);
+  if (volumeExists(snapshotId)) {
+    EntityWrapper<IgroupInfo> db=StorageProperties.getEntityWrapper();
+    String groupName=null;
+    try {
+      IgroupInfo igroup=db.getUnique(new IgroupInfo(StorageProperties.NAME));
+      groupName=igroup.getiGroupName();
+    }
+ catch (    EucalyptusCloudException ex) {
+      LOG.error("Unable to find initiator group for: " + StorageProperties.NAME);
+    }
+ finally {
+      db.commit();
+    }
+    String lunPath="/vol/" + snapshotId + "/lun1";
+    try {
+      unmapLun(lunPath,groupName);
+      NaElement request=makeRequest("lun-destroy","path",lunPath);
+      NaElement reply=execCommand(request);
+      request=makeRequest("volume-offline","name",snapshotId);
+      reply=execCommand(request);
+      request=makeRequest("volume-destroy","name",snapshotId);
+      reply=execCommand(request);
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error(e);
+      return false;
+    }
+    return true;
+  }
+ else {
+    LOG.error("Snapshot not found: " + snapshotId);
+    return true;
+  }
+}
