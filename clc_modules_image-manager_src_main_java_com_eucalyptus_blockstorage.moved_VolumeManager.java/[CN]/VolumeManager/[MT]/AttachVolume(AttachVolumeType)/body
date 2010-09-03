@@ -1,0 +1,64 @@
+{
+  AttachVolumeResponseType reply=(AttachVolumeResponseType)request.getReply();
+  if (request.getDevice() == null || request.getDevice().endsWith("sda")) {
+    throw new EucalyptusCloudException("Invalid device name specified: " + request.getDevice());
+  }
+  VmInstance vm=null;
+  try {
+    vm=VmInstances.getInstance().lookup(request.getInstanceId());
+  }
+ catch (  NoSuchElementException e) {
+    LOG.debug(e,e);
+    throw new EucalyptusCloudException("Instance does not exist: " + request.getInstanceId());
+  }
+  for (  AttachedVolume attachedVol : vm.getVolumes()) {
+    if (attachedVol.getDevice().replaceAll("unknown,requested:","").equals(request.getDevice())) {
+      throw new EucalyptusCloudException("Already have a device attached to: " + request.getDevice());
+    }
+  }
+  Cluster cluster=null;
+  try {
+    cluster=Clusters.getInstance().lookup(vm.getPlacement());
+  }
+ catch (  NoSuchElementException e) {
+    LOG.debug(e,e);
+    throw new EucalyptusCloudException("Cluster does not exist: " + vm.getPlacement());
+  }
+  for (  VmInstance v : VmInstances.getInstance().listValues()) {
+    for (    AttachedVolume vol : v.getVolumes()) {
+      if (vol.getVolumeId().equals(request.getVolumeId())) {
+        throw new EucalyptusCloudException("Volume already attached: " + request.getVolumeId());
+      }
+    }
+  }
+  EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
+  String userName=request.isAdministrator() ? null : request.getUserId();
+  Volume volume=null;
+  try {
+    volume=db.getUnique(Volume.named(userName,request.getVolumeId()));
+    if (volume.getRemoteDevice() == null) {
+      StorageUtil.getVolumeReply(new HashMap<String,AttachedVolume>(),Lists.newArrayList(volume));
+    }
+    db.commit();
+  }
+ catch (  EucalyptusCloudException e) {
+    LOG.debug(e,e);
+    db.rollback();
+    throw new EucalyptusCloudException("Volume does not exist: " + request.getVolumeId());
+  }
+  if (!volume.getCluster().equals(cluster.getName())) {
+    throw new EucalyptusCloudException("Can only attach volumes in the same cluster: " + request.getVolumeId());
+  }
+ else   if ("invalid".equals(volume.getRemoteDevice())) {
+    throw new EucalyptusCloudException("Volume is not yet available: " + request.getVolumeId());
+  }
+  request.setRemoteDevice(volume.getRemoteDevice());
+  new VolumeAttachCallback(request).dispatch(cluster);
+  AttachedVolume attachVol=new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice(),volume.getRemoteDevice());
+  attachVol.setStatus("attaching");
+  vm.getVolumes().add(attachVol);
+  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH,"user=" + volume.getUserName(),"volume=" + volume.getDisplayName(),"instance=" + vm.getInstanceId(),"cluster=" + vm.getPlacement()).info();
+  volume.setState(State.BUSY);
+  reply.setAttachedVolume(attachVol);
+  return reply;
+}

@@ -1,0 +1,36 @@
+{
+  DescribeVolumesResponseType reply=(DescribeVolumesResponseType)request.getReply();
+  EntityWrapper<Volume> db=getEntityWrapper();
+  try {
+    String userName=request.isAdministrator() ? null : request.getUserId();
+    Map<String,AttachedVolume> attachedVolumes=new HashMap<String,AttachedVolume>();
+    for (    VmInstance vm : VmInstances.getInstance().listValues()) {
+      for (      AttachedVolume av : vm.getVolumes()) {
+        attachedVolumes.put(av.getVolumeId(),av);
+      }
+    }
+    List<Volume> volumes=db.query(Volume.ownedBy(userName));
+    List<Volume> describeVolumes=Lists.newArrayList();
+    for (    Volume v : volumes) {
+      if (!State.ANNIHILATED.equals(v.getState())) {
+        describeVolumes.add(v);
+      }
+ else {
+        db.delete(v);
+      }
+    }
+    try {
+      ArrayList<edu.ucsb.eucalyptus.msgs.Volume> volumeReplyList=StorageUtil.getVolumeReply(attachedVolumes,describeVolumes);
+      reply.getVolumeSet().addAll(volumeReplyList);
+    }
+ catch (    Exception e) {
+      LOG.warn("Error getting volume information from the Storage Controller: " + e);
+      LOG.debug(e,e);
+    }
+    db.commit();
+  }
+ catch (  Throwable t) {
+    db.commit();
+  }
+  return reply;
+}

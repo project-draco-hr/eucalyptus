@@ -2,18 +2,12 @@
   if ((request.getSnapshotId() == null && request.getSize() == null)) {
     throw new EucalyptusCloudException("One of size or snapshotId is required as a parameter.");
   }
+  StorageControllerConfiguration sc=Configuration.lookupScHack(request.getAvailabilityZone());
   try {
-    Configuration.getClusterConfiguration(request.getAvailabilityZone());
+    User u=Users.lookupUser(request.getUserId());
   }
- catch (  Exception e) {
-    throw new EucalyptusCloudException("Zone does not exist: " + request.getAvailabilityZone(),e);
-  }
-  StorageControllerConfiguration sc;
-  try {
-    sc=Configuration.getStorageControllerConfiguration(request.getAvailabilityZone());
-  }
- catch (  Exception e) {
-    throw new EucalyptusCloudException("Storage services are not available for the requested availability zone.",e);
+ catch (  NoSuchUserException e) {
+    throw new EucalyptusCloudException("Failed to lookup your user information.",e);
   }
   EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
   if (request.getSnapshotId() != null) {
@@ -53,7 +47,7 @@
     req.setUserId(request.getUserId());
     req.setEffectiveUserId(request.getEffectiveUserId());
     StorageUtil.send(sc.getName(),req);
-    EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_CREATE,"user=" + newVol.getUserName(),"volume=" + newVol.getDisplayName(),"size=" + newVol.getSize(),"cluster=" + newVol.getCluster(),"snapshot=" + newVol.getParentSnapshot()).info();
+    EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_CREATE).withDetails(newVol.getUserName(),newVol.getDisplayName(),"size",newVol.getSize().toString()).withDetails("cluster",newVol.getCluster()).withDetails("snapshot",newVol.getParentSnapshot()).info();
   }
  catch (  EucalyptusCloudException e) {
     LOG.debug(e,e);
