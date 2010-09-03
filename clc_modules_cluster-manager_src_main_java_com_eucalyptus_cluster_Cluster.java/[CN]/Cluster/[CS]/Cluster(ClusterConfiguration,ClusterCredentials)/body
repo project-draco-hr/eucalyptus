@@ -5,6 +5,27 @@
   this.nodeState=new ClusterNodeState(configuration.getName());
   this.nodeMap=new ConcurrentSkipListMap<String,NodeInfo>();
   this.credentials=credentials;
-  this.mq=new ClusterMessageQueue(configuration.getName());
-  this.threadFactory=ClusterThreadFactory.getThreadFactory(this.configuration.getName());
+  this.threadFactory=Threads.lookup("cluster-" + this.getName());
+  this.stateMachine=new StateMachineBuilder<Cluster,State,Transition>(this,State.DOWN){
+{
+      in(State.DOWN).run(new Callback<State>(){
+        @Override public void fire(        State t){
+          Cluster.this.transition(Transition.START);
+        }
+      }
+);
+      in(State.AUTHENTICATING).run(new Callback<State>(){
+        @Override public void fire(        State t){
+          Cluster.this.transition(Transition.INIT_CERTS);
+        }
+      }
+);
+      on(Transition.START).from(State.DOWN).to(State.AUTHENTICATING).noop();
+      on(Transition.INIT_CERTS).from(State.AUTHENTICATING).to(State.STARTING).error(State.DOWN).run(newRefresh(ClusterCertsCallback.class));
+      on(Transition.INIT_STATE).from(State.STARTING).to(State.RUNNING).error(State.DOWN).run(newRefresh(ResourceStateCallback.class),newRefresh(NetworkStateCallback.class),newRefresh(VmStateCallback.class),newRefresh(PublicAddressStateCallback.class),newRefresh(VmStateCallback.class),newRefresh(PublicAddressStateCallback.class));
+      on(Transition.UPDATE).from(State.RUNNING).to(State.RUNNING).error(State.DOWN).run(newRefresh(ResourceStateCallback.class),newRefresh(NetworkStateCallback.class),newRefresh(VmStateCallback.class),newRefresh(PublicAddressStateCallback.class));
+      on(Transition.ENABLE).from(State.DISABLED).to(State.DOWN).noop();
+    }
+  }
+.newAtomicState();
 }

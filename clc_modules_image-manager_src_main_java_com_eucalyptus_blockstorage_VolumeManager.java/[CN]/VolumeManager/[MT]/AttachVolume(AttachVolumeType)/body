@@ -46,15 +46,39 @@
     db.rollback();
     throw new EucalyptusCloudException("Volume does not exist: " + request.getVolumeId());
   }
-  if (!volume.getCluster().equals(cluster.getName())) {
+  StorageControllerConfiguration sc;
+  try {
+    sc=Configuration.lookupScHack(volume.getCluster());
+  }
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+    throw new EucalyptusCloudException("Failed to lookup SC for volume: " + volume,ex);
+  }
+  StorageControllerConfiguration scVm;
+  try {
+    scVm=Configuration.lookupScHack(cluster.getName());
+  }
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+    throw new EucalyptusCloudException("Failed to lookup SC for cluster: " + cluster,ex);
+  }
+  if (!sc.equals(scVm)) {
     throw new EucalyptusCloudException("Can only attach volumes in the same cluster: " + request.getVolumeId());
   }
  else   if ("invalid".equals(volume.getRemoteDevice())) {
     throw new EucalyptusCloudException("Volume is not yet available: " + request.getVolumeId());
   }
-  request.setRemoteDevice(volume.getRemoteDevice());
-  new VolumeAttachCallback(request).dispatch(cluster);
-  AttachedVolume attachVol=new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice(),volume.getRemoteDevice());
+  AttachStorageVolumeResponseType scAttachResponse;
+  try {
+    scAttachResponse=StorageUtil.send(sc.getName(),new AttachStorageVolumeType(cluster.getNode(vm.getServiceTag()).getIqn(),volume.getDisplayName()));
+  }
+ catch (  Exception e) {
+    LOG.debug(e,e);
+    throw new EucalyptusCloudException(e.getMessage());
+  }
+  request.setRemoteDevice(scAttachResponse.getRemoteDeviceString());
+  Callbacks.newClusterRequest(new VolumeAttachCallback(request)).dispatch(cluster.getServiceEndpoint());
+  AttachedVolume attachVol=new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice(),request.getRemoteDevice());
   attachVol.setStatus("attaching");
   vm.getVolumes().add(attachVol);
   EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getUserName(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("cluster",vm.getPlacement());

@@ -13,18 +13,39 @@
     }
     VmImageInfo imgInfo=null;
     try {
-      imgInfo=(VmImageInfo)Messaging.send("vm://ImageResolve",runVm);
+      imgInfo=resolveImage(runVm);
     }
  catch (    EucalyptusCloudException e) {
       imgInfo=new VmImageInfo(runVm.getImageId(),runVm.getKernelId(),runVm.getRamdiskId(),null,null,null,null,runVm.getPlatform());
     }
     VmKeyInfo keyInfo=null;
-    try {
-      keyInfo=(VmKeyInfo)Messaging.send("vm://KeyPairResolve",runVm);
+    SshKeyPair key=null;
+    if (runVm.getKeyValue() != null || !"".equals(runVm.getKeyValue())) {
+      try {
+        EntityWrapper<SshKeyPair> db=EntityWrapper.get(SshKeyPair.class);
+        try {
+          SshKeyPair searchKey=new SshKeyPair(runVm.getOwnerId()){
+{
+              setPublicKey(runVm.getKeyValue());
+            }
+          }
+;
+          key=db.getUnique(searchKey);
+          db.commit();
+        }
+ catch (        Throwable e) {
+          db.rollback();
+          throw new EucalyptusCloudException("Failed to find key pair associated with public key " + runVm.getKeyValue(),e);
+        }
+      }
+ catch (      Throwable e) {
+        key=SshKeyPair.NO_KEY;
+      }
     }
- catch (    EucalyptusCloudException e) {
-      keyInfo=new VmKeyInfo("unknown",runVm.getKeyValue(),null);
+ else {
+      key=SshKeyPair.NO_KEY;
     }
+    keyInfo=new VmKeyInfo(key.getDisplayName(),key.getPublicKey(),key.getFingerPrint());
     VmTypeInfo vmType=runVm.getInstanceType();
     List<Network> networks=new ArrayList<Network>();
     for (    String netName : runVm.getGroupNames()) {
@@ -52,7 +73,7 @@
  catch (        EucalyptusCloudException e) {
           LOG.error(e);
           ClusterConfiguration config=Clusters.getInstance().lookup(runVm.getPlacement()).getConfiguration();
-          new TerminateCallback(runVm.getInstanceId()).dispatch(runVm.getPlacement());
+          Callbacks.newClusterRequest(new TerminateCallback(runVm.getInstanceId())).dispatch(runVm.getPlacement());
         }
 catch (        NetworkAlreadyExistsException e) {
           LOG.trace(e);
@@ -69,6 +90,9 @@ catch (        NetworkAlreadyExistsException e) {
   }
  catch (  NoSuchElementException e) {
     ClusterConfiguration config=Clusters.getInstance().lookup(runVm.getPlacement()).getConfiguration();
-    new TerminateCallback(runVm.getInstanceId()).dispatch(runVm.getPlacement());
+    Callbacks.newClusterRequest(new TerminateCallback(runVm.getInstanceId())).dispatch(runVm.getPlacement());
+  }
+catch (  Throwable t) {
+    LOG.error(t,t);
   }
 }
