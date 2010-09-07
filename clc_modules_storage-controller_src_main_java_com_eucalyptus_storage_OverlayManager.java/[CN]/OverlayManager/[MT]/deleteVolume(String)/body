@@ -8,24 +8,14 @@
     String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
     volumeManager.unexportVolume(foundLVMVolumeInfo);
     try {
-      String returnValue=removeLogicalVolume(absoluteLVName);
-      if (returnValue.length() == 0) {
-        throw new EucalyptusCloudException("Unable to remove logical volume " + absoluteLVName);
+      String returnValue;
+      deleteLogicalVolume(loDevName,vgName,absoluteLVName);
+      removeLoopback(loDevName);
+      if (getLoopback(loDevName).length() != 0) {
+        throw new EucalyptusCloudException("Unable to remove loopback device: " + loDevName);
       }
-      returnValue=removeVolumeGroup(vgName);
-      if (returnValue.length() == 0) {
-        throw new EucalyptusCloudException("Unable to remove volume group " + vgName);
-      }
-      returnValue=removePhysicalVolume(loDevName);
-      if (returnValue.length() == 0) {
-        throw new EucalyptusCloudException("Unable to remove physical volume " + loDevName);
-      }
-      returnValue=removeLoopback(loDevName);
-      File rawFile=new File(DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId);
-      if (rawFile.exists()) {
-        if (!rawFile.delete()) {
-          throw new EucalyptusCloudException("Unable to delete: " + rawFile.getAbsolutePath());
-        }
+ else {
+        LOG.info(loDevName + "was removed.");
       }
       volumeManager.remove(foundLVMVolumeInfo);
       volumeManager.finish();
@@ -35,6 +25,10 @@
       String error="Unable to run command: " + ex.getMessage();
       LOG.error(error);
       throw new EucalyptusCloudException(error);
+    }
+catch (    EucalyptusCloudException ex) {
+      volumeManager.abort();
+      throw ex;
     }
   }
  else {
