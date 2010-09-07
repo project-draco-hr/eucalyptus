@@ -1,0 +1,27 @@
+{
+  if (!enabled) {
+    checkConnection();
+    if (!enabled) {
+      throw new EucalyptusCloudException("Unable to create user " + TARGET_USERNAME + " on target. Will not run command. ");
+    }
+  }
+  if (volumeExists(volumeId)) {
+    throw new EucalyptusCloudException("Volume already exists: " + volumeId);
+  }
+  String returnValue=execCommand("stty hardwrap off\rvolume select " + snapshotId + " offline\rvolume select "+ snapshotId+ " clone "+ volumeId+ "\r");
+  String targetName=matchPattern(returnValue,VOLUME_CREATE_PATTERN);
+  if (targetName != null) {
+    int sizeDiff=size - snapSize;
+    if (sizeDiff > 0) {
+      returnValue=execCommand("stty hardwrap off\rvolume select " + volumeId + " size "+ (size * StorageProperties.KB)+ "\r");
+      if (returnValue.length() == 0) {
+        throw new EucalyptusCloudException("Unable to resize volume: " + volumeId);
+      }
+    }
+    returnValue=execCommand("volume select " + volumeId + " access create username "+ TARGET_USERNAME+ "\r");
+    if (returnValue.length() == 0) {
+      throw new EucalyptusCloudException("Unable to set access for volume: " + volumeId);
+    }
+  }
+  return targetName;
+}

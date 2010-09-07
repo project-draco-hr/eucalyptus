@@ -1,0 +1,45 @@
+{
+  volumeId=sanitizeVolumeId(volumeId);
+  snapshotId=sanitizeVolumeId(snapshotId);
+  int sizeDiff=size - snapSize;
+  if (volumeExists(snapshotId)) {
+    try {
+      createCloneAndWaitForCompletion(snapshotId,volumeId);
+      if (sizeDiff > 0) {
+        NaElement request=makeRequest("volume-size","volume",volumeId,"new-size",size + "g");
+        NaElement reply=execCommand(request);
+      }
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error("Unable to create volume: " + volumeId + " "+ e);
+      NaElement request=makeRequest("volume-offline","name",volumeId);
+      NaElement reply=execCommand(request);
+      request=makeRequest("volume-destroy","name",volumeId);
+      reply=execCommand(request);
+      throw e;
+    }
+    try {
+      NaElement request=makeRequest("snapshot-set-reserve","percentage","0","volume",volumeId);
+      NaElement reply=execCommand(request);
+      long lun_size=(long)((size * StorageProperties.GB) - (size * StorageProperties.GB * META_OVERHEAD));
+      if (sizeDiff > 0) {
+        request=makeRequest("lun-resize","path","/vol/" + volumeId + "/lun1","size",String.valueOf(lun_size));
+        reply=execCommand(request);
+      }
+      request=makeRequest("lun-online","path","/vol/" + volumeId + "/lun1");
+      reply=execCommand(request);
+      return targetIqn;
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error("Unable to create lun for volume: " + volumeId);
+      NaElement request=makeRequest("volume-offline","name",volumeId);
+      NaElement reply=execCommand(request);
+      request=makeRequest("volume-destroy","name",volumeId);
+      reply=execCommand(request);
+      throw e;
+    }
+  }
+ else {
+    throw new EucalyptusCloudException("Snapshot " + snapshotId + " not found");
+  }
+}

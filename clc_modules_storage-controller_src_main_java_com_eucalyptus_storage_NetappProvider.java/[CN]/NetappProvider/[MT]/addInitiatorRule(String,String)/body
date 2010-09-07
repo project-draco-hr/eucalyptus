@@ -1,0 +1,49 @@
+{
+  if (nodeIqn != null) {
+    volumeId=sanitizeVolumeId(volumeId);
+    EntityWrapper<IgroupInfo> db=StorageProperties.getEntityWrapper();
+    String igroupName;
+    try {
+      IgroupInfo igroup=db.getUnique(new IgroupInfo(volumeId));
+      igroupName=igroup.getiGroupName();
+      addInitiator(igroup.getiGroupName(),nodeIqn);
+      igroup.setIqn(nodeIqn);
+    }
+ catch (    EucalyptusCloudException ex) {
+      List<IgroupInfo> igroups=db.query(new IgroupInfo(volumeId));
+      if (igroups.size() > 1) {
+        for (        IgroupInfo igroup : igroups) {
+          try {
+            removeIgroup(igroup.getiGroupName(),true);
+          }
+ catch (          EucalyptusCloudException e) {
+            LOG.error(e);
+          }
+          db.delete(igroup);
+        }
+      }
+      igroupName="igroup" + Hashes.getRandom(16);
+      createIgroup(igroupName);
+      try {
+        addInitiator(igroupName,nodeIqn);
+        IgroupInfo igroup=new IgroupInfo(igroupName,volumeId,nodeIqn);
+        db.add(igroup);
+      }
+ catch (      EucalyptusCloudException e) {
+        removeInitiator(igroupName,nodeIqn);
+        removeIgroup(igroupName,true);
+      }
+    }
+ finally {
+      db.commit();
+    }
+    volumeId=sanitizeVolumeId(volumeId);
+    String lunPath="/vol/" + volumeId + "/lun1";
+    int lun=mapLun(lunPath,igroupName);
+    addInitiatorAuth(nodeIqn);
+    return lun;
+  }
+ else {
+    throw new EucalyptusCloudException("addInitiatorRule: IQN is null. Cannot proceed.");
+  }
+}
