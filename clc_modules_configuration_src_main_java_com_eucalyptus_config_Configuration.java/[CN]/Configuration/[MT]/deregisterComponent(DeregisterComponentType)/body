@@ -2,28 +2,47 @@
   DeregisterComponentResponseType reply=(DeregisterComponentResponseType)request.getReply();
   reply.set_return(false);
   ServiceBuilder builder=builders.get(request.getClass());
+  LOG.info("Using builder: " + builder.getClass().getSimpleName());
   try {
     if (!builder.checkRemove(request.getName())) {
+      LOG.info(builder.getClass().getSimpleName() + ": checkRemove failed.");
       return reply;
     }
   }
  catch (  Exception e) {
+    LOG.info(builder.getClass().getSimpleName() + ": checkRemove failed.");
     throw new ServiceRegistrationException(e.getMessage(),e);
   }
   ServiceConfiguration conf;
   try {
     conf=builder.lookupByName(request.getName());
-    builder.fireStop(conf);
-    builder.getComponent().removeService(conf);
+  }
+ catch (  ServiceRegistrationException e) {
+    LOG.info(builder.getClass().getSimpleName() + ": lookupByName failed.");
+    LOG.error(e,e);
+    return reply;
+  }
+  try {
+    try {
+      builder.getComponent().removeService(conf);
+    }
+ catch (    Throwable ex) {
+      LOG.error(ex,ex);
+    }
     builder.remove(conf);
     reply.set_return(true);
   }
  catch (  EucalyptusCloudException e) {
-    LOG.debug(e,e);
+    LOG.info(builder.getClass().getSimpleName() + ": remove failed.");
+    LOG.info(e.getMessage());
+    LOG.error(e,e);
     throw e;
   }
-catch (  Exception e) {
-    LOG.debug(e,e);
+catch (  Throwable e) {
+    LOG.info(builder.getClass().getSimpleName() + ": remove failed.");
+    LOG.info(e.getMessage());
+    LOG.error(e,e);
+    throw new ServiceRegistrationException(e);
   }
   return reply;
 }

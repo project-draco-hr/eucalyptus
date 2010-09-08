@@ -38,12 +38,27 @@
     LOG.debug(e,e);
     throw new EucalyptusCloudException("Cluster does not exist: " + vm.getPlacement());
   }
+  StorageControllerConfiguration scVm;
+  try {
+    scVm=Configuration.lookupSc(cluster.getName());
+  }
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+    throw new EucalyptusCloudException("Failed to lookup SC for cluster: " + cluster,ex);
+  }
+  try {
+    StorageUtil.send(scVm.getName(),new DetachStorageVolumeType(cluster.getNode(vm.getServiceTag()).getIqn(),volume.getVolumeId()));
+  }
+ catch (  Exception e) {
+    LOG.debug(e,e);
+    throw new EucalyptusCloudException(e.getMessage());
+  }
   request.setVolumeId(volume.getVolumeId());
   request.setRemoteDevice(volume.getRemoteDevice());
   request.setDevice(volume.getDevice().replaceAll("unknown,requested:",""));
   request.setInstanceId(vm.getInstanceId());
-  new VolumeDetachCallback(request).dispatch(cluster);
-  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_DETACH).withDetails(vm.getOwnerId(),volume.getVolumeId(),"instance",vm.getInstanceId()).withDetails("cluster",vm.getPlacement());
+  Callbacks.newClusterRequest(new VolumeDetachCallback(request)).dispatch(cluster.getServiceEndpoint());
+  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_DETACH).withDetails(vm.getOwnerId(),volume.getVolumeId(),"instance",vm.getInstanceId()).withDetails("cluster",vm.getPlacement()).info();
   volume.setStatus("detaching");
   reply.setDetachedVolume(volume);
   return reply;
