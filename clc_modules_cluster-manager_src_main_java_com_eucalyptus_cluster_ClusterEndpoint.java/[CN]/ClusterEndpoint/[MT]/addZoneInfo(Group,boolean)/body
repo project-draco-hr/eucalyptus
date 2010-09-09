@@ -1,0 +1,40 @@
+{
+  List<ClusterInfoType> info=new ArrayList<ClusterInfoType>();
+  Iterable<String> clusterNames=Iterables.transform(g.getAuthorizations(),new Function<Authorization,String>(){
+    @Override public String apply(    Authorization arg0){
+      return arg0.getValue();
+    }
+  }
+);
+  info.add(new ClusterInfoType(g.getName(),clusterNames.toString()));
+  if (verbose) {
+    Map<String,Integer> avail=Maps.newHashMap();
+    Map<String,Integer> max=Maps.newHashMap();
+    for (    Cluster cluster : Iterables.transform(clusterNames,new Function<String,Cluster>(){
+      public Cluster apply(      String arg0){
+        return Clusters.getInstance().lookup(arg0);
+      }
+    }
+)) {
+      try {
+        info.add(s(cluster.getName(),cluster.getHostName()));
+        info.add(new ClusterInfoType(String.format(INFO_FSTRING,"vm types"),HEADER_STRING));
+        for (        VmType v : VmTypes.list()) {
+          VmTypeAvailability va=cluster.getNodeState().getAvailability(v.getName());
+          avail.put(v.getName(),!avail.containsKey(v.getName()) ? va.getAvailable() : va.getAvailable() + avail.get(v.getName()));
+          max.put(v.getName(),!max.containsKey(v.getName()) ? va.getMax() : va.getMax() + max.get(v.getName()));
+          info.add(s(v.getName(),String.format(STATE_FSTRING,va.getAvailable(),va.getMax(),v.getCpu(),v.getMemory(),v.getDisk())));
+        }
+      }
+ catch (      Exception e) {
+        LOG.error(e,e);
+      }
+    }
+    info.add(s(g.getName(),"totals"));
+    info.add(new ClusterInfoType(String.format(INFO_FSTRING,"vm types"),HEADER_STRING));
+    for (    VmType v : VmTypes.list()) {
+      info.add(s(v.getName(),String.format(STATE_FSTRING,avail.get(v.getName()),max.get(v.getName()),v.getCpu(),v.getMemory(),v.getDisk())));
+    }
+  }
+  return info;
+}

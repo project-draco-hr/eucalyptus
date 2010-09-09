@@ -1,0 +1,57 @@
+{
+  if (topoString.get() != null && (lastTime + (10 * 1000l)) > System.currentTimeMillis()) {
+    return topoString.get();
+  }
+ else {
+    lock.lock();
+    try {
+      if (topoString.get() != null && (lastTime + (10 * 1000l)) > System.currentTimeMillis()) {
+        return topoString.get();
+      }
+ else {
+        lastTime=System.currentTimeMillis();
+        StringBuilder buf=new StringBuilder();
+        Multimap<String,String> networks=Multimaps.newArrayListMultimap();
+        Multimap<String,String> rules=Multimaps.newArrayListMultimap();
+        for (        VmInstance vm : VmInstances.getInstance().listValues()) {
+          Network network=vm.getNetworks().get(0);
+          try {
+            network=NetworkGroupUtil.getUserNetworkRulesGroup(network.getUserName(),network.getNetworkName()).getVmNetwork();
+          }
+ catch (          EucalyptusCloudException e) {
+            LOG.error(e,e);
+          }
+          networks.put(network.getName(),vm.getPrivateAddress());
+          if (!rules.containsKey(network.getName())) {
+            for (            PacketFilterRule pf : network.getRules()) {
+              String rule=String.format("-P %s -%s %d%s%d ",pf.getProtocol(),("icmp".equals(pf.getProtocol()) ? "t" : "p"),pf.getPortMin(),("icmp".equals(pf.getProtocol()) ? ":" : "-"),pf.getPortMax());
+              for (              VmNetworkPeer peer : pf.getPeers()) {
+                rules.put(network.getName(),String.format("%s -o %s -u %s",rule,peer.getSourceNetworkName(),peer.getUserName()));
+              }
+              for (              String cidr : pf.getSourceCidrs()) {
+                rules.put(network.getName(),String.format("%s -s %s",rule,cidr));
+              }
+            }
+          }
+        }
+        for (        String networkName : rules.keySet()) {
+          for (          String rule : rules.get(networkName)) {
+            buf.append("RULE ").append(networkName).append(" ").append(rule).append("\n");
+          }
+        }
+        for (        String networkName : networks.keySet()) {
+          buf.append("GROUP ").append(networkName);
+          for (          String ip : networks.get(networkName)) {
+            buf.append(" ").append(ip);
+          }
+          buf.append("\n");
+        }
+        topoString.set(buf.toString());
+      }
+      return topoString.get();
+    }
+  finally {
+      lock.unlock();
+    }
+  }
+}

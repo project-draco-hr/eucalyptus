@@ -1,13 +1,37 @@
 {
-  if (clusterName != null && !"default".equals(clusterName)) {
+  if ("default".equals(clusterName)) {
+    Group group=Contexts.lookup().getGroups().get(0);
+    Iterable<Cluster> authorizedClusters=Iterables.filter(Clusters.getInstance().listValues(),new Predicate<Cluster>(){
+      @Override public boolean apply(      final Cluster c){
+        return Iterables.any(Contexts.lookup().getAuthorizations(),new Predicate<Authorization>(){
+          @Override public boolean apply(          Authorization arg0){
+            return arg0.check(new AvailabilityZonePermission(c.getName()));
+          }
+        }
+);
+      }
+    }
+);
+    Multimap<VmTypeAvailability,Cluster> sorted=Multimaps.newTreeMultimap();
+    for (    Cluster c : authorizedClusters) {
+      sorted.put(c.getNodeState().getAvailability(vmTypeName),c);
+    }
+    if (sorted.isEmpty()) {
+      throw new NotEnoughResourcesAvailable("Not enough resources: no cluster is available on which you have permissions to run instances.");
+    }
+ else {
+      return Lists.newArrayList(sorted.values());
+    }
+  }
+ else {
     final Cluster cluster=Clusters.getInstance().lookup(clusterName);
     if (Iterables.any(Contexts.lookup().getAuthorizations(),new Predicate<Authorization>(){
       @Override public boolean apply(      Authorization arg0){
-        return arg0.check(cluster);
+        return arg0.check(new AvailabilityZonePermission(cluster.getName()));
       }
     }
 )) {
-      return cluster;
+      return Lists.newArrayList(cluster);
     }
  else {
       if (Clusters.getInstance().contains(clusterName)) {
@@ -16,29 +40,6 @@
  else {
         throw new NotEnoughResourcesAvailable("Not enough resources: request cluster does not exist " + clusterName);
       }
-    }
-  }
- else {
-    Iterable<Cluster> authorizedClusters=Iterables.filter(Clusters.getInstance().listValues(),new Predicate<Cluster>(){
-      @Override public boolean apply(      final Cluster c){
-        return Iterables.any(Contexts.lookup().getAuthorizations(),new Predicate<Authorization>(){
-          @Override public boolean apply(          Authorization arg0){
-            return arg0.check(c);
-          }
-        }
-);
-      }
-    }
-);
-    NavigableMap<VmTypeAvailability,Cluster> sorted=Maps.newTreeMap();
-    for (    Cluster c : authorizedClusters) {
-      sorted.put(c.getNodeState().getAvailability(vmTypeName),c);
-    }
-    if (sorted.isEmpty()) {
-      throw new NotEnoughResourcesAvailable("Not enough resources: no cluster is available on which you have permissions to run instances.");
-    }
- else {
-      return sorted.firstEntry().getValue();
     }
   }
 }

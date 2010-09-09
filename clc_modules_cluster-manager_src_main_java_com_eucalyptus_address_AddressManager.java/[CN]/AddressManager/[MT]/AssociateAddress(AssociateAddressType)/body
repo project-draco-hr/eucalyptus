@@ -9,11 +9,13 @@
   final boolean oldAddrSystem=oldAddr != null ? oldAddr.isSystemOwned() : false;
   reply.set_return(true);
   final UnconditionalCallback assignTarget=new UnconditionalCallback(){
-    public void apply(){
-      AddressCategory.assign(address,vm).dispatch(address.getCluster());
-      if (oldAddrSystem) {
-        Addresses.getAddressManager().releaseSystemAddress(oldAddr);
+    public void fire(){
+      Callbacks.newClusterRequest(address.assign(vm).getCallback()).then(new Callback.Success<BaseMessage>(){
+        public void fire(        BaseMessage response){
+          vm.updatePublicAddress(address.getName());
+        }
       }
+).dispatch(address.getCluster());
       if (oldVm != null) {
         Addresses.system(oldVm);
       }
@@ -21,21 +23,21 @@
   }
 ;
   final UnconditionalCallback unassignBystander=new UnconditionalCallback(){
-    public void apply(){
+    public void fire(){
       if (oldAddr != null) {
-        AddressCategory.unassign(oldAddr).then(assignTarget).dispatch(oldAddr.getCluster());
+        Callbacks.newClusterRequest(oldAddr.unassign().getCallback()).then(assignTarget).dispatch(oldAddr.getCluster());
       }
  else {
-        assignTarget.apply();
+        assignTarget.fire();
       }
     }
   }
 ;
   if (address.isAssigned()) {
-    address.unassign().getCallback().then(unassignBystander).dispatch(oldAddr.getCluster());
+    Callbacks.newClusterRequest(address.unassign().getCallback()).then(unassignBystander).dispatch(address.getCluster());
   }
  else {
-    unassignBystander.apply();
+    unassignBystander.fire();
   }
   return reply;
 }

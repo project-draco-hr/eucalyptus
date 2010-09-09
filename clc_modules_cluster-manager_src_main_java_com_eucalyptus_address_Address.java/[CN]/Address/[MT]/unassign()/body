@@ -1,19 +1,26 @@
 {
-  this.transition(State.assigned,State.allocated,false,true,new SplitTransition(Transition.unassigning){
+  SplitTransition unassign=new SplitTransition(Transition.unassigning){
     public void top(){
       String userId=Address.this.userId;
       try {
         VmInstance vm=VmInstances.getInstance().lookup(Address.this.getInstanceId());
+        EventRecord.here(Address.class,EventClass.ADDRESS,EventType.ADDRESS_UNASSIGNING).withDetails(vm.getOwnerId(),Address.this.getName(),"instanceid",vm.getInstanceId()).withDetails("type",Address.this.isSystemOwned() ? "SYSTEM" : "USER").withDetails("cluster",Address.this.getCluster()).info();
       }
  catch (      NoSuchElementException e) {
       }
-      EventRecord.here(Address.class,EventClass.ADDRESS,EventType.ADDRESS_ASSIGN).withDetails(userId,Address.this.name,"instance",Address.this.instanceId).withDetails("instance-address",Address.this.instanceAddress).withDetails("type",Address.this.isSystemOwned() ? "SYSTEM" : "USER");
+      EventRecord.here(Address.class,EventClass.ADDRESS,EventType.ADDRESS_ASSIGN).withDetails(userId,Address.this.name,"instance",Address.this.instanceId).withDetails("instance-address",Address.this.instanceAddress).withDetails("type",Address.this.isSystemOwned() ? "SYSTEM" : "USER").info();
     }
     public void bottom(){
       Address.this.instanceId=UNASSIGNED_INSTANCEID;
       Address.this.instanceAddress=UNASSIGNED_INSTANCEADDR;
     }
   }
-);
+;
+  if (State.impending.equals(this.state.getReference())) {
+    this.transition(State.impending,State.allocated,true,true,unassign);
+  }
+ else {
+    this.transition(State.assigned,State.allocated,false,true,unassign);
+  }
   return this;
 }

@@ -2,36 +2,9 @@
   if ((request.getSnapshotId() == null && request.getSize() == null)) {
     throw new EucalyptusCloudException("One of size or snapshotId is required as a parameter.");
   }
-  ClusterConfiguration config;
-  try {
-    config=Configuration.getClusterConfiguration(request.getAvailabilityZone());
-  }
- catch (  Exception e) {
-    throw new EucalyptusCloudException("Zone does not exist: " + request.getAvailabilityZone(),e);
-  }
-  StorageControllerConfiguration sc;
-  try {
-    sc=Configuration.getStorageControllerConfiguration(request.getAvailabilityZone());
-  }
- catch (  Exception e) {
-    throw new EucalyptusCloudException("Storage services are not available for the requested availability zone.",e);
-  }
+  StorageControllerConfiguration sc=Configuration.lookupSc(request.getAvailabilityZone());
   try {
     User u=Users.lookupUser(request.getUserId());
-    List<Group> groups=Groups.lookupUserGroups(u);
-    if (!Iterables.any(groups,new Predicate<Group>(){
-      @Override public boolean apply(      Group arg0){
-        for (        Authorization a : arg0.getAuthorizations()) {
-          if (a.getValue().equals(request.getAvailabilityZone())) {
-            return true;
-          }
-        }
-        return false;
-      }
-    }
-)) {
-      throw new EucalyptusCloudException("Permission denied when trying to use resource: " + request.getAvailabilityZone());
-    }
   }
  catch (  NoSuchUserException e) {
     throw new EucalyptusCloudException("Failed to lookup your user information.",e);
@@ -74,7 +47,7 @@
     req.setUserId(request.getUserId());
     req.setEffectiveUserId(request.getEffectiveUserId());
     StorageUtil.send(sc.getName(),req);
-    EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_CREATE).withDetails(newVol.getUserName(),newVol.getDisplayName(),"size",newVol.getSize().toString()).withDetails("cluster",newVol.getCluster()).withDetails("snapshot",newVol.getParentSnapshot());
+    EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_CREATE).withDetails(newVol.getUserName(),newVol.getDisplayName(),"size",newVol.getSize().toString()).withDetails("cluster",newVol.getCluster()).withDetails("snapshot",newVol.getParentSnapshot()).info();
   }
  catch (  EucalyptusCloudException e) {
     LOG.debug(e,e);
