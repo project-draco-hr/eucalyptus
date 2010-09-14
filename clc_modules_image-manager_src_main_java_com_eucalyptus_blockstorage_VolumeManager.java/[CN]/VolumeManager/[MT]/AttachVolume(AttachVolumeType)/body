@@ -46,18 +46,33 @@
     db.rollback();
     throw new EucalyptusCloudException("Volume does not exist: " + request.getVolumeId());
   }
-  if (!volume.getCluster().equals(cluster.getName())) {
+  StorageControllerConfiguration sc;
+  try {
+    sc=Configuration.lookupSc(volume.getCluster());
+  }
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+    throw new EucalyptusCloudException("Failed to lookup SC for volume: " + volume,ex);
+  }
+  StorageControllerConfiguration scVm;
+  try {
+    scVm=Configuration.lookupSc(cluster.getName());
+  }
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+    throw new EucalyptusCloudException("Failed to lookup SC for cluster: " + cluster,ex);
+  }
+  if (!sc.equals(scVm)) {
     throw new EucalyptusCloudException("Can only attach volumes in the same cluster: " + request.getVolumeId());
   }
  else   if ("invalid".equals(volume.getRemoteDevice())) {
     throw new EucalyptusCloudException("Volume is not yet available: " + request.getVolumeId());
   }
-  request.setRemoteDevice(volume.getRemoteDevice());
-  new VolumeAttachCallback(request).dispatch(cluster);
-  AttachedVolume attachVol=new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice(),volume.getRemoteDevice());
+  Callbacks.newClusterRequest(new VolumeAttachCallback(request)).dispatch(cluster.getServiceEndpoint());
+  AttachedVolume attachVol=new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice(),request.getRemoteDevice());
   attachVol.setStatus("attaching");
   vm.getVolumes().add(attachVol);
-  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH,"user=" + volume.getUserName(),"volume=" + volume.getDisplayName(),"instance=" + vm.getInstanceId(),"cluster=" + vm.getPlacement()).info();
+  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getUserName(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("cluster",vm.getPlacement()).info();
   volume.setState(State.BUSY);
   reply.setAttachedVolume(attachVol);
   return reply;

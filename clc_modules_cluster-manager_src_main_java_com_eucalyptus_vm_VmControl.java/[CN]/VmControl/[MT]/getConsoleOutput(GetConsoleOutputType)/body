@@ -4,7 +4,17 @@
     v=VmInstances.getInstance().lookup(request.getInstanceId());
   }
  catch (  NoSuchElementException e2) {
-    throw new EucalyptusCloudException("No such instance: " + request.getInstanceId());
+    try {
+      v=VmInstances.getInstance().lookupDisabled(request.getInstanceId());
+      GetConsoleOutputResponseType reply=request.getReply();
+      reply.setInstanceId(request.getInstanceId());
+      reply.setTimestamp(new Date());
+      reply.setOutput(v.getConsoleOutputString());
+      ServiceContext.dispatch("ReplyQueue",reply);
+    }
+ catch (    NoSuchElementException ex) {
+      throw new EucalyptusCloudException("No such instance: " + request.getInstanceId());
+    }
   }
   if (!request.isAdministrator() && !v.getOwnerId().equals(request.getUserId())) {
     throw new EucalyptusCloudException("Permission denied for vm: " + request.getInstanceId());
@@ -21,6 +31,6 @@
       throw new EucalyptusCloudException("Failed to find cluster info for '" + v.getPlacement() + "' related to vm: "+ request.getInstanceId());
     }
     RequestContext.getEventContext().setStopFurtherProcessing(true);
-    new ConsoleOutputCallback(request).dispatch(cluster);
+    Callbacks.newClusterRequest(new ConsoleOutputCallback(request)).dispatch(cluster.getServiceEndpoint());
   }
 }

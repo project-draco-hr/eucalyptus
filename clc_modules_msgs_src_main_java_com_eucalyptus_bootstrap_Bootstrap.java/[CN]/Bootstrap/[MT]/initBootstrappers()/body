@@ -1,10 +1,9 @@
 {
   for (  Bootstrapper bootstrap : BootstrapperDiscovery.getBootstrappers()) {
-    com.eucalyptus.bootstrap.Component comp, old=com.eucalyptus.bootstrap.Component.any;
+    com.eucalyptus.bootstrap.Component comp;
     String bc=bootstrap.getClass().getCanonicalName();
-    Bootstrap.Stage stage=Ats.from(bootstrap).get(RunDuring.class).value();
-    Provides p=Ats.from(bootstrap).get(Provides.class);
-    comp=(p.value() == null ? old : p.value());
+    Bootstrap.Stage stage=bootstrap.getBootstrapStage();
+    comp=bootstrap.getProvides();
     if (Components.delegate.any.equals(comp)) {
       EventRecord.here(Bootstrap.class,EventType.BOOTSTRAPPER_ADDED,currentStage.name(),bc,"Provides",comp.name(),"Component." + comp.name() + ".isEnabled","true").info();
       stage.addBootstrapper(bootstrap);
@@ -19,7 +18,16 @@
       EventRecord.here(Bootstrap.class,EventType.BOOTSTRAPPER_SKIPPED,currentStage.name(),bc,"DependsRemote",comp.name(),"Component." + comp.name() + ".isLocal",comp.isLocal().toString()).info();
     }
  else     if (!Components.contains(comp)) {
-      throw BootstrapException.throwFatal("Bootstrap class provides a component for which registration failed: " + bc + " provides "+ comp.name());
+      Exceptions.eat("Bootstrap class provides a component for which registration failed: " + bc + " provides "+ comp.name());
+      try {
+        Component realComponent=Components.create(comp.name(),null);
+        EventRecord.here(Bootstrap.class,EventType.BOOTSTRAPPER_ADDED,currentStage.name(),bc,"Provides",comp.name(),"Component." + comp.name() + ".isEnabled",comp.isEnabled().toString()).info();
+        realComponent.getConfiguration().addBootstrapper(bootstrap);
+        stage.addBootstrapper(bootstrap);
+      }
+ catch (      ServiceRegistrationException ex) {
+        LOG.error(ex,ex);
+      }
     }
  else {
       EventRecord.here(Bootstrap.class,EventType.BOOTSTRAPPER_ADDED,currentStage.name(),bc,"Provides",comp.name(),"Component." + comp.name() + ".isEnabled",comp.isEnabled().toString()).info();
