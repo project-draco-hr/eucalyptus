@@ -1,13 +1,53 @@
 {
   String clusterName=vmInfo.getRequest().getAvailabilityZone();
   String vmTypeName=vmInfo.getRequest().getInstanceType();
-  Integer amount=vmInfo.getRequest().getMinCount();
-  Cluster authorizedCluster=this.doPrivilegedLookup(clusterName,vmTypeName);
-  VmTypeAvailability vmAvailability=authorizedCluster.getNodeState().getAvailability(vmTypeName);
-  if (vmAvailability.getAvailable() < amount) {
-    throw new NotEnoughResourcesAvailable("Not enough resources (" + vmAvailability.getAvailable() + " < "+ amount+ ": vm instances.");
-  }
+  final int amount=vmInfo.getRequest().getMinCount();
   Context ctx=Contexts.lookup();
-  ResourceToken token=authorizedCluster.getNodeState().getResourceAllocation(ctx.getCorrelationId(),ctx.getUser().getName(),vmTypeName,amount);
-  vmInfo.getAllocationTokens().add(token);
+  if (ctx.getGroups().isEmpty()) {
+    throw new NotEnoughResourcesAvailable("Not authorized: you do not have sufficient permission to use " + clusterName);
+  }
+ else {
+    String zoneName=(clusterName != null) ? clusterName : "default";
+    List<Cluster> authorizedClusters=this.doPrivilegedLookup(zoneName,vmTypeName);
+    int remaining=amount;
+    int available=0;
+    LOG.info("Found authorized clusters: " + Iterables.transform(authorizedClusters,new Function<Cluster,String>(){
+      @Override public String apply(      Cluster arg0){
+        return arg0.getName();
+      }
+    }
+));
+    if ((available=checkAvailability(vmTypeName,authorizedClusters)) < remaining) {
+      throw new NotEnoughResourcesAvailable("Not enough resources (" + available + " in "+ zoneName+ " < "+ amount+ "): vm instances.");
+    }
+ else {
+      List<ResourceToken> tokens=Lists.newArrayList();
+      for (      ClusterNodeState state : Lists.transform(authorizedClusters,new Function<Cluster,ClusterNodeState>(){
+        @Override public ClusterNodeState apply(        Cluster arg0){
+          return arg0.getNodeState();
+        }
+      }
+)) {
+        try {
+          int tryAmount=(remaining > state.getAvailability(vmTypeName).getAvailable()) ? state.getAvailability(vmTypeName).getAvailable() : remaining;
+          ResourceToken token=state.getResourceAllocation(ctx.getCorrelationId(),ctx.getUser().getName(),vmTypeName,tryAmount);
+          remaining-=token.getAmount();
+          tokens.add(token);
+        }
+ catch (        Throwable t) {
+          if (((available=checkAvailability(vmTypeName,authorizedClusters)) < remaining) || remaining > 0) {
+            for (            ResourceToken token : tokens) {
+              Clusters.getInstance().lookup(token.getCluster()).getNodeState().releaseToken(token);
+            }
+            throw new NotEnoughResourcesAvailable("Not enough resources (" + available + " in "+ zoneName+ " < "+ amount+ "): vm instances.");
+          }
+ else {
+            LOG.error(t,t);
+            throw new NotEnoughResourcesAvailable("Not enough resources (" + available + " in "+ zoneName+ " < "+ amount+ "): vm instances.");
+          }
+        }
+      }
+      vmInfo.getAllocationTokens().addAll(tokens);
+    }
+  }
 }

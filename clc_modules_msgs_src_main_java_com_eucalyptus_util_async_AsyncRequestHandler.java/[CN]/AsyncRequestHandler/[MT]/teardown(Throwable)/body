@@ -1,0 +1,44 @@
+{
+  if (t != null && !this.response.isDone()) {
+    LOG.debug("RESULT:" + t.getMessage() + ":REQUEST:"+ ((request.get() != null) ? request.get().toSimpleString() : "REQUEST IS NULL"));
+    if (t instanceof RetryableConnectionException) {
+    }
+ else     if (t instanceof ConnectionException) {
+    }
+ else     if (t instanceof IOException) {
+    }
+    this.response.setException(t);
+  }
+ else   if (this.response.isDone()) {
+    LOG.error(t.getMessage());
+  }
+  if (this.connectFuture != null) {
+    if (this.connectFuture.isDone() && this.connectFuture.isSuccess()) {
+      Channel channel=this.connectFuture.getChannel();
+      if (channel != null && channel.isOpen()) {
+        channel.close().addListener(new ChannelFutureListener(){
+          @Override public void operationComplete(          ChannelFuture future) throws Exception {
+            EventRecord.here(AsyncRequestHandler.this.request.get().getClass(),EventClass.SYSTEM_REQUEST,EventType.CHANNEL_CLOSED).trace();
+          }
+        }
+);
+      }
+ else {
+        EventRecord.here(AsyncRequestHandler.this.request.get().getClass(),EventClass.SYSTEM_REQUEST,EventType.CHANNEL_CLOSED,"ALREADY_CLOSED").trace();
+      }
+    }
+ else     if (!this.connectFuture.isDone() && !this.connectFuture.cancel()) {
+      LOG.error("Failed to cancel in-flight connection request: " + this.connectFuture.toString());
+      Channel channel=this.connectFuture.getChannel();
+      if (channel != null) {
+        channel.close();
+      }
+    }
+ else     if (!this.connectFuture.isSuccess()) {
+      Channel channel=this.connectFuture.getChannel();
+      if (channel != null) {
+        channel.close();
+      }
+    }
+  }
+}

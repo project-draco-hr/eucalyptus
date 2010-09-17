@@ -1,25 +1,43 @@
 {
+  LOG.info("Tearing down cluster: " + config);
   Cluster cluster=Clusters.getInstance().lookup(config.getName());
-  ClusterCertificateHandler cc;
+  EntityWrapper<ClusterCredentials> credDb=Authentication.getEntityWrapper();
   try {
-    ClusterUtil.deregisterClusterStateHandler(cluster,new ClusterCertificateHandler(cluster));
-    ClusterUtil.deregisterClusterStateHandler(cluster,new NetworkStateHandler(cluster));
-    ClusterUtil.deregisterClusterStateHandler(cluster,new LogStateHandler(cluster));
-    ClusterUtil.deregisterClusterStateHandler(cluster,new ResourceStateHandler(cluster));
-    ClusterUtil.deregisterClusterStateHandler(cluster,new VmStateHandler(cluster));
-    ClusterUtil.deregisterClusterStateHandler(cluster,new AddressStateHandler(cluster));
+    List<ClusterCredentials> ccCreds=credDb.query(new ClusterCredentials(config.getName()));
+    for (    ClusterCredentials ccert : ccCreds) {
+      credDb.delete(ccert);
+    }
+    credDb.commit();
   }
- catch (  BindingException e) {
+ catch (  Exception e) {
     LOG.error(e,e);
+    credDb.rollback();
   }
-catch (  EventVetoedException e) {
-    LOG.error(e,e);
-  }
+  EventRecord.here(ClusterBuilder.class,EventType.COMPONENT_SERVICE_STOP,config.getComponent().name(),config.getName(),config.getUri()).info();
+  Clusters.stop(cluster.getName());
   for (  Group g : Groups.listAllGroups()) {
     for (    Authorization auth : g.getAuthorizations()) {
       if (auth instanceof AvailabilityZonePermission && config.getName().equals(auth.getValue())) {
         g.removeAuthorization(auth);
       }
+    }
+  }
+  String directory=SubDirectory.KEYS.toString() + File.separator + config.getName();
+  File keyDir=new File(directory);
+  if (keyDir.exists()) {
+    for (    File f : keyDir.listFiles()) {
+      if (f.delete()) {
+        LOG.info("Removing cluster key file: " + f.getAbsolutePath());
+      }
+ else {
+        LOG.info("Failed to remove cluster key file: " + f.getAbsolutePath());
+      }
+    }
+    if (keyDir.delete()) {
+      LOG.info("Removing cluster key directory: " + keyDir.getAbsolutePath());
+    }
+ else {
+      LOG.info("Failed to remove cluster key directory: " + keyDir.getAbsolutePath());
     }
   }
   super.fireStop(config);
