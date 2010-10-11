@@ -1,17 +1,22 @@
 {
-  if (e.getMessage() instanceof HttpRequest && HttpMethod.GET.equals(((HttpRequest)e.getMessage()).getMethod())) {
-    HttpRequest request=(HttpRequest)e.getMessage();
-    HttpResponse response=new DefaultHttpResponse(request.getProtocolVersion(),HttpResponseStatus.OK);
-    String resp="";
-    for (    Component c : Components.list()) {
-      resp+=String.format("name=%-20.20s enabled=%-10.10s local=%-10.10s initialized=%-10.10s\n",c.getName(),c.isEnabled(),c.isLocal(),c.isInitialized());
+  if (e.getMessage() instanceof MappingHttpRequest && HttpMethod.GET.equals(((MappingHttpRequest)e.getMessage()).getMethod())) {
+    MappingHttpRequest request=(MappingHttpRequest)e.getMessage();
+    try {
+      HttpResponse response=new DefaultHttpResponse(request.getProtocolVersion(),HttpResponseStatus.OK);
+      String resp="";
+      for (      Component c : Components.list()) {
+        resp+=String.format("name=%-20.20s enabled=%-10.10s local=%-10.10s initialized=%-10.10s\n",c.getName(),c.isEnabled(),c.isLocal(),c.isInitialized());
+      }
+      ChannelBuffer buf=ChannelBuffers.copiedBuffer(resp.getBytes());
+      response.setContent(buf);
+      response.addHeader(HttpHeaders.Names.CONTENT_LENGTH,String.valueOf(buf.readableBytes()));
+      response.addHeader(HttpHeaders.Names.CONTENT_TYPE,"text/plain; charset=UTF-8");
+      ChannelFuture writeFuture=ctx.getChannel().write(response);
+      writeFuture.addListener(ChannelFutureListener.CLOSE);
     }
-    ChannelBuffer buf=ChannelBuffers.copiedBuffer(resp.getBytes());
-    response.setContent(buf);
-    response.addHeader(HttpHeaders.Names.CONTENT_LENGTH,String.valueOf(buf.readableBytes()));
-    response.addHeader(HttpHeaders.Names.CONTENT_TYPE,"text/plain; charset=UTF-8");
-    ChannelFuture writeFuture=ctx.getChannel().write(response);
-    writeFuture.addListener(ChannelFutureListener.CLOSE);
+  finally {
+      Contexts.clear(request.getCorrelationId());
+    }
   }
  else {
     ctx.sendUpstream(e);
