@@ -30,7 +30,7 @@
         List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
         objectInfo.addGrants(userId,grantInfos,accessControlList);
         objectInfo.setGrants(grantInfos);
-        objectName=objectKey.replaceAll("/","-") + Hashes.getRandom(4);
+        objectName=UUID.randomUUID().toString();
         objectInfo.setObjectName(objectName);
         objectInfo.setSize(0L);
         versionId=UUID.randomUUID().toString().replaceAll("-","");
@@ -58,7 +58,7 @@ catch (        EucalyptusCloudException ex) {
           List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
           objectInfo.addGrants(userId,grantInfos,accessControlList);
           objectInfo.setGrants(grantInfos);
-          objectName=objectKey.replaceAll("/","-") + Hashes.getRandom(4);
+          objectName=UUID.randomUUID().toString();
           objectInfo.setObjectName(objectName);
           objectInfo.setSize(0L);
         }
@@ -92,7 +92,7 @@ synchronized (monitor) {
             continue;
           }
           if (WalrusDataMessage.isStart(dataMessage)) {
-            tempObjectName=objectName + "." + Hashes.getRandom(12);
+            tempObjectName=UUID.randomUUID().toString();
             digest=Digest.MD5.get();
             try {
               fileIO=storageManager.prepareForWrite(bucketName,tempObjectName);
@@ -166,6 +166,18 @@ synchronized (monitor) {
             foundObject.setLast(true);
             foundObject.setDeleted(false);
             reply.setSize(size);
+            ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
+            deleteMarker.setDeleted(true);
+            try {
+              ObjectInfo foundDeleteMarker=dbObject.getUnique(deleteMarker);
+              dbObject.delete(foundDeleteMarker);
+            }
+ catch (            EucalyptusCloudException ex) {
+              LOG.trace("No delete marker found for: " + bucketName + "/"+ objectKey);
+            }
+            if (bucket.isVersioningEnabled()) {
+              reply.setVersionId(versionId);
+            }
             EntityWrapper<BucketInfo> dbBucket=dbObject.recast(BucketInfo.class);
             try {
               bucket=dbBucket.getUnique(new BucketInfo(bucketName));
