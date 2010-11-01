@@ -1,6 +1,6 @@
 {
-  String walrusUrl=ImageUtil.getWalrusUrl();
   RunInstancesType msg=vmAllocInfo.getRequest();
+  VmTypeInfo vmType=vmAllocInfo.getVmTypeInfo();
   ImageInfo searchDiskInfo=new ImageInfo(msg.getImageId());
   EntityWrapper<ImageInfo> db=new EntityWrapper<ImageInfo>();
   ImageInfo diskInfo=null;
@@ -89,11 +89,17 @@
   ImageUtil.checkStoredImage(ramdiskInfo);
   ArrayList<String> ancestorIds=ImageUtil.getAncestors(msg.getUserId(),diskInfo.getImageLocation());
   Long imgSize=ImageUtil.getSize(msg.getUserId(),diskInfo.getImageLocation());
+  if (imgSize > 1024l * 1024l * 1024l* vmType.getDisk()) {
+    throw new EucalyptusCloudException("image too large [size=" + imgSize / (1024l * 1024l) + "MB] for instance type " + vmType.getName() + " [disk=" + vmType.getDisk() * 1024l + "MB]");
+  }
   ImageUtil.checkStoredImage(kernelInfo);
   ImageUtil.checkStoredImage(diskInfo);
-  VmImageInfo vmImgInfo=ImageUtil.getVmImageInfo(walrusUrl,diskInfo,kernelInfo,ramdiskInfo,productCodes);
-  vmImgInfo.setAncestorIds(ancestorIds);
-  vmImgInfo.setSize(imgSize);
-  vmAllocInfo.setImageInfo(vmImgInfo);
+  vmType.getVirtualBootRecord().add(diskInfo.getAsVirtualBootRecord());
+  if (kernelInfo != null) {
+    vmType.getVirtualBootRecord().add(kernelInfo.getAsVirtualBootRecord());
+  }
+  if (ramdiskInfo != null) {
+    vmType.getVirtualBootRecord().add(ramdiskInfo.getAsVirtualBootRecord());
+  }
   return vmAllocInfo;
 }
