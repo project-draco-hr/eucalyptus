@@ -25,9 +25,9 @@
         String machineConfiguration=parser.getXML("machine_configuration");
         User user=null;
         try {
-          user=Users.lookupUser(userId);
+          user=Users.lookupUserById(userId);
         }
- catch (        NoSuchUserException e) {
+ catch (        AuthException e) {
           throw new AccessDeniedException(userId,e);
         }
         boolean signatureVerified=false;
@@ -40,11 +40,13 @@
           throw new DecryptionFailedException("SHA1withRSA not found");
         }
         try {
-          X509Certificate cert=user.getX509Certificate();
-          PublicKey publicKey=cert.getPublicKey();
-          sigVerifier.initVerify(publicKey);
-          sigVerifier.update((machineConfiguration + image).getBytes());
-          signatureVerified=sigVerifier.verify(Hashes.hexToBytes(signature));
+          for (          X509Certificate cert : user.getAllX509Certificates()) {
+            PublicKey publicKey=cert.getPublicKey();
+            sigVerifier.initVerify(publicKey);
+            sigVerifier.update((machineConfiguration + image).getBytes());
+            signatureVerified=sigVerifier.verify(Hashes.hexToBytes(signature));
+            if (signatureVerified)             break;
+          }
         }
  catch (        Exception ex) {
           db.rollback();
