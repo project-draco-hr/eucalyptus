@@ -1,0 +1,21 @@
+{
+  if (keyId == null || "".equals(keyId)) {
+    throw new AuthException("Empty key ID");
+  }
+  EntityWrapper<UserEntity> db=EntityWrapper.get(UserEntity.class);
+  Session session=db.getSession();
+  try {
+    Example userExample=Example.create(new UserEntity(true)).enableLike(MatchMode.EXACT);
+    @SuppressWarnings("unchecked") List<UserEntity> users=(List<UserEntity>)session.createCriteria(UserEntity.class).setCacheable(true).add(userExample).createCriteria("keys").setCacheable(true).add(Restrictions.and(Restrictions.idEq(keyId),Restrictions.eq("active",true))).list();
+    if (users.size() != 1) {
+      throw new AuthException("Found " + users.size() + " user(s)");
+    }
+    db.commit();
+    return new DatabaseUserProxy(users.get(0));
+  }
+ catch (  Throwable e) {
+    db.rollback();
+    Debugging.logError(LOG,e,"Failed to find user with access key ID : " + keyId);
+    throw new AuthException(AuthException.NO_SUCH_USER,e);
+  }
+}

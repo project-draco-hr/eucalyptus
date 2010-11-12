@@ -1,0 +1,57 @@
+{
+  checkUserName(userName);
+  checkPath(path);
+  if (accountName == null) {
+    throw new AuthException(AuthException.EMPTY_ACCOUNT_NAME);
+  }
+  if (checkUserExists(userName,accountName)) {
+    throw new AuthException(AuthException.USER_ALREADY_EXISTS);
+  }
+  UserEntity newUser=new UserEntity(userName);
+  newUser.setPath(path);
+  newUser.setEnabled(enabled);
+  if (skipRegistration) {
+    newUser.setRegistrationStatus(User.RegistrationStatus.CONFIRMED);
+  }
+ else {
+    newUser.setRegistrationStatus(User.RegistrationStatus.REGISTERED);
+  }
+  if (info != null) {
+    newUser.getInfoMap().putAll(info);
+  }
+  newUser.setToken(Crypto.generateSessionToken(userName));
+  newUser.setConfirmationCode(Crypto.generateSessionToken(userName));
+  try {
+    if (createPassword) {
+      newUser.setPassword(Crypto.generateHashedPassword(userName));
+    }
+    if (createKey) {
+      newUser.addSecretKey(Hmacs.generateSecretKey(userName));
+    }
+    if (createCert) {
+      newUser.addX509Certificate(X509CertHelper.createCertificate(userName));
+    }
+  }
+ catch (  Exception e) {
+    Debugging.logError(LOG,e,"Failed to generate credentials for user: " + userName);
+    throw new AuthException("Failed to generate user credentials",e);
+  }
+  GroupEntity newGroup=new GroupEntity(getUserGroupName(userName));
+  newGroup.setUserGroup(true);
+  EntityWrapper<AccountEntity> db=EntityWrapper.get(AccountEntity.class);
+  try {
+    AccountEntity account=db.getUnique(new AccountEntity(accountName));
+    db.recast(GroupEntity.class).add(newGroup);
+    db.recast(UserEntity.class).add(newUser);
+    newGroup.setAccount(account);
+    newGroup.addMember(newUser);
+    newUser.addGroup(newGroup);
+    db.commit();
+    return new DatabaseUserProxy(newUser);
+  }
+ catch (  Throwable e) {
+    Debugging.logError(LOG,e,"Failed to add user: " + userName + " in "+ accountName);
+    db.rollback();
+    throw new AuthException(AuthException.USER_CREATE_FAILURE,e);
+  }
+}

@@ -1,0 +1,34 @@
+{
+  if (groupName == null) {
+    throw new AuthException(AuthException.EMPTY_GROUP_NAME);
+  }
+  if (accountName == null) {
+    throw new AuthException(AuthException.EMPTY_ACCOUNT_NAME);
+  }
+  PolicyEntity parsedPolicy=PolicyParser.getInstance().parse(policy);
+  EntityWrapper<GroupEntity> db=EntityWrapper.get(GroupEntity.class);
+  try {
+    GroupEntity group=getUniqueGroup(db.getSession(),groupName,accountName);
+    db.recast(PolicyEntity.class).add(parsedPolicy);
+    parsedPolicy.setGroup(group);
+    for (    StatementEntity statement : parsedPolicy.getStatements()) {
+      db.recast(StatementEntity.class).add(statement);
+      statement.setPolicy(parsedPolicy);
+      for (      AuthorizationEntity auth : statement.getAuthorizations()) {
+        db.recast(AuthorizationEntity.class).add(auth);
+        auth.setStatement(statement);
+      }
+      for (      ConditionEntity cond : statement.getConditions()) {
+        db.recast(ConditionEntity.class).add(cond);
+        cond.setStatement(statement);
+      }
+    }
+    db.commit();
+    return parsedPolicy.getId();
+  }
+ catch (  Throwable e) {
+    db.rollback();
+    Debugging.logError(LOG,e,"Failed to attach policy for " + groupName + " in "+ accountName);
+    throw new AuthException("Failed to attach policy",e);
+  }
+}

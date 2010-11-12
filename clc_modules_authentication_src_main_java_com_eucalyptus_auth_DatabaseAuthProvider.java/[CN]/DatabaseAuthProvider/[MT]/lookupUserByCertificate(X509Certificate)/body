@@ -1,0 +1,25 @@
+{
+  if (cert == null) {
+    throw new AuthException("Empty input cert");
+  }
+  EntityWrapper<UserEntity> db=EntityWrapper.get(UserEntity.class);
+  Session session=db.getSession();
+  try {
+    Example userExample=Example.create(new UserEntity(true)).enableLike(MatchMode.EXACT);
+    CertificateEntity searchCert=new CertificateEntity(X509CertHelper.fromCertificate(cert));
+    searchCert.setActive(true);
+    searchCert.setRevoked(false);
+    Example certExample=Example.create(searchCert).enableLike(MatchMode.EXACT);
+    @SuppressWarnings("unchecked") List<UserEntity> users=(List<UserEntity>)session.createCriteria(UserEntity.class).setCacheable(true).add(userExample).createCriteria("certificates").setCacheable(true).add(certExample).list();
+    if (users.size() != 1) {
+      throw new AuthException("Found " + users.size() + " user(s)");
+    }
+    db.commit();
+    return new DatabaseUserProxy(users.get(0));
+  }
+ catch (  Throwable e) {
+    db.rollback();
+    Debugging.logError(LOG,e,"Failed to find user with certificate : " + cert);
+    throw new AuthException(AuthException.NO_SUCH_USER,e);
+  }
+}

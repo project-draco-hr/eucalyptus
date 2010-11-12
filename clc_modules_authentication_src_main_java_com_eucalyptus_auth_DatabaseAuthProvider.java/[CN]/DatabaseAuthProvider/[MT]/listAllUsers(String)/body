@@ -1,0 +1,26 @@
+{
+  if (accountName == null) {
+    throw new AuthException(AuthException.EMPTY_ACCOUNT_NAME);
+  }
+  if (!checkAccountExists(accountName)) {
+    throw new AuthException(AuthException.NO_SUCH_ACCOUNT);
+  }
+  List<User> results=Lists.newArrayList();
+  EntityWrapper<GroupEntity> db=EntityWrapper.get(GroupEntity.class);
+  Session session=db.getSession();
+  try {
+    Example accountExample=Example.create(new AccountEntity(accountName));
+    Example groupExample=Example.create(new GroupEntity(true));
+    @SuppressWarnings("unchecked") List<UserEntity> users=(List<UserEntity>)session.createCriteria(UserEntity.class).setCacheable(true).createCriteria("groups").setCacheable(true).add(groupExample).createCriteria("account").setCacheable(true).add(accountExample).list();
+    db.commit();
+    for (    UserEntity u : users) {
+      results.add(new DatabaseUserProxy(u));
+    }
+    return results;
+  }
+ catch (  Throwable e) {
+    db.rollback();
+    Debugging.logError(LOG,e,"Failed to get users for " + accountName);
+    throw new AuthException("Failed to get users for account",e);
+  }
+}
