@@ -7,19 +7,29 @@
  catch (    InterruptedException ex) {
       throw new EucalyptusCloudException("semaphore could not be acquired");
     }
-    List<String> returnValues=blockManager.createSnapshot(volumeId,snapshotId);
+    Boolean shouldTransferSnapshots=StorageInfo.getStorageInfo().getShouldTransferSnapshots();
+    List<String> returnValues=blockManager.createSnapshot(volumeId,snapshotId,shouldTransferSnapshots);
     semaphore.release();
-    if (returnValues.size() < 2) {
-      throw new EucalyptusCloudException("Unable to transfer snapshot");
+    if (shouldTransferSnapshots) {
+      if (returnValues.size() < 2) {
+        throw new EucalyptusCloudException("Unable to transfer snapshot");
+      }
+      snapshotFileName=returnValues.get(0);
+      transferSnapshot(returnValues.get(1));
+      try {
+        blockManager.finishVolume(snapshotId);
+      }
+ catch (      EucalyptusCloudException ex) {
+        blockManager.cleanSnapshot(snapshotId);
+        LOG.error(ex);
+      }
     }
-    snapshotFileName=returnValues.get(0);
-    transferSnapshot(returnValues.get(1));
-    blockManager.finishVolume(snapshotId);
     SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
     EntityWrapper<SnapshotInfo> db=StorageProperties.getEntityWrapper();
     try {
       SnapshotInfo snapshotInfo=db.getUnique(snapInfo);
       snapshotInfo.setStatus(StorageProperties.Status.available.toString());
+      snapshotInfo.setProgress("100");
     }
  catch (    EucalyptusCloudException e) {
       LOG.error(e);
@@ -34,6 +44,7 @@
       blockManager.finishVolume(snapshotId);
     }
  catch (    EucalyptusCloudException e1) {
+      blockManager.cleanSnapshot(snapshotId);
       LOG.error(e1);
     }
     SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
