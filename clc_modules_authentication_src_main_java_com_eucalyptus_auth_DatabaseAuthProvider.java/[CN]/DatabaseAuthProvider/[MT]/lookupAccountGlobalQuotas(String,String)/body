@@ -1,0 +1,26 @@
+{
+  if (resourceType == null) {
+    throw new AuthException("Empty resource type");
+  }
+  if (accountId == null) {
+    throw new AuthException(AuthException.EMPTY_ACCOUNT_NAME);
+  }
+  GroupEntity searchGroup=new GroupEntity(getUserGroupName(User.ACCOUNT_ADMIN_USER_NAME));
+  EntityWrapper<AuthorizationEntity> db=EntityWrapper.get(AuthorizationEntity.class);
+  Session session=db.getSession();
+  try {
+    Example groupExample=Example.create(searchGroup).enableLike(MatchMode.EXACT);
+    @SuppressWarnings("unchecked") List<AuthorizationEntity> authorizations=(List<AuthorizationEntity>)session.createCriteria(AuthorizationEntity.class).setCacheable(true).add(Restrictions.eq("effect",EffectType.Limit)).createCriteria("statement").setCacheable(true).createCriteria("policy").setCacheable(true).createCriteria("group").setCacheable(true).add(groupExample).createCriteria("account").setCacheable(true).add(Restrictions.idEq(accountId)).list();
+    db.commit();
+    List<DatabaseAuthorizationProxy> results=Lists.newArrayList();
+    for (    AuthorizationEntity auth : authorizations) {
+      results.add(new DatabaseAuthorizationProxy(auth));
+    }
+    return results;
+  }
+ catch (  Throwable e) {
+    db.rollback();
+    Debugging.logError(LOG,e,"Failed to lookup global quota for account " + accountId + ", type="+ resourceType);
+    throw new AuthException("Failed to lookup account global quota",e);
+  }
+}
