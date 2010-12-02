@@ -1,8 +1,16 @@
 {
   try {
-    send(dest,msg);
+    OutboundEndpoint endpoint=ServiceContext.getContext().getRegistry().lookupEndpointFactory().getOutboundEndpoint("vm://RequestQueue");
+    if (!endpoint.getConnector().isStarted()) {
+      endpoint.getConnector().start();
+    }
+    MuleMessage muleMsg=new DefaultMuleMessage(msg);
+    MuleSession muleSession=new DefaultMuleSession(muleMsg,((AbstractConnector)endpoint.getConnector()).getSessionHandler(),ServiceContext.getContext());
+    MuleEvent muleEvent=new DefaultMuleEvent(muleMsg,endpoint,muleSession,false);
+    dispatcherFactory.create(endpoint).dispatch(muleEvent);
   }
- catch (  EucalyptusCloudException ex) {
+ catch (  Exception ex) {
     LOG.error(ex,ex);
+    throw new EucalyptusCloudException("Failed to dispatch request to service " + dest + " for message type: "+ msg.getClass().getSimpleName()+ " because of an error: "+ ex.getMessage(),ex);
   }
 }
