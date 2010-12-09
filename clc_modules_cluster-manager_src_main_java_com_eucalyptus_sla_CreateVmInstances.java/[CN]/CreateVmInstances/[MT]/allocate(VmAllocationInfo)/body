@@ -1,22 +1,37 @@
 {
-  String reservationId=VmInstances.getId(vmAllocInfo.getReservationIndex(),0).replaceAll("i-","r-");
-  int vmIndex=1;
-  for (  ResourceToken token : vmAllocInfo.getAllocationTokens()) {
-    if (Clusters.getInstance().hasNetworking()) {
-      for (      Integer networkIndex : token.getPrimaryNetwork().getIndexes()) {
-        VmInstance vmInst=getVmInstance(vmAllocInfo,reservationId,token,vmIndex++,networkIndex);
-        VmInstances.getInstance().register(vmInst);
-        token.getInstanceIds().add(vmInst.getInstanceId());
-      }
-    }
+  try {
+    int quantity=getVmAllocationNumber(vmAllocInfo);
+    Authorizations.allocatePrivileged(VmType.class,vmAllocInfo.getVmTypeInfo().getName(),quantity,null);
+    Authorizations.allocatePrivileged(VmInstance.class,"",quantity,new ResourceAllocate<VmInstance>(){
+      @Override public void allocate() throws ResourceAllocationException {
+        String reservationId=VmInstances.getId(vmAllocInfo.getReservationIndex(),0).replaceAll("i-","r-");
+        int vmIndex=1;
+        for (        ResourceToken token : vmAllocInfo.getAllocationTokens()) {
+          if (Clusters.getInstance().hasNetworking()) {
+            for (            Integer networkIndex : token.getPrimaryNetwork().getIndexes()) {
+              VmInstance vmInst=getVmInstance(vmAllocInfo,reservationId,token,vmIndex++,networkIndex);
+              VmInstances.getInstance().register(vmInst);
+              token.getInstanceIds().add(vmInst.getInstanceId());
+            }
+          }
  else {
-      for (int i=0; i < token.getAmount(); i++) {
-        VmInstance vmInst=getVmInstance(vmAllocInfo,reservationId,token,vmIndex++,-1);
-        VmInstances.getInstance().register(vmInst);
-        token.getInstanceIds().add(vmInst.getInstanceId());
+            for (int i=0; i < token.getAmount(); i++) {
+              VmInstance vmInst=getVmInstance(vmAllocInfo,reservationId,token,vmIndex++,-1);
+              VmInstances.getInstance().register(vmInst);
+              token.getInstanceIds().add(vmInst.getInstanceId());
+            }
+          }
+        }
+        vmAllocInfo.setReservationId(reservationId);
       }
     }
+);
+    return vmAllocInfo;
   }
-  vmAllocInfo.setReservationId(reservationId);
-  return vmAllocInfo;
+ catch (  AuthException e) {
+    throw new EucalyptusCloudException("Resource allocation is denied due to quota",e);
+  }
+catch (  ResourceAllocationException e) {
+    throw new EucalyptusCloudException(e);
+  }
 }

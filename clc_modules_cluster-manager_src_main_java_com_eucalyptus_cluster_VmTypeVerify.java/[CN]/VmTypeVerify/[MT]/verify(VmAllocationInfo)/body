@@ -1,9 +1,24 @@
 {
-  String instanceType=vmAllocInfo.getRequest().getInstanceType();
-  VmType v=VmTypes.getVmType((instanceType == null) ? "m1.small" : instanceType);
-  if (v == null) {
-    throw new EucalyptusCloudException("instance type does not exist: " + vmAllocInfo.getRequest().getInstanceType());
+  try {
+    String instanceType=vmAllocInfo.getRequest().getInstanceType();
+    instanceType=(instanceType == null) ? "m1.small" : instanceType;
+    VmType v=Authorizations.lookupPrivileged(VmType.class,instanceType,null,new ResourceLookup<VmType>(){
+      @Override public VmType resolve(      String name) throws ResourceLookupException {
+        VmType v=VmTypes.getVmType((name == null) ? "m1.small" : name);
+        if (v == null) {
+          throw new ResourceLookupException("instance type does not exist: " + name);
+        }
+        return v;
+      }
+    }
+);
+    vmAllocInfo.setVmTypeInfo(v.getAsVmTypeInfo());
+    return vmAllocInfo;
   }
-  vmAllocInfo.setVmTypeInfo(v.getAsVmTypeInfo());
-  return vmAllocInfo;
+ catch (  AuthException e) {
+    throw new EucalyptusCloudException("Access to instance type is denied.",e);
+  }
+catch (  ResourceLookupException e) {
+    throw new EucalyptusCloudException(e);
+  }
 }
