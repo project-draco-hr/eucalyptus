@@ -1,17 +1,22 @@
 {
   if (period == null)   throw new IllegalArgumentException("period must not be null");
-  log.debug(String.format("getPeriodInstanceUsages periodBeginMs:%d periodsEndMs:%d ",period.getBeginningMs(),period.getEndingMs()));
-  Iterator resultIter=null;
+  log.debug(String.format("queryLog() beginMs:%d endMs:%d ",period.getBeginningMs(),period.getEndingMs()));
+  LogResultSet resultSet=new LogResultSet();
   EntityWrapper entityWrapper=EntityWrapper.get(InstanceAttributes.class);
   Session sess=null;
   try {
     sess=entityWrapper.getSession();
-    resultIter=sess.createQuery("from InstanceAttributes, InstanceUsageSnapshot" + " where InstanceAttributes.uuid = InstanceUsageSnapshot.uuid" + " and InstanceUsageSnapshot.timestampMs > ?"+ " and InstanceUsageSnapshot.timestampMs < ?"+ " order by InstanceAttributes.uuid").setLong(0,period.getBeginningMs()).setLong(1,period.getEndingMs()).iterate();
+    Iterator iter=sess.createQuery("from InstanceAttributes, InstanceUsageSnapshot" + " where InstanceAttributes.uuid = InstanceUsageSnapshot.uuid" + " and InstanceUsageSnapshot.timestampMs > ?"+ " and InstanceUsageSnapshot.timestampMs < ?"+ " order by InstanceAttributes.uuid").setLong(0,period.getBeginningMs()).setLong(1,period.getEndingMs()).iterate();
+    while (iter.hasNext()) {
+      Object[] row=(Object[])iter.next();
+      resultSet.addItem((InstanceAttributes)row[0],(PeriodUsageData)row[1]);
+    }
     entityWrapper.commit();
   }
  catch (  Exception ex) {
     log.error(ex);
     entityWrapper.rollback();
+    throw new RuntimeException(ex);
   }
-  return new LogResultSet(resultIter,period);
+  return resultSet;
 }
