@@ -1,8 +1,27 @@
 {
   DescribeComponentsResponseType reply=(DescribeComponentsResponseType)request.getReply();
   List<ComponentInfoType> listConfigs=reply.getRegistered();
-  for (  ComponentConfiguration conf : ServiceBuilderRegistry.get(request.getClass()).list()) {
-    listConfigs.add(new ComponentInfoType(conf.getPartition(),conf.getName(),"everything is FINE!",conf.getHostName()));
+  if (DescribeComponentsType.class.equals(request.getClass())) {
+    for (    Component c : Components.list()) {
+      for (      Service s : c.getServices()) {
+        ServiceConfiguration conf=s.getServiceConfiguration();
+        listConfigs.add(new ComponentInfoType(String.format("%-15.15s",conf.getComponent().name().toUpperCase()) + (conf.getPartition() != null ? conf.getPartition() : "-"),conf.getName(),conf.getHostName(),s.getState().toString(),""));
+        for (        String d : s.getDetails()) {
+          listConfigs.add(new ComponentInfoType(String.format("%-15.15s",conf.getComponent().name().toUpperCase()) + (conf.getPartition() != null ? conf.getPartition() : "-"),conf.getName(),"detail",d,""));
+        }
+      }
+    }
+  }
+ else {
+    for (    ServiceConfiguration conf : ServiceBuilderRegistry.get(request.getClass()).list()) {
+      try {
+        Service s=Components.lookup(conf);
+        listConfigs.add(new ComponentInfoType(conf.getPartition(),conf.getName(),conf.getHostName(),s.getState().toString(),s.getDetails()));
+      }
+ catch (      NoSuchElementException ex) {
+        LOG.error(ex,ex);
+      }
+    }
   }
   return reply;
 }
