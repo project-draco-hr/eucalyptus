@@ -13,12 +13,12 @@
   db.commit();
   VmInstance vm=null;
   AttachedVolume volume=null;
-  for (  VmInstance v : VmInstances.getInstance().listValues()) {
-    for (    AttachedVolume vol : v.getVolumes()) {
-      if (vol.getVolumeId().equals(request.getVolumeId())) {
-        volume=vol;
-        vm=v;
-      }
+  for (  VmInstance iter : VmInstances.getInstance().listValues()) {
+    try {
+      volume=iter.lookupVolumeAttachment(request.getVolumeId());
+      vm=iter;
+    }
+ catch (    NoSuchElementException ex) {
     }
   }
   if (volume == null) {
@@ -46,6 +46,7 @@
     LOG.error(ex,ex);
     throw new EucalyptusCloudException("Failed to lookup SC for cluster: " + cluster,ex);
   }
+  volume.setStatus("detaching");
   try {
     StorageUtil.send(scVm.getName(),new DetachStorageVolumeType(cluster.getNode(vm.getServiceTag()).getIqn(),volume.getVolumeId()));
   }
@@ -59,7 +60,6 @@
   request.setInstanceId(vm.getInstanceId());
   Callbacks.newClusterRequest(new VolumeDetachCallback(request)).dispatch(cluster.getServiceEndpoint());
   EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_DETACH).withDetails(vm.getOwnerId(),volume.getVolumeId(),"instance",vm.getInstanceId()).withDetails("cluster",vm.getPlacement()).info();
-  volume.setStatus("detaching");
   reply.setDetachedVolume(volume);
   return reply;
 }
