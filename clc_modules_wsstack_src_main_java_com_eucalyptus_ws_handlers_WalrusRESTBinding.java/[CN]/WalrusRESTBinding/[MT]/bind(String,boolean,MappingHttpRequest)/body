@@ -5,35 +5,38 @@
   if (operationName == null)   throw new InvalidOperationException("Could not determine operation name for " + servicePath);
   Map<String,String> params=httpRequest.getParameters();
   OMElement msg;
-  EucalyptusMessage eucaMsg;
+  GroovyObject groovyMsg;
   Map<String,String> fieldMap;
   Class targetType;
   try {
     targetType=ClassLoader.getSystemClassLoader().loadClass("edu.ucsb.eucalyptus.msgs.".concat(operationName).concat("Type"));
+    if (!GroovyObject.class.isAssignableFrom(targetType)) {
+      throw new Exception();
+    }
     fieldMap=this.buildFieldMap(targetType);
-    eucaMsg=(EucalyptusMessage)targetType.newInstance();
+    groovyMsg=(GroovyObject)targetType.newInstance();
   }
  catch (  Exception e) {
     throw new BindingException("Failed to construct message of type " + operationName);
   }
-  addLogData(eucaMsg,bindingArguments);
-  List<String> failedMappings=populateObject(eucaMsg,fieldMap,params);
-  populateObjectFromBindingMap(eucaMsg,fieldMap,httpRequest,bindingArguments);
+  addLogData((BaseMessage)groovyMsg,bindingArguments);
+  List<String> failedMappings=populateObject(groovyMsg,fieldMap,params);
+  populateObjectFromBindingMap(groovyMsg,fieldMap,httpRequest,bindingArguments);
   User user=Contexts.lookup(httpRequest.getCorrelationId()).getUser();
-  setRequiredParams(eucaMsg,user);
+  setRequiredParams(groovyMsg,user);
   if (!failedMappings.isEmpty() || !params.isEmpty()) {
     StringBuilder errMsg=new StringBuilder("Failed to bind the following fields:\n");
     for (    String f : failedMappings)     errMsg.append(f).append('\n');
     for (    Map.Entry<String,String> f : params.entrySet())     errMsg.append(f.getKey()).append(" = ").append(f.getValue()).append('\n');
     throw new BindingException(errMsg.toString());
   }
-  LOG.info(eucaMsg.toString());
+  LOG.info(groovyMsg.toString());
   try {
     Binding binding=BindingManager.getBinding(BindingManager.sanitizeNamespace("http://msgs.eucalyptus.com"));
-    msg=binding.toOM(eucaMsg);
+    msg=binding.toOM(groovyMsg);
   }
  catch (  RuntimeException e) {
     throw new BindingException("Failed to build a valid message: " + e.getMessage());
   }
-  return eucaMsg;
+  return groovyMsg;
 }
