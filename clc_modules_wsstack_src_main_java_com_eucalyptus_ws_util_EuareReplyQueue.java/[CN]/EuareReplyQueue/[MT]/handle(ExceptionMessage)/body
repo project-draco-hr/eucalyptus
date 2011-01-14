@@ -1,28 +1,20 @@
 {
-  LOG.debug("YE ---> handle 3: " + exMsg);
   EventRecord.here(EuareReplyQueue.class,EventType.MSG_REPLY,exMsg.getPayload().getClass().getSimpleName()).debug();
   LOG.trace("Caught exception while servicing: " + exMsg.getPayload());
+  LOG.debug("EUARE exception: " + exMsg.getPayload().getClass().getCanonicalName() + ", "+ exMsg.getException().getClass().getCanonicalName()+ ", "+ exMsg.getException().getCause().getClass().getCanonicalName());
   Throwable exception=exMsg.getException();
-  Object payload=null;
-  BaseMessage msg=null;
-  if (exception instanceof MessagingException) {
-    MessagingException ex=(MessagingException)exception;
-    MuleMessage muleMsg=ex.getUmoMessage();
-    if (payload instanceof VmAllocationInfo) {
-      msg=((VmAllocationInfo)payload).getRequest();
+  if (exception instanceof MessagingException && exception.getCause() instanceof EuareException) {
+    EuareException euareException=(EuareException)exception.getCause();
+    ErrorResponseType errorResp=new ErrorResponseType();
+    Object payload=((MessagingException)exception).getUmoMessage().getPayload();
+    if (payload instanceof BaseMessage) {
+      errorResp.setCorrelationId(((BaseMessage)payload).getCorrelationId());
     }
- else {
-      try {
-        msg=parsePayload(muleMsg.getPayload());
-      }
- catch (      Exception e) {
-        LOG.error("Bailing out of error handling: don't have the correlationId for the caller!");
-        LOG.error(e,e);
-        return;
-      }
-    }
-    EucalyptusErrorMessageType errMsg=getErrorMessageType(exMsg.getComponentName(),exMsg.getException(),msg);
-    errMsg.setException(exception.getCause());
-    this.handle(errMsg);
+    ErrorType error=new ErrorType();
+    error.setCode(euareException.getCode());
+    error.setMessage(euareException.getError());
+    error.getDetail().setContent(euareException.getMessage());
+    errorResp.getErrorList().add(error);
+    this.handle(errorResp);
   }
 }
