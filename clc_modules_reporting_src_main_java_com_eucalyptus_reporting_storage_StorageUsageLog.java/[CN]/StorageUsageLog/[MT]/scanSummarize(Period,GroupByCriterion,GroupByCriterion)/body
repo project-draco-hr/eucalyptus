@@ -1,25 +1,30 @@
 {
-  final Map<String,Map<String,StorageUsageSummary>> results=new HashMap<String,Map<String,StorageUsageSummary>>();
+  final Map<String,Map<String,SummaryInfo>> infoMap=new HashMap<String,Map<String,SummaryInfo>>();
   Iterator<StorageUsageSnapshot> iter=scanLog(period);
   while (iter.hasNext()) {
     StorageUsageSnapshot snapshot=iter.next();
+    long timestampMs=snapshot.getSnapshotKey().getTimestampMs().longValue();
     String outerCritVal=getAttributeValue(outerCriterion,snapshot.getSnapshotKey());
-    Map<String,StorageUsageData> innerMap=null;
-    if (results.containsKey(outerCritVal)) {
+    Map<String,SummaryInfo> innerMap=null;
+    if (infoMap.containsKey(outerCritVal)) {
+      innerMap=infoMap.get(outerCritVal);
     }
  else {
-      innerMap=new HashMap<String,StorageUsageData>();
+      innerMap=new HashMap<String,SummaryInfo>();
+      infoMap.put(outerCritVal,innerMap);
     }
     String innerCritVal=getAttributeValue(innerCriterion,snapshot.getSnapshotKey());
-    StorageUsageData data=null;
     if (innerMap.containsKey(innerCritVal)) {
-      data=innerMap.get(innerCritVal);
+      SummaryInfo info=innerMap.get(innerCritVal);
+      long durationMs=timestampMs - info.getLastTimestamp();
+      info.getSummary().addUsage(info.getLastData(),durationMs);
+      info.setLastTimestamp(timestampMs);
+      info.setLastData(snapshot.getUsageData());
     }
  else {
-      data=new StorageUsageData();
-      innerMap.put(innerCritVal,data);
+      SummaryInfo info=new SummaryInfo(timestampMs,new StorageUsageSummary(),snapshot.getUsageData());
+      innerMap.put(innerCritVal,info);
     }
-    data.sumFrom(snapshot.getUsageData());
   }
-  return results;
+  return convertTwoCriteria(infoMap);
 }
