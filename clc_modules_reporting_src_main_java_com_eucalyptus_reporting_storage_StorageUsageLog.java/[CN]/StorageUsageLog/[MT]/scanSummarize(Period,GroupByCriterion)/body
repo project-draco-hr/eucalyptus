@@ -1,18 +1,26 @@
 {
-  final Map<String,StorageUsageSummary> results=new HashMap<String,StorageUsageSummary>();
+  final Map<String,SummaryInfo> infoMap=new HashMap<String,SummaryInfo>();
   Iterator<StorageUsageSnapshot> iter=scanLog(period);
   while (iter.hasNext()) {
     StorageUsageSnapshot snapshot=iter.next();
-    String critVal=getAttributeValue(criterion,snapshot);
-    StorageUsageSummary summary=null;
-    if (results.containsKey(critVal)) {
-      summary=results.get(critVal);
+    long timestampMs=snapshot.getSnapshotKey().getTimestampMs().longValue();
+    String critVal=getAttributeValue(criterion,snapshot.getSnapshotKey());
+    SummaryInfo info=null;
+    if (infoMap.containsKey(critVal)) {
+      info=infoMap.get(critVal);
+      long durationMs=timestampMs - info.getLastTimestamp();
+      info.getSummary().addUsage(info.getLastData(),durationMs);
+      info.setLastTimestamp(timestampMs);
+      info.setLastData(snapshot.getUsageData());
     }
  else {
-      summary=new StorageUsageSummary();
-      results.put(critVal,summary);
+      info=new SummaryInfo(timestampMs,new StorageUsageSummary(),snapshot.getUsageData());
+      infoMap.put(critVal,info);
     }
-    summary.sumFrom(snapshot);
   }
-  return results;
+  final Map<String,StorageUsageSummary> resultMap=new HashMap<String,StorageUsageSummary>();
+  for (  String key : infoMap.keySet()) {
+    resultMap.put(key,infoMap.get(key).getSummary());
+  }
+  return resultMap;
 }
