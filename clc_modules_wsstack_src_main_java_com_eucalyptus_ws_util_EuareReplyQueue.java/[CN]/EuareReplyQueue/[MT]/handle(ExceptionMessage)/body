@@ -1,0 +1,28 @@
+{
+  LOG.debug("YE ---> handle 3: " + exMsg);
+  EventRecord.here(EuareReplyQueue.class,EventType.MSG_REPLY,exMsg.getPayload().getClass().getSimpleName()).debug();
+  LOG.trace("Caught exception while servicing: " + exMsg.getPayload());
+  Throwable exception=exMsg.getException();
+  Object payload=null;
+  BaseMessage msg=null;
+  if (exception instanceof MessagingException) {
+    MessagingException ex=(MessagingException)exception;
+    MuleMessage muleMsg=ex.getUmoMessage();
+    if (payload instanceof VmAllocationInfo) {
+      msg=((VmAllocationInfo)payload).getRequest();
+    }
+ else {
+      try {
+        msg=parsePayload(muleMsg.getPayload());
+      }
+ catch (      Exception e) {
+        LOG.error("Bailing out of error handling: don't have the correlationId for the caller!");
+        LOG.error(e,e);
+        return;
+      }
+    }
+    EucalyptusErrorMessageType errMsg=getErrorMessageType(exMsg.getComponentName(),exMsg.getException(),msg);
+    errMsg.setException(exception.getCause());
+    this.handle(errMsg);
+  }
+}
