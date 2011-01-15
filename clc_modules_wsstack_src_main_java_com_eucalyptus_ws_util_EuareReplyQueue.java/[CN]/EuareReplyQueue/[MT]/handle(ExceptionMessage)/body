@@ -1,19 +1,23 @@
 {
   EventRecord.here(EuareReplyQueue.class,EventType.MSG_REPLY,exMsg.getPayload().getClass().getSimpleName()).debug();
   LOG.trace("Caught exception while servicing: " + exMsg.getPayload());
-  LOG.debug("EUARE exception: " + exMsg.getPayload().getClass().getCanonicalName() + ", "+ exMsg.getException().getClass().getCanonicalName()+ ", "+ exMsg.getException().getCause().getClass().getCanonicalName());
-  LOG.debug("EUARE exception: " + exMsg.getPayload() + ", "+ exMsg.getException()+ ", "+ exMsg.getException().getCause());
   Throwable exception=exMsg.getException();
   if (exception instanceof MessagingException && exception.getCause() instanceof EuareException) {
     LOG.debug("BEFORE create ErrorResponseType ");
     EuareException euareException=(EuareException)exception.getCause();
     ErrorResponseType errorResp=new ErrorResponseType();
-    Object payload=((MessagingException)exception).getUmoMessage().getPayload();
-    if (payload instanceof BaseMessage) {
-      errorResp.setCorrelationId(((BaseMessage)payload).getCorrelationId());
+    BaseMessage payload=null;
+    try {
+      payload=parsePayload(((MessagingException)exception).getUmoMessage().getPayload());
+    }
+ catch (    Exception e) {
+      LOG.error("Failed to parse payload ",e);
+    }
+    if (payload != null) {
+      errorResp.setRequestId(payload.getCorrelationId());
     }
  else {
-      errorResp.setCorrelationId("1");
+      errorResp.setRequestId("");
     }
     ErrorType error=new ErrorType();
     error.setType("Receiver");
