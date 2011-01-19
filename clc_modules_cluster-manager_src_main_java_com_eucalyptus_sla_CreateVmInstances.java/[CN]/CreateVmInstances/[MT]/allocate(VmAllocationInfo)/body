@@ -1,37 +1,33 @@
 {
-  try {
-    int quantity=getVmAllocationNumber(vmAllocInfo);
-    Authorizations.allocatePrivileged(VmType.class,vmAllocInfo.getVmTypeInfo().getName(),quantity,null);
-    Authorizations.allocatePrivileged(VmInstance.class,"",quantity,new ResourceAllocate<VmInstance>(){
-      @Override public void allocate() throws ResourceAllocationException {
-        String reservationId=VmInstances.getId(vmAllocInfo.getReservationIndex(),0).replaceAll("i-","r-");
-        int vmIndex=1;
-        for (        ResourceToken token : vmAllocInfo.getAllocationTokens()) {
-          if (Clusters.getInstance().hasNetworking()) {
-            for (            Integer networkIndex : token.getPrimaryNetwork().getIndexes()) {
-              VmInstance vmInst=getVmInstance(vmAllocInfo,reservationId,token,vmIndex++,networkIndex);
-              VmInstances.getInstance().register(vmInst);
-              token.getInstanceIds().add(vmInst.getInstanceId());
-            }
-          }
- else {
-            for (int i=0; i < token.getAmount(); i++) {
-              VmInstance vmInst=getVmInstance(vmAllocInfo,reservationId,token,vmIndex++,-1);
-              VmInstances.getInstance().register(vmInst);
-              token.getInstanceIds().add(vmInst.getInstanceId());
-            }
-          }
-        }
-        vmAllocInfo.setReservationId(reservationId);
+  int quantity=getVmAllocationNumber(vmAllocInfo);
+  RunInstancesType request=vmAllocInfo.getRequest();
+  User requestUser=Permissions.getUserById(request.getUserId());
+  String action=PolicySpec.requestToAction(request);
+  String vmType=vmAllocInfo.getVmTypeInfo().getName();
+  if (!Permissions.canAllocate(PolicySpec.EC2_RESOURCE_VMTYPE,vmType,action,requestUser,1)) {
+    throw new EucalyptusCloudException("Quota exceeded in allocating vm type " + vmType + " for "+ requestUser.getName());
+  }
+  if (!Permissions.canAllocate(PolicySpec.EC2_RESOURCE_INSTANCE,"",action,requestUser,quantity)) {
+    throw new EucalyptusCloudException("Quota exceeded in allocating " + quantity + " vm instances for "+ requestUser.getName());
+  }
+  String reservationId=VmInstances.getId(vmAllocInfo.getReservationIndex(),0).replaceAll("i-","r-");
+  int vmIndex=1;
+  for (  ResourceToken token : vmAllocInfo.getAllocationTokens()) {
+    if (Clusters.getInstance().hasNetworking()) {
+      for (      Integer networkIndex : token.getPrimaryNetwork().getIndexes()) {
+        VmInstance vmInst=getVmInstance(vmAllocInfo,reservationId,token,vmIndex++,networkIndex);
+        VmInstances.getInstance().register(vmInst);
+        token.getInstanceIds().add(vmInst.getInstanceId());
       }
     }
-);
-    return vmAllocInfo;
+ else {
+      for (int i=0; i < token.getAmount(); i++) {
+        VmInstance vmInst=getVmInstance(vmAllocInfo,reservationId,token,vmIndex++,-1);
+        VmInstances.getInstance().register(vmInst);
+        token.getInstanceIds().add(vmInst.getInstanceId());
+      }
+    }
   }
- catch (  AuthException e) {
-    throw new EucalyptusCloudException("Resource allocation is denied due to quota",e);
-  }
-catch (  ResourceAllocationException e) {
-    throw new EucalyptusCloudException(e);
-  }
+  vmAllocInfo.setReservationId(reservationId);
+  return vmAllocInfo;
 }
