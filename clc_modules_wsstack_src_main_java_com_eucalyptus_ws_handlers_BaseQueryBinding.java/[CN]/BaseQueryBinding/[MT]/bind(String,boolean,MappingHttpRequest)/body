@@ -1,6 +1,6 @@
 {
-  final String operationName=httpRequest.getParameters().containsKey(OperationParameter.Action.toString()) ? httpRequest.getParameters().get(OperationParameter.Action.toString()) : httpRequest.getParameters().get(OperationParameter.Operation.toString());
-  for (  OperationParameter op : OperationParameter.values())   httpRequest.getParameters().remove(op.name());
+  final String operationName=this.extractOperationName(httpRequest);
+  for (  T op : this.possibleParams)   httpRequest.getParameters().remove(op.name());
   final Map<String,String> params=httpRequest.getParameters();
   int paramSize=params.size();
   OMElement msg=null;
@@ -8,12 +8,16 @@
   Map<String,String> fieldMap=null;
   Class targetType=null;
   try {
-    targetType=ClassLoader.getSystemClassLoader().loadClass("edu.ucsb.eucalyptus.msgs.".concat(operationName).concat("Type"));
+    targetType=this.getBinding().getElementClass(operationName);
     fieldMap=this.buildFieldMap(targetType);
     eucaMsg=(BaseMessage)targetType.newInstance();
   }
- catch (  Exception e) {
-    throw new BindingException("Failed to construct message of type " + operationName);
+ catch (  BindingException e) {
+    LOG.debug("Failed to construct message of type: " + operationName,e);
+    throw e;
+  }
+catch (  Throwable e) {
+    throw new BindingException("Failed to construct message of type " + operationName,e);
   }
   List<String> failedMappings=populateObject((GroovyObject)eucaMsg,fieldMap,params);
   if (!failedMappings.isEmpty() || !params.isEmpty()) {
@@ -25,7 +29,7 @@
   eucaMsg.setUserId(userId);
   eucaMsg.setEffectiveUserId(admin ? "eucalyptus" : userId);
   try {
-    Binding binding=BindingManager.getBinding(BindingManager.sanitizeNamespace("http://msgs.eucalyptus.com"));
+    Binding binding=BindingManager.getDefaultBinding();
     msg=binding.toOM(eucaMsg);
   }
  catch (  RuntimeException e) {
