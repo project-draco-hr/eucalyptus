@@ -1,25 +1,41 @@
 {
   super();
   this.response=Futures.newAsyncMessageFuture();
-  this.callbackResult=Futures.newAsyncMessageFuture();
-  this.callback=callback;
   this.handler=new AsyncRequestHandler<Q,R>(this.response);
-  this.callbackSequence=new CallbackListenerSequence<R>();
   this.pipelineFactory=factory;
-  Futures.addListenerHandler(response,this.callback);
-  Futures.addListenerHandler(response,new Callback.Success<R>(){
-    @Override public void fire(    R r){
+  this.callbackSequence=new CallbackListenerSequence<R>();
+  this.callback=new TwiceChecked<Q,R>(){
+    @Override public void fireException(    Throwable t){
       try {
-        AsyncRequest.this.callbackResult.set(AsyncRequest.this.response.get());
+        cb.fireException(t);
       }
- catch (      ExecutionException ex) {
-        AsyncRequest.this.callbackResult.setException(ex.getCause());
+ catch (      Throwable ex) {
+        LOG.error(ex,ex);
       }
-catch (      InterruptedException ex) {
+      try {
+        AsyncRequest.this.callbackSequence.fireException(t);
+      }
+ catch (      Exception ex) {
         LOG.error(ex,ex);
       }
     }
+    @Override public void fire(    R r){
+      try {
+        cb.fire(r);
+        try {
+          AsyncRequest.this.callbackSequence.fire(r);
+        }
+ catch (        Throwable ex) {
+          LOG.error(ex,ex);
+        }
+      }
+ catch (      Exception ex) {
+        AsyncRequest.this.callbackSequence.fireException(ex);
+      }
+    }
+    @Override public void initialize(    Q request) throws Exception {
+    }
   }
-);
-  Futures.addListenerHandler(this.callbackResult,this.callbackSequence);
+;
+  Futures.addListenerHandler(response,this.callback);
 }
