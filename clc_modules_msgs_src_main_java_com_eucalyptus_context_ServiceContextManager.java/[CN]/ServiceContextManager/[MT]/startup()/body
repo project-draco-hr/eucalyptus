@@ -7,23 +7,27 @@
     LOG.fatal("Failed to configure services.",e);
     return false;
   }
-  MuleContext muleCtx=context.getReference();
-  if (context.compareAndSet(null,null,false,true)) {
-    MuleContext newCtx=createContext();
-    context.compareAndSet(null,newCtx,true,false);
-  }
- else   if (context.compareAndSet(muleCtx,null,false,true)) {
-  }
-  context.compareAndSet(null,null,false,false);
-  MuleContext newCtx=createContext();
-  if (!context.compareAndSet(null,newCtx,false,false)) {
-    throw new ServiceInitializationException("Service context initialized twice.");
-  }
   try {
-    startContext();
+    MuleContext muleCtx=context.getReference();
+    if (context.compareAndSet(null,null,false,true)) {
+      MuleContext newCtx=createContext();
+      startContext(newCtx);
+      context.compareAndSet(null,newCtx,true,false);
+    }
+ else     if (context.compareAndSet(muleCtx,null,false,true)) {
+      MuleContext newCtx=null;
+      try {
+        shutdownContext(muleCtx);
+        newCtx=createContext();
+        startContext(newCtx);
+      }
+  finally {
+        context.compareAndSet(null,newCtx,true,false);
+      }
+    }
   }
- catch (  Exception e) {
-    LOG.fatal("Failed to start services.",e);
+ catch (  Throwable ex) {
+    LOG.error(ex,ex);
     return false;
   }
   return true;
