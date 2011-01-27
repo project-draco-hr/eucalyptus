@@ -1,4 +1,34 @@
 {
   DeleteUserResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  String action=PolicySpec.requestToAction(request);
+  User requestUser=Permissions.getUserById(request.getUserId());
+  Account account=Permissions.getUserAccount(requestUser);
+  User userToDelete=null;
+  try {
+    userToDelete=account.lookupUserByName(request.getUserName());
+  }
+ catch (  AuthException e) {
+    if (AuthException.NO_SUCH_USER.equals(request.getUserName())) {
+      throw new EuareException(404,EuareException.NO_SUCH_ENTITY,"Can not find user " + request.getUserName());
+    }
+ else {
+      throw new EucalyptusCloudException(e);
+    }
+  }
+  if (!Permissions.isAuthorized(PolicySpec.IAM_RESOURCE_USER,getUserFullName(userToDelete),account,action,requestUser)) {
+    throw new EuareException(403,EuareException.NOT_AUTHORIZED,"Not authorized to delete user by " + requestUser.getName());
+  }
+  try {
+    account.deleteUser(request.getUserName(),false,false);
+  }
+ catch (  AuthException e) {
+    if (AuthException.USER_DELETE_CONFLICT.equals(e.getMessage())) {
+      throw new EuareException(409,EuareException.DELETE_CONFLICT,"Attempted to delete a user with resource attached by " + requestUser.getName());
+    }
+ else {
+      throw new EucalyptusCloudException(e);
+    }
+  }
   return reply;
 }

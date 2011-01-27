@@ -1,4 +1,34 @@
 {
   DeleteGroupResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  String action=PolicySpec.requestToAction(request);
+  User requestUser=Permissions.getUserById(request.getUserId());
+  Account account=Permissions.getUserAccount(requestUser);
+  Group groupFound=null;
+  try {
+    groupFound=account.lookupGroupByName(request.getGroupName());
+  }
+ catch (  AuthException e) {
+    if (AuthException.NO_SUCH_GROUP.equals(e.getMessage())) {
+      throw new EuareException(404,EuareException.NO_SUCH_ENTITY,"Can not find group " + request.getGroupName());
+    }
+ else {
+      throw new EucalyptusCloudException(e);
+    }
+  }
+  if (!Permissions.isAuthorized(PolicySpec.IAM_RESOURCE_GROUP,getGroupFullName(groupFound),account,action,requestUser)) {
+    throw new EuareException(403,EuareException.NOT_AUTHORIZED,"Not authorized to delete group by " + requestUser.getName());
+  }
+  try {
+    account.deleteGroup(request.getGroupName(),false);
+  }
+ catch (  AuthException e) {
+    if (AuthException.GROUP_DELETE_CONFLICT.equals(e.getMessage())) {
+      throw new EuareException(409,EuareException.DELETE_CONFLICT,"Attempted to delete group with resources attached by " + requestUser.getName());
+    }
+ else {
+      throw new EucalyptusCloudException(e);
+    }
+  }
   return reply;
 }

@@ -1,0 +1,25 @@
+{
+  if (groupName == null) {
+    throw new AuthException(AuthException.EMPTY_GROUP_NAME);
+  }
+  DatabaseAuthUtils.checkPath(path);
+  if (DatabaseAuthUtils.checkGroupExists(groupName,this.delegate.getName())) {
+    throw new AuthException(AuthException.GROUP_ALREADY_EXISTS);
+  }
+  EntityWrapper<AccountEntity> db=EntityWrapper.get(AccountEntity.class);
+  try {
+    AccountEntity account=db.getUnique(new AccountEntity(this.delegate.getName()));
+    GroupEntity group=new GroupEntity(groupName);
+    group.setPath(path);
+    group.setUserGroup(false);
+    group.setAccount(account);
+    db.recast(GroupEntity.class).add(group);
+    db.commit();
+    return new DatabaseGroupProxy(group);
+  }
+ catch (  Throwable e) {
+    db.rollback();
+    Debugging.logError(LOG,e,"Failed to add group " + groupName + " in "+ this.delegate.getName());
+    throw new AuthException(AuthException.GROUP_CREATE_FAILURE,e);
+  }
+}

@@ -1,16 +1,23 @@
 {
-  ListUsersResponseType response=request.getReply();
-  ArrayList<UserType> users=response.getListUsersResult().getUsers().getMemberList();
-  UserType user=new UserType();
-  user.setArn("arn:aws:iam::123456789012:user/division_abc/subdivision_xyz/engineering/Andrew");
-  user.setPath("/division_abc/subdivision_xyz/engineering/");
-  user.setUserId("AID2MAB8DPLSRHEXAMPLE");
-  user.setUserName("Andrew");
-  users.add(user);
-  response.getListUsersResult().setIsTruncated(false);
-  response.getResponseMetadata().setRequestId("12345");
-  if (true) {
-    throw new EuareException(409,EuareException.ENTITY_ALREADY_EXISTS,"User already exists");
+  ListUsersResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  String action=PolicySpec.requestToAction(request);
+  User requestUser=Permissions.getUserById(request.getUserId());
+  Account account=Permissions.getUserAccount(requestUser);
+  ListUsersResultType result=reply.getListUsersResult();
+  result.setIsTruncated(false);
+  ArrayList<UserType> users=reply.getListUsersResult().getUsers().getMemberList();
+  try {
+    for (    User user : account.getUsers()) {
+      if (Permissions.isAuthorized(PolicySpec.IAM_RESOURCE_USER,getUserFullName(user),account,action,requestUser)) {
+        UserType u=new UserType();
+        fillUserResult(u,user,account.getId());
+        users.add(u);
+      }
+    }
   }
-  return response;
+ catch (  AuthException e) {
+    throw new EucalyptusCloudException(e);
+  }
+  return reply;
 }

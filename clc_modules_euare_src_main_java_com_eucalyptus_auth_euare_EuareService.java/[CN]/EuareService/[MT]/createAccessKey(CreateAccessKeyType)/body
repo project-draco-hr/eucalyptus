@@ -1,4 +1,35 @@
 {
   CreateAccessKeyResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  String action=PolicySpec.requestToAction(request);
+  User requestUser=Permissions.getUserById(request.getUserId());
+  Account account=Permissions.getUserAccount(requestUser);
+  User userFound=null;
+  try {
+    userFound=account.lookupUserByName(request.getUserName());
+  }
+ catch (  AuthException e) {
+    if (AuthException.NO_SUCH_USER.equals(request.getUserName())) {
+      throw new EuareException(404,EuareException.NO_SUCH_ENTITY,"Can not find user " + request.getUserName());
+    }
+ else {
+      throw new EucalyptusCloudException(e);
+    }
+  }
+  if (!Permissions.isAuthorized(PolicySpec.IAM_RESOURCE_USER,getUserFullName(userFound),account,action,requestUser)) {
+    throw new EuareException(403,EuareException.NOT_AUTHORIZED,"Not authorized to create access key for user " + request.getUserName() + " by "+ requestUser.getName());
+  }
+  try {
+    AccessKey key=userFound.createKey();
+    AccessKeyType keyResult=reply.getCreateAccessKeyResult().getAccessKey();
+    keyResult.setAccessKeyId(key.getId());
+    keyResult.setCreateDate(key.getCreateDate());
+    keyResult.setSecretAccessKey(key.getKey());
+    keyResult.setStatus(key.isActive() ? "Active" : "Inactive");
+    keyResult.setUserName(userFound.getName());
+  }
+ catch (  AuthException e) {
+    throw new EucalyptusCloudException(e);
+  }
   return reply;
 }

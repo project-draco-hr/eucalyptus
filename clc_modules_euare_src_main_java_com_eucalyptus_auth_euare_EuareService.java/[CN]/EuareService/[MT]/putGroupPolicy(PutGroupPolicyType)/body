@@ -1,4 +1,32 @@
 {
   PutGroupPolicyResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  String action=PolicySpec.requestToAction(request);
+  User requestUser=Permissions.getUserById(request.getUserId());
+  Account account=Permissions.getUserAccount(requestUser);
+  Group groupFound=null;
+  try {
+    groupFound=account.lookupGroupByName(request.getGroupName());
+  }
+ catch (  AuthException e) {
+    if (AuthException.NO_SUCH_GROUP.equals(request.getGroupName())) {
+      throw new EuareException(404,EuareException.NO_SUCH_ENTITY,"Can not find group " + request.getGroupName());
+    }
+ else {
+      throw new EucalyptusCloudException(e);
+    }
+  }
+  if (!Permissions.isAuthorized(PolicySpec.IAM_RESOURCE_GROUP,getGroupFullName(groupFound),account,action,requestUser)) {
+    throw new EuareException(403,EuareException.NOT_AUTHORIZED,"Not authorized to put group policy for " + groupFound.getName() + " by "+ requestUser.getName());
+  }
+  try {
+    groupFound.addPolicy(request.getPolicyName(),request.getPolicyDocument());
+  }
+ catch (  PolicyParseException e) {
+    throw new EuareException(400,EuareException.MALFORMED_POLICY_DOCUMENT,"Error in uploaded policy: " + request.getPolicyDocument(),e);
+  }
+catch (  AuthException e) {
+    throw new EucalyptusCloudException(e);
+  }
   return reply;
 }

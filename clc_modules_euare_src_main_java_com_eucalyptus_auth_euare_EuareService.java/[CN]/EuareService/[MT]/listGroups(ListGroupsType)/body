@@ -1,4 +1,22 @@
 {
   ListGroupsResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  String action=PolicySpec.requestToAction(request);
+  User requestUser=Permissions.getUserById(request.getUserId());
+  Account account=Permissions.getUserAccount(requestUser);
+  reply.getListGroupsResult().setIsTruncated(false);
+  ArrayList<GroupType> groups=reply.getListGroupsResult().getGroups().getMemberList();
+  try {
+    for (    Group group : account.getGroups()) {
+      if (Permissions.isAuthorized(PolicySpec.IAM_RESOURCE_GROUP,getGroupFullName(group),account,action,requestUser)) {
+        GroupType g=new GroupType();
+        fillGroupResult(g,group,account.getId());
+        groups.add(g);
+      }
+    }
+  }
+ catch (  AuthException e) {
+    throw new EucalyptusCloudException(e);
+  }
   return reply;
 }

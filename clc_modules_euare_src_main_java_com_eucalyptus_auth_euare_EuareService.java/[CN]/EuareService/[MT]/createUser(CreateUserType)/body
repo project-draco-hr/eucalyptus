@@ -1,11 +1,30 @@
 {
   CreateUserResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  String action=PolicySpec.requestToAction(request);
+  User requestUser=Permissions.getUserById(request.getUserId());
+  Account account=Permissions.getUserAccount(requestUser);
+  if (!Permissions.isAuthorized(PolicySpec.IAM_RESOURCE_USER,"",account,action,requestUser)) {
+    throw new EuareException(403,EuareException.NOT_AUTHORIZED,"Not authorized to create user by " + requestUser.getName());
+  }
+  if (!Permissions.canAllocate(PolicySpec.IAM_RESOURCE_USER,"",action,requestUser,1)) {
+    throw new EuareException(409,EuareException.LIMIT_EXCEEDED,"User quota exceeded");
+  }
   try {
-    User requestUser=Users.lookupUserById(request.getUserId());
-    Account account=requestUser.getAccount();
-    User newUser=Users.addUser(request.getUserName(),request.getPath(),true,true,null,false,false,account.getName());
+    User newUser=account.addUser(request.getUserName(),request.getPath(),true,true,null);
+    UserType u=reply.getCreateUserResult().getUser();
+    u.setUserName(newUser.getName());
+    u.setUserId(newUser.getId());
+    u.setPath(newUser.getPath());
+    u.setArn((new EuareResourceName(account.getId(),PolicySpec.IAM_RESOURCE_USER,newUser.getPath(),newUser.getName())).toString());
   }
  catch (  AuthException e) {
+    if (AuthException.USER_ALREADY_EXISTS.equals(e.getMessage())) {
+      throw new EuareException(409,EuareException.ENTITY_ALREADY_EXISTS,"User " + request.getUserName() + " already exists.");
+    }
+ else {
+      throw new EucalyptusCloudException(e);
+    }
   }
   return reply;
 }

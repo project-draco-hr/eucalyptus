@@ -1,4 +1,30 @@
 {
   CreateGroupResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  String action=PolicySpec.requestToAction(request);
+  User requestUser=Permissions.getUserById(request.getUserId());
+  Account account=Permissions.getUserAccount(requestUser);
+  if (!Permissions.isAuthorized(PolicySpec.IAM_RESOURCE_GROUP,"",account,action,requestUser)) {
+    throw new EuareException(403,EuareException.NOT_AUTHORIZED,"Not authorized to create group by " + requestUser.getName());
+  }
+  if (!Permissions.canAllocate(PolicySpec.IAM_RESOURCE_GROUP,"",action,requestUser,1)) {
+    throw new EuareException(409,EuareException.LIMIT_EXCEEDED,"Group quota exceeded");
+  }
+  try {
+    Group newGroup=account.addGroup(request.getGroupName(),request.getPath());
+    GroupType g=reply.getCreateGroupResult().getGroup();
+    g.setGroupName(newGroup.getName());
+    g.setPath(newGroup.getPath());
+    g.setGroupId(newGroup.getId());
+    g.setArn((new EuareResourceName(account.getId(),PolicySpec.IAM_RESOURCE_GROUP,newGroup.getPath(),newGroup.getName())).toString());
+  }
+ catch (  AuthException e) {
+    if (AuthException.GROUP_ALREADY_EXISTS.equals(e.getMessage())) {
+      throw new EuareException(409,EuareException.ENTITY_ALREADY_EXISTS,"Group " + request.getGroupName() + " already exists.");
+    }
+ else {
+      throw new EucalyptusCloudException(e);
+    }
+  }
   return reply;
 }

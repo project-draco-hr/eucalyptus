@@ -21,19 +21,22 @@
   String machineConfiguration=parser.getXML("machine_configuration");
   User user=null;
   try {
-    user=Users.lookupUserById(imgInfo.getImageOwnerId());
+    user=Accounts.lookupUserById(imgInfo.getImageOwnerId());
   }
  catch (  AuthException e) {
     throw new EucalyptusCloudException("Invalid Manifest: Failed to verify signature because of missing (deleted?) user certificate.",e);
   }
   boolean found=false;
-  List<X509Certificate> allX509Certificates=user.getAllX509Certificates();
-  if (allX509Certificates != null) {
-    for (    X509Certificate x : allX509Certificates) {
+  try {
+    for (    Certificate c : user.getCertificates()) {
+      X509Certificate x=c.getX509Certificate();
       if ((found|=ImageUtil.verifyManifestSignature(signature,x,machineConfiguration + image))) {
         break;
       }
     }
+  }
+ catch (  AuthException e) {
+    throw new EucalyptusCloudException("Can't get user certificates",e);
   }
   if (!found)   throw new EucalyptusCloudException("Invalid Manifest: Failed to verify signature.");
   try {
