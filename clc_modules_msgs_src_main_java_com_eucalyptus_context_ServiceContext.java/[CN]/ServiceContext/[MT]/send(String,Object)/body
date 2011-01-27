@@ -1,25 +1,18 @@
 {
-  if ((dest.startsWith("vm://") && !endpointToService.containsKey(dest)) || dest == null) {
-    throw new EucalyptusCloudException("Failed to find destination: " + dest,new IllegalArgumentException("No such endpoint: " + dest + " in endpoints="+ endpointToService.entrySet()));
-  }
-  if (dest.startsWith("vm://")) {
-    dest=endpointToService.get(dest);
-  }
+  dest=ServiceContextManager.mapEndpointToService(dest);
   MuleEvent context=RequestContext.getEvent();
   try {
     LOG.debug("ServiceContext.send(" + dest + ":"+ msg.getClass().getCanonicalName(),Exceptions.filterStackTrace(new RuntimeException(),3));
-    MuleMessage reply=ServiceContext.getClient().sendDirect(dest,null,new DefaultMuleMessage(msg));
+    MuleMessage reply=ServiceContextManager.getClient().sendDirect(dest,null,new DefaultMuleMessage(msg));
     if (reply.getExceptionPayload() != null) {
-      EucalyptusCloudException ex=new EucalyptusCloudException(reply.getExceptionPayload().getRootException().getMessage(),reply.getExceptionPayload().getRootException());
-      LOG.trace(ex,ex);
-      throw ex;
+      throw Exceptions.trace(new ServiceDispatchException(reply.getExceptionPayload().getRootException().getMessage(),reply.getExceptionPayload().getRootException()));
     }
- else     return (T)reply.getPayload();
+ else {
+      return (T)reply.getPayload();
+    }
   }
  catch (  Throwable e) {
-    EucalyptusCloudException ex=new EucalyptusCloudException("Failed to send message " + msg.getClass().getSimpleName() + " to service "+ dest+ " because of "+ e.getMessage(),e);
-    LOG.trace(ex,ex);
-    throw ex;
+    throw Exceptions.trace(new ServiceDispatchException("Failed to send message " + msg.getClass().getSimpleName() + " to service "+ dest+ " because of "+ e.getMessage(),e));
   }
  finally {
     RequestContext.setEvent(context);
