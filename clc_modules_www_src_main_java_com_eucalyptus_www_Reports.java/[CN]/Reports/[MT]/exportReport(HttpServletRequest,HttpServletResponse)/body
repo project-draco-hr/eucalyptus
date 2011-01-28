@@ -5,7 +5,66 @@
       Boolean doFlush=this.doFlush();
       final JRExporter exporter=reportType.setup(req,res,Param.name.get(req));
       ReportCache reportCache=getReportManager(Param.name.get(req),doFlush);
-      JasperPrint jasperPrint=reportCache.getJasperPrint(req);
+      LOG.info("--> scriptName:" + Param.name.get(req));
+      String scriptName=Param.name.get(req);
+      JasperPrint jasperPrint=null;
+      if (scriptName.equals("user_vms") || scriptName.equals("user_storage")) {
+        long start=Long.parseLong(Param.start.get(req));
+        long end=Long.parseLong(Param.end.get(req));
+        Period period=new Period(0,Long.MAX_VALUE);
+        int criterionId=Integer.parseInt(Param.criterionId.get(req));
+        int groupById=Integer.parseInt(Param.groupById.get(req));
+        GroupByCriterion criterion=GroupByCriterion.values()[criterionId + 1];
+        Units displayUnits=Units.DEFAULT_DISPLAY_UNITS;
+        Map<String,String> params=new HashMap<String,String>();
+        params.put("criterion",criterion.toString());
+        params.put("timeUnit",displayUnits.getTimeUnit().toString());
+        params.put("sizeUnit",displayUnits.getSizeUnit().toString());
+        params.put("sizeTimeTimeUnit",displayUnits.getSizeTimeTimeUnit().toString());
+        params.put("sizeTimeSizeUnit",displayUnits.getSizeTimeSizeUnit().toString());
+        GroupByCriterion groupByCriterion=null;
+        if (groupById > 0) {
+          groupByCriterion=GroupByCriterion.values()[groupById - 1];
+          params.put("groupByCriterion",groupByCriterion.toString());
+        }
+        if (scriptName.equals("user_vms")) {
+          InstanceDisplayDb dbInstance=InstanceDisplayDb.getInstance();
+          File jrxmlFile=null;
+          JRDataSource dataSource=null;
+          if (groupById == 0) {
+            List<InstanceDisplayBean> list=dbInstance.search(period,criterion,displayUnits);
+            dataSource=new JRBeanCollectionDataSource(list);
+            jrxmlFile=new File(SubDirectory.REPORTS.toString() + File.separator + INSTANCE_REPORT_FILENAME);
+          }
+ else {
+            List<InstanceDisplayBean> list=dbInstance.searchGroupBy(period,groupByCriterion,criterion,displayUnits);
+            dataSource=new JRBeanCollectionDataSource(list);
+            jrxmlFile=new File(SubDirectory.REPORTS.toString() + File.separator + NESTED_INSTANCE_REPORT_FILENAME);
+          }
+          JasperReport report=JasperCompileManager.compileReport(jrxmlFile.getAbsolutePath());
+          jasperPrint=JasperFillManager.fillReport(report,params,dataSource);
+        }
+ else         if (scriptName.equals("user_storage")) {
+          StorageDisplayDb dbStorage=StorageDisplayDb.getInstance();
+          File jrxmlFile=null;
+          JRDataSource dataSource=null;
+          if (groupById == 0) {
+            List<StorageDisplayBean> list=dbStorage.search(period,criterion,displayUnits);
+            dataSource=new JRBeanCollectionDataSource(list);
+            jrxmlFile=new File(SubDirectory.REPORTS.toString() + File.separator + STORAGE_REPORT_FILENAME);
+          }
+ else {
+            List<StorageDisplayBean> list=dbStorage.searchGroupBy(period,groupByCriterion,criterion,displayUnits);
+            dataSource=new JRBeanCollectionDataSource(list);
+            jrxmlFile=new File(SubDirectory.REPORTS.toString() + File.separator + NESTED_STORAGE_REPORT_FILENAME);
+          }
+          JasperReport report=JasperCompileManager.compileReport(jrxmlFile.getAbsolutePath());
+          jasperPrint=JasperFillManager.fillReport(report,params,dataSource);
+        }
+      }
+ else {
+        jasperPrint=reportCache.getJasperPrint(req);
+      }
       exporter.setParameter(JRExporterParameter.JASPER_PRINT,jasperPrint);
       exporter.exportReport();
     }
