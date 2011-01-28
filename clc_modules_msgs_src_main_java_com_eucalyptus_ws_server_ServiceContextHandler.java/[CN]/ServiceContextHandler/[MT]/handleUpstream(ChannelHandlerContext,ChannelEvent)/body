@@ -2,8 +2,9 @@
   final MappingHttpMessage request=MappingHttpMessage.extractMessage(e);
   final BaseMessage msg=BaseMessage.extractMessage(e);
   if (LogLevels.EXTREME)   LOG.trace(this.getClass().getSimpleName() + "[incoming]:" + (msg != null ? msg.getClass().getSimpleName() : "")+ " "+ e);
-  if (e instanceof ExceptionEvent) {
-    this.exceptionCaught(ctx,(ExceptionEvent)e);
+  if (e instanceof ChannelStateEvent) {
+    this.channelOpened(ctx,(ChannelStateEvent)e);
+    ctx.sendUpstream(e);
   }
  else   if (e instanceof IdleStateEvent) {
     LOG.warn("Closing idle connection: " + e);
@@ -11,27 +12,11 @@
     ctx.sendUpstream(e);
   }
  else   if (request != null && msg != null) {
-    this.startTime.set(ctx.getChannel(),System.currentTimeMillis());
-    EventRecord.here(ServiceContextHandler.class,EventType.MSG_RECEIVED,msg.getClass().getSimpleName()).trace();
-    ServiceContext.dispatch(RequestQueue.ENDPOINT,msg);
-  }
- else   if (e instanceof ChannelStateEvent) {
-    ChannelStateEvent evt=(ChannelStateEvent)e;
-    if (evt.getState().equals(ChannelState.CONNECTED) && Boolean.TRUE.equals(evt.getValue())) {
-      this.openTime.set(ctx.getChannel(),System.currentTimeMillis());
-    }
- else     if (evt.getState().equals(ChannelState.CONNECTED) && Boolean.FALSE.equals(evt.getValue())) {
-      try {
-        Contexts.clear(Contexts.lookup(ctx.getChannel()));
-      }
- catch (      Throwable e1) {
-        LOG.warn("Failed to remove the channel context on connection close.",e1);
-      }
-    }
+    this.messageReceived(ctx,msg);
     ctx.sendUpstream(e);
   }
  else   if (e instanceof ExceptionEvent) {
-    exceptionCaught(ctx,(ExceptionEvent)e);
+    this.exceptionCaught(ctx,(ExceptionEvent)e);
     ctx.sendUpstream(e);
   }
  else {
