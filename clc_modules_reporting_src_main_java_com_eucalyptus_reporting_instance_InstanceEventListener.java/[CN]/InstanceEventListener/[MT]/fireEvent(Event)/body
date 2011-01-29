@@ -1,0 +1,36 @@
+{
+  final long receivedEventMs=this.getCurrentTimeMillis();
+  if (e instanceof InstanceEvent) {
+    log.info("Received instance event");
+    InstanceEvent event=(InstanceEvent)e;
+    final String uuid=event.getUuid();
+    EntityWrapper<InstanceAttributes> entityWrapper=EntityWrapper.get(InstanceAttributes.class);
+    Session sess=null;
+    try {
+      sess=entityWrapper.getSession();
+      InstanceAttributes insAttrs=new InstanceAttributes(uuid,event.getInstanceId(),event.getInstanceType(),event.getUserId(),event.getAccountId(),event.getClusterName(),event.getAvailabilityZone());
+      InstanceUsageSnapshot insUsageSnapshot=new InstanceUsageSnapshot(uuid,receivedEventMs,event.getCumulativeNetworkIoMegs(),event.getCumulativeDiskIoMegs());
+      if (!recentlySeenUuids.contains(uuid)) {
+        if (null == sess.get(InstanceAttributes.class,uuid)) {
+          sess.save(insAttrs);
+          log.info("Wrote Reporting Instance:" + uuid);
+        }
+        recentlySeenUuids.add(uuid);
+      }
+      recentUsageSnapshots.add(insUsageSnapshot);
+      if (receivedEventMs > (lastWriteMs + WRITE_INTERVAL_SECS * 1000)) {
+        for (        InstanceUsageSnapshot ius : recentUsageSnapshots) {
+          sess.save(ius);
+          log.info("Wrote Instance Usage:" + ius.getUuid() + ":"+ ius.getId());
+        }
+        recentUsageSnapshots.clear();
+        lastWriteMs=receivedEventMs;
+      }
+      entityWrapper.commit();
+    }
+ catch (    Exception ex) {
+      entityWrapper.rollback();
+      log.error(ex);
+    }
+  }
+}
