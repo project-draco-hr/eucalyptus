@@ -1,5 +1,31 @@
 {
-  if (error != null) {
-    throw error;
+  if (Components.lookup(Walrus.class).getLocalService() != null || Components.lookup(Eucalyptus.class).getLocalService() != null) {
+    List<ArbitratorConfiguration> configs=Configuration.getArbitratorConfigurations();
+    for (    ArbitratorConfiguration config : configs) {
+      final String hostName=config.getHostName();
+      Threads.getThreadPool(ArbitratorControl.class.getSimpleName()).submit(new Runnable(){
+        @Override public void run(){
+          try {
+            InetAddress addr=InetAddress.getByName(hostName);
+            if (addr.isReachable(2000)) {
+              ArbitratorControl.error.remove(hostName);
+            }
+          }
+ catch (          UnknownHostException e) {
+            ArbitratorControl.error.put(hostName,Exceptions.filterStackTrace(e,2));
+          }
+catch (          IOException e) {
+            ArbitratorControl.error.put(hostName,Exceptions.filterStackTrace(e,2));
+          }
+          EventRecord.here(ArbitratorControl.class,EventType.BOOTSTRAPPER_CHECK,hostName,"errorMap",error.get(hostName).toString()).debug();
+        }
+      }
+);
+    }
+    Set<String> downArbitrators=Sets.newHashSet(error.keySet());
+    if (downArbitrators.size() > 0) {
+      String errorMessage="Arbitrators not reachable: " + downArbitrators.toString();
+      throw new EucalyptusCloudException(errorMessage);
+    }
   }
 }
