@@ -1,0 +1,31 @@
+{
+  String accountName=this.delegate.getName();
+  if (userName == null) {
+    throw new AuthException(AuthException.EMPTY_USER_NAME);
+  }
+  if (!forceDeleteAdmin && DatabaseAuthUtils.isAccountAdmin(userName)) {
+    throw new AuthException(AuthException.DELETE_ACCOUNT_ADMIN);
+  }
+  if (!recursive && userHasResourceAttached(userName,accountName)) {
+    throw new AuthException(AuthException.USER_DELETE_CONFLICT);
+  }
+  EntityWrapper<UserEntity> db=EntityWrapper.get(UserEntity.class);
+  try {
+    UserEntity user=DatabaseAuthUtils.getUniqueUser(db.getSession(),userName,accountName);
+    for (    GroupEntity ge : user.getGroups()) {
+      if (ge.isUserGroup()) {
+        db.recast(GroupEntity.class).delete(ge);
+      }
+ else {
+        ge.getUsers().remove(user);
+      }
+    }
+    db.delete(user);
+    db.commit();
+  }
+ catch (  Throwable e) {
+    db.rollback();
+    Debugging.logError(LOG,e,"Failed to delete user: " + userName + " in "+ accountName);
+    throw new AuthException(AuthException.NO_SUCH_USER,e);
+  }
+}
