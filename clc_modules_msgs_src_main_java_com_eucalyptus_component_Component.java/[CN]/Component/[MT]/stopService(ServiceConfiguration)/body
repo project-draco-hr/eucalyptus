@@ -1,35 +1,27 @@
 {
-  EventRecord.caller(Component.class,EventType.COMPONENT_SERVICE_STOP,this.getName(),service.getName(),service.getUri().toString()).info();
-  if (service.isLocal()) {
+  EventRecord.caller(Component.class,EventType.COMPONENT_SERVICE_STOPPED,this.getName(),config.getName(),config.getUri().toString()).info();
+  if (config.isLocal()) {
     if (State.ENABLED.equals(this.stateMachine.getState())) {
       try {
-        this.stateMachine.transition(State.DISABLED);
+        this.stateMachine.transition(State.DISABLED).addListener(new Runnable(){
+          @Override public void run(){
+            try {
+              Component.this.stateMachine.transition(State.STOPPED);
+            }
+ catch (            Throwable ex) {
+              LOG.error("Failed to stop service: " + config + " because of: "+ ex.getMessage(),ex);
+            }
+            DispatcherFactory.remove(Component.this.services.get(config));
+          }
+        }
+,MoreExecutors.sameThreadExecutor());
       }
- catch (      IllegalStateException ex) {
-        LOG.error(ex,ex);
+ catch (      Throwable ex) {
+        throw new ServiceRegistrationException("Failed to disable service: " + config + " because of: "+ ex.getMessage(),ex);
       }
-catch (      NoSuchElementException ex) {
-        LOG.error(ex,ex);
-      }
-catch (      ExistingTransitionException ex) {
-        LOG.error(ex,ex);
-      }
-    }
-    DispatcherFactory.remove(this.services.get(service));
-    try {
-      this.stateMachine.transition(State.STOPPED);
-    }
- catch (    IllegalStateException ex) {
-      LOG.error(ex,ex);
-    }
-catch (    NoSuchElementException ex) {
-      LOG.error(ex,ex);
-    }
-catch (    ExistingTransitionException ex) {
-      LOG.error(ex,ex);
     }
   }
  else {
-    this.getBuilder().fireStop(service);
+    this.getBuilder().fireStop(config);
   }
 }
