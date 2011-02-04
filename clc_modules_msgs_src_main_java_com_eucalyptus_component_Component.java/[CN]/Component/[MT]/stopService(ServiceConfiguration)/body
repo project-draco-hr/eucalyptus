@@ -3,18 +3,22 @@
   if (config.isLocal()) {
     if (State.ENABLED.equals(this.stateMachine.getState())) {
       try {
+        final CheckedListenableFuture<Component> future=new TransitionFuture<Component>(this);
         this.stateMachine.transition(State.DISABLED).addListener(new Runnable(){
           @Override public void run(){
             try {
+              DispatcherFactory.remove(Component.this.services.get(config));
               Component.this.stateMachine.transition(State.STOPPED);
+              future.set(Component.this);
             }
  catch (            Throwable ex) {
               Exceptions.trace(new ServiceRegistrationException("Failed to stop service: " + config + " because of: "+ ex.getMessage(),ex));
+              future.setException(ex);
             }
-            DispatcherFactory.remove(Component.this.services.get(config));
           }
         }
 ,MoreExecutors.sameThreadExecutor());
+        return future;
       }
  catch (      Throwable ex) {
         throw new ServiceRegistrationException("Failed to disable service: " + config + " because of: "+ ex.getMessage(),ex);
@@ -22,15 +26,19 @@
     }
  else     if (State.DISABLED.equals(this.stateMachine.getState()) || State.NOTREADY.equals(this.stateMachine.getState())) {
       try {
-        Component.this.stateMachine.transition(State.STOPPED);
+        DispatcherFactory.remove(Component.this.services.get(config));
+        return Component.this.stateMachine.transition(State.STOPPED);
       }
  catch (      Throwable ex) {
         throw new ServiceRegistrationException("Failed to stop service: " + config + " because of: "+ ex.getMessage(),ex);
       }
-      DispatcherFactory.remove(Component.this.services.get(config));
+    }
+ else {
+      return new TransitionFuture<Component>(this);
     }
   }
  else {
     this.getBuilder().fireStop(config);
+    return new TransitionFuture<Component>(this);
   }
 }

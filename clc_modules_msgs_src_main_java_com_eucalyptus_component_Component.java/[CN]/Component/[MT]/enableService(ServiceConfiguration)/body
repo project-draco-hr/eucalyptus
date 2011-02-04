@@ -1,19 +1,24 @@
 {
   EventRecord.caller(Component.class,EventType.COMPONENT_SERVICE_ENABLED,this.getName(),config.getName(),config.getUri().toString()).info();
   if (config.isLocal()) {
+    this.stateMachine.setGoal(State.ENABLED);
     if (State.NOTREADY.equals(this.stateMachine.getState())) {
       try {
+        final CheckedListenableFuture<Component> future=new TransitionFuture<Component>(this);
         this.stateMachine.transition(Transition.READY_CHECK).addListener(new Runnable(){
           @Override public void run(){
             try {
               Component.this.stateMachine.transition(State.ENABLED);
+              future.set(Component.this);
             }
  catch (            Throwable ex) {
+              future.setException(ex);
               Exceptions.trace(new ServiceRegistrationException("Failed to mark service enabled: " + config + " because of: "+ ex.getMessage(),ex));
             }
           }
         }
 );
+        return future;
       }
  catch (      Throwable ex) {
         throw new ServiceRegistrationException("Failed to perform ready-check for service: " + config + " because of: "+ ex.getMessage(),ex);
@@ -21,14 +26,18 @@
     }
  else     if (State.DISABLED.equals(this.stateMachine.getState())) {
       try {
-        Component.this.stateMachine.transition(State.ENABLED);
+        return Component.this.stateMachine.transition(State.ENABLED);
       }
  catch (      Throwable ex) {
         throw new ServiceRegistrationException("Failed to mark service enabled: " + config + " because of: "+ ex.getMessage(),ex);
       }
     }
+ else {
+      return new TransitionFuture<Component>(this);
+    }
   }
  else {
     this.getBuilder().fireEnable(config);
+    return new TransitionFuture<Component>(this);
   }
 }
