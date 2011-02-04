@@ -5,21 +5,34 @@
     return false;
   }
   try {
-    ServiceConfiguration newComponent=builder.add(partition,name,hostName,port);
+    final ServiceConfiguration newComponent=builder.add(partition,name,hostName,port);
+    final GenericFuture<ServiceConfiguration> v=Futures.newGenericFuture();
     try {
-      builder.getComponent().loadService(newComponent);
-    }
- catch (    Exception ex) {
-      LOG.error(ex,ex);
-    }
-    try {
-      builder.getComponent().startService(newComponent);
-    }
- catch (    Exception ex) {
-      LOG.error(ex,ex);
-    }
-    try {
-      builder.getComponent().enableService(newComponent);
+      final Runnable enableRunner=new Runnable(){
+        @Override public void run(){
+          try {
+            builder.getComponent().enableService(newComponent);
+            v.set(newComponent);
+          }
+ catch (          ServiceRegistrationException ex) {
+            v.setException(ex);
+          }
+        }
+      }
+;
+      final Runnable startRunner=new Runnable(){
+        @Override public void run(){
+          try {
+            builder.getComponent().startService(newComponent).addListener(enableRunner);
+          }
+ catch (          ServiceRegistrationException ex) {
+            LOG.error(ex,ex);
+          }
+        }
+      }
+;
+      builder.getComponent().loadService(newComponent).addListener(startRunner);
+      v.get();
     }
  catch (    Exception ex) {
       LOG.error(ex,ex);
