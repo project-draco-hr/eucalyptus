@@ -1,0 +1,46 @@
+{
+  Map<String,InstanceData> instanceDataMap=new HashMap<String,InstanceData>();
+  EntityWrapper<InstanceAttributes> entityWrapper=EntityWrapper.get(InstanceAttributes.class);
+  Session sess=null;
+  try {
+    sess=entityWrapper.getSession();
+    @SuppressWarnings("rawtypes") Iterator iter=sess.createQuery("from InstanceAttributes as ia, InstanceUsageSnapshot as ius" + " where ia.uuid = ius.uuid" + " and ius.timestampMs > ?"+ " and ius.timestampMs < ?").setLong(0,period.getBeginningMs()).setLong(1,period.getEndingMs()).iterate();
+    while (iter.hasNext()) {
+      Object[] row=(Object[])iter.next();
+      InstanceAttributes insAttrs=(InstanceAttributes)row[0];
+      InstanceUsageSnapshot snapshot=(InstanceUsageSnapshot)row[1];
+      UsageData usageData=new UsageData(snapshot.getCumulativeNetworkIoMegs(),snapshot.getCumulativeDiskIoMegs());
+      String uuid=insAttrs.getUuid();
+      if (instanceDataMap.containsKey(uuid)) {
+        InstanceData insData=instanceDataMap.get(uuid);
+        long timestamp=snapshot.getTimestampMs().longValue();
+        if (insData.getBeginMs() > timestamp) {
+          insData.setBeginMs(timestamp);
+          insData.setEarliestUsageData(usageData);
+        }
+        if (insData.getEndMs() < timestamp) {
+          insData.setEndMs(timestamp);
+          insData.setLatestUsageData(usageData);
+        }
+      }
+ else {
+        InstanceData insData=new InstanceData(insAttrs,snapshot.getTimestampMs(),snapshot.getTimestampMs(),usageData,usageData);
+        instanceDataMap.put(uuid,insData);
+      }
+    }
+    entityWrapper.commit();
+  }
+ catch (  Exception ex) {
+    log.error(ex);
+    entityWrapper.rollback();
+    throw new RuntimeException(ex);
+  }
+  final List<LogScanResult> results=new ArrayList<LogScanResult>(instanceDataMap.keySet().size());
+  for (  InstanceData insData : instanceDataMap.values()) {
+    Period resultPeriod=new Period(insData.getBeginMs(),insData.getEndMs());
+    UsageData resultUsage=insData.getEarliestUsageData().subtractFrom(insData.getLatestUsageData());
+    LogScanResult newResult=new LogScanResult(insData.getInsAttrs(),resultPeriod,resultUsage);
+    results.add(newResult);
+  }
+  return results;
+}
