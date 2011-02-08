@@ -6,15 +6,38 @@
     }
  while ((stage=Bootstrap.transition()) != null);
   }
- catch (  BootstrapException e) {
-    e.printStackTrace();
-    throw e;
+ catch (  BootstrapException t) {
+    t.printStackTrace();
+    LOG.fatal(t,t);
+    throw t;
   }
 catch (  Throwable t) {
     LOG.fatal(t,t);
     System.exit(1);
     throw t;
   }
-  Iterables.all(Components.list(),Component.Transition.START.getCallback());
+  for (  final Component c : Components.list()) {
+    if ((Components.lookup(Eucalyptus.class).isLocal() && c.getIdentity().isCloudLocal() || (c.getIdentity().isAlwaysLocal()))) {
+      Threads.lookup(Empyrean.class.getName()).submit(new Runnable(){
+        @Override public void run(){
+          try {
+            Component.Transition.STARTING.transit(c);
+            Component.Transition.READY_CHECK.transit(c);
+            Component.Transition.ENABLING.transit(c);
+          }
+ catch (          Throwable ex) {
+            LOG.error(ex,ex);
+          }
+        }
+      }
+);
+    }
+  }
+  try {
+    SystemBootstrapper.printBanner();
+  }
+ catch (  Throwable ex) {
+    LOG.error(ex,ex);
+  }
   return true;
 }

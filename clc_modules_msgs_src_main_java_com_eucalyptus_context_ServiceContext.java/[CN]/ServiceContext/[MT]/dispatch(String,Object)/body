@@ -1,12 +1,52 @@
 {
-  MuleEvent context=RequestContext.getEvent();
+  dest=ServiceContextManager.mapServiceToEndpoint(dest);
+  MuleContext muleCtx;
   try {
-    ServiceContext.getClient().sendDirect(dest,null,msg,null);
+    muleCtx=ServiceContextManager.getContext();
   }
- catch (  MuleException e) {
-    LOG.error(e);
+ catch (  ServiceInitializationException ex) {
+    LOG.debug(ex.getMessage());
+    throw ex;
   }
- finally {
-    RequestContext.setEvent(context);
+catch (  Exception ex) {
+    LOG.error(ex,ex);
+    throw new ServiceDispatchException("Failed to dispatch message to " + dest + " caused by failure to obtain service context reference: "+ ex.getMessage(),ex);
+  }
+  OutboundEndpoint endpoint;
+  try {
+    endpoint=muleCtx.getRegistry().lookupEndpointFactory().getOutboundEndpoint(dest);
+    if (!endpoint.getConnector().isStarted()) {
+      endpoint.getConnector().start();
+    }
+  }
+ catch (  MuleException ex) {
+    LOG.error(ex,ex);
+    throw new ServiceDispatchException("Failed to dispatch message to " + dest + " caused by failure to obtain service endpoint reference: "+ ex.getMessage(),ex);
+  }
+  MuleMessage muleMsg=new DefaultMuleMessage(msg);
+  MuleSession muleSession;
+  try {
+    muleSession=new DefaultMuleSession(muleMsg,((AbstractConnector)endpoint.getConnector()).getSessionHandler(),ServiceContextManager.getContext());
+  }
+ catch (  ServiceStateException ex) {
+    LOG.error(ex,ex);
+    throw ex;
+  }
+catch (  MuleException ex) {
+    LOG.error(ex,ex);
+    throw new ServiceDispatchException("Failed to dispatch message to " + dest + " caused by failure to contruct session: "+ ex.getMessage(),ex);
+  }
+  MuleEvent muleEvent=new DefaultMuleEvent(muleMsg,endpoint,muleSession,false);
+  LOG.debug("ServiceContext.dispatch(" + dest + ":"+ msg.getClass().getCanonicalName(),Exceptions.filterStackTrace(new RuntimeException(),3));
+  try {
+    dispatcherFactory.create(endpoint).dispatch(muleEvent);
+  }
+ catch (  DispatchException ex) {
+    LOG.error(ex,ex);
+    throw new ServiceDispatchException("Error while dispatching message (" + msg + ")t o "+ dest+ " caused by: "+ ex.getMessage(),ex);
+  }
+catch (  MuleException ex) {
+    LOG.error(ex,ex);
+    throw new ServiceDispatchException("Failed to dispatch message to " + dest + " caused by failure to obtain service dispatcher reference: "+ ex.getMessage(),ex);
   }
 }

@@ -1,0 +1,38 @@
+{
+  EntityWrapper<CHAPUserInfo> dbUser=StorageProperties.getEntityWrapper();
+  try {
+    CHAPUserInfo userInfo=dbUser.getUnique(new CHAPUserInfo("eucalyptus"));
+    if (!checkUser("eucalyptus")) {
+      try {
+        addUser("eucalyptus",BlockStorageUtil.decryptSCTargetPassword(userInfo.getEncryptedPassword()));
+      }
+ catch (      ExecutionException e1) {
+        LOG.error(e1);
+        return;
+      }
+    }
+  }
+ catch (  EucalyptusCloudException ex) {
+    String password=Hashes.getRandom(16);
+    password=password.substring(0,16);
+    try {
+      addUser("eucalyptus",password);
+    }
+ catch (    ExecutionException e1) {
+      LOG.error(e1);
+      dbUser.rollback();
+      return;
+    }
+    CHAPUserInfo userInfo;
+    try {
+      userInfo=new CHAPUserInfo("eucalyptus",BlockStorageUtil.encryptSCTargetPassword(password));
+      dbUser.add(userInfo);
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error(e);
+    }
+  }
+ finally {
+    dbUser.commit();
+  }
+}

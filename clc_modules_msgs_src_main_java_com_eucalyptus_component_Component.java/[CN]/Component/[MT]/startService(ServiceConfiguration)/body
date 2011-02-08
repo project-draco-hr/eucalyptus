@@ -1,4 +1,43 @@
 {
-  EventRecord.caller(Component.class,EventType.COMPONENT_SERVICE_START,this.getName(),service.getName(),service.getUri().toString()).info();
-  this.builder.fireStart(service);
+  EventRecord.caller(Component.class,EventType.COMPONENT_SERVICE_START,this.getName(),config.getName(),config.getUri().toString()).info();
+  if (config.isLocal()) {
+    this.stateMachine.setGoal(State.DISABLED);
+    if (this.inState(State.LOADED)) {
+      try {
+        final CheckedListenableFuture<Component> future=new TransitionFuture<Component>();
+        this.stateMachine.transition(Transition.STARTING).addListener(new Runnable(){
+          @Override public void run(){
+            try {
+              Component.this.stateMachine.transition(State.DISABLED);
+              future.set(Component.this);
+            }
+ catch (            Throwable ex) {
+              Exceptions.trace(new ServiceRegistrationException("Failed to mark service disabled: " + config + " because of: "+ ex.getMessage(),ex));
+              future.setException(ex);
+            }
+          }
+        }
+);
+        return future;
+      }
+ catch (      Throwable ex) {
+        throw new ServiceRegistrationException("Failed to start service: " + config + " because of: "+ ex.getMessage(),ex);
+      }
+    }
+ else     if (this.inState(State.NOTREADY)) {
+      try {
+        return this.stateMachine.transition(State.DISABLED);
+      }
+ catch (      Throwable ex) {
+        throw new ServiceRegistrationException("Failed to mark service disabled: " + config + " because of: "+ ex.getMessage(),ex);
+      }
+    }
+ else {
+      return new TransitionFuture<Component>(this);
+    }
+  }
+ else {
+    this.getBuilder().fireStart(config);
+    return new TransitionFuture<Component>(this);
+  }
 }
