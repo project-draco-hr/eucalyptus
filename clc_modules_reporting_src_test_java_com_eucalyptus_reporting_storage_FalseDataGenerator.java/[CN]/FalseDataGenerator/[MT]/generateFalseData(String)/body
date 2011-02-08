@@ -1,0 +1,36 @@
+{
+  boolean isLocal=(remote != null && remote.equalsIgnoreCase("local"));
+  System.out.println(" ----> GENERATING FALSE DATA " + (isLocal ? "(local)" : "(remote)"));
+  QueueSender queueSender=null;
+  TestPoller testPoller=null;
+  if (isLocal) {
+    FakeQueue fakeQueue=new FakeQueue();
+    queueSender=fakeQueue;
+    testPoller=new TestPoller(fakeQueue);
+  }
+ else {
+    QueueFactory queueFactory=QueueFactory.getInstance();
+    queueSender=queueFactory.getSender(QueueIdentifier.STORAGE);
+  }
+  long timestampMs=0l;
+  for (int i=0; i < SNAPSHOTS_PER_USER; i++) {
+    timestampMs=(i * TIME_USAGE_APART) + START_TIME;
+    for (int j=0; j < NUM_USERS; j++) {
+      String userId=String.format("user-%d",j);
+      String accountId=String.format("instance-%d",(j % NUM_ACCOUNTS));
+      String clusterId=String.format("cluster-%d",(j % NUM_CLUSTERS));
+      String zoneId=String.format("account-%d",(j % NUM_ZONES));
+      for (int k=0; k < StorageEvent.EventType.values().length; k++) {
+        long sizeMegs=1024 + (i * k);
+        StorageEvent.EventType eventType=StorageEvent.EventType.values()[k];
+        StorageEvent event=new StorageEvent(eventType,true,sizeMegs,userId,accountId,clusterId,zoneId);
+        if (!isLocal)         queueSender.send(event);
+        System.out.println("Sending event " + k + " for "+ i+ ","+ j);
+      }
+    }
+    if (isLocal && (i % WRITE_INTERVAL == 0)) {
+      testPoller.setTimestampMs(timestampMs);
+      testPoller.writeEvents();
+    }
+  }
+}

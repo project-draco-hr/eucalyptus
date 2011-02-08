@@ -1,5 +1,4 @@
 {
-  final boolean configLocal=NetworkUtil.testLocal(config.getHostName());
   Service remove=this.lookupServiceByHost(config.getHostName());
   if (remove == null) {
     throw new ServiceRegistrationException("Failed to find service corresponding to: " + config);
@@ -7,20 +6,20 @@
  else {
     Service service=this.services.remove(remove.getName());
     if (config.isLocal()) {
+      if (State.STOPPED.ordinal() < this.stateMachine.getState().ordinal()) {
+        this.stopService(config);
+      }
       this.localService.set(null);
       try {
-        this.stateMachine.transition(Transition.DESTROYING);
+        EventRecord.caller(Component.class,EventType.COMPONENT_SERVICE_DESTROY,this.getName(),service.getName(),service.getUri().toString()).info();
+        return this.stateMachine.transition(Transition.DESTROYING);
       }
- catch (      IllegalStateException ex) {
-        LOG.error(ex,ex);
-      }
-catch (      NoSuchElementException ex) {
-        LOG.error(ex,ex);
-      }
-catch (      ExistingTransitionException ex) {
-        LOG.error(ex,ex);
+ catch (      Throwable ex) {
+        throw new ServiceRegistrationException("Failed to destroy service: " + config + " because of: "+ ex.getMessage(),ex);
       }
     }
-    EventRecord.caller(Component.class,EventType.COMPONENT_SERVICE_DESTROY,this.getName(),service.getName(),service.getUri().toString()).info();
+ else {
+      return new TransitionFuture<Component>(this);
+    }
   }
 }
