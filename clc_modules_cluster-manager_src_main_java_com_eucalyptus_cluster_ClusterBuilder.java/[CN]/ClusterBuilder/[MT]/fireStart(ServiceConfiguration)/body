@@ -4,7 +4,22 @@
   try {
     if (Components.lookup(Eucalyptus.class).isLocal()) {
       try {
-        Clusters.start((ClusterConfiguration)config);
+        ClusterCredentials credentials=null;
+        if (!Clusters.getInstance().contains(config.getName())) {
+          EntityWrapper<ClusterCredentials> credDb=EntityWrapper.get(ClusterCredentials.class);
+          try {
+            credentials=credDb.getUnique(new ClusterCredentials(c.getName()));
+            credDb.commit();
+          }
+ catch (          EucalyptusCloudException e) {
+            LOG.error("Failed to load credentials for cluster: " + c.getName());
+            credDb.rollback();
+            throw e;
+          }
+          Cluster newCluster=new Cluster(c,credentials);
+          Clusters.getInstance().register(newCluster);
+          newCluster.start();
+        }
       }
  catch (      EucalyptusCloudException ex) {
         LOG.error(ex,ex);
