@@ -2,18 +2,18 @@
   EntityWrapper<Snapshot> db=SnapshotManager.getEntityWrapper();
   String userName=request.isAdministrator() ? null : request.getUserId();
   Volume vol=db.recast(Volume.class).getUnique(Volume.named(userName,request.getVolumeId()));
-  StorageControllerConfiguration sc;
+  String partition=vol.getCluster();
+  Service sc=null;
   try {
-    sc=Configuration.lookupSc(vol.getCluster());
+    sc=StorageUtil.getActiveSc(vol.getCluster());
   }
- catch (  Exception e) {
-    db.rollback();
+ catch (  NoSuchElementException e) {
     throw new EucalyptusCloudException("Failed to find the storage controller information for volume: " + vol.getDisplayName() + " at "+ vol.getCluster(),e);
   }
   if (!vol.isReady()) {
     DescribeStorageVolumesType descVols=new DescribeStorageVolumesType(Lists.newArrayList(vol.getDisplayName()));
     try {
-      DescribeStorageVolumesResponseType volState=ServiceDispatcher.lookup(Components.lookup("storage"),sc.getHostName()).send(descVols);
+      DescribeStorageVolumesResponseType volState=ServiceDispatcher.lookup(Components.lookup("storage"),sc.getServiceConfiguration().getHostName()).send(descVols);
       if (!volState.getVolumeSet().isEmpty()) {
         vol.setMappedState(volState.getVolumeSet().get(0).getStatus());
       }

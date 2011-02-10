@@ -1,30 +1,45 @@
 {
   ClusterConfiguration config=super.add(partition,name,host,port);
-  KeyPair clusterKp;
-  X509Certificate clusterX509;
-  KeyPair nodeKp;
-  X509Certificate nodeX509;
-  try {
-    clusterKp=Certs.generateKeyPair();
-    clusterX509=Certs.generateServiceCertificate(clusterKp,String.format(CLUSTER_KEY_FSTRING,config.getName()));
-    nodeKp=Certs.generateKeyPair();
-    nodeX509=Certs.generateServiceCertificate(nodeKp,String.format(NODE_KEY_FSTRING,config.getName()));
-  }
- catch (  Exception ex) {
-    LOG.error(ex,ex);
-    throw new ServiceRegistrationException("Failed to generate credentials for cluster: " + config,ex);
-  }
   File keyDir=ClusterBuilder.makeKeyDir(config);
   try {
-    ClusterBuilder.writeClusterKeyFiles(config,keyDir,clusterKp,clusterX509,nodeKp,nodeX509);
-    ClusterBuilder.storeClusterCredentials(config,clusterX509,nodeX509);
+    X509Certificate clusterX509;
+    X509Certificate nodeX509;
+    try {
+      List<ClusterConfiguration> otherConfigs=ClusterBuilder.lookupPartition(config);
+      ClusterConfiguration otherConfig=otherConfigs.get(0);
+      clusterX509=X509CertHelper.toCertificate(otherConfig.getClusterCertificate());
+      nodeX509=X509CertHelper.toCertificate(otherConfig.getNodeCertificate());
+    }
+ catch (    NoSuchElementException ex1) {
+      KeyPair clusterKp;
+      KeyPair nodeKp;
+      try {
+        clusterKp=Certs.generateKeyPair();
+        clusterX509=Certs.generateServiceCertificate(clusterKp,String.format(CLUSTER_KEY_FSTRING,config.getName()));
+        nodeKp=Certs.generateKeyPair();
+        nodeX509=Certs.generateServiceCertificate(nodeKp,String.format(NODE_KEY_FSTRING,config.getName()));
+        ClusterBuilder.writeClusterKeyFiles(config,keyDir,clusterKp,clusterX509,nodeKp,nodeX509);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex,ex);
+        throw new ServiceRegistrationException("Failed to generate credentials for cluster: " + config,ex);
+      }
+    }
+    try {
+      config.setClusterCertificate(X509CertHelper.fromCertificate(clusterX509));
+      config.setNodeCertificate(X509CertHelper.fromCertificate(nodeX509));
+      EntityWrapper.get(config).mergeAndCommit(config);
+    }
+ catch (    Throwable ex) {
+      throw new ServiceRegistrationException("Failed to store cluster credentials during registration: " + config,ex);
+    }
   }
  catch (  ServiceRegistrationException ex) {
-    ClusterBuilder.removeKeyDirectory(keyDir);
+    ClusterBuilder.removeKeyDirectory(config);
     throw ex;
   }
 catch (  Throwable ex) {
-    ClusterBuilder.removeKeyDirectory(keyDir);
+    ClusterBuilder.removeKeyDirectory(config);
     LOG.error(ex,ex);
     throw new ServiceRegistrationException(String.format("Unexpected error caused cluster registration to fail for: partition=%s name=%s host=%s port=%d",partition,name,host,port),ex);
   }

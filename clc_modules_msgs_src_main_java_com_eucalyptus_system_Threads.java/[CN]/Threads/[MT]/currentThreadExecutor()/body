@@ -1,0 +1,100 @@
+{
+  return new AbstractExecutorService(){
+    private final Lock lock=new ReentrantLock();
+    private final Condition termination=lock.newCondition();
+    private int runningTasks=0;
+    private boolean shutdown=false;
+    public void execute(    Runnable command){
+      startTask();
+      try {
+        command.run();
+      }
+  finally {
+        endTask();
+      }
+    }
+    public boolean isShutdown(){
+      lock.lock();
+      try {
+        return shutdown;
+      }
+  finally {
+        lock.unlock();
+      }
+    }
+    public void shutdown(){
+      lock.lock();
+      try {
+        shutdown=true;
+      }
+  finally {
+        lock.unlock();
+      }
+    }
+    public List<Runnable> shutdownNow(){
+      shutdown();
+      return Collections.emptyList();
+    }
+    public boolean isTerminated(){
+      lock.lock();
+      try {
+        return shutdown && runningTasks == 0;
+      }
+  finally {
+        lock.unlock();
+      }
+    }
+    public boolean awaitTermination(    long timeout,    TimeUnit unit) throws InterruptedException {
+      long nanos=unit.toNanos(timeout);
+      lock.lock();
+      try {
+        for (; ; ) {
+          if (isTerminated()) {
+            return true;
+          }
+ else           if (nanos <= 0) {
+            return false;
+          }
+ else {
+            nanos=termination.awaitNanos(nanos);
+          }
+        }
+      }
+  finally {
+        lock.unlock();
+      }
+    }
+    /** 
+ * Checks if the executor has been shut down and increments the running task count.
+ * @throws RejectedExecutionExceptionif the executor has been previously shutdown
+ */
+    private void startTask(){
+      lock.lock();
+      try {
+        if (isShutdown()) {
+          throw new RejectedExecutionException("Executor already shutdown");
+        }
+        runningTasks++;
+      }
+  finally {
+        lock.unlock();
+      }
+    }
+    /** 
+ * Decrements the running task count.
+ */
+    private void endTask(){
+      lock.lock();
+      try {
+        runningTasks--;
+        if (isTerminated()) {
+          termination.signalAll();
+        }
+      }
+  finally {
+        lock.unlock();
+      }
+    }
+  }
+;
+}

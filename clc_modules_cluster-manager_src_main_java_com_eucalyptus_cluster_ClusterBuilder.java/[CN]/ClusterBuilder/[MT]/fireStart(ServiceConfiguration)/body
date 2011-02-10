@@ -3,27 +3,19 @@
   EventRecord.here(ClusterBuilder.class,EventType.COMPONENT_SERVICE_START,config.getComponentId().name(),config.getName(),config.getUri()).info();
   try {
     if (Components.lookup(Eucalyptus.class).isLocal()) {
-      try {
-        ClusterCredentials credentials=null;
-        if (!Clusters.getInstance().contains(config.getName())) {
-          EntityWrapper<ClusterCredentials> credDb=EntityWrapper.get(ClusterCredentials.class);
-          try {
-            credentials=credDb.getUnique(new ClusterCredentials(config.getName()));
-            credDb.commit();
-          }
- catch (          EucalyptusCloudException e) {
-            LOG.error("Failed to load credentials for cluster: " + config.getName());
-            credDb.rollback();
-            throw e;
-          }
-          Cluster newCluster=new Cluster((ClusterConfiguration)config,credentials);
-          Clusters.getInstance().register(newCluster);
+      if (!Clusters.getInstance().contains(config.getName())) {
+        Cluster newCluster=new Cluster((ClusterConfiguration)config);
+        Clusters.getInstance().register(newCluster);
+        newCluster.start();
+      }
+ else {
+        try {
+          Cluster newCluster=Clusters.getInstance().lookup(config.getName());
+        }
+ catch (        NoSuchElementException ex) {
+          Cluster newCluster=Clusters.getInstance().lookupDisabled(config.getName());
           newCluster.start();
         }
-      }
- catch (      EucalyptusCloudException ex) {
-        LOG.error(ex,ex);
-        throw new ServiceRegistrationException("Registration failed: " + ex.getMessage(),ex);
       }
       super.fireStart(config);
     }
