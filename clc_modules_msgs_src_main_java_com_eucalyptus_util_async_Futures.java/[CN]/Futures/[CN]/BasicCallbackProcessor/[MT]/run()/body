@@ -1,28 +1,22 @@
 {
   R reply=null;
-  Throwable failure=null;
   try {
     reply=this.future.get();
-  }
- catch (  Throwable t) {
-    LOG.error(t,t);
-    failure=t;
-  }
-  if (reply != null) {
+    if (reply == null) {
+      this.LOG.warn("Application of callback resulted in null value: " + this.getClass().getSimpleName());
+      Exceptions.eat("Callback marked as done has null valued response: " + reply);
+    }
     try {
-      EventRecord.caller(this.getClass(),EventType.CALLBACK,"fire(" + reply.getClass().getSimpleName() + ")").trace();
+      this.LOG.trace(EventRecord.here(this.getClass(),EventType.CALLBACK,"fire(" + reply.getClass().getSimpleName() + ")").toString());
       this.callback.fire(reply);
     }
- catch (    Throwable t) {
-      LOG.error(t,t);
-      failure=t;
+ catch (    Throwable ex) {
+      this.LOG.error(EventRecord.here(this.getClass(),EventType.CALLBACK,"FAILED","fire(" + reply.getClass().getSimpleName() + ")",ex.getMessage()).toString(),ex);
+      this.doFail(ex);
     }
   }
- else   if (failure != null) {
-    this.doFail(failure);
-  }
- else {
-    LOG.warn("Ignoring application of callback " + this.getClass().getSimpleName() + " since reply is: "+ reply);
-    Exceptions.eat("Callback marked as done has null valued response: " + reply);
+ catch (  Throwable e) {
+    this.LOG.error(EventRecord.here(this.getClass(),EventType.FUTURE,"FAILED","get()",e.getMessage()).toString(),e);
+    this.doFail(e);
   }
 }
