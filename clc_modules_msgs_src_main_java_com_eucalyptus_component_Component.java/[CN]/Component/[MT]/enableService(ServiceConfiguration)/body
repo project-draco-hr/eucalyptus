@@ -1,34 +1,43 @@
 {
-  EventRecord.caller(Component.class,EventType.COMPONENT_SERVICE_ENABLED,this.getName(),service.getName(),service.getUri().toString()).info();
-  if (service.isLocal()) {
+  EventRecord.caller(Component.class,EventType.COMPONENT_SERVICE_ENABLED,this.getName(),config.getName(),config.getUri().toString()).info();
+  if (config.isLocal()) {
+    this.stateMachine.setGoal(State.ENABLED);
     if (State.NOTREADY.equals(this.stateMachine.getState())) {
       try {
-        this.stateMachine.transition(Transition.READY_CHECK);
+        final CheckedListenableFuture<Component> future=new TransitionFuture<Component>(this);
+        this.stateMachine.transition(Transition.READY_CHECK).addListener(new Runnable(){
+          @Override public void run(){
+            try {
+              Component.this.stateMachine.transition(State.ENABLED);
+              future.set(Component.this);
+            }
+ catch (            Throwable ex) {
+              future.setException(ex);
+              Exceptions.trace(new ServiceRegistrationException("Failed to mark service enabled: " + config + " because of: "+ ex.getMessage(),ex));
+            }
+          }
+        }
+);
+        return future;
       }
- catch (      IllegalStateException ex) {
-        LOG.error(ex,ex);
-      }
-catch (      NoSuchElementException ex) {
-        LOG.error(ex,ex);
-      }
-catch (      ExistingTransitionException ex) {
-        LOG.error(ex,ex);
+ catch (      Throwable ex) {
+        throw new ServiceRegistrationException("Failed to perform ready-check for service: " + config + " because of: "+ ex.getMessage(),ex);
       }
     }
-    try {
-      this.stateMachine.transition(State.ENABLED);
+ else     if (State.DISABLED.equals(this.stateMachine.getState())) {
+      try {
+        return Component.this.stateMachine.transition(State.ENABLED);
+      }
+ catch (      Throwable ex) {
+        throw new ServiceRegistrationException("Failed to mark service enabled: " + config + " because of: "+ ex.getMessage(),ex);
+      }
     }
- catch (    IllegalStateException ex) {
-      LOG.error(ex,ex);
-    }
-catch (    NoSuchElementException ex) {
-      LOG.error(ex,ex);
-    }
-catch (    ExistingTransitionException ex) {
-      LOG.error(ex,ex);
+ else {
+      return new TransitionFuture<Component>(this);
     }
   }
  else {
-    this.builder.fireEnable(service);
+    this.getBuilder().fireEnable(config);
+    return new TransitionFuture<Component>(this);
   }
 }
