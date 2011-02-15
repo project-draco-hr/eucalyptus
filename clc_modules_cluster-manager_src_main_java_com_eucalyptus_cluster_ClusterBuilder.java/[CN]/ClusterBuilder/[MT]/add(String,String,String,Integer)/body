@@ -1,5 +1,5 @@
 {
-  ClusterConfiguration config=super.add(partition,name,host,port);
+  final ClusterConfiguration config=super.add(partition,name,host,port);
   File keyDir=ClusterBuilder.makeKeyDir(config);
   try {
     X509Certificate clusterX509;
@@ -26,9 +26,15 @@
       }
     }
     try {
-      config.setClusterCertificate(X509CertHelper.fromCertificate(clusterX509));
-      config.setNodeCertificate(X509CertHelper.fromCertificate(nodeX509));
-      EntityWrapper.get(config).mergeAndCommit(config);
+      final String clusterCert=X509CertHelper.fromCertificate(clusterX509);
+      final String nodeCert=X509CertHelper.fromCertificate(nodeX509);
+      Transactions.one(config,new Tx<ClusterConfiguration>(){
+        @Override public void fire(        ClusterConfiguration t) throws Throwable {
+          config.setClusterCertificate(clusterCert);
+          config.setNodeCertificate(nodeCert);
+        }
+      }
+);
     }
  catch (    Throwable ex) {
       throw new ServiceRegistrationException("Failed to store cluster credentials during registration: " + config,ex);
