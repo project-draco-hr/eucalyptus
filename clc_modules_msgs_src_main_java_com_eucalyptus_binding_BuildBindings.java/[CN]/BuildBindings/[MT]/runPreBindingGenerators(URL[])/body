@@ -1,14 +1,19 @@
 {
-  AntClassLoader loader=this.getProject().createClassLoader(path);
-  loader.setThreadContextLoader();
+  ClassLoader old=Thread.currentThread().getContextClassLoader();
+  ClassLoader cl=URLClassLoader.newInstance(this.pathUrls(),old);
+  Thread.currentThread().setContextClassLoader(cl);
   try {
-    BindingGenerator.MSG_TYPE=loader.forceLoadClass("edu.ucsb.eucalyptus.msgs.BaseMessage");
-    BindingGenerator.DATA_TYPE=loader.forceLoadClass("edu.ucsb.eucalyptus.msgs.EucalyptusData");
+    BindingGenerator.MSG_TYPE=cl.loadClass("edu.ucsb.eucalyptus.msgs.BaseMessage");
+    BindingGenerator.DATA_TYPE=cl.loadClass("edu.ucsb.eucalyptus.msgs.EucalyptusData");
+    for (    BindingGenerator gen : BindingGenerator.getPreGenerators()) {
+      gen.processClass(BindingGenerator.MSG_TYPE);
+      gen.processClass(BindingGenerator.DATA_TYPE);
+    }
     for (    FileSet fs : this.classFileSets) {
       for (      String classFileName : fs.getDirectoryScanner(getProject()).getIncludedFiles()) {
         try {
           if (!classFileName.endsWith("class"))           continue;
-          Class c=loader.forceLoadClass(classFileName.replaceFirst("[^/]*/[^/]*/","").replaceAll("/",".").replaceAll("\\.class.{0,1}",""));
+          Class c=cl.loadClass(classFileName.replaceFirst("[^/]*/[^/]*/","").replaceAll("/",".").replaceAll("\\.class.{0,1}",""));
           if (BindingGenerator.MSG_TYPE.isAssignableFrom(c) || BindingGenerator.DATA_TYPE.isAssignableFrom(c)) {
             for (            BindingGenerator gen : BindingGenerator.getPreGenerators()) {
               gen.processClass(c);
@@ -25,6 +30,7 @@
     error(e1);
   }
  finally {
+    Thread.currentThread().setContextClassLoader(old);
     try {
       for (      BindingGenerator gen : BindingGenerator.getPreGenerators()) {
         gen.close();
@@ -33,7 +39,5 @@
  catch (    Throwable e) {
       error(e);
     }
-    loader.resetThreadContextLoader();
-    loader.cleanup();
   }
 }
