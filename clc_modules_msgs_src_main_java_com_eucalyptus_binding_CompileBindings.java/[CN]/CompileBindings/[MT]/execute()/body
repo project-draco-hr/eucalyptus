@@ -1,30 +1,31 @@
 {
-  PrintStream buildLog;
-  try {
-    buildLog=new PrintStream(new FileOutputStream("bind-compile.log",false));
-    if (this.classFileSets.isEmpty()) {
-      throw new BuildException("No classes were provided to bind.");
-    }
- else     if (this.bindingFileSets.isEmpty()) {
-      throw new BuildException("No bindings were provided to bind.");
-    }
- else {
-      Path path=new Path(getProject());
-      for (      String p : paths()) {
-        path.add(new Path(getProject(),p));
-      }
-      for (      File f : new File("lib").listFiles(new FilenameFilter(){
-        @Override public boolean accept(        File dir,        String name){
-          return name.endsWith(".jar");
-        }
-      }
-)) {
-        path.add(new Path(getProject(),f.getAbsolutePath()));
-      }
-      runBindingCompiler();
+  Path path=new Path(getProject());
+  for (  String p : paths()) {
+    path.add(new Path(getProject(),p));
+  }
+  for (  File f : new File("lib").listFiles(new FilenameFilter(){
+    @Override public boolean accept(    File dir,    String name){
+      return name.endsWith(".jar");
     }
   }
- catch (  FileNotFoundException e2) {
-    this.error(e2);
+)) {
+    path.add(new Path(getProject(),f.getAbsolutePath()));
+  }
+  try {
+    AntClassLoader loader=this.getProject().createClassLoader(path);
+    BindingGenerator.MSG_TYPE=loader.forceLoadClass("edu.ucsb.eucalyptus.msgs.BaseMessage");
+    BindingGenerator.DATA_TYPE=loader.forceLoadClass("edu.ucsb.eucalyptus.msgs.EucalyptusData");
+    Compile compiler=new Compile(true,true,false,false,false,false);
+    compiler.compile(paths(),bindings());
+  }
+ catch (  ClassNotFoundException e1) {
+    e1.printStackTrace();
+    throw new RuntimeException(e1);
+  }
+catch (  Throwable e) {
+    e.printStackTrace();
+    throw new RuntimeException(e);
+  }
+ finally {
   }
 }
