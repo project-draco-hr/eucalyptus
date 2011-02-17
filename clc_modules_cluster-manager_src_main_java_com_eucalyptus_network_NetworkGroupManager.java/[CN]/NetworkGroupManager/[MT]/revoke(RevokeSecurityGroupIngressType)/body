@@ -18,10 +18,17 @@
   }
 ));
   if (filtered.size() == ruleList.size()) {
-    for (    NetworkRule r : filtered) {
-      ruleGroup.getNetworkRules().remove(r);
+    try {
+      for (      NetworkRule r : filtered) {
+        ruleGroup.getNetworkRules().remove(r);
+      }
+      ruleGroup=NetworkGroupUtil.getEntityWrapper().mergeAndCommit(ruleGroup);
     }
-    NetworkGroupUtil.getEntityWrapper().mergeAndCommit(ruleGroup);
+ catch (    RecoverablePersistenceException ex) {
+      LOG.error(ex,ex);
+      throw new EucalyptusCloudException("RevokeSecurityGroupIngress failed because: " + ex.getMessage(),ex);
+    }
+    return reply;
   }
  else   if (request.getIpPermissions().size() == 1 && request.getIpPermissions().get(0).getIpProtocol() == null) {
     for (    NetworkRule rule : ruleList) {
@@ -30,13 +37,17 @@
       }
     }
     if (reply.get_return()) {
-      NetworkGroupUtil.getEntityWrapper().mergeAndCommit(ruleGroup);
+      try {
+        ruleGroup=NetworkGroupUtil.getEntityWrapper().mergeAndCommit(ruleGroup);
+      }
+ catch (      RecoverablePersistenceException ex) {
+        LOG.error(ex,ex);
+        throw new EucalyptusCloudException("RevokeSecurityGroupIngress failed because: " + ex.getMessage(),ex);
+      }
     }
-  }
- else {
-    reply.set_return(false);
     return reply;
   }
-  reply.set_return(true);
-  return reply;
+ else {
+    return reply.markFailed();
+  }
 }
