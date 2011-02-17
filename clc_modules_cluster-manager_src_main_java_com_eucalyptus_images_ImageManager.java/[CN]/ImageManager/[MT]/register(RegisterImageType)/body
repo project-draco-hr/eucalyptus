@@ -9,14 +9,13 @@
     LOG.trace(e,e);
     throw e;
   }
-  ImageInfo imageInfo=new ImageInfo(imageLocation,request.getUserId(),"available",true);
+  ImageInfo imageInfo=new ImageInfo(imageLocation,request.getUserErn().getUniqueId(),"available",true);
   try {
     WalrusUtil.verifyManifestIntegrity(imageInfo);
   }
  catch (  EucalyptusCloudException e) {
     throw new EucalyptusCloudException("Image registration failed because the manifest referenced is invalid or unavailable.");
   }
-  String userName=request.getUserId();
   Document inputSource=ImageUtil.getManifestDocument(imagePathParts,request.getUserErn());
   XPath xpath=XPathFactory.newInstance().newXPath();
   String arch=ImageUtil.extractArchitecture(inputSource,xpath);
@@ -79,18 +78,13 @@
   try {
     db.add(imageInfo);
     db.commit();
-    LOG.info("Registering image pk=" + imageInfo.getId() + " ownerId="+ request.getUserId());
+    LOG.info("Registering image pk=" + imageInfo.getId() + " ownerId="+ request.getUserErn());
   }
  catch (  Exception e) {
     db.rollback();
     throw new EucalyptusCloudException("failed to register image.");
   }
-  try {
-    imageInfo.grantPermission(Accounts.lookupUserById(request.getUserId()));
-  }
- catch (  AuthException e) {
-    LOG.debug(e,e);
-  }
+  imageInfo.grantPermission(request.getUser());
   imageInfo.grantPermission(ImageUserGroup.ALL);
   LOG.info("Triggering cache population in Walrus for: " + imageInfo.getId());
   WalrusUtil.checkValid(imageInfo);
