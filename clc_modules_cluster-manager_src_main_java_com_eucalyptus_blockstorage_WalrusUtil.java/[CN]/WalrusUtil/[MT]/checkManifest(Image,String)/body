@@ -1,0 +1,38 @@
+{
+  XMLParser parser=new XMLParser(Hashes.base64decode(manifest));
+  String encryptedKey=parser.getValue("//ec2_encrypted_key");
+  String encryptedIV=parser.getValue("//ec2_encrypted_iv");
+  String signature=parser.getValue("//signature");
+  String image=parser.getXML("image");
+  String machineConfiguration=parser.getXML("machine_configuration");
+  String pad=(machineConfiguration + image);
+  try {
+    User user=Accounts.lookupUserById(imgInfo.getImageOwnerId());
+    for (    Certificate cert : user.getCertificates()) {
+      X509Certificate x509=(X509Certificate)cert;
+      if (cert != null && cert instanceof X509Certificate && ImageUtil.verifyManifestSignature(x509,signature,pad)) {
+        return true;
+      }
+    }
+    if (ImageUtil.verifyManifestSignature(SystemCredentialProvider.getCredentialProvider(Eucalyptus.class).getCertificate(),signature,pad)) {
+      return true;
+    }
+    try {
+      for (      User u : Accounts.listAllUsers()) {
+        for (        Certificate cert : u.getCertificates()) {
+          X509Certificate x509=(X509Certificate)cert;
+          if (cert != null && cert instanceof X509Certificate && ImageUtil.verifyManifestSignature(x509,signature,pad)) {
+            return true;
+          }
+        }
+      }
+    }
+ catch (    AuthException e) {
+      throw new EucalyptusCloudException("Can't get user certificates",e);
+    }
+    return false;
+  }
+ catch (  AuthException e) {
+    throw new EucalyptusCloudException("Invalid Manifest: Failed to verify signature because of missing (deleted?) user certificate.",e);
+  }
+}
