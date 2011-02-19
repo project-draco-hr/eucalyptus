@@ -1,11 +1,20 @@
 {
-  NetworkGroupUtil.makeDefault(request.getUserErn().getUniqueId());
+  NetworkGroupUtil.makeDefault(request.getUserErn());
   DeleteSecurityGroupResponseType reply=(DeleteSecurityGroupResponseType)request.getReply();
   if (request.isAdministrator() && request.getGroupName().indexOf("::") != -1) {
-    NetworkGroupUtil.deleteUserNetworkRulesGroup(request.getGroupName().replaceAll("::.*",""),request.getGroupName().replaceAll("\\w*::",""));
+    String userName=request.getGroupName().replaceAll("::.*","");
+    try {
+      User user=Accounts.lookupUserByName(userName);
+      AccountFullName userFullName=UserFullName.getInstance(user);
+      NetworkGroupUtil.deleteUserNetworkRulesGroup(userFullName,request.getGroupName().replaceAll("\\w*::",""));
+    }
+ catch (    AuthException ex) {
+      LOG.error(ex.getMessage());
+      throw new EucalyptusCloudException("Deleting security failed because of: " + ex.getMessage() + " for request "+ request.toSimpleString());
+    }
   }
  else {
-    NetworkGroupUtil.deleteUserNetworkRulesGroup(request.getUserErn().getUniqueId(),request.getGroupName());
+    NetworkGroupUtil.deleteUserNetworkRulesGroup(request.getUserErn(),request.getGroupName());
   }
   reply.set_return(true);
   return reply;

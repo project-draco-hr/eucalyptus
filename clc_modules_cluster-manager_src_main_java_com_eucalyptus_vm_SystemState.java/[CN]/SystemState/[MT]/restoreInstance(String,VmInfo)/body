@@ -2,7 +2,7 @@
   try {
     String instanceId=runVm.getInstanceId();
     String reservationId=runVm.getReservationId();
-    FullName ownerId=Accounts.lookupUserFullNameById(runVm.getOwnerId());
+    UserFullName ownerId=Accounts.lookupUserFullNameById(runVm.getOwnerId());
     String placement=cluster;
     byte[] userData=new byte[0];
     if (runVm.getUserData() != null && runVm.getUserData().length() > 1) {
@@ -19,23 +19,14 @@
     SshKeyPair key=null;
     if (runVm.getKeyValue() != null || !"".equals(runVm.getKeyValue())) {
       try {
-        EntityWrapper<SshKeyPair> db=EntityWrapper.get(SshKeyPair.class);
-        try {
-          SshKeyPair searchKey=new SshKeyPair(runVm.getOwnerId()){
+        SshKeyPair searchKey=EntityWrapper.get(SshKeyPair.class).lookupAndClose(new SshKeyPair(ownerId){
 {
-              setPublicKey(runVm.getKeyValue());
-            }
+            setPublicKey(runVm.getKeyValue());
           }
-;
-          key=db.getUnique(searchKey);
-          db.commit();
         }
- catch (        Throwable e) {
-          db.rollback();
-          throw new EucalyptusCloudException("Failed to find key pair associated with public key " + runVm.getKeyValue(),e);
-        }
+);
       }
- catch (      Throwable e) {
+ catch (      Exception e) {
         key=SshKeyPair.NO_KEY;
       }
     }
@@ -61,24 +52,12 @@
       }
  catch (      NoSuchElementException e1) {
         try {
-          try {
-            notwork=SystemState.getUserNetwork(runVm.getOwnerId(),netName);
-          }
- catch (          Exception ex) {
-            LOG.error(ex);
-            notwork=SystemState.getUserNetwork(runVm.getOwnerId(),"default");
-          }
           networks.add(notwork);
           NetworkToken netToken=Clusters.getInstance().lookup(runVm.getPlacement()).getState().extantAllocation(runVm.getOwnerId(),netName,notwork.getUuid(),runVm.getNetParams().getVlan());
           notwork.addTokenIfAbsent(netToken);
           Networks.getInstance().registerIfAbsent(notwork,Networks.State.ACTIVE);
         }
- catch (        EucalyptusCloudException e) {
-          LOG.error(e);
-          ClusterConfiguration config=Clusters.getInstance().lookup(runVm.getPlacement()).getConfiguration();
-          Callbacks.newRequest(new TerminateCallback(runVm.getInstanceId())).dispatch(runVm.getPlacement());
-        }
-catch (        NetworkAlreadyExistsException e) {
+ catch (        NetworkAlreadyExistsException e) {
           LOG.trace(e);
         }
       }
