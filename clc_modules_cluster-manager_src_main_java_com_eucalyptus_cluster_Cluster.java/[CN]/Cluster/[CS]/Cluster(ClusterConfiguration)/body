@@ -1,0 +1,39 @@
+{
+  super();
+  this.configuration=configuration;
+  this.fullName=configuration.getFullName();
+  this.state=new ClusterState(configuration.getName());
+  this.nodeState=new ClusterNodeState(configuration.getName());
+  this.nodeMap=new ConcurrentSkipListMap<String,NodeInfo>();
+  this.threadFactory=Threads.lookup("cluster-" + this.getFullName());
+  this.stateMachine=new StateMachineBuilder<Cluster,State,Transition>(this,State.DOWN){
+{
+      in(State.DOWN).run(new Callback<State>(){
+        @Override public void fire(        State t){
+          Cluster.this.transitionIfSafe(Transition.START);
+        }
+      }
+);
+      in(State.AUTHENTICATING).run(new Callback<State>(){
+        @Override public void fire(        State t){
+          Cluster.this.transitionIfSafe(Transition.INIT_CERTS);
+        }
+      }
+);
+      on(Transition.START).from(State.DOWN).to(State.AUTHENTICATING).noop();
+      on(Transition.INIT_CERTS).from(State.AUTHENTICATING).to(State.STARTING).error(State.DOWN).run(newRefresh(ClusterCertsCallback.class));
+      on(Transition.INIT_RESOURCES).from(State.STARTING).to(State.STARTING_RESOURCES).error(State.DOWN).run(newRefresh(ResourceStateCallback.class));
+      on(Transition.INIT_NET).from(State.STARTING_RESOURCES).to(State.STARTING_NET).error(State.DOWN).run(newRefresh(NetworkStateCallback.class));
+      on(Transition.INIT_VMS).from(State.STARTING_NET).to(State.STARTING_VMS).error(State.DOWN).run(newRefresh(VmStateCallback.class));
+      on(Transition.INIT_ADDRS).from(State.STARTING_VMS).to(State.STARTING_ADDRS).error(State.DOWN).run(newRefresh(PublicAddressStateCallback.class));
+      on(Transition.INIT_VMS2).from(State.STARTING_ADDRS).to(State.STARTING_VMS2).error(State.DOWN).run(newRefresh(VmStateCallback.class));
+      on(Transition.INIT_ADDRS2).from(State.STARTING_VMS2).to(State.RUNNING_ADDRS).error(State.DOWN).run(newRefresh(PublicAddressStateCallback.class));
+      on(Transition.RUNNING_RSC).from(State.RUNNING_ADDRS).to(State.RUNNING_RSC).error(State.DOWN).run(newRefresh(ResourceStateCallback.class));
+      on(Transition.RUNNING_NET).from(State.RUNNING_RSC).to(State.RUNNING_NET).error(State.DOWN).run(newRefresh(NetworkStateCallback.class));
+      on(Transition.RUNNING_VMS).from(State.RUNNING_NET).to(State.RUNNING_VMS).error(State.DOWN).run(newRefresh(VmStateCallback.class));
+      on(Transition.RUNNING_ADDRS).from(State.RUNNING_VMS).to(State.RUNNING_ADDRS).error(State.DOWN).run(newRefresh(PublicAddressStateCallback.class));
+      on(Transition.ENABLE).from(State.DISABLED).to(State.DOWN).noop();
+    }
+  }
+.newAtomicState();
+}

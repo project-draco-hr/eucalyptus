@@ -1,0 +1,86 @@
+{
+  String userId=user.getName();
+  EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  BucketInfo bucket=null;
+  try {
+    bucket=db.getUnique(bucketInfo);
+  }
+ catch (  Throwable t) {
+    throw new EucalyptusCloudException("Unable to get bucket: " + bucketName,t);
+  }
+  if (bucket != null) {
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+    List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
+    if (objectInfos.size() > 0) {
+      ObjectInfo objectInfo=objectInfos.get(0);
+      if (objectInfo.canRead(user)) {
+        String objectName=objectInfo.getObjectName();
+        File file=new File(storageManager.getObjectPath(bucketName,objectName));
+        XMLParser parser=new XMLParser(file);
+        String encryptedKey=parser.getValue("//ec2_encrypted_key");
+        String encryptedIV=parser.getValue("//ec2_encrypted_iv");
+        String signature=parser.getValue("//signature");
+        String image=parser.getXML("image");
+        String machineConfiguration=parser.getXML("machine_configuration");
+        boolean signatureVerified=false;
+        Signature sigVerifier;
+        try {
+          sigVerifier=Signature.getInstance("SHA1withRSA");
+        }
+ catch (        NoSuchAlgorithmException ex) {
+          LOG.error(ex,ex);
+          throw new DecryptionFailedException("SHA1withRSA not found");
+        }
+        try {
+          for (          User u : Accounts.listAllUsers()) {
+            for (            Certificate cert : u.getCertificates()) {
+              if (cert != null && cert instanceof X509Certificate)               signatureVerified=canVerifySignature(sigVerifier,(X509Certificate)cert,signature,(machineConfiguration + image));
+              if (signatureVerified)               break;
+            }
+          }
+          if (!signatureVerified) {
+            X509Certificate cert=SystemCredentialProvider.getCredentialProvider(Eucalyptus.class).getCertificate();
+            if (cert != null)             signatureVerified=canVerifySignature(sigVerifier,cert,signature,(machineConfiguration + image));
+          }
+        }
+ catch (        Exception ex) {
+          db.rollback();
+          LOG.error(ex,ex);
+          throw new DecryptionFailedException("signature verification");
+        }
+        if (!signatureVerified) {
+          throw new NotAuthorizedException("Invalid signature");
+        }
+        byte[] key;
+        byte[] iv;
+        try {
+          PrivateKey pk=SystemCredentialProvider.getCredentialProvider(Eucalyptus.class).getPrivateKey();
+          Cipher cipher=Cipher.getInstance("RSA/ECB/PKCS1Padding");
+          cipher.init(Cipher.DECRYPT_MODE,pk);
+          key=Hashes.hexToBytes(new String(cipher.doFinal(Hashes.hexToBytes(encryptedKey))));
+          iv=Hashes.hexToBytes(new String(cipher.doFinal(Hashes.hexToBytes(encryptedIV))));
+        }
+ catch (        Exception ex) {
+          db.rollback();
+          LOG.error(ex,ex);
+          throw new DecryptionFailedException("AES params");
+        }
+        db.commit();
+      }
+ else {
+        db.rollback();
+        throw new AccessDeniedException("Key",objectKey);
+      }
+    }
+ else {
+      db.rollback();
+      throw new NoSuchEntityException(objectKey);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+}

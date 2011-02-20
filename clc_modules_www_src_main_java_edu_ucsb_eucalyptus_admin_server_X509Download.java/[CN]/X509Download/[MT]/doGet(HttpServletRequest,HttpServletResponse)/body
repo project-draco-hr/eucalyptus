@@ -1,11 +1,12 @@
 {
   String code=request.getParameter(PARAMETER_CODE);
   String userName=request.getParameter(PARAMETER_USERNAME);
-  String keyName=request.getParameter(PARAMETER_KEYNAME);
+  String accountName=request.getParameter(PARAMETER_ACCOUNTNAME);
   String mimetype="application/zip";
-  Calendar now=Calendar.getInstance();
-  keyName=(keyName == null || "".equals(keyName)) ? "default" : keyName;
-  keyName=userName + String.format("-%1$ty%1$tm%1$te%1$tk%1$tM%1$tS",now);
+  if (accountName == null || "".equals(accountName)) {
+    hasError("No account name provided",response);
+    return;
+  }
   if (userName == null || "".equals(userName)) {
     hasError("No user name provided",response);
     return;
@@ -16,21 +17,22 @@
   }
   User user=null;
   try {
-    user=Users.lookupUser(userName);
+    Account account=Accounts.lookupAccountByName(accountName);
+    user=account.lookupUserByName(userName);
   }
  catch (  Exception e) {
     hasError("User does not exist",response);
     return;
   }
-  if (!user.checkToken(code)) {
-    hasError("Confirmation code is invalid",response);
+  if (!code.equals(user.getToken())) {
+    hasError("Token is invalid",response);
     return;
   }
   response.setContentType(mimetype);
   response.setHeader("Content-Disposition","attachment; filename=\"" + X509Download.NAME_SHORT + "-"+ userName+ "-x509.zip\"");
   LOG.info("pushing out the X509 certificate for user " + userName);
   try {
-    byte[] x509zip=getX509Zip(userName,keyName);
+    byte[] x509zip=getX509Zip(user);
     ServletOutputStream op=response.getOutputStream();
     response.setContentLength(x509zip.length);
     op.write(x509zip);

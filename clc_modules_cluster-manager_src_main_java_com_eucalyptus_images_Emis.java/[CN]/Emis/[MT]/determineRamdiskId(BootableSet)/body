@@ -1,0 +1,38 @@
+{
+  if (!bootSet.hasKernel()) {
+    throw new EucalyptusCloudException("Image specified does not have a kernel: " + bootSet);
+  }
+  boolean skipRamdisk=false;
+  String ramdiskId=null;
+  Context ctx=null;
+  try {
+    ctx=Contexts.lookup();
+    if (ctx.getRequest() instanceof RunInstancesType) {
+      RunInstancesType msg=(RunInstancesType)ctx.getRequest();
+      if (ImageUtil.isSet(msg.getKernelId())) {
+        skipRamdisk|=(!ImageUtil.isSet(msg.getRamdiskId()));
+      }
+ else {
+        skipRamdisk|=(ImageUtil.isSet(bootSet.getMachine().getKernelId()) && !ImageUtil.isSet(bootSet.getMachine().getRamdiskId()) && !ImageUtil.isSet(msg.getRamdiskId()));
+      }
+      ramdiskId=((RunInstancesType)ctx.getRequest()).getRamdiskId();
+    }
+  }
+ catch (  IllegalContextAccessException ex) {
+    LOG.error(ex,ex);
+  }
+  if (ramdiskId == null || "".equals(ramdiskId)) {
+    ramdiskId=bootSet.getMachine().getRamdiskId();
+  }
+  if (ramdiskId == null || "".equals(ramdiskId)) {
+    ramdiskId=SystemConfiguration.getSystemConfiguration().getDefaultRamdisk();
+  }
+  Preconditions.checkNotNull(ramdiskId,"Attempt to resolve a ramdiskId for " + bootSet.toString() + " during request "+ (ctx != null ? ctx.getRequest().toSimpleString() : "UNKNOWN"));
+  if (ramdiskId == null) {
+    throw new EucalyptusCloudException("Unable to determine required ramdisk image for " + bootSet.toString());
+  }
+ else   if (!ramdiskId.startsWith(Emis.IMAGE_RAMDISK_PREFIX)) {
+    throw new EucalyptusCloudException("Image specified is not a ramdisk: " + ramdiskId);
+  }
+  return ramdiskId;
+}

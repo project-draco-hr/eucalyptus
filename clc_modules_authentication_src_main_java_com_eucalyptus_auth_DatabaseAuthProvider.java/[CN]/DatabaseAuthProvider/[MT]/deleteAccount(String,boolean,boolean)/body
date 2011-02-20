@@ -1,0 +1,37 @@
+{
+  if (accountName == null) {
+    throw new AuthException(AuthException.EMPTY_ACCOUNT_NAME);
+  }
+  if (!forceDeleteSystem && DatabaseAuthUtils.isSystemAccount(accountName)) {
+    throw new AuthException(AuthException.DELETE_SYSTEM_ACCOUNT);
+  }
+  if (!recursive && !DatabaseAuthUtils.isAccountEmpty(accountName)) {
+    throw new AuthException(AuthException.ACCOUNT_DELETE_CONFLICT);
+  }
+  Example accountExample=Example.create(new AccountEntity(accountName)).enableLike(MatchMode.EXACT);
+  Example groupExample=Example.create(new GroupEntity(true)).enableLike(MatchMode.EXACT);
+  EntityWrapper<AccountEntity> db=EntityWrapper.get(AccountEntity.class);
+  try {
+    if (recursive) {
+      List<GroupEntity> groups=(List<GroupEntity>)db.createCriteria(GroupEntity.class).setCacheable(true).createCriteria("account").setCacheable(true).add(accountExample).list();
+      List<UserEntity> users=(List<UserEntity>)db.createCriteria(UserEntity.class).setCacheable(true).createCriteria("groups").setCacheable(true).add(groupExample).createCriteria("account").setCacheable(true).add(accountExample).list();
+      for (      GroupEntity g : groups) {
+        db.recast(GroupEntity.class).delete(g);
+      }
+      for (      UserEntity u : users) {
+        db.recast(UserEntity.class).delete(u);
+      }
+    }
+    List<AccountEntity> accounts=(List<AccountEntity>)db.createCriteria(AccountEntity.class).setCacheable(true).add(accountExample).list();
+    if (accounts.size() != 1) {
+      throw new AuthException("Found " + accounts.size() + " account(s)");
+    }
+    db.delete(accounts.get(0));
+    db.commit();
+  }
+ catch (  Throwable e) {
+    db.rollback();
+    Debugging.logError(LOG,e,"Failed to delete account " + accountName);
+    throw new AuthException(AuthException.NO_SUCH_ACCOUNT,e);
+  }
+}

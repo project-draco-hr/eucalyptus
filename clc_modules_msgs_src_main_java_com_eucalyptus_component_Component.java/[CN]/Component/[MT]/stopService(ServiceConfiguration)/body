@@ -3,12 +3,13 @@
   if (config.isLocal()) {
     if (State.ENABLED.equals(this.stateMachine.getState())) {
       try {
-        final CheckedListenableFuture<Component> future=new TransitionFuture<Component>(this);
+        final CheckedListenableFuture<Component> future=new TransitionFuture<Component>();
         this.stateMachine.transition(State.DISABLED).addListener(new Runnable(){
           @Override public void run(){
             try {
-              DispatcherFactory.remove(Component.this.services.get(config));
+              DispatcherFactory.remove(Component.this.serviceRegistry.lookup(config));
               Component.this.stateMachine.transition(State.STOPPED);
+              Component.this.serviceRegistry.deregister(config);
               future.set(Component.this);
             }
  catch (            Throwable ex) {
@@ -17,7 +18,7 @@
             }
           }
         }
-,MoreExecutors.sameThreadExecutor());
+,Threads.currentThreadExecutor());
         return future;
       }
  catch (      Throwable ex) {
@@ -26,7 +27,7 @@
     }
  else     if (State.DISABLED.equals(this.stateMachine.getState()) || State.NOTREADY.equals(this.stateMachine.getState())) {
       try {
-        DispatcherFactory.remove(Component.this.services.get(config));
+        DispatcherFactory.remove(Component.this.serviceRegistry.lookup(config));
         return Component.this.stateMachine.transition(State.STOPPED);
       }
  catch (      Throwable ex) {
@@ -34,11 +35,11 @@
       }
     }
  else {
-      return new TransitionFuture<Component>(this);
+      return Futures.predestinedFuture(this);
     }
   }
  else {
     this.getBuilder().fireStop(config);
-    return new TransitionFuture<Component>(this);
+    return Futures.predestinedFuture(this);
   }
 }

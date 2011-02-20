@@ -1,29 +1,16 @@
 {
-  String certPem=B64.url.encString(PEMFiles.getBytes(cert));
-  UserEntity searchUser=new UserEntity();
-  searchUser.setEnabled(true);
-  X509Cert searchCert=new X509Cert();
-  searchCert.setPemCertificate(certPem);
-  searchCert.setRevoked(null);
-  EntityWrapper<UserEntity> db=EntityWrapper.get(searchUser);
-  Session session=db.getSession();
+  if (cert == null) {
+    throw new AuthException("Empty input cert");
+  }
+  EntityWrapper<CertificateEntity> db=EntityWrapper.get(CertificateEntity.class);
   try {
-    Example qbeUser=Example.create(searchUser).enableLike(MatchMode.EXACT);
-    Example qbeCert=Example.create(searchCert).enableLike(MatchMode.EXACT);
-    List<UserEntity> users=(List<UserEntity>)session.createCriteria(UserEntity.class).setCacheable(true).add(qbeUser).createCriteria("certificates").setCacheable(true).add(qbeCert).list();
-    UserEntity ret=users.size() == 1 ? users.get(0) : null;
-    int size=users.size();
-    if (ret != null) {
-      return new DatabaseWrappedUser(ret);
-    }
- else {
-      throw new GeneralSecurityException((size == 0) ? "No user with the specified certificate." : "Multiple users with the same certificate.");
-    }
+    CertificateEntity certEntity=db.getUnique(new CertificateEntity(X509CertHelper.fromCertificate(cert)));
+    db.commit();
+    return new DatabaseCertificateProxy(certEntity);
   }
- catch (  Throwable t) {
-    throw new NoSuchUserException(t);
-  }
- finally {
+ catch (  Throwable e) {
     db.rollback();
+    Debugging.logError(LOG,e,"Failed to lookup cert " + cert);
+    throw new AuthException(AuthException.NO_SUCH_CERTIFICATE,e);
   }
 }

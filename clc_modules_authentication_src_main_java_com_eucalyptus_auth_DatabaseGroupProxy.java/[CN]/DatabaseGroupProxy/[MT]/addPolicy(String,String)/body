@@ -1,0 +1,29 @@
+{
+  PolicyEntity parsedPolicy=PolicyParser.getInstance().parse(policy);
+  parsedPolicy.setName(name);
+  EntityWrapper<GroupEntity> db=EntityWrapper.get(GroupEntity.class);
+  try {
+    GroupEntity groupEntity=db.getUnique(GroupEntity.newInstanceWithId(this.delegate.getId()));
+    db.recast(PolicyEntity.class).add(parsedPolicy);
+    parsedPolicy.setGroup(groupEntity);
+    for (    StatementEntity statement : parsedPolicy.getStatements()) {
+      db.recast(StatementEntity.class).add(statement);
+      statement.setPolicy(parsedPolicy);
+      for (      AuthorizationEntity auth : statement.getAuthorizations()) {
+        db.recast(AuthorizationEntity.class).add(auth);
+        auth.setStatement(statement);
+      }
+      for (      ConditionEntity cond : statement.getConditions()) {
+        db.recast(ConditionEntity.class).add(cond);
+        cond.setStatement(statement);
+      }
+    }
+    db.commit();
+    return new DatabasePolicyProxy(parsedPolicy);
+  }
+ catch (  Throwable e) {
+    db.rollback();
+    Debugging.logError(LOG,e,"Failed to attach policy for " + this.delegate.getName());
+    throw new AuthException("Failed to attach policy",e);
+  }
+}

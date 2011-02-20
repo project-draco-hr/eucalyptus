@@ -1,27 +1,40 @@
 {
-  EventRecord.here(ReplyQueue.class,EventType.MSG_REPLY,exMsg.getPayload().getClass().getSimpleName()).debug();
-  LOG.trace("Caught exception while servicing: " + exMsg.getPayload());
-  Throwable exception=exMsg.getException();
-  Object payload=null;
-  BaseMessage msg=null;
-  if (exception instanceof MessagingException) {
-    MessagingException ex=(MessagingException)exception;
-    MuleMessage muleMsg=ex.getUmoMessage();
-    if (payload instanceof VmAllocationInfo) {
-      msg=((VmAllocationInfo)payload).getRequest();
+  Throwable cause=exMsg.getException();
+  EventRecord.here(ReplyQueue.class,EventType.MSG_REPLY,cause.getClass().getCanonicalName(),cause.getMessage()).debug();
+  if (cause instanceof MessagingException) {
+    MessagingException messagingEx=((MessagingException)cause);
+    cause=messagingEx.getCause();
+    MuleMessage muleMsg=messagingEx.getUmoMessage();
+    Object payload=muleMsg.getPayload();
+    BaseMessage msg=convert(payload);
+    if (msg != null) {
+      this.handle(new ExceptionResponseType(msg,cause.getMessage(),HttpResponseStatus.INTERNAL_SERVER_ERROR,cause));
+      return;
     }
  else {
-      try {
-        msg=parsePayload(muleMsg.getPayload());
-      }
- catch (      Exception e) {
-        LOG.error("Bailing out of error handling: don't have the correlationId for the caller!");
-        LOG.error(e,e);
-        return;
-      }
+      LOG.error("Failed to identify request context for recieved error: " + exMsg.toString());
     }
-    EucalyptusErrorMessageType errMsg=getErrorMessageType(exMsg.getComponentName(),exMsg.getException(),msg);
-    errMsg.setException(exception.getCause());
-    this.handle(errMsg);
+  }
+ else   if (cause instanceof MuleException) {
+    LOG.error("Error service request: " + cause.getMessage(),cause);
+    cause=new WebServicesException(cause.getMessage(),cause,HttpResponseStatus.INTERNAL_SERVER_ERROR);
+    try {
+      Context ctx=Contexts.lookup();
+      Channels.fireExceptionCaught(ctx.getChannel(),cause);
+    }
+ catch (    IllegalContextAccessException ex) {
+      LOG.error(ex);
+      LOG.error(cause,cause);
+    }
+  }
+ else {
+    try {
+      Context ctx=Contexts.lookup();
+      Channels.fireExceptionCaught(ctx.getChannel(),cause);
+    }
+ catch (    IllegalContextAccessException ex) {
+      LOG.error(ex);
+      LOG.error(cause,cause);
+    }
   }
 }

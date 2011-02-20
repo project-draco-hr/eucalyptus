@@ -16,23 +16,18 @@
 ;
   final TransitionAction<Component> startTransition=new TransitionAction<Component>(){
     @Override public void leave(    final Component parent,    final Completion transitionCallback){
-      Threads.lookup(parent.toString()).getExecutorService().submit(new Runnable(){
-        @Override public void run(){
-          try {
-            parent.getBootstrapper().start();
-            if (parent.getBuilder() != null && parent.getLocalService() != null) {
-              parent.getBuilder().fireStart(parent.getLocalService().getServiceConfiguration());
-            }
-            transitionCallback.fire();
-          }
- catch (          Throwable ex) {
-            LOG.error("Transition failed on " + parent.getName() + " due to "+ ex.toString(),ex);
-            ComponentState.this.details.add(ex.toString());
-            transitionCallback.fireException(ex);
-          }
+      try {
+        parent.getBootstrapper().start();
+        if (parent.hasLocalService()) {
+          parent.getBuilder().fireStart(parent.getLocalService().getServiceConfiguration());
         }
+        transitionCallback.fire();
       }
-);
+ catch (      Throwable ex) {
+        LOG.error("Transition failed on " + parent.getName() + " due to "+ ex.toString(),ex);
+        ComponentState.this.details.add(ex.toString());
+        transitionCallback.fireException(ex);
+      }
     }
   }
 ;
@@ -41,12 +36,12 @@
       try {
         if (State.NOTREADY.equals(ComponentState.this.stateMachine.getState())) {
           parent.getBootstrapper().check();
-          if (parent.getBuilder() != null && parent.getLocalService() != null) {
+          if (parent.hasLocalService()) {
             parent.getBuilder().fireCheck(parent.getLocalService().getServiceConfiguration());
           }
         }
         parent.getBootstrapper().enable();
-        if (parent.getBuilder() != null && parent.getLocalService() != null) {
+        if (parent.hasLocalService()) {
           parent.getBuilder().fireEnable(parent.getLocalService().getServiceConfiguration());
         }
         transitionCallback.fire();
@@ -78,7 +73,7 @@
     @Override public void leave(    Component parent,    Completion transitionCallback){
       try {
         parent.getBootstrapper().stop();
-        if (parent.getBuilder() != null && parent.getLocalService() != null) {
+        if (parent.getLocalService() != null) {
           parent.getBuilder().fireStop(parent.getLocalService().getServiceConfiguration());
         }
         transitionCallback.fire();
@@ -96,7 +91,7 @@
       try {
         if (State.LOADED.ordinal() < ComponentState.this.stateMachine.getState().ordinal()) {
           parent.getBootstrapper().check();
-          if (parent.getBuilder() != null && parent.getLocalService() != null) {
+          if (parent.getLocalService() != null) {
             parent.getBuilder().fireCheck(parent.getLocalService().getServiceConfiguration());
           }
         }
@@ -108,7 +103,7 @@
         if (State.ENABLED.equals(ComponentState.this.stateMachine.getState())) {
           try {
             parent.getBootstrapper().disable();
-            if (parent.getBuilder() != null && parent.getLocalService() != null) {
+            if (parent.hasLocalService()) {
               parent.getBuilder().fireDisable(parent.getLocalService().getServiceConfiguration());
             }
           }
@@ -137,14 +132,14 @@
 ;
   final TransitionListener<Component> addPipelines=Transitions.createListener(new Predicate<Component>(){
     @Override public boolean apply(    Component arg0){
-      PipelineRegistry.getInstance().enable(arg0.getIdentity());
+      PipelineRegistry.getInstance().enable(arg0.getComponentId());
       return true;
     }
   }
 );
   final TransitionListener<Component> removePipelines=Transitions.createListener(new Predicate<Component>(){
     @Override public boolean apply(    Component arg0){
-      PipelineRegistry.getInstance().disable(arg0.getIdentity());
+      PipelineRegistry.getInstance().disable(arg0.getComponentId());
       return true;
     }
   }

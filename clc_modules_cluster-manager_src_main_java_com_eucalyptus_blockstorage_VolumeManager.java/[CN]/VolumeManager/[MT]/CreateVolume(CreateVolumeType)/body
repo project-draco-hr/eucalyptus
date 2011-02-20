@@ -2,18 +2,17 @@
   if ((request.getSnapshotId() == null && request.getSize() == null)) {
     throw new EucalyptusCloudException("One of size or snapshotId is required as a parameter.");
   }
-  StorageControllerConfiguration sc=Configuration.lookupSc(request.getAvailabilityZone());
+  ServiceConfiguration sc;
   try {
-    User u=Users.lookupUser(request.getUserId());
+    sc=StorageUtil.getActiveSc(request.getAvailabilityZone()).getServiceConfiguration();
   }
- catch (  NoSuchUserException e) {
-    throw new EucalyptusCloudException("Failed to lookup your user information.",e);
+ catch (  NoSuchElementException ex) {
+    throw new EucalyptusCloudException(ex.getMessage(),ex);
   }
   EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
   if (request.getSnapshotId() != null) {
-    String userName=request.isAdministrator() ? null : request.getUserId();
     try {
-      db.recast(Snapshot.class).getUnique(Snapshot.named(userName,request.getSnapshotId()));
+      db.recast(Snapshot.class).getUnique(Snapshot.named(request.getUserErn().getUniqueId(),request.getSnapshotId()));
     }
  catch (    EucalyptusCloudException e) {
       LOG.debug(e,e);
@@ -24,13 +23,13 @@
   String newId=null;
   Volume newVol=null;
   while (true) {
-    newId=Crypto.generateId(request.getUserId(),ID_PREFIX);
+    newId=Crypto.generateId(request.getUserErn().getUniqueId(),ID_PREFIX);
     try {
       db.getUnique(Volume.named(null,newId));
     }
  catch (    EucalyptusCloudException e) {
       try {
-        newVol=new Volume(request.getUserId(),newId,new Integer(request.getSize() != null ? request.getSize() : "-1"),request.getAvailabilityZone(),request.getSnapshotId());
+        newVol=new Volume(request.getUserErn().getUniqueId(),newId,new Integer(request.getSize() != null ? request.getSize() : "-1"),request.getAvailabilityZone(),request.getSnapshotId());
         db.add(newVol);
         db.commit();
         break;
@@ -44,8 +43,7 @@
   newVol.setState(State.GENERATING);
   try {
     CreateStorageVolumeType req=new CreateStorageVolumeType(newId,request.getSize(),request.getSnapshotId());
-    req.setUserId(request.getUserId());
-    req.setEffectiveUserId(request.getEffectiveUserId());
+    req.setUser(request.getUser());
     StorageUtil.send(sc.getName(),req);
     EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_CREATE).withDetails(newVol.getUserName(),newVol.getDisplayName(),"size",newVol.getSize().toString()).withDetails("cluster",newVol.getCluster()).withDetails("snapshot",newVol.getParentSnapshot()).info();
   }

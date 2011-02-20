@@ -1,0 +1,100 @@
+{
+  return new AbstractExecutorService(){
+    private final Lock lock=new ReentrantLock();
+    private final Condition termination=this.lock.newCondition();
+    private int runningTasks=0;
+    private boolean shutdown=false;
+    public void execute(    Runnable command){
+      startTask();
+      try {
+        command.run();
+      }
+  finally {
+        endTask();
+      }
+    }
+    public boolean isShutdown(){
+      this.lock.lock();
+      try {
+        return this.shutdown;
+      }
+  finally {
+        this.lock.unlock();
+      }
+    }
+    public void shutdown(){
+      this.lock.lock();
+      try {
+        this.shutdown=true;
+      }
+  finally {
+        this.lock.unlock();
+      }
+    }
+    public List<Runnable> shutdownNow(){
+      shutdown();
+      return Collections.emptyList();
+    }
+    public boolean isTerminated(){
+      this.lock.lock();
+      try {
+        return this.shutdown && this.runningTasks == 0;
+      }
+  finally {
+        this.lock.unlock();
+      }
+    }
+    public boolean awaitTermination(    long timeout,    TimeUnit unit) throws InterruptedException {
+      long nanos=unit.toNanos(timeout);
+      this.lock.lock();
+      try {
+        for (; ; ) {
+          if (isTerminated()) {
+            return true;
+          }
+ else           if (nanos <= 0) {
+            return false;
+          }
+ else {
+            nanos=this.termination.awaitNanos(nanos);
+          }
+        }
+      }
+  finally {
+        this.lock.unlock();
+      }
+    }
+    /** 
+ * Checks if the executor has been shut down and increments the running task count.
+ * @throws RejectedExecutionExceptionif the executor has been previously shutdown
+ */
+    private void startTask(){
+      this.lock.lock();
+      try {
+        if (isShutdown()) {
+          throw new RejectedExecutionException("Executor already shutdown");
+        }
+        this.runningTasks++;
+      }
+  finally {
+        this.lock.unlock();
+      }
+    }
+    /** 
+ * Decrements the running task count.
+ */
+    private void endTask(){
+      this.lock.lock();
+      try {
+        this.runningTasks--;
+        if (isTerminated()) {
+          this.termination.signalAll();
+        }
+      }
+  finally {
+        this.lock.unlock();
+      }
+    }
+  }
+;
+}
