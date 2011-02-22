@@ -1,12 +1,19 @@
 {
-  NetworkGroupUtil.makeDefault(vmAllocInfo.getRequest().getUserId());
-  ArrayList<String> networkNames=new ArrayList<String>(vmAllocInfo.getRequest().getGroupSet());
+  RunInstancesType request=vmAllocInfo.getRequest();
+  String action=PolicySpec.requestToAction(request);
+  User requestUser=request.getUser();
+  Account account=Permissions.getAccountByUserId(requestUser.getId());
+  NetworkGroupUtil.makeDefault(request.getUserErn());
+  ArrayList<String> networkNames=new ArrayList<String>(request.getGroupSet());
   if (networkNames.size() < 1) {
     networkNames.add("default");
   }
   Map<String,NetworkRulesGroup> networkRuleGroups=new HashMap<String,NetworkRulesGroup>();
   for (  String groupName : networkNames) {
-    NetworkRulesGroup group=NetworkGroupUtil.getUserNetworkRulesGroup(vmAllocInfo.getRequest().getUserId(),groupName);
+    NetworkRulesGroup group=NetworkGroupUtil.getUserNetworkRulesGroup(request.getUserErn(),groupName);
+    if (!Permissions.isAuthorized(PolicySpec.EC2_RESOURCE_SECURITYGROUP,groupName,account,action,requestUser)) {
+      throw new EucalyptusCloudException("Not authorized to use network group " + groupName + " for "+ requestUser.getName());
+    }
     networkRuleGroups.put(groupName,group);
     vmAllocInfo.getNetworks().add(group.getVmNetwork());
   }

@@ -1,0 +1,40 @@
+{
+  DatabaseAuthUtils.checkUserName(userName);
+  DatabaseAuthUtils.checkPath(path);
+  if (DatabaseAuthUtils.checkUserExists(userName,this.delegate.getName())) {
+    throw new AuthException(AuthException.USER_ALREADY_EXISTS);
+  }
+  UserEntity newUser=new UserEntity(userName);
+  newUser.setPath(path);
+  newUser.setEnabled(enabled);
+  newUser.setPasswordExpires(System.currentTimeMillis() + 1000 * 60 * 60* 24* 365L);
+  if (skipRegistration) {
+    newUser.setRegistrationStatus(User.RegistrationStatus.CONFIRMED);
+  }
+ else {
+    newUser.setRegistrationStatus(User.RegistrationStatus.REGISTERED);
+  }
+  if (info != null) {
+    newUser.getInfo().putAll(info);
+  }
+  newUser.setToken(Crypto.generateSessionToken(userName));
+  newUser.setConfirmationCode(Crypto.generateSessionToken(userName));
+  GroupEntity newGroup=new GroupEntity(DatabaseAuthUtils.getUserGroupName(userName));
+  newGroup.setUserGroup(true);
+  EntityWrapper<AccountEntity> db=EntityWrapper.get(AccountEntity.class);
+  try {
+    AccountEntity account=db.getUnique(new AccountEntity(this.delegate.getName()));
+    db.recast(GroupEntity.class).add(newGroup);
+    db.recast(UserEntity.class).add(newUser);
+    newGroup.setAccount(account);
+    newGroup.getUsers().add(newUser);
+    newUser.getGroups().add(newGroup);
+    db.commit();
+    return new DatabaseUserProxy(newUser);
+  }
+ catch (  Throwable e) {
+    Debugging.logError(LOG,e,"Failed to add user: " + userName + " in "+ this.delegate.getName());
+    db.rollback();
+    throw new AuthException(AuthException.USER_CREATE_FAILURE,e);
+  }
+}

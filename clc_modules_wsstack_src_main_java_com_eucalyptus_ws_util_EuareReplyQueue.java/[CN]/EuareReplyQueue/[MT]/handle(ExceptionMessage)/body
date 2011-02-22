@@ -1,0 +1,32 @@
+{
+  EventRecord.here(EuareReplyQueue.class,EventType.MSG_REPLY,exMsg.getPayload().getClass().getSimpleName()).debug();
+  LOG.trace("Caught exception while servicing: " + exMsg.getPayload());
+  Throwable exception=exMsg.getException();
+  if (exception instanceof MessagingException && exception.getCause() instanceof EucalyptusCloudException) {
+    int code=500;
+    String errorName=EuareException.INTERNAL_FAILURE;
+    if (exception.getCause() instanceof EuareException) {
+      EuareException euareException=(EuareException)exception.getCause();
+      code=euareException.getCode();
+      errorName=euareException.getError();
+    }
+    ErrorResponseType errorResp=new ErrorResponseType();
+    BaseMessage payload=null;
+    try {
+      payload=parsePayload(((MessagingException)exception).getUmoMessage().getPayload());
+    }
+ catch (    Exception e) {
+      LOG.error("Failed to parse payload ",e);
+    }
+    if (payload != null) {
+      errorResp.setCorrelationId(payload.getCorrelationId());
+      errorResp.setRequestId(payload.getCorrelationId());
+      ErrorType error=new ErrorType();
+      error.setType("Sender");
+      error.setCode(errorName);
+      error.setMessage(exception.getCause().getMessage());
+      errorResp.getErrorList().add(error);
+      this.handle(errorResp);
+    }
+  }
+}

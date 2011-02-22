@@ -41,10 +41,10 @@
     }
   }
   EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
-  String userName=request.isAdministrator() ? null : request.getUserId();
+  FullName userName=request.getUserErn();
   Volume volume=null;
   try {
-    volume=db.getUnique(Volume.named(userName,request.getVolumeId()));
+    volume=db.getUnique(Volume.named(userName.getUniqueId(),request.getVolumeId()));
     if (volume.getRemoteDevice() == null) {
       StorageUtil.getVolumeReply(new HashMap<String,AttachedVolume>(),Lists.newArrayList(volume));
     }
@@ -55,22 +55,20 @@
     db.rollback();
     throw new EucalyptusCloudException("Volume does not exist: " + request.getVolumeId());
   }
-  if (userName != null) {
-    if (!userName.equals(vm.getOwnerId())) {
-      throw new EucalyptusCloudException("Can only attach volume " + request.getVolumeId() + " to your own instance");
-    }
+  if (!userName.equals(vm.getOwner())) {
+    throw new EucalyptusCloudException("Can only attach volume " + request.getVolumeId() + " to your own instance");
   }
-  StorageControllerConfiguration sc;
+  ServiceConfiguration sc;
   try {
-    sc=Configuration.lookupSc(volume.getCluster());
+    sc=StorageUtil.getActiveSc(volume.getCluster()).getServiceConfiguration();
   }
- catch (  Exception ex) {
+ catch (  NoSuchElementException ex) {
     LOG.error(ex,ex);
     throw new EucalyptusCloudException("Failed to lookup SC for volume: " + volume,ex);
   }
-  StorageControllerConfiguration scVm;
+  ServiceConfiguration scVm;
   try {
-    scVm=Configuration.lookupSc(cluster.getName());
+    scVm=StorageUtil.getActiveSc(cluster.getName()).getServiceConfiguration();
   }
  catch (  Exception ex) {
     LOG.error(ex,ex);

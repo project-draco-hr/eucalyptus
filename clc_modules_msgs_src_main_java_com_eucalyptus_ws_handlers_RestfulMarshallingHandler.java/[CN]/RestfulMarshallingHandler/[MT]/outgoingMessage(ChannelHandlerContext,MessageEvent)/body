@@ -11,26 +11,40 @@
         byteOut.write(Binding.createRestFault(errMsg.getSource(),errMsg.getMessage(),errMsg.getCorrelationId()).getBytes());
         httpResponse.setStatus(HttpResponseStatus.BAD_REQUEST);
       }
+ else       if (httpResponse.getMessage() instanceof ExceptionResponseType) {
+        ExceptionResponseType msg=(ExceptionResponseType)httpResponse.getMessage();
+        String response=Binding.createRestFault(msg.getRequestType(),msg.getMessage(),Exceptions.string(msg.getException()));
+        byteOut.write(response.getBytes());
+        httpResponse.setStatus(msg.getHttpStatus());
+      }
  else {
         try {
-          OMElement omMsg=this.binding.toOM(httpResponse.getMessage(),this.namespace);
-          omMsg.serialize(byteOut);
+          this.binding.toOM(httpResponse.getMessage()).serialize(byteOut);
         }
- catch (        Throwable e) {
+ catch (        BindingException ex) {
+          try {
+            BindingManager.getDefaultBinding().toOM(httpResponse.getMessage(),this.namespace).serialize(byteOut);
+          }
+ catch (          BindingException ex1) {
+            BindingManager.getDefaultBinding().toOM(httpResponse.getMessage()).serialize(byteOut);
+          }
+        }
+catch (        Exception e) {
           LOG.debug(e);
-          LOG.error(e,e);
-          OMElement omMsg=this.defaultBinding.toOM(httpResponse.getMessage(),this.namespace);
-          omMsg.serialize(byteOut);
+          if (LogLevels.DEBUG) {
+            LOG.error(e,e);
+          }
+          throw e;
         }
       }
+      byte[] req=byteOut.toByteArray();
+      ChannelBuffer buffer=ChannelBuffers.copiedBuffer(req);
+      httpResponse.addHeader(HttpHeaders.Names.CONTENT_LENGTH,String.valueOf(buffer.readableBytes()));
+      httpResponse.addHeader(HttpHeaders.Names.CONTENT_TYPE,"application/xml; charset=UTF-8");
+      httpResponse.setContent(buffer);
     }
   finally {
       HoldMe.canHas.unlock();
     }
-    byte[] req=byteOut.toByteArray();
-    ChannelBuffer buffer=ChannelBuffers.copiedBuffer(req);
-    httpResponse.addHeader(HttpHeaders.Names.CONTENT_LENGTH,String.valueOf(buffer.readableBytes()));
-    httpResponse.addHeader(HttpHeaders.Names.CONTENT_TYPE,"application/xml; charset=UTF-8");
-    httpResponse.setContent(buffer);
   }
 }

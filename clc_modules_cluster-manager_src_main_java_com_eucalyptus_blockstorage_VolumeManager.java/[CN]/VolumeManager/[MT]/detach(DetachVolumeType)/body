@@ -1,9 +1,8 @@
 {
   DetachVolumeResponseType reply=(DetachVolumeResponseType)request.getReply();
   EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
-  String userName=request.isAdministrator() ? null : request.getUserId();
   try {
-    db.getUnique(Volume.named(userName,request.getVolumeId()));
+    db.getUnique(Volume.named(request.getUserErn().getUniqueId(),request.getVolumeId()));
   }
  catch (  EucalyptusCloudException e) {
     LOG.debug(e,e);
@@ -38,9 +37,9 @@
     LOG.debug(e,e);
     throw new EucalyptusCloudException("Cluster does not exist: " + vm.getPlacement());
   }
-  StorageControllerConfiguration scVm;
+  ServiceConfiguration scVm;
   try {
-    scVm=Configuration.lookupSc(cluster.getName());
+    scVm=StorageUtil.getActiveSc(cluster.getName()).getServiceConfiguration();
   }
  catch (  Exception ex) {
     LOG.error(ex,ex);
@@ -58,7 +57,7 @@
   request.setDevice(volume.getDevice().replaceAll("unknown,requested:",""));
   request.setInstanceId(vm.getInstanceId());
   Callbacks.newRequest(new VolumeDetachCallback(request)).dispatch(cluster.getServiceEndpoint());
-  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_DETACH).withDetails(vm.getOwnerId(),volume.getVolumeId(),"instance",vm.getInstanceId()).withDetails("cluster",vm.getPlacement()).info();
+  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_DETACH).withDetails(vm.getOwner().toString(),volume.getVolumeId(),"instance",vm.getInstanceId()).withDetails("cluster",vm.getPlacement()).info();
   volume.setStatus("detaching");
   reply.setDetachedVolume(volume);
   return reply;
