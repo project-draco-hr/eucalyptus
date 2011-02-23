@@ -1,6 +1,6 @@
 {
   EntityWrapper<Snapshot> db=SnapshotManager.getEntityWrapper();
-  Volume vol=db.recast(Volume.class).getUnique(Volume.named(request.getUserErn().getUniqueId(),request.getVolumeId()));
+  Volume vol=db.recast(Volume.class).getUnique(Volume.named(request.getUserErn(),request.getVolumeId()));
   String partition=vol.getCluster();
   Service sc=null;
   try {
@@ -35,10 +35,10 @@
   while (true) {
     newId=Crypto.generateId(request.getUserErn().getUniqueId(),ID_PREFIX);
     try {
-      db.getUnique(Snapshot.ownedBy(newId));
+      db.getUnique(Snapshot.named(newId));
     }
  catch (    EucalyptusCloudException e) {
-      snap=new Snapshot(request.getUserErn().getUniqueId(),newId,vol.getDisplayName());
+      snap=new Snapshot(request.getUserErn(),newId,vol.getDisplayName());
       db.add(snap);
       break;
     }
@@ -56,11 +56,11 @@
     throw new EucalyptusCloudException("Error calling CreateStorageSnapshot:" + e.getMessage());
   }
   db.commit();
-  EventRecord.here(SnapshotManager.class,EventClass.SNAPSHOT,EventType.SNAPSHOT_CREATE,"user=" + snap.getUserName(),"snapshot=" + snap.getDisplayName(),"volume=" + snap.getParentVolume()).info();
+  EventRecord.here(SnapshotManager.class,EventClass.SNAPSHOT,EventType.SNAPSHOT_CREATE,"user=" + snap.getOwner(),"snapshot=" + snap.getDisplayName(),"volume=" + snap.getParentVolume()).info();
   CreateSnapshotResponseType reply=(CreateSnapshotResponseType)request.getReply();
   edu.ucsb.eucalyptus.msgs.Snapshot snapMsg=snap.morph(new edu.ucsb.eucalyptus.msgs.Snapshot());
   snapMsg.setProgress("0%");
-  snapMsg.setOwnerId(snap.getUserName());
+  snapMsg.setOwnerId(snap.getOwnerAccountId());
   snapMsg.setVolumeSize(vol.getSize().toString());
   reply.setSnapshot(snapMsg);
   return reply;

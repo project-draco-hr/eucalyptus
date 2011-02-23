@@ -12,7 +12,7 @@
   EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
   if (request.getSnapshotId() != null) {
     try {
-      db.recast(Snapshot.class).getUnique(Snapshot.named(request.getUserErn().getUniqueId(),request.getSnapshotId()));
+      db.recast(Snapshot.class).getUnique(Snapshot.named(request.getUserErn(),request.getSnapshotId()));
     }
  catch (    EucalyptusCloudException e) {
       LOG.debug(e,e);
@@ -23,13 +23,13 @@
   String newId=null;
   Volume newVol=null;
   while (true) {
-    newId=Crypto.generateId(request.getUserErn().getUniqueId(),ID_PREFIX);
+    newId=Crypto.generateId(request.getUserErn().getAccountId(),ID_PREFIX);
     try {
       db.getUnique(Volume.named(null,newId));
     }
  catch (    EucalyptusCloudException e) {
       try {
-        newVol=new Volume(request.getUserErn().getUniqueId(),newId,new Integer(request.getSize() != null ? request.getSize() : "-1"),request.getAvailabilityZone(),request.getSnapshotId());
+        newVol=new Volume(request.getUserErn(),newId,new Integer(request.getSize() != null ? request.getSize() : "-1"),request.getAvailabilityZone(),request.getSnapshotId());
         db.add(newVol);
         db.commit();
         break;
@@ -45,13 +45,13 @@
     CreateStorageVolumeType req=new CreateStorageVolumeType(newId,request.getSize(),request.getSnapshotId());
     req.setUser(request.getUser());
     StorageUtil.send(sc.getName(),req);
-    EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_CREATE).withDetails(newVol.getUserName(),newVol.getDisplayName(),"size",newVol.getSize().toString()).withDetails("cluster",newVol.getCluster()).withDetails("snapshot",newVol.getParentSnapshot()).info();
+    EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_CREATE).withDetails(newVol.getOwner().toString(),newVol.getDisplayName(),"size",newVol.getSize().toString()).withDetails("cluster",newVol.getCluster()).withDetails("snapshot",newVol.getParentSnapshot()).info();
   }
  catch (  EucalyptusCloudException e) {
     LOG.debug(e,e);
     try {
       db=VolumeManager.getEntityWrapper();
-      Volume d=db.getUnique(Volume.named(newVol.getUserName(),newVol.getDisplayName()));
+      Volume d=db.getUnique(Volume.named((UserFullName)newVol.getOwner(),newVol.getDisplayName()));
       db.delete(d);
       db.commit();
     }
