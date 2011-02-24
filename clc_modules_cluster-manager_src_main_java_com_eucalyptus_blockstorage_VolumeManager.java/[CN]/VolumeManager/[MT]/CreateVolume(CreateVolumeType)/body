@@ -1,4 +1,5 @@
 {
+  Context ctx=Contexts.lookup();
   if ((request.getSnapshotId() == null && request.getSize() == null)) {
     throw new EucalyptusCloudException("One of size or snapshotId is required as a parameter.");
   }
@@ -9,10 +10,10 @@
  catch (  NoSuchElementException ex) {
     throw new EucalyptusCloudException(ex.getMessage(),ex);
   }
-  EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
+  EntityWrapper<Volume> db=EntityWrapper.get(Volume.class);
   if (request.getSnapshotId() != null) {
     try {
-      db.recast(Snapshot.class).getUnique(Snapshot.named(request.getUserErn(),request.getSnapshotId()));
+      db.recast(Snapshot.class).getUnique(Snapshot.named(ctx.getUserFullName(),request.getSnapshotId()));
     }
  catch (    EucalyptusCloudException e) {
       LOG.debug(e,e);
@@ -23,34 +24,34 @@
   String newId=null;
   Volume newVol=null;
   while (true) {
-    newId=Crypto.generateId(request.getUserErn().getAccountId(),ID_PREFIX);
+    newId=Crypto.generateId(ctx.getUserFullName().getAccountId(),ID_PREFIX);
     try {
       db.getUnique(Volume.named(null,newId));
     }
  catch (    EucalyptusCloudException e) {
       try {
-        newVol=new Volume(request.getUserErn(),newId,new Integer(request.getSize() != null ? request.getSize() : "-1"),request.getAvailabilityZone(),request.getSnapshotId());
+        newVol=new Volume(ctx.getUserFullName(),newId,new Integer(request.getSize() != null ? request.getSize() : "-1"),request.getAvailabilityZone(),request.getSnapshotId());
         db.add(newVol);
         db.commit();
         break;
       }
  catch (      Throwable e1) {
         db.rollback();
-        db=VolumeManager.getEntityWrapper();
+        db=EntityWrapper.get(Volume.class);
       }
     }
   }
   newVol.setState(State.GENERATING);
   try {
     CreateStorageVolumeType req=new CreateStorageVolumeType(newId,request.getSize(),request.getSnapshotId());
-    req.setUser(request.getUser());
+    req.regardingUserRequest(request);
     StorageUtil.send(sc.getName(),req);
     EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_CREATE).withDetails(newVol.getOwner().toString(),newVol.getDisplayName(),"size",newVol.getSize().toString()).withDetails("cluster",newVol.getCluster()).withDetails("snapshot",newVol.getParentSnapshot()).info();
   }
  catch (  EucalyptusCloudException e) {
     LOG.debug(e,e);
     try {
-      db=VolumeManager.getEntityWrapper();
+      db=EntityWrapper.get(Volume.class);
       Volume d=db.getUnique(Volume.named((UserFullName)newVol.getOwner(),newVol.getDisplayName()));
       db.delete(d);
       db.commit();

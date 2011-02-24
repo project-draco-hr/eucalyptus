@@ -1,4 +1,5 @@
 {
+  final Context ctx=Contexts.lookup();
   String imageLocation=request.getImageLocation();
   User requestUser=Contexts.lookup().getUser();
   String[] imagePathParts;
@@ -11,12 +12,12 @@
     throw e;
   }
   try {
-    WalrusUtil.verifyManifestIntegrity(request.getUser(),imageLocation);
+    WalrusUtil.verifyManifestIntegrity(ctx.getUser(),imageLocation);
   }
  catch (  EucalyptusCloudException e) {
     throw new EucalyptusCloudException("Image registration failed because the manifest referenced is invalid or unavailable.");
   }
-  Document inputSource=ImageUtil.getManifestDocument(imagePathParts,request.getUserErn());
+  Document inputSource=ImageUtil.getManifestDocument(imagePathParts,ctx.getUserFullName());
   XPath xpath=XPathFactory.newInstance().newXPath();
   Image.Architecture arch=ImageUtil.extractArchitecture(inputSource,xpath);
   ImageInfo imageInfo=null;
@@ -34,23 +35,23 @@
     LOG.warn(e.getMessage());
   }
   if ("yes".equals(kernelId) || "true".equals(kernelId) || imagePathParts[1].startsWith("vmlinuz")) {
-    if (!Contexts.lookup().hasSystemPrivileges()) {
+    if (!Contexts.lookup().hasAdministrativePrivileges()) {
       throw new EucalyptusCloudException("Only administrators can register kernel images.");
     }
     imageType=Image.Type.kernel;
-    imageInfo=new KernelImageInfo(request.getUserErn(),ImageUtil.newImageId(imageType.getTypePrefix(),imageLocation),imageLocation,arch,Image.Platform.linux);
+    imageInfo=new KernelImageInfo(ctx.getUserFullName(),ImageUtil.newImageId(imageType.getTypePrefix(),imageLocation),imageLocation,arch,Image.Platform.linux);
   }
  else   if ("yes".equals(ramdiskId) || "true".equals(ramdiskId) || imagePathParts[1].startsWith("initrd")) {
-    if (!Contexts.lookup().hasSystemPrivileges()) {
+    if (!Contexts.lookup().hasAdministrativePrivileges()) {
       throw new EucalyptusCloudException("Only administrators can register ramdisk images.");
     }
     imageType=Image.Type.ramdisk;
-    imageInfo=new RamdiskImageInfo(request.getUserErn(),ImageUtil.newImageId(imageType.getTypePrefix(),imageLocation),imageLocation,arch,Image.Platform.linux);
+    imageInfo=new RamdiskImageInfo(ctx.getUserFullName(),ImageUtil.newImageId(imageType.getTypePrefix(),imageLocation),imageLocation,arch,Image.Platform.linux);
   }
  else {
     if (imagePathParts[1].startsWith(Image.Platform.windows.toString()) && System.getProperty("euca.disable.windows") == null) {
       imageType=Image.Type.machine;
-      imageInfo=new MachineImageInfo(request.getUserErn(),ImageUtil.newImageId(imageType.getTypePrefix(),imageLocation),imageLocation,arch,Image.Platform.windows);
+      imageInfo=new MachineImageInfo(ctx.getUserFullName(),ImageUtil.newImageId(imageType.getTypePrefix(),imageLocation),imageLocation,arch,Image.Platform.windows);
     }
  else {
       if (kernelId != null) {
@@ -70,7 +71,7 @@
         }
       }
       imageType=Image.Type.machine;
-      imageInfo=new MachineImageInfo(request.getUserErn(),ImageUtil.newImageId(imageType.getTypePrefix(),imageLocation),imageLocation,arch,Image.Platform.windows,kernelId,ramdiskId);
+      imageInfo=new MachineImageInfo(ctx.getUserFullName(),ImageUtil.newImageId(imageType.getTypePrefix(),imageLocation),imageLocation,arch,Image.Platform.windows,kernelId,ramdiskId);
     }
   }
   imageInfo.setSignature(signature);
@@ -79,13 +80,13 @@
   try {
     db.add(imageInfo);
     db.commit();
-    LOG.info("Registering image pk=" + imageInfo.getId() + " ownerId="+ request.getUserErn());
+    LOG.info("Registering image pk=" + imageInfo.getId() + " ownerId="+ ctx.getUserFullName());
   }
  catch (  Exception e) {
     db.rollback();
     throw new EucalyptusCloudException("failed to register image.");
   }
-  imageInfo.grantPermission(request.getUser());
+  imageInfo.grantPermission(ctx.getUser());
   imageInfo.grantPermission(ImageUserGroup.ALL);
   LOG.info("Triggering cache population in Walrus for: " + imageInfo.getId());
   WalrusUtil.checkValid(imageInfo);
