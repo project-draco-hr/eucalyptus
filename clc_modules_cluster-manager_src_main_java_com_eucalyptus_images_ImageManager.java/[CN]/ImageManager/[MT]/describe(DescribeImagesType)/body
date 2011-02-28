@@ -1,32 +1,58 @@
 {
-  DescribeImagesResponseType reply=(DescribeImagesResponseType)request.getReply();
+  DescribeImagesResponseType reply=request.getReply();
   ImageUtil.cleanDeregistered();
-  List<ImageInfo> imgList=Lists.newArrayList();
-  EntityWrapper<ImageInfo> db=new EntityWrapper<ImageInfo>();
-  for (  String imageId : request.getImagesSet()) {
-    try {
-      imgList.add(db.getUnique(ImageInfo.named(imageId)));
+  final Context ctx=Contexts.lookup();
+  final User requestUser=ctx.getUser();
+  final Account requestAccount=ctx.getAccount();
+  final String requestAccountId=ctx.getUserFullName().getAccountId();
+  final List<String> imageList=request.getImagesSet();
+  final List<String> owners=request.getOwnersSet();
+  final List<String> executable=request.getExecutableBySet();
+  final boolean showPublic=executable.remove("all");
+  final boolean showMyImages=owners.remove("self");
+  final boolean showMyAllowedImages=executable.remove("self");
+  List<ImageInfo> images=Transactions.filter(new ImageInfo(),new Predicate<ImageInfo>(){
+    @Override public boolean apply(    ImageInfo t){
+      if (showMyImages && requestAccountId.equals(t.getOwnerAccountId())) {
+        LOG.trace("Considering image " + t.getFullName() + " because user wants to see their images and is owner.");
+      }
+ else       if (showMyAllowedImages && t.isAllowed(requestAccount)) {
+        LOG.trace("Considering image " + t.getFullName() + " because user wants to see their executable images and is allowed.");
+      }
+ else       if (showPublic && t.getImagePublic()) {
+        LOG.trace("Considering image " + t.getFullName() + " because user wants to see public images and it is public.");
+      }
+ else       if (!t.isAllowed(requestAccount)) {
+        LOG.trace("Rejecting image " + t.getFullName() + " because user is not allowed.");
+        return false;
+      }
+      if (!imageList.isEmpty() && !imageList.contains(t.getDisplayName())) {
+        LOG.trace("Rejecting image " + t.getFullName() + " because user provide an image id list which does not contain the result: "+ imageList);
+        return false;
+      }
+ else       if (!owners.isEmpty() && !owners.contains(t.getOwnerAccountId())) {
+        LOG.trace("Rejecting image " + t.getFullName() + " because user provide an image id list which does not contain the result: "+ owners);
+        return false;
+      }
+ else       if (!executable.isEmpty()) {
+        for (        String accountId : executable) {
+          try {
+            if (ctx.hasAdministrativePrivileges() || t.isAllowed(Accounts.lookupAccountById(accountId))) {
+              return true;
+            }
+          }
+ catch (          AuthException ex) {
+            LOG.error(ex);
+          }
+        }
+        LOG.trace("Rejecting image " + t.getFullName() + " because user provide an image id list which does not contain the result: "+ owners);
+        return false;
+      }
+      return true;
     }
- catch (    Throwable e) {
-    }
   }
-  db.commit();
-  ArrayList<String> imageList=request.getImagesSet();
-  ArrayList<String> owners=request.getOwnersSet();
-  ArrayList<String> executable=request.getExecutableBySet();
-  if (owners.isEmpty() && executable.isEmpty()) {
-    executable.add("self");
-  }
-  Set<ImageDetails> repList=Sets.newHashSet();
-  if (!owners.isEmpty()) {
-    repList.addAll(ImageUtil.getImagesByOwner(imgList,request.getUser(),owners));
-  }
-  if (!executable.isEmpty()) {
-    if (executable.remove("self")) {
-      repList.addAll(ImageUtil.getImageOwnedByUser(imgList,request.getUser()));
-    }
-    repList.addAll(ImageUtil.getImagesByExec(request.getUser(),executable));
-  }
-  reply.getImagesSet().addAll(repList);
+);
+  List<ImageDetails> imageDetailsList=Lists.transform(images,Images.TO_IMAGE_DETAILS);
+  reply.getImagesSet().addAll(imageDetailsList);
   return reply;
 }

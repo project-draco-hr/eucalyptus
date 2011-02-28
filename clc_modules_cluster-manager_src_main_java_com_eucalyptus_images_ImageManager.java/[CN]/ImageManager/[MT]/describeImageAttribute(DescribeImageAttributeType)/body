@@ -2,31 +2,37 @@
   DescribeImageAttributeResponseType reply=(DescribeImageAttributeResponseType)request.getReply();
   reply.setImageId(request.getImageId());
   if (request.getAttribute() != null)   request.applyAttribute();
-  EntityWrapper<ImageInfo> db=new EntityWrapper<ImageInfo>();
+  EntityWrapper<ImageInfo> db=EntityWrapper.get(ImageInfo.class);
   try {
-    ImageInfo imgInfo=db.getUnique(new ImageInfo(request.getImageId()));
-    if (!imgInfo.isAllowed(request.getUser()))     throw new EucalyptusCloudException("image attribute: not authorized.");
+    ImageInfo imgInfo=db.getUnique(Images.exampleWithImageId(request.getImageId()));
+    if (!imgInfo.isAllowed(Contexts.lookup().getAccount()))     throw new EucalyptusCloudException("image attribute: not authorized.");
     if (request.getKernel() != null) {
       reply.setRealResponse(reply.getKernel());
-      if (imgInfo.getKernelId() != null) {
-        reply.getKernel().add(imgInfo.getKernelId());
+      if (imgInfo instanceof MachineImageInfo) {
+        if (((MachineImageInfo)imgInfo).getKernelId() != null) {
+          reply.getKernel().add(((MachineImageInfo)imgInfo).getKernelId());
+        }
       }
     }
  else     if (request.getRamdisk() != null) {
       reply.setRealResponse(reply.getRamdisk());
-      if (imgInfo.getRamdiskId() != null) {
-        reply.getRamdisk().add(imgInfo.getRamdiskId());
+      if (imgInfo instanceof MachineImageInfo) {
+        if (((MachineImageInfo)imgInfo).getRamdiskId() != null) {
+          reply.getRamdisk().add(((MachineImageInfo)imgInfo).getRamdiskId());
+        }
       }
     }
  else     if (request.getLaunchPermission() != null) {
       reply.setRealResponse(reply.getLaunchPermission());
-      for (      ImageAuthorization auth : imgInfo.getUserGroups())       reply.getLaunchPermission().add(LaunchPermissionItemType.getGroup(auth.getValue()));
-      for (      ImageAuthorization auth : imgInfo.getPermissions())       reply.getLaunchPermission().add(LaunchPermissionItemType.getUser(auth.getValue()));
+      if (imgInfo.getImagePublic()) {
+        reply.getLaunchPermission().add(LaunchPermissionItemType.getGroup());
+      }
+      reply.getLaunchPermission().add(LaunchPermissionItemType.getUser(Contexts.lookup().getAccount().getId()));
     }
  else     if (request.getProductCodes() != null) {
       reply.setRealResponse(reply.getProductCodes());
-      for (      ProductCode p : imgInfo.getProductCodes()) {
-        reply.getProductCodes().add(p.getValue());
+      for (      String p : imgInfo.listProductCodes()) {
+        reply.getProductCodes().add(p);
       }
     }
  else     if (request.getBlockDeviceMapping() != null) {
