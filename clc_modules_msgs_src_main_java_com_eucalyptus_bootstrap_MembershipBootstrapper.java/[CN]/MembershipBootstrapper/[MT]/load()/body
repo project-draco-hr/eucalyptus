@@ -10,24 +10,51 @@
         LOG.info("view: " + newView.printDetails());
         if (Components.lookup(Eucalyptus.class).isLocal()) {
           for (          Address addr : newView.getMembers()) {
-            if (!MembershipBootstrapper.this.membershipChannel.getAddress().equals(addr)) {
-              try {
-                LOG.info("Sending to address=" + addr + " of type="+ addr.getClass());
-                MembershipBootstrapper.this.membershipChannel.send(new Message(addr,null,"DBDBDBDBDBDBDBDBDBDBDB"));
-              }
- catch (              ChannelNotConnectedException ex) {
-                LOG.error(ex,ex);
-              }
-catch (              ChannelClosedException ex) {
-                LOG.error(ex,ex);
-              }
+            try {
+              LOG.info("Sending to address=" + addr + " of type="+ addr.getClass());
+              MembershipBootstrapper.this.membershipChannel.send(new Message(addr,null,Join.join(":",NetworkUtil.getAllAddresses())));
+            }
+ catch (            ChannelNotConnectedException ex) {
+              LOG.error(ex,ex);
+            }
+catch (            ChannelClosedException ex) {
+              LOG.error(ex,ex);
+            }
+catch (            SocketException ex) {
+              LOG.error(ex,ex);
             }
           }
         }
       }
       public void receive(      Message msg){
-        if (System.getProperty("euca.disable.eucalyptus") != null) {
-          LOG.info(msg.getObject() + " [" + msg.getSrc()+ "]"+ msg.getHeaders());
+        LOG.info(msg.getObject() + " [" + msg.getSrc()+ "]"+ msg.getHeaders());
+        if (!Components.lookup(Eucalyptus.class).isLocal()) {
+          String[] dbAddrs=((String)msg.getObject()).split(":");
+          for (          String maybeDbAddr : dbAddrs) {
+            try {
+              if (NetworkUtil.testReachability(maybeDbAddr)) {
+                String host=maybeDbAddr;
+                for (                Component c : Components.list()) {
+                  if (c.getComponentId().isCloudLocal()) {
+                    URI uri=c.getUri(host,c.getComponentId().getPort());
+                    ServiceBuilder builder=c.getBuilder();
+                    ServiceConfiguration config=builder.toConfiguration(uri);
+                    c.loadService(config);
+                  }
+                }
+                for (                Bootstrap.Stage stage : Bootstrap.Stage.values()) {
+                  stage.updateBootstrapDependencies();
+                }
+                break;
+              }
+            }
+ catch (            ServiceRegistrationException ex) {
+              LOG.error(ex,ex);
+            }
+catch (            Exception ex) {
+              LOG.error(ex,ex);
+            }
+          }
           lock.lock();
           try {
             done[0]=true;
