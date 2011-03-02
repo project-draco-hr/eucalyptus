@@ -1,8 +1,16 @@
 {
   Context ctx=Contexts.lookup();
+  String action=PolicySpec.requestToAction(request);
+  if (!ctx.hasAdministrativePrivileges()) {
+    if (!Permissions.isAuthorized(PolicySpec.EC2_RESOURCE_SNAPSHOT,"",ctx.getAccount(),action,ctx.getUser())) {
+      throw new EucalyptusCloudException("Not authorized to create snapshot by " + ctx.getUser().getName());
+    }
+    if (!Permissions.canAllocate(PolicySpec.EC2_RESOURCE_SNAPSHOT,"",action,ctx.getUser(),1)) {
+      throw new EucalyptusCloudException("Quota exceeded in creating snapshot by " + ctx.getUser().getName());
+    }
+  }
   EntityWrapper<Snapshot> db=EntityWrapper.get(Snapshot.class);
   Volume vol=db.recast(Volume.class).getUnique(Volume.named(ctx.getUserFullName(),request.getVolumeId()));
-  String partition=vol.getCluster();
   Service sc=null;
   try {
     sc=StorageUtil.getActiveSc(vol.getCluster());
@@ -54,7 +62,7 @@
  catch (  EucalyptusCloudException e) {
     LOG.debug(e,e);
     db.rollback();
-    throw new EucalyptusCloudException("Error calling CreateStorageSnapshot:" + e.getMessage());
+    throw new EucalyptusCloudException("Error calling CreateStorageSnapshot:" + e.getMessage(),e);
   }
   db.commit();
   EventRecord.here(SnapshotManager.class,EventClass.SNAPSHOT,EventType.SNAPSHOT_CREATE,"user=" + snap.getOwner(),"snapshot=" + snap.getDisplayName(),"volume=" + snap.getParentVolume()).info();
