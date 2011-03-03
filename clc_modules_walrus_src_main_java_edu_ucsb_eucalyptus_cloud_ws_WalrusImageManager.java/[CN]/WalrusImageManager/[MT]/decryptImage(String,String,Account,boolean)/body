@@ -1,5 +1,4 @@
 {
-  String userId=user.getName();
   EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
@@ -9,7 +8,7 @@
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
     if (objectInfos.size() > 0) {
       ObjectInfo objectInfo=objectInfos.get(0);
-      if (objectInfo.canRead(userId)) {
+      if (isAdministrator || (objectInfo.canRead(account.getId()) && Lookups.checkPrivilege(PolicySpec.S3_GETOBJECT,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,objectKey),objectInfo.getOwnerId()))) {
         String objectName=objectInfo.getObjectName();
         File file=new File(storageManager.getObjectPath(bucketName,objectName));
         XMLParser parser=new XMLParser(file);
@@ -37,6 +36,7 @@
                 if (cert != null)                 verified=canVerifySignature(sigVerifier,cert,signature,verificationString);
                 if (verified)                 break;
               }
+              if (verified)               break;
             }
             if (!verified) {
               X509Certificate cert=SystemCredentialProvider.getCredentialProvider(Eucalyptus.class).getCertificate();
@@ -55,10 +55,13 @@
  else {
           boolean signatureVerified=false;
           try {
-            for (            Certificate c : user.getCertificates()) {
-              X509Certificate cert=c.getX509Certificate();
-              if (cert != null) {
-                signatureVerified=canVerifySignature(sigVerifier,cert,signature,verificationString);
+            for (            User user : account.getUsers()) {
+              for (              Certificate c : user.getCertificates()) {
+                X509Certificate cert=c.getX509Certificate();
+                if (cert != null) {
+                  signatureVerified=canVerifySignature(sigVerifier,cert,signature,verificationString);
+                }
+                if (signatureVerified)                 break;
               }
               if (signatureVerified)               break;
             }
