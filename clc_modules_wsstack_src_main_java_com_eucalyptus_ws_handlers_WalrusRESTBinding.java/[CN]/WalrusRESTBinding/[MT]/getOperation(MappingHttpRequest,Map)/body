@@ -117,6 +117,12 @@
       if (verb.equals(WalrusProperties.HTTPVerb.PUT.toString())) {
         if (httpRequest.containsHeader(WalrusProperties.COPY_SOURCE.toString())) {
           String copySource=httpRequest.getHeader(WalrusProperties.COPY_SOURCE.toString());
+          try {
+            copySource=new URLCodec().decode(copySource);
+          }
+ catch (          DecoderException ex) {
+            throw new BindingException("Unable to decode copy source: " + copySource);
+          }
           String[] sourceParts=copySource.split("\\?");
           if (sourceParts.length > 1) {
             operationParams.put("SourceVersionId",sourceParts[1].replaceFirst("versionId=","").trim());
@@ -129,12 +135,6 @@
             for (int i=1; i < sourceTarget.length; ++i) {
               sourceObjectKey+=sourceSplitOn + sourceTarget[i];
               sourceSplitOn="/";
-            }
-            try {
-              sourceObjectKey=new URLCodec().decode(sourceObjectKey);
-            }
- catch (            DecoderException e) {
-              throw new BindingException("Unable to get source key: " + e.getMessage());
             }
             operationParams.put("SourceBucket",sourceTarget[0]);
             operationParams.put("SourceObject",sourceObjectKey);
@@ -241,10 +241,23 @@
       }
     }
     if (!dontIncludeParam) {
+      String value=params.get(key);
+      if (value != null) {
+        String[] keyStringParts=keyString.split("-");
+        if (keyStringParts.length > 1) {
+          keyString="";
+          for (int i=0; i < keyStringParts.length; ++i) {
+            keyString+=toUpperFirst(keyStringParts[i]);
+          }
+        }
+ else {
+          keyString=toUpperFirst(keyString);
+        }
+      }
       dontIncludeParam=true;
       if (operationKey.startsWith(SERVICE)) {
         for (        WalrusProperties.ServiceParameter param : WalrusProperties.ServiceParameter.values()) {
-          if (keyString.equals(param.toString())) {
+          if (keyString.toLowerCase().equals(param.toString().toLowerCase())) {
             dontIncludeParam=false;
             break;
           }
@@ -252,7 +265,7 @@
       }
  else       if (operationKey.startsWith(BUCKET)) {
         for (        WalrusProperties.BucketParameter param : WalrusProperties.BucketParameter.values()) {
-          if (keyString.equals(param.toString())) {
+          if (keyString.toLowerCase().equals(param.toString().toLowerCase())) {
             dontIncludeParam=false;
             break;
           }
@@ -260,7 +273,7 @@
       }
  else       if (operationKey.startsWith(OBJECT)) {
         for (        WalrusProperties.ObjectParameter param : WalrusProperties.ObjectParameter.values()) {
-          if (keyString.equals(param.toString())) {
+          if (keyString.toLowerCase().equals(param.toString().toLowerCase())) {
             dontIncludeParam=false;
             break;
           }
@@ -273,16 +286,6 @@
     if (dontIncludeParam)     continue;
     String value=params.get(key);
     if (value != null) {
-      String[] keyStringParts=keyString.split("-");
-      if (keyStringParts.length > 1) {
-        keyString="";
-        for (int i=0; i < keyStringParts.length; ++i) {
-          keyString+=toUpperFirst(keyStringParts[i]);
-        }
-      }
- else {
-        keyString=toUpperFirst(keyString);
-      }
       operationParams.put(keyString,value);
     }
     if (addMore) {
