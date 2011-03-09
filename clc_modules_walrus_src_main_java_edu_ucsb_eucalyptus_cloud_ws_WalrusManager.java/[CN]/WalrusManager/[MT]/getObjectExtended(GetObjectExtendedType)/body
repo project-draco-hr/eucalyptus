@@ -1,13 +1,5 @@
 {
   GetObjectExtendedResponseType reply=(GetObjectExtendedResponseType)request.getReply();
-  Long byteRangeStart=request.getByteRangeStart();
-  if (byteRangeStart == null) {
-    byteRangeStart=0L;
-  }
-  Long byteRangeEnd=request.getByteRangeEnd();
-  if (byteRangeEnd == null) {
-    byteRangeEnd=-1L;
-  }
   Date ifModifiedSince=request.getIfModifiedSince();
   Date ifUnmodifiedSince=request.getIfUnmodifiedSince();
   String ifMatch=request.getIfMatch();
@@ -34,11 +26,25 @@
       if (objectInfo.canRead(user)) {
         String etag=objectInfo.getEtag();
         String objectName=objectInfo.getObjectName();
-        if (byteRangeEnd == -1)         byteRangeEnd=objectInfo.getSize();
-        if ((byteRangeStart > objectInfo.getSize()) || (byteRangeStart > byteRangeEnd) || (byteRangeEnd > objectInfo.getSize())|| (byteRangeStart < 0 || byteRangeEnd < 0)) {
+        Long byteRangeStart=request.getByteRangeStart();
+        Long byteRangeEnd=request.getByteRangeEnd();
+        DefaultHttpResponse httpResponse=null;
+        if (byteRangeStart != null || byteRangeEnd != null) {
+          httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.PARTIAL_CONTENT);
+        }
+ else {
+          httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.OK);
+        }
+        if (byteRangeStart == null) {
+          byteRangeStart=0L;
+        }
+        if (byteRangeEnd == null) {
+          byteRangeEnd=-1L;
+        }
+        if (byteRangeEnd == -1)         byteRangeEnd=objectInfo.getSize() - 1;
+        if ((byteRangeStart > objectInfo.getSize()) || (byteRangeStart > byteRangeEnd) || ((byteRangeEnd + 1) > objectInfo.getSize())|| (byteRangeStart < 0 || byteRangeEnd < 0)) {
           throw new InvalidRangeException("Range: " + byteRangeStart + "-"+ byteRangeEnd+ "object: "+ bucketName+ "/"+ objectKey);
         }
-        DefaultHttpResponse httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.OK);
         if (ifMatch != null) {
           if (!ifMatch.equals(etag) && !returnCompleteObjectOnFailure) {
             db.rollback();
@@ -86,7 +92,7 @@
           if (WalrusProperties.trackUsageStatistics) {
             walrusStatistics.updateBytesOut(size);
           }
-          storageManager.sendObject(request,httpResponse,bucketName,objectName,byteRangeStart,byteRangeEnd,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),contentType,contentDisposition,request.getIsCompressed(),versionId,logData);
+          storageManager.sendObject(request,httpResponse,bucketName,objectName,byteRangeStart,byteRangeEnd + 1,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.ISO8601_DATETIME_PATTERN + ".000Z"),contentType,contentDisposition,request.getIsCompressed(),versionId,logData);
           return null;
         }
  else {
