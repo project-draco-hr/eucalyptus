@@ -1,7 +1,8 @@
 {
   ListVersionsResponseType reply=(ListVersionsResponseType)request.getReply();
   String bucketName=request.getBucket();
-  String userId=Contexts.lookup().getUserFullName().getUserId();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
   String prefix=request.getPrefix();
   if (prefix == null)   prefix="";
   String keyMarker=request.getKeyMarker();
@@ -19,7 +20,7 @@
   if (bucketList.size() > 0) {
     BucketInfo bucket=bucketList.get(0);
     BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
-    if (bucket.canRead(userId)) {
+    if (ctx.hasAdministrativePrivileges() || (bucket.canRead(account.getId()) && Lookups.checkPrivilege(PolicySpec.S3_LISTBUCKETVERSIONS,PolicySpec.S3_RESOURCE_BUCKET,bucketName,bucket.getOwnerId()))) {
       if (bucket.isVersioningDisabled()) {
         db.rollback();
         throw new EucalyptusCloudException("Versioning has not been enabled for bucket: " + bucketName);
@@ -106,8 +107,7 @@
             versionEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
             String displayName=objectInfo.getOwnerId();
             try {
-              User userInfo=Accounts.lookupUserById(displayName);
-              versionEntry.setOwner(new CanonicalUserType(Accounts.getFirstActiveAccessKeyId(userInfo),displayName));
+              versionEntry.setOwner(new CanonicalUserType(Accounts.lookupAccountById(displayName).getName(),displayName));
             }
  catch (            AuthException e) {
               db.rollback();

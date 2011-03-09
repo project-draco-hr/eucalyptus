@@ -2,6 +2,15 @@
   final Context ctx=Contexts.lookup();
   String imageLocation=request.getImageLocation();
   User requestUser=Contexts.lookup().getUser();
+  String action=PolicySpec.requestToAction(request);
+  if (!ctx.hasAdministrativePrivileges()) {
+    if (!Permissions.isAuthorized(PolicySpec.EC2_RESOURCE_IMAGE,"",ctx.getAccount(),action,requestUser)) {
+      throw new EucalyptusCloudException("Register image is not allowed for " + requestUser.getName());
+    }
+    if (!Permissions.canAllocate(PolicySpec.EC2_RESOURCE_IMAGE,"",action,requestUser,1)) {
+      throw new EucalyptusCloudException("Quota exceeded in registering image for " + requestUser.getName());
+    }
+  }
   String[] imagePathParts;
   try {
     imagePathParts=ImageUtil.getImagePathParts(imageLocation);
@@ -54,21 +63,29 @@
     }
  else {
       if (kernelId != null) {
+        ImageInfo k=null;
         try {
-          Images.lookupImage(kernelId);
+          k=Images.lookupImage(kernelId);
         }
  catch (        Exception ex) {
           LOG.error(ex,ex);
           throw new EucalyptusCloudException("Referenced kernel id is invalid: " + kernelId,ex);
         }
+        if (!Lookups.checkPrivilege(request,PolicySpec.EC2_RESOURCE_IMAGE,kernelId,k.getOwner())) {
+          throw new EucalyptusCloudException("Access to kernel image " + kernelId + " is deined for "+ ctx.getUser().getName());
+        }
       }
       if (ramdiskId != null) {
+        ImageInfo r=null;
         try {
-          Images.lookupImage(ramdiskId);
+          r=Images.lookupImage(ramdiskId);
         }
  catch (        Exception ex) {
           LOG.error(ex,ex);
           throw new EucalyptusCloudException("Referenced ramdisk id is invalid: " + ramdiskId,ex);
+        }
+        if (!Lookups.checkPrivilege(request,PolicySpec.EC2_RESOURCE_IMAGE,ramdiskId,r.getOwner())) {
+          throw new EucalyptusCloudException("Access to ramdisk image " + ramdiskId + " is deined for "+ ctx.getUser().getName());
         }
       }
       imageType=Image.Type.machine;

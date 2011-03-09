@@ -1,7 +1,7 @@
 {
   CopyObjectResponseType reply=(CopyObjectResponseType)request.getReply();
-  User user=Contexts.lookup().getUser();
-  String userId=Contexts.lookup().getUserFullName().getUserId();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
   String sourceBucket=request.getSourceBucket();
   String sourceKey=request.getSourceObject();
   String sourceVersionId=request.getSourceVersionId();
@@ -25,7 +25,7 @@
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
     if (objectInfos.size() > 0) {
       ObjectInfo sourceObjectInfo=objectInfos.get(0);
-      if (sourceObjectInfo.canRead(user)) {
+      if (ctx.hasAdministrativePrivileges() || (sourceObjectInfo.canRead(account.getId()) && Lookups.checkPrivilege(PolicySpec.S3_GETOBJECT,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(sourceBucket,sourceKey),sourceObjectInfo.getOwnerId()))) {
         if (copyIfMatch != null) {
           if (!copyIfMatch.equals(sourceObjectInfo.getEtag())) {
             db.rollback();
@@ -58,7 +58,7 @@
         List<BucketInfo> destinationBuckets=db.query(destinationBucketInfo);
         if (destinationBuckets.size() > 0) {
           BucketInfo foundDestinationBucketInfo=destinationBuckets.get(0);
-          if (foundDestinationBucketInfo.canWrite(userId)) {
+          if (ctx.hasAdministrativePrivileges() || (foundDestinationBucketInfo.canWrite(account.getId()) && Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.S3_RESOURCE_BUCKET,destinationBucket,destinationBucketInfo.getOwnerId()))) {
             String destinationVersionId=sourceVersionId;
             ObjectInfo destinationObjectInfo=null;
             String destinationObjectName;
@@ -74,26 +74,28 @@
             List<ObjectInfo> destinationObjectInfos=dbObject.query(destSearchObjectInfo);
             if (destinationObjectInfos.size() > 0) {
               destinationObjectInfo=destinationObjectInfos.get(0);
-              if (!destinationObjectInfo.canWrite(userId)) {
+              if (!destinationObjectInfo.canWrite(account.getId())) {
                 db.rollback();
                 throw new AccessDeniedException("Key",destinationKey);
               }
             }
             boolean addNew=false;
             if (destinationObjectInfo == null) {
-              addNew=true;
-              destinationObjectInfo=new ObjectInfo();
-              List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-              destinationObjectInfo.setBucketName(destinationBucket);
-              destinationObjectInfo.setObjectKey(destinationKey);
-              destinationObjectInfo.addGrants(userId,grantInfos,accessControlList);
-              destinationObjectInfo.setGrants(grantInfos);
-              destinationObjectInfo.setObjectName(UUID.randomUUID().toString());
+              if (ctx.hasAdministrativePrivileges() || (Permissions.isAuthorized(PolicySpec.S3_RESOURCE_OBJECT,"",ctx.getAccount(),PolicySpec.S3_PUTOBJECT,ctx.getUser()) && Permissions.canAllocate(PolicySpec.S3_RESOURCE_OBJECT,"",PolicySpec.S3_PUTOBJECT,ctx.getUser(),1))) {
+                addNew=true;
+                destinationObjectInfo=new ObjectInfo();
+                List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+                destinationObjectInfo.setBucketName(destinationBucket);
+                destinationObjectInfo.setObjectKey(destinationKey);
+                destinationObjectInfo.addGrants(account.getId(),grantInfos,accessControlList);
+                destinationObjectInfo.setGrants(grantInfos);
+                destinationObjectInfo.setObjectName(UUID.randomUUID().toString());
+              }
             }
  else {
-              if (destinationObjectInfo.canWriteACP(userId)) {
+              if (ctx.hasAdministrativePrivileges() || (destinationObjectInfo.canWriteACP(account.getId()) && Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECTACL,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(destinationBucket,destinationKey),destinationObjectInfo.getOwnerId()))) {
                 List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-                destinationObjectInfo.addGrants(userId,grantInfos,accessControlList);
+                destinationObjectInfo.addGrants(account.getId(),grantInfos,accessControlList);
                 destinationObjectInfo.setGrants(grantInfos);
               }
             }
