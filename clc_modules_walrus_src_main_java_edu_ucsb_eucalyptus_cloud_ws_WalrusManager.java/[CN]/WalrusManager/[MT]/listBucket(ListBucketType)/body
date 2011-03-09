@@ -1,7 +1,8 @@
 {
   ListBucketResponseType reply=(ListBucketResponseType)request.getReply();
   String bucketName=request.getBucket();
-  String userId=Contexts.lookup().getUserFullName().getUserId();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
   String prefix=request.getPrefix();
   if (prefix == null)   prefix="";
   String marker=request.getMarker();
@@ -18,7 +19,7 @@
   if (bucketList.size() > 0) {
     BucketInfo bucket=bucketList.get(0);
     BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
-    if (bucket.canRead(userId)) {
+    if (ctx.hasAdministrativePrivileges() || (bucket.canRead(account.getId()) && Lookups.checkPrivilege(PolicySpec.S3_LISTBUCKET,PolicySpec.S3_RESOURCE_BUCKET,bucketName,bucket.getOwnerId()))) {
       if (logData != null) {
         updateLogData(bucket,logData);
         reply.setLogData(logData);
@@ -97,8 +98,7 @@
           listEntry.setStorageClass(objectInfo.getStorageClass());
           String displayName=objectInfo.getOwnerId();
           try {
-            User userInfo=Accounts.lookupUserById(displayName);
-            listEntry.setOwner(new CanonicalUserType(Accounts.getFirstActiveAccessKeyId(userInfo),displayName));
+            listEntry.setOwner(new CanonicalUserType(Accounts.lookupAccountById(displayName).getName(),displayName));
           }
  catch (          AuthException e) {
             db.rollback();
