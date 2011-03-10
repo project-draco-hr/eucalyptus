@@ -2,7 +2,8 @@
   DeleteObjectResponseType reply=(DeleteObjectResponseType)request.getReply();
   String bucketName=request.getBucket();
   String objectKey=request.getKey();
-  String userId=Contexts.lookup().getUserFullName().getUserId();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
   EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfos=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfos);
@@ -31,7 +32,7 @@ catch (      EucalyptusCloudException ex) {
         ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
         deleteMarker.setDeleted(true);
         deleteMarker.setLast(true);
-        deleteMarker.setOwnerId(userId);
+        deleteMarker.setOwnerId(account.getId());
         deleteMarker.setLastModified(new Date());
         deleteMarker.setVersionId(UUID.randomUUID().toString().replaceAll("-",""));
         dbObject.add(deleteMarker);
@@ -46,7 +47,7 @@ catch (      EucalyptusCloudException ex) {
       List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
       if (objectInfos.size() > 0) {
         ObjectInfo nullObject=objectInfos.get(0);
-        if (nullObject.canWrite(userId)) {
+        if (ctx.hasAdministrativePrivileges() || (nullObject.canWrite(account.getId()) && Lookups.checkPrivilege(PolicySpec.S3_DELETEOBJECT,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,objectKey),nullObject.getOwnerId()))) {
           dbObject.delete(nullObject);
           String objectName=nullObject.getObjectName();
           for (          GrantInfo grantInfo : nullObject.getGrants()) {
@@ -66,7 +67,7 @@ catch (      EucalyptusCloudException ex) {
             ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
             deleteMarker.setDeleted(true);
             deleteMarker.setLast(true);
-            deleteMarker.setOwnerId(userId);
+            deleteMarker.setOwnerId(account.getId());
             deleteMarker.setLastModified(new Date());
             deleteMarker.setVersionId(UUID.randomUUID().toString().replaceAll("-",""));
             dbObject.add(deleteMarker);

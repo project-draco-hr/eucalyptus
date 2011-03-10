@@ -2,8 +2,8 @@
   GetDecryptedImageResponseType reply=(GetDecryptedImageResponseType)request.getReply();
   String bucketName=request.getBucket();
   String objectKey=request.getKey();
-  User user=Contexts.lookup().getUser();
-  String userId=Contexts.lookup().getUserFullName().getUserId();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
   EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
@@ -13,7 +13,7 @@
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
     if (objectInfos.size() > 0) {
       ObjectInfo objectInfo=objectInfos.get(0);
-      if (objectInfo.canRead(userId) || Contexts.lookup().hasAdministrativePrivileges()) {
+      if (ctx.hasAdministrativePrivileges() || (objectInfo.canRead(account.getId()) && Lookups.checkPrivilege(PolicySpec.S3_GETOBJECT,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,objectKey),objectInfo.getOwnerId()))) {
         db.commit();
         EucaSemaphore semaphore=EucaSemaphoreDirectory.getSemaphore(bucketName + "/" + objectKey);
         try {
@@ -37,7 +37,7 @@
         if ((foundImageCacheInfos.size() == 0) || (!imageCachers.containsKey(bucketName + objectKey))) {
           db2.commit();
           LOG.info("Image " + bucketName + "/"+ objectKey+ " not found in cache. Issuing cache request (might take a while...)");
-          cacheImage(bucketName,objectKey,user,Contexts.lookup().hasAdministrativePrivileges());
+          cacheImage(bucketName,objectKey,account,ctx.hasAdministrativePrivileges());
           db2=WalrusControl.getEntityWrapper();
           foundImageCacheInfos=db2.query(searchImageCacheInfo);
         }
