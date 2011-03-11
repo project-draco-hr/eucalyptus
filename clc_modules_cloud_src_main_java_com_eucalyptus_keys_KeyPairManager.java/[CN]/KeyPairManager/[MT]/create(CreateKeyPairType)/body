@@ -1,10 +1,20 @@
 {
-  CreateKeyPairResponseType reply=(CreateKeyPairResponseType)request.getReply();
+  CreateKeyPairResponseType reply=request.getReply();
+  com.eucalyptus.context.Context ctx=Contexts.lookup();
+  String action=PolicySpec.requestToAction(request);
+  if (!ctx.hasAdministrativePrivileges()) {
+    if (!Permissions.isAuthorized(PolicySpec.EC2_RESOURCE_KEYPAIR,"",ctx.getAccount(),action,ctx.getUser())) {
+      throw new EucalyptusCloudException("Permission denied while trying to create keypair by " + ctx.getUser());
+    }
+    if (!Permissions.canAllocate(PolicySpec.EC2_RESOURCE_KEYPAIR,"",action,ctx.getUser(),1)) {
+      throw new EucalyptusCloudException("Quota exceeded while trying to create keypair by " + ctx.getUser());
+    }
+  }
   try {
-    KeyPairUtil.getUserKeyPair(request.getUserErn(),request.getKeyName());
+    KeyPairUtil.getUserKeyPair(ctx.getUserFullName(),request.getKeyName());
   }
  catch (  Exception e1) {
-    PrivateKey pk=KeyPairUtil.createUserKeyPair(request.getUserErn(),request.getKeyName());
+    PrivateKey pk=KeyPairUtil.createUserKeyPair(ctx.getUserFullName(),request.getKeyName());
     reply.setKeyFingerprint(Certs.getFingerPrint(pk));
     ByteArrayOutputStream byteOut=new ByteArrayOutputStream();
     PEMWriter privOut=new PEMWriter(new OutputStreamWriter(byteOut));

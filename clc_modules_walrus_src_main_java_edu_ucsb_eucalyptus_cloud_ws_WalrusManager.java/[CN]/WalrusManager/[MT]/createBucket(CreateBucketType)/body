@@ -1,9 +1,10 @@
 {
   CreateBucketResponseType reply=(CreateBucketResponseType)request.getReply();
-  String userId=request.getUserId();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
   String bucketName=request.getBucket();
   String locationConstraint=request.getLocationConstraint();
-  if (userId == null) {
+  if (account == null) {
     throw new AccessDeniedException("Bucket",bucketName);
   }
   AccessControlListType accessControlList=request.getAccessControlList();
@@ -12,9 +13,9 @@
   }
   if (!checkBucketName(bucketName))   throw new InvalidBucketNameException(bucketName);
   EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
-  if (WalrusProperties.shouldEnforceUsageLimits && !request.isAdministrator()) {
+  if (WalrusProperties.shouldEnforceUsageLimits && !Contexts.lookup().hasAdministrativePrivileges()) {
     BucketInfo searchBucket=new BucketInfo();
-    searchBucket.setOwnerId(userId);
+    searchBucket.setOwnerId(account.getId());
     List<BucketInfo> bucketList=db.query(searchBucket);
     if (bucketList.size() >= WalrusInfo.getWalrusInfo().getStorageMaxBucketsPerUser()) {
       db.rollback();
@@ -24,17 +25,17 @@
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
   if (bucketList.size() > 0) {
-    if (bucketList.get(0).getOwnerId().equals(userId)) {
+    if (bucketList.get(0).getOwnerId().equals(account.getId())) {
       db.rollback();
       throw new BucketAlreadyOwnedByYouException(bucketName);
     }
     db.rollback();
     throw new BucketAlreadyExistsException(bucketName);
   }
- else {
-    BucketInfo bucket=new BucketInfo(userId,bucketName,new Date());
+ else   if (ctx.hasAdministrativePrivileges() || (Permissions.isAuthorized(PolicySpec.S3_RESOURCE_BUCKET,"",ctx.getAccount(),PolicySpec.S3_CREATEBUCKET,ctx.getUser()) && Permissions.canAllocate(PolicySpec.S3_RESOURCE_BUCKET,"",PolicySpec.S3_CREATEBUCKET,ctx.getUser(),1))) {
+    BucketInfo bucket=new BucketInfo(account.getId(),bucketName,new Date());
     ArrayList<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-    bucket.addGrants(userId,grantInfos,accessControlList);
+    bucket.addGrants(account.getId(),grantInfos,accessControlList);
     bucket.setGrants(grantInfos);
     bucket.setBucketSize(0L);
     bucket.setLoggingEnabled(false);
@@ -57,7 +58,7 @@
   if (WalrusProperties.enableVirtualHosting) {
     if (checkDNSNaming(bucketName)) {
       UpdateARecordType updateARecord=new UpdateARecordType();
-      updateARecord.setUserId(userId);
+      updateARecord.setUserId(account.getId());
       URI walrusUri;
       String address=null;
       try {

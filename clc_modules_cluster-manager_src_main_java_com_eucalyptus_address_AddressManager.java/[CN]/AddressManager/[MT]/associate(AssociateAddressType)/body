@@ -1,0 +1,43 @@
+{
+  AssociateAddressResponseType reply=(AssociateAddressResponseType)request.getReply();
+  reply.set_return(false);
+  Addresses.updateAddressingMode();
+  final Address address=Addresses.restrictedLookup(request,request.getPublicIp());
+  final VmInstance vm=VmInstances.restrictedLookup(request,request.getInstanceId());
+  final VmInstance oldVm=findCurrentAssignedVm(address);
+  final Address oldAddr=findVmExistingAddress(vm);
+  final boolean oldAddrSystem=oldAddr != null ? oldAddr.isSystemOwned() : false;
+  reply.set_return(true);
+  final UnconditionalCallback assignTarget=new UnconditionalCallback(){
+    public void fire(){
+      Callbacks.newRequest(address.assign(vm).getCallback()).then(new Callback.Success<BaseMessage>(){
+        public void fire(        BaseMessage response){
+          vm.updatePublicAddress(address.getName());
+        }
+      }
+).dispatch(address.getCluster());
+      if (oldVm != null) {
+        Addresses.system(oldVm);
+      }
+    }
+  }
+;
+  final UnconditionalCallback unassignBystander=new UnconditionalCallback(){
+    public void fire(){
+      if (oldAddr != null) {
+        Callbacks.newRequest(oldAddr.unassign().getCallback()).then(assignTarget).dispatch(oldAddr.getCluster());
+      }
+ else {
+        assignTarget.fire();
+      }
+    }
+  }
+;
+  if (address.isAssigned()) {
+    Callbacks.newRequest(address.unassign().getCallback()).then(unassignBystander).dispatch(address.getCluster());
+  }
+ else {
+    unassignBystander.fire();
+  }
+  return reply;
+}

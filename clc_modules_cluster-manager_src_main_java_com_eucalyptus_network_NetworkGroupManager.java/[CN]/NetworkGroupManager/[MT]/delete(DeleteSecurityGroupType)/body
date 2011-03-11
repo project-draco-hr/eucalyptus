@@ -1,7 +1,8 @@
 {
-  NetworkGroupUtil.makeDefault(request.getUserErn());
+  Context ctx=Contexts.lookup();
+  NetworkGroupUtil.makeDefault(ctx.getUserFullName());
   DeleteSecurityGroupResponseType reply=(DeleteSecurityGroupResponseType)request.getReply();
-  if (request.isAdministrator() && request.getGroupName().indexOf("::") != -1) {
+  if (Contexts.lookup().hasAdministrativePrivileges() && request.getGroupName().indexOf("::") != -1) {
     String userName=request.getGroupName().replaceAll("::.*","");
     try {
       User user=Accounts.lookupUserByName(userName);
@@ -14,7 +15,10 @@
     }
   }
  else {
-    NetworkGroupUtil.deleteUserNetworkRulesGroup(request.getUserErn(),request.getGroupName());
+    if (!Permissions.isAuthorized(PolicySpec.EC2_RESOURCE_SECURITYGROUP,request.getGroupName(),ctx.getAccount(),PolicySpec.requestToAction(request),ctx.getUser())) {
+      throw new EucalyptusCloudException("Not authorized to delete network group " + request.getGroupName() + " for "+ ctx.getUser());
+    }
+    NetworkGroupUtil.deleteUserNetworkRulesGroup(ctx.getUserFullName(),request.getGroupName());
   }
   reply.set_return(true);
   return reply;

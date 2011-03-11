@@ -1,5 +1,6 @@
 {
   AttachVolumeResponseType reply=(AttachVolumeResponseType)request.getReply();
+  Context ctx=Contexts.lookup();
   if (request.getDevice() == null || request.getDevice().endsWith("sda")) {
     throw new EucalyptusCloudException("Invalid device name specified: " + request.getDevice());
   }
@@ -10,6 +11,9 @@
  catch (  NoSuchElementException e) {
     LOG.debug(e,e);
     throw new EucalyptusCloudException("Instance does not exist: " + request.getInstanceId());
+  }
+  if (!Lookups.checkPrivilege(request,PolicySpec.EC2_RESOURCE_INSTANCE,request.getInstanceId(),vm.getOwner())) {
+    throw new EucalyptusCloudException("Not authorized to attach volume to instance " + request.getInstanceId() + " by "+ ctx.getUser().getName());
   }
   Cluster cluster=null;
   try {
@@ -40,11 +44,10 @@
  catch (    NoSuchElementException ex) {
     }
   }
-  EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
-  FullName userName=request.getUserErn();
+  EntityWrapper<Volume> db=EntityWrapper.get(Volume.class);
   Volume volume=null;
   try {
-    volume=db.getUnique(Volume.named(userName.getUniqueId(),request.getVolumeId()));
+    volume=db.getUnique(Volume.named(ctx.getUserFullName(),request.getVolumeId()));
     if (volume.getRemoteDevice() == null) {
       StorageUtil.getVolumeReply(new HashMap<String,AttachedVolume>(),Lists.newArrayList(volume));
     }
@@ -55,8 +58,8 @@
     db.rollback();
     throw new EucalyptusCloudException("Volume does not exist: " + request.getVolumeId());
   }
-  if (!userName.equals(vm.getOwner())) {
-    throw new EucalyptusCloudException("Can only attach volume " + request.getVolumeId() + " to your own instance");
+  if (!Lookups.checkPrivilege(request,PolicySpec.EC2_RESOURCE_VOLUME,request.getVolumeId(),volume.getOwner())) {
+    throw new EucalyptusCloudException("Not authorized to attach volume " + request.getVolumeId() + " by "+ ctx.getUser().getName());
   }
   ServiceConfiguration sc;
   try {
@@ -93,7 +96,7 @@
   AttachedVolume attachVol=new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice(),request.getRemoteDevice());
   attachVol.setStatus("attaching");
   vm.addVolumeAttachment(attachVol);
-  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getUserName(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("cluster",vm.getPlacement()).info();
+  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getOwner().toString(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("cluster",vm.getPlacement()).info();
   volume.setState(State.BUSY);
   reply.setAttachedVolume(attachVol);
   return reply;

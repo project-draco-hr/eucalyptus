@@ -1,14 +1,15 @@
 {
   DeleteBucketResponseType reply=(DeleteBucketResponseType)request.getReply();
   String bucketName=request.getBucket();
-  String userId=request.getUserId();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
   EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo searchBucket=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(searchBucket);
   if (bucketList.size() > 0) {
     BucketInfo bucketFound=bucketList.get(0);
     BucketLogData logData=bucketFound.getLoggingEnabled() ? request.getLogData() : null;
-    if (bucketFound.canWrite(userId)) {
+    if (ctx.hasAdministrativePrivileges() || (bucketFound.canWrite(account.getId()) && Lookups.checkPrivilege(PolicySpec.S3_DELETEBUCKET,PolicySpec.S3_RESOURCE_BUCKET,bucketName,bucketFound.getOwnerId()))) {
       EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
       ObjectInfo searchObject=new ObjectInfo();
       searchObject.setBucketName(bucketName);
@@ -42,7 +43,7 @@
           URI walrusUri;
           String address;
           RemoveARecordType removeARecordType=new RemoveARecordType();
-          removeARecordType.setUserId(userId);
+          removeARecordType.setUserId(account.getId());
           String zone=WalrusProperties.WALRUS_SUBDOMAIN + ".";
           removeARecordType.setName(bucketName + "." + zone);
           removeARecordType.setZone(zone);
