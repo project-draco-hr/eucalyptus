@@ -1,0 +1,26 @@
+{
+  DescribeAddressesResponseType reply=(DescribeAddressesResponseType)request.getReply();
+  Addresses.updateAddressingMode();
+  Context ctx=Contexts.lookup();
+  boolean isAdmin=ctx.hasAdministrativePrivileges();
+  User requestUser=ctx.getUser();
+  String action=PolicySpec.requestToAction(request);
+  for (  Address address : Addresses.getInstance().listValues()) {
+    Account addrAccount=null;
+    try {
+      addrAccount=Accounts.lookupAccountById(address.getOwnerAccountId());
+    }
+ catch (    AuthException e) {
+      throw new EucalyptusCloudException(e);
+    }
+    if (isAdmin || Permissions.isAuthorized(PolicySpec.EC2_RESOURCE_ADDRESS,address.getName(),addrAccount,action,requestUser)) {
+      reply.getAddressesSet().add(isAdmin ? address.getAdminDescription() : address.getDescription());
+    }
+  }
+  if (isAdmin) {
+    for (    Address address : Addresses.getInstance().listDisabledValues()) {
+      reply.getAddressesSet().add(new AddressInfoType(address.getName(),FakePrincipals.NOBODY_USER_ERN.getUserName()));
+    }
+  }
+  return reply;
+}

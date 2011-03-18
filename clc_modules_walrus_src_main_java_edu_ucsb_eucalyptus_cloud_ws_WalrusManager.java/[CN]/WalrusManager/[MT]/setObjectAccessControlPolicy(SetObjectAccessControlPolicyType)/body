@@ -1,6 +1,7 @@
 {
   SetObjectAccessControlPolicyResponseType reply=(SetObjectAccessControlPolicyResponseType)request.getReply();
-  String userId=request.getUserId();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
   AccessControlListType accessControlList=request.getAccessControlList();
   String bucketName=request.getBucket();
   String objectKey=request.getKey();
@@ -21,7 +22,7 @@
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
     if (objectInfos.size() > 0) {
       ObjectInfo objectInfo=objectInfos.get(0);
-      if (!objectInfo.canWriteACP(userId)) {
+      if (!ctx.hasAdministrativePrivileges() && !(objectInfo.canWriteACP(account.getId()) && Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECTACL,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,objectKey),objectInfo.getOwnerId()))) {
         db.rollback();
         throw new AccessDeniedException("Key",objectKey,logData);
       }

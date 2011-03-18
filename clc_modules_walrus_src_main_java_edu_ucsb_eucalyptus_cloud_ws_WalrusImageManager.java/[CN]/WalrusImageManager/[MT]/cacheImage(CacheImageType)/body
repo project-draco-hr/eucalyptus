@@ -3,8 +3,8 @@
   reply.setSuccess(false);
   String bucketName=request.getBucket();
   String manifestKey=request.getKey();
-  String userId=request.getUserId();
-  User user=request.getUser();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
   EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.query(bucketInfo);
@@ -14,13 +14,13 @@
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
     if (objectInfos.size() > 0) {
       ObjectInfo objectInfo=objectInfos.get(0);
-      if (objectInfo.canRead(user)) {
+      if (ctx.hasAdministrativePrivileges() || (objectInfo.canRead(account.getId()) && Lookups.checkPrivilege(PolicySpec.S3_GETOBJECT,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,manifestKey),objectInfo.getOwnerId()))) {
         EntityWrapper<ImageCacheInfo> db2=WalrusControl.getEntityWrapper();
         ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,manifestKey);
         List<ImageCacheInfo> foundImageCacheInfos=db2.query(searchImageCacheInfo);
         db2.commit();
         if ((foundImageCacheInfos.size() == 0) || (!imageCachers.containsKey(bucketName + manifestKey))) {
-          cacheImage(bucketName,manifestKey,user,request.isAdministrator());
+          cacheImage(bucketName,manifestKey,account,Contexts.lookup().hasAdministrativePrivileges());
           reply.setSuccess(true);
         }
         db.commit();

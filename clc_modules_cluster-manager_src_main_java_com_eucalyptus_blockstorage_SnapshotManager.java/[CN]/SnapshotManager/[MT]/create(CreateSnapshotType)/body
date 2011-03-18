@@ -1,7 +1,16 @@
 {
-  EntityWrapper<Snapshot> db=SnapshotManager.getEntityWrapper();
-  Volume vol=db.recast(Volume.class).getUnique(Volume.named(request.getUserErn().getUniqueId(),request.getVolumeId()));
-  String partition=vol.getCluster();
+  Context ctx=Contexts.lookup();
+  String action=PolicySpec.requestToAction(request);
+  if (!ctx.hasAdministrativePrivileges()) {
+    if (!Permissions.isAuthorized(PolicySpec.EC2_RESOURCE_SNAPSHOT,"",ctx.getAccount(),action,ctx.getUser())) {
+      throw new EucalyptusCloudException("Not authorized to create snapshot by " + ctx.getUser().getName());
+    }
+    if (!Permissions.canAllocate(PolicySpec.EC2_RESOURCE_SNAPSHOT,"",action,ctx.getUser(),1)) {
+      throw new EucalyptusCloudException("Quota exceeded in creating snapshot by " + ctx.getUser().getName());
+    }
+  }
+  EntityWrapper<Snapshot> db=EntityWrapper.get(Snapshot.class);
+  Volume vol=db.recast(Volume.class).getUnique(Volume.named(ctx.getUserFullName(),request.getVolumeId()));
   Service sc=null;
   try {
     sc=StorageUtil.getActiveSc(vol.getCluster());
@@ -33,12 +42,12 @@
   String newId=null;
   Snapshot snap=null;
   while (true) {
-    newId=Crypto.generateId(request.getUserErn().getUniqueId(),ID_PREFIX);
+    newId=Crypto.generateId(ctx.getUserFullName().getUniqueId(),ID_PREFIX);
     try {
-      db.getUnique(Snapshot.ownedBy(newId));
+      db.getUnique(Snapshot.named(newId));
     }
  catch (    EucalyptusCloudException e) {
-      snap=new Snapshot(request.getUserErn().getUniqueId(),newId,vol.getDisplayName());
+      snap=new Snapshot(ctx.getUserFullName(),newId,vol.getDisplayName());
       db.add(snap);
       break;
     }
@@ -46,21 +55,21 @@
   CreateStorageSnapshotType scRequest=new CreateStorageSnapshotType(vol.getDisplayName(),newId);
   CreateStorageSnapshotResponseType scReply=null;
   try {
-    scReply=StorageUtil.send(sc.getName(),scRequest);
-    snap.setCluster(sc.getName());
+    scReply=StorageUtil.send(sc.getServiceConfiguration().getName(),scRequest);
+    snap.setCluster(sc.getServiceConfiguration().getName());
     snap.setMappedState(scReply.getStatus());
   }
  catch (  EucalyptusCloudException e) {
     LOG.debug(e,e);
     db.rollback();
-    throw new EucalyptusCloudException("Error calling CreateStorageSnapshot:" + e.getMessage());
+    throw new EucalyptusCloudException("Error calling CreateStorageSnapshot:" + e.getMessage(),e);
   }
   db.commit();
-  EventRecord.here(SnapshotManager.class,EventClass.SNAPSHOT,EventType.SNAPSHOT_CREATE,"user=" + snap.getUserName(),"snapshot=" + snap.getDisplayName(),"volume=" + snap.getParentVolume()).info();
+  EventRecord.here(SnapshotManager.class,EventClass.SNAPSHOT,EventType.SNAPSHOT_CREATE,"user=" + snap.getOwner(),"snapshot=" + snap.getDisplayName(),"volume=" + snap.getParentVolume()).info();
   CreateSnapshotResponseType reply=(CreateSnapshotResponseType)request.getReply();
   edu.ucsb.eucalyptus.msgs.Snapshot snapMsg=snap.morph(new edu.ucsb.eucalyptus.msgs.Snapshot());
   snapMsg.setProgress("0%");
-  snapMsg.setOwnerId(snap.getUserName());
+  snapMsg.setOwnerId(snap.getOwnerAccountId());
   snapMsg.setVolumeSize(vol.getSize().toString());
   reply.setSnapshot(snapMsg);
   return reply;

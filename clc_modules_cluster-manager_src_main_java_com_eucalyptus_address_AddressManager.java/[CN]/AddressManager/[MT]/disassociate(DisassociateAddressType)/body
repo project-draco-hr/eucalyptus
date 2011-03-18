@@ -1,0 +1,46 @@
+{
+  DisassociateAddressResponseType reply=(DisassociateAddressResponseType)request.getReply();
+  reply.set_return(false);
+  Addresses.updateAddressingMode();
+  Context ctx=Contexts.lookup();
+  final Address address=Addresses.restrictedLookup(request,request.getPublicIp());
+  reply.set_return(true);
+  final String vmId=address.getInstanceId();
+  if (address.isSystemOwned() && !ctx.hasAdministrativePrivileges()) {
+    throw new EucalyptusCloudException("Only administrators can unassign system owned addresses: " + address.toString());
+  }
+ else {
+    try {
+      if (address.isSystemOwned()) {
+        Callbacks.newRequest(address.unassign().getCallback()).then(new UnconditionalCallback(){
+          public void fire(){
+            try {
+              Addresses.system(VmInstances.getInstance().lookup(vmId));
+            }
+ catch (            Exception e) {
+              LOG.debug(e,e);
+            }
+          }
+        }
+).dispatch(address.getCluster());
+      }
+ else {
+        Callbacks.newRequest(address.unassign().getCallback()).then(new UnconditionalCallback(){
+          @Override public void fire(){
+            try {
+              Addresses.system(VmInstances.getInstance().lookup(vmId));
+            }
+ catch (            Exception e) {
+              LOG.debug(e,e);
+            }
+          }
+        }
+).dispatch(address.getCluster());
+      }
+    }
+ catch (    Throwable e) {
+      LOG.debug(e,e);
+    }
+  }
+  return reply;
+}

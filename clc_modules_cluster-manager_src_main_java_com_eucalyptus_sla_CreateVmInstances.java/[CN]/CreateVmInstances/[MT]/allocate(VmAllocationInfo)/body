@@ -1,7 +1,23 @@
 {
   int quantity=getVmAllocationNumber(vmAllocInfo);
   RunInstancesType request=vmAllocInfo.getRequest();
-  User requestUser=request.getUser();
+  Context ctx;
+  try {
+    ctx=Contexts.lookup(vmAllocInfo.getCorrelationId());
+  }
+ catch (  NoSuchContextException ex) {
+    LOG.debug(ex);
+    try {
+      ctx=Contexts.lookup(vmAllocInfo.getRequest().getCorrelationId());
+    }
+ catch (    NoSuchContextException ex1) {
+      LOG.debug(ex);
+      throw new EucalyptusCloudException("CreateVmInstances failed because the user could not be looked up: " + ex.getMessage(),ex);
+    }
+  }
+  User requestUser=ctx.getUser();
+  UserFullName userFullName=ctx.getUserFullName();
+  vmAllocInfo.setOwnerId(userFullName.getAccountId());
   String action=PolicySpec.requestToAction(request);
   String vmType=vmAllocInfo.getVmTypeInfo().getName();
   if (!Permissions.canAllocate(PolicySpec.EC2_RESOURCE_VMTYPE,vmType,action,requestUser,1)) {
@@ -15,14 +31,14 @@
   for (  ResourceToken token : vmAllocInfo.getAllocationTokens()) {
     if (Clusters.getInstance().hasNetworking()) {
       for (      Integer networkIndex : token.getPrimaryNetwork().getIndexes()) {
-        VmInstance vmInst=getVmInstance(vmAllocInfo,reservationId,token,vmIndex++,networkIndex);
+        VmInstance vmInst=getVmInstance(userFullName,vmAllocInfo,reservationId,token,vmIndex++,networkIndex);
         VmInstances.getInstance().register(vmInst);
         token.getInstanceIds().add(vmInst.getInstanceId());
       }
     }
  else {
       for (int i=0; i < token.getAmount(); i++) {
-        VmInstance vmInst=getVmInstance(vmAllocInfo,reservationId,token,vmIndex++,-1);
+        VmInstance vmInst=getVmInstance(userFullName,vmAllocInfo,reservationId,token,vmIndex++,-1);
         VmInstances.getInstance().register(vmInst);
         token.getInstanceIds().add(vmInst.getInstanceId());
       }

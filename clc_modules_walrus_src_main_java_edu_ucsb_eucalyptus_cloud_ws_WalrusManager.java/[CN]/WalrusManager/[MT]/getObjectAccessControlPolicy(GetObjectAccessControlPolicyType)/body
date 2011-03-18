@@ -2,7 +2,8 @@
   GetObjectAccessControlPolicyResponseType reply=(GetObjectAccessControlPolicyResponseType)request.getReply();
   String bucketName=request.getBucket();
   String objectKey=request.getKey();
-  String userId=request.getUserId();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
   String ownerId=null;
   EntityWrapper<BucketInfo> db=WalrusControl.getEntityWrapper();
   BucketInfo bucketInfo=new BucketInfo(bucketName);
@@ -23,7 +24,7 @@
     List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
     if (objectInfos.size() > 0) {
       ObjectInfo objectInfo=objectInfos.get(0);
-      if (objectInfo.canReadACP(userId)) {
+      if (ctx.hasAdministrativePrivileges() || (objectInfo.canReadACP(account.getId()) && Lookups.checkPrivilege(PolicySpec.S3_GETOBJECTACL,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,objectKey),objectInfo.getOwnerId()))) {
         if (logData != null) {
           updateLogData(bucket,logData);
           logData.setObjectSize(objectInfo.getSize());
@@ -35,9 +36,8 @@
         for (        GrantInfo grantInfo : grantInfos) {
           String uId=grantInfo.getUserId();
           try {
-            User userInfo=Accounts.lookupUserById(uId);
             objectInfo.readPermissions(grants);
-            addPermission(grants,userInfo,grantInfo);
+            addPermission(grants,Accounts.lookupAccountById(uId),grantInfo);
           }
  catch (          AuthException e) {
             throw new AccessDeniedException("Key",objectKey,logData);
@@ -61,8 +61,8 @@
   }
   AccessControlPolicyType accessControlPolicy=new AccessControlPolicyType();
   try {
-    User ownerUserInfo=Accounts.lookupUserById(ownerId);
-    accessControlPolicy.setOwner(new CanonicalUserType(Accounts.getFirstActiveAccessKeyId(ownerUserInfo),ownerUserInfo.getId()));
+    Account ownerInfo=Accounts.lookupAccountById(ownerId);
+    accessControlPolicy.setOwner(new CanonicalUserType(ownerInfo.getName(),ownerInfo.getId()));
     accessControlPolicy.setAccessControlList(accessControlList);
   }
  catch (  AuthException e) {

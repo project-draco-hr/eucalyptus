@@ -3,7 +3,8 @@
   reply.set_return(true);
   String walrusUrl=SystemConfiguration.getWalrusUrl();
   String instanceId=request.getInstanceId();
-  User user=request.getUser();
+  Context ctx=Contexts.lookup();
+  User user=ctx.getUser();
   try {
     VmInstance v=VmInstances.getInstance().lookup(instanceId);
     if (v.isBundling()) {
@@ -16,7 +17,7 @@
  else     if (!VmState.RUNNING.equals(v.getState())) {
       throw new EucalyptusCloudException("Failed to bundle requested vm because it is not currently 'running': " + request.getInstanceId());
     }
- else     if (request.isAdministrator() || v.getOwner().equals(request.getUserErn())) {
+ else     if (Lookups.checkPrivilege(request,PolicySpec.EC2_RESOURCE_INSTANCE,instanceId,v.getOwner())) {
       BundleTask bundleTask=new BundleTask(v.getInstanceId().replaceFirst("i-","bun-"),v.getInstanceId(),request.getBucket(),request.getPrefix());
       if (v.startBundleTask(bundleTask)) {
         reply.setTask(bundleTask);
@@ -29,7 +30,7 @@
  else {
         throw new EucalyptusCloudException("Instance is already being bundled: " + v.getBundleTask().getBundleId());
       }
-      LOG.info(EventRecord.here(BundleCallback.class,EventType.BUNDLE_PENDING,request.getUserErn().toString(),v.getBundleTask().getBundleId(),v.getInstanceId()));
+      LOG.info(EventRecord.here(BundleCallback.class,EventType.BUNDLE_PENDING,ctx.getUserFullName().toString(),v.getBundleTask().getBundleId(),v.getInstanceId()));
       BundleCallback callback=new BundleCallback(request);
       request.setUrl(walrusUrl);
       request.setAwsAccessKeyId(Accounts.getFirstActiveAccessKeyId(user));

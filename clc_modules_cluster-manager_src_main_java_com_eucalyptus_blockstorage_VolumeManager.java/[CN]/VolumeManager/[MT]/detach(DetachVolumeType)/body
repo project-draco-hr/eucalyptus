@@ -1,8 +1,10 @@
 {
   DetachVolumeResponseType reply=(DetachVolumeResponseType)request.getReply();
-  EntityWrapper<Volume> db=VolumeManager.getEntityWrapper();
+  Context ctx=Contexts.lookup();
+  Volume vol=null;
+  EntityWrapper<Volume> db=EntityWrapper.get(Volume.class);
   try {
-    db.getUnique(Volume.named(request.getUserErn().getUniqueId(),request.getVolumeId()));
+    vol=db.getUnique(Volume.named(ctx.getUserFullName(),request.getVolumeId()));
   }
  catch (  EucalyptusCloudException e) {
     LOG.debug(e,e);
@@ -10,6 +12,9 @@
     throw new EucalyptusCloudException("Volume does not exist: " + request.getVolumeId());
   }
   db.commit();
+  if (!Lookups.checkPrivilege(request,PolicySpec.EC2_RESOURCE_VOLUME,request.getVolumeId(),vol.getOwner())) {
+    throw new EucalyptusCloudException("Not authorized to detach volume " + request.getVolumeId() + " by "+ ctx.getUser().getName());
+  }
   VmInstance vm=null;
   AttachedVolume volume=null;
   for (  VmInstance iter : VmInstances.getInstance().listValues()) {
@@ -22,6 +27,9 @@
   }
   if (volume == null) {
     throw new EucalyptusCloudException("Volume is not attached: " + request.getVolumeId());
+  }
+  if (!Lookups.checkPrivilege(request,PolicySpec.EC2_RESOURCE_INSTANCE,request.getInstanceId(),vm.getOwner())) {
+    throw new EucalyptusCloudException("Not authorized to detach volume from instance " + request.getInstanceId() + " by "+ ctx.getUser().getName());
   }
   if (!vm.getInstanceId().equals(request.getInstanceId()) && request.getInstanceId() != null && !request.getInstanceId().equals("")) {
     throw new EucalyptusCloudException("Volume is not attached to instance: " + request.getInstanceId());
