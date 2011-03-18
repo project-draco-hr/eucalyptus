@@ -1,12 +1,26 @@
 {
+  String remoteBrokerUrl=null;
+  Component reportingComponent=Components.lookup(Reporting.class);
+  if (null != reportingComponent && !reportingComponent.isLocal()) {
+    log.info("Searching for remote reporting broker");
+    NavigableSet<Service> services=reportingComponent.getServices();
+    for (    Service service : services) {
+      remoteBrokerUrl=String.format(DEFAULT_REMOTE_URL_FORMAT,service.getHost(),DEFAULT_PORT);
+    }
+  }
+ else {
+    log.info("Reporting broker will run locally");
+    remoteBrokerUrl=null;
+  }
   try {
     brokerService=new BrokerService();
     brokerService.setBrokerName(brokerName);
     brokerService.setDataDirectory(brokerDataDir);
     brokerService.addConnector(brokerUrl);
-    ActiveMQDestination[] dests=new ActiveMQDestination[destinations.size()];
-    destinations.toArray(dests);
-    brokerService.setDestinations(dests);
+    if (remoteBrokerUrl != null) {
+      brokerService.addNetworkConnector(remoteBrokerUrl);
+    }
+    brokerService.setUseJmx(false);
     brokerThread=new JmsBrokerThread(brokerService);
     brokerThread.start();
     Thread.sleep(1000);

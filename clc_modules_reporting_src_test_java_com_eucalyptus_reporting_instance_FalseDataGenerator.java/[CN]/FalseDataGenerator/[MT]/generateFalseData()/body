@@ -1,6 +1,11 @@
 {
-  boolean isLocal=(remote != null && remote.equalsIgnoreCase("local"));
-  System.out.println(" ----> GENERATING FALSE DATA " + (isLocal ? "(local)" : "(remote)"));
+  System.out.println(" ----> GENERATING FALSE DATA");
+  TestEventListener listener=new TestEventListener();
+  listener.setCurrentTimeMillis(START_TIME);
+  reportingBootstrapper=new ReportingBootstrapper();
+  reportingBootstrapper.setOverriddenInstanceEventListener(listener);
+  reportingBootstrapper.start();
+  QueueSender queueSender=QueueFactory.getInstance().getSender(QueueIdentifier.INSTANCE);
   List<InstanceAttributes> fakeInstances=new ArrayList<InstanceAttributes>();
   for (int i=0; i < NUM_INSTANCE; i++) {
     String uuid=new Long(i).toString();
@@ -14,29 +19,15 @@
     InstanceAttributes insAttrs=new InstanceAttributes(uuid,instanceId,instanceType,userId,accountId,clusterName,availZone);
     fakeInstances.add(insAttrs);
   }
-  QueueSender queueSender=null;
-  TestEventListener listener=null;
-  if (isLocal) {
-    listener=new TestEventListener();
-    listener.setCurrentTimeMillis(START_TIME);
-  }
- else {
-    queueSender=QueueFactory.getInstance().getSender(QueueIdentifier.INSTANCE);
-  }
   for (int i=0; i < NUM_USAGE; i++) {
-    if (isLocal)     listener.setCurrentTimeMillis(START_TIME + (i * TIME_USAGE_APART));
+    listener.setCurrentTimeMillis(START_TIME + (i * TIME_USAGE_APART));
     for (    InstanceAttributes insAttrs : fakeInstances) {
       long instanceNum=Long.parseLong(insAttrs.getUuid());
       long netIoMegs=(instanceNum + i) * 1024;
       long diskIoMegs=(instanceNum + i * 2) * 1024;
       InstanceEvent event=new InstanceEvent(insAttrs.getUuid(),insAttrs.getInstanceId(),insAttrs.getInstanceType(),insAttrs.getUserId(),insAttrs.getAccountId(),insAttrs.getClusterName(),insAttrs.getAvailabilityZone(),new Long(netIoMegs),new Long(diskIoMegs));
       System.out.println("Generating:" + i);
-      if (isLocal) {
-        listener.fireEvent(event);
-      }
- else {
-        queueSender.send(event);
-      }
+      queueSender.send(event);
     }
   }
 }
