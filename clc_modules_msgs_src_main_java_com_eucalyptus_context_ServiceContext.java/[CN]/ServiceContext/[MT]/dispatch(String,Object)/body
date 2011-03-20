@@ -38,6 +38,7 @@ catch (  MuleException ex) {
   }
   MuleEvent muleEvent=new DefaultMuleEvent(muleMsg,endpoint,muleSession,false);
   LOG.debug("ServiceContext.dispatch(" + dest + ":"+ msg.getClass().getCanonicalName());
+  final Context ctx=msg instanceof BaseMessage ? Contexts.createWrapped(dest,(BaseMessage)msg) : null;
   try {
     dispatcherFactory.create(endpoint).dispatch(muleEvent);
   }
@@ -48,5 +49,20 @@ catch (  MuleException ex) {
 catch (  MuleException ex) {
     LOG.error(ex,ex);
     throw new ServiceDispatchException("Failed to dispatch message to " + dest + " caused by failure to obtain service dispatcher reference: "+ ex.getMessage(),ex);
+  }
+ finally {
+    Threads.lookup(Empyrean.class,ServiceContext.class).submit(new Runnable(){
+      @Override public void run(){
+        try {
+          TimeUnit.SECONDS.sleep(60);
+          Contexts.clear(ctx);
+        }
+ catch (        InterruptedException ex) {
+          Thread.currentThread().interrupt();
+          return;
+        }
+      }
+    }
+);
   }
 }
