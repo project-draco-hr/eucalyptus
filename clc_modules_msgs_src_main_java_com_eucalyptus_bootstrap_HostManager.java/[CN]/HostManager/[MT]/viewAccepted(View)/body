@@ -1,27 +1,18 @@
 {
-  LOG.info("view: " + newView);
-  if (Components.lookup(Eucalyptus.class).isLocal()) {
-    Threads.lookup(Empyrean.class,HostMembershipBootstrapper.class).submit(new Runnable(){
-      @Override public void run(){
-        for (        final Address addr : newView.getMembers()) {
-          if (!HostManager.this.membershipChannel.getAddress().equals(addr)) {
-            LOG.info("Sending to address=" + addr + " of type="+ addr.getClass());
-            try {
-              HostManager.this.membershipChannel.send(new Message(addr,null,Join.join(":",Internets.getAllAddresses())));
-            }
- catch (            ChannelNotConnectedException ex) {
-              LOG.error(ex,ex);
-            }
-catch (            ChannelClosedException ex) {
-              LOG.error(ex,ex);
-            }
-catch (            SocketException ex) {
-              LOG.error(ex,ex);
-            }
-          }
-        }
-      }
-    }
-);
+  final boolean isFirstDb=(this.currentView.getReference() == null && newView.getMembers().size() == 1 && Components.lookup(Eucalyptus.class).isLocal());
+  if (this.currentView.compareAndSet(null,newView,true,true)) {
+    LOG.info("Receiving initial view...");
+    this.currentView.set(newView,!isFirstDb);
+  }
+ else   if (this.currentView.compareAndSet(this.currentView.getReference(),newView,true,true)) {
+    LOG.info("Receiving view.  Still waiting for database...");
+  }
+ else {
+    this.currentView.set(newView,false);
+  }
+  LOG.info("-> view: " + this.currentView.getReference());
+  LOG.info("-> mark: " + this.currentView.isMarked());
+  if (!isFirstDb) {
+    HostManager.this.broadcastAddresses();
   }
 }
