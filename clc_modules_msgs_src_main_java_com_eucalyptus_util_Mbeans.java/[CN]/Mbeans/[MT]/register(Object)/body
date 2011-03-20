@@ -1,10 +1,26 @@
 {
-  if (obj.getClass().isAnonymousClass()) {
-    throw Exceptions.uncatchable("MBeans.register(Object) only supports the registration of concrete classes, your argument is anonymous: " + obj.getClass().getName());
+  Class targetType=obj.getClass();
+  if (targetType.isAnonymousClass()) {
+    targetType=(targetType.getSuperclass() != null ? targetType.getSuperclass() : targetType.getInterfaces()[0]);
   }
-  String defaultExport="bean( " + " target: obj, " + " name: \"${(obj.class.package.name}:type=${obj.getClass().getSimpleName()},\","+ " )";
+  String exportString="jmx.export{ bean( " + " target: obj, " + " name: \"${obj.class.package.name}:type=${obj.getClass().getSimpleName()},\","+ " desc: \"${obj.toString()}\""+ " ) }";
+  for (  Class c : Classes.ancestry(targetType)) {
+    File jmxConfig=SubDirectory.MANAGEMENT.getChildFile(c.getCanonicalName());
+    if (jmxConfig.exists()) {
+      LOG.debug("Trying to read jmx config file: " + jmxConfig.getAbsolutePath());
+      try {
+        exportString=Files.toString(jmxConfig,Charset.defaultCharset());
+        LOG.debug("Succeeded reading jmx config file: " + jmxConfig.getAbsolutePath());
+        LOG.trace(exportString);
+        break;
+      }
+ catch (      IOException ex) {
+        LOG.error(ex,ex);
+      }
+    }
+  }
   try {
-    List<GroovyMBean> mbeans=(List<GroovyMBean>)GroovyUtil.eval("jmx.export{ " + defaultExport + "}",new HashMap(){
+    List<GroovyMBean> mbeans=(List<GroovyMBean>)GroovyUtil.eval(exportString,new HashMap(){
 {
         put("jmx",jmxBuilder);
         put("obj",obj);
