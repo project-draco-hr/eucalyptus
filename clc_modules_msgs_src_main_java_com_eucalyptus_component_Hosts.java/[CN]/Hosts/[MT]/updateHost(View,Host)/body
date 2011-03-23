@@ -7,8 +7,28 @@ synchronized (Hosts.class) {
       entry.update(currentView.getViewId(),updatedHost.hasDatabase(),updatedHost.getHostAddresses());
     }
  else {
-      entry=new Host(currentView.getViewId(),updatedHost.getGroupsId(),updatedHost.hasDatabase(),updatedHost.getHostAddresses());
-      Mbeans.register(entry);
+      Component empyrean=Components.lookup(Empyrean.class);
+      ComponentId empyreanId=empyrean.getComponentId();
+      for (      InetAddress addr : updatedHost.getHostAddresses()) {
+        ServiceConfiguration ephemeralConfig=ServiceConfigurations.createEphemeral(empyrean,addr);
+        if (!empyrean.hasService(ephemeralConfig)) {
+          try {
+            empyrean.loadService(ephemeralConfig).get();
+            ServiceEndpoint endpoint=empyrean.lookupService(ephemeralConfig).getEndpoint();
+            entry=new Host(currentView.getViewId(),updatedHost.getGroupsId(),updatedHost.hasDatabase(),updatedHost.getHostAddresses(),endpoint);
+            Mbeans.register(entry);
+          }
+ catch (          ServiceRegistrationException ex) {
+            LOG.error(ex,ex);
+          }
+catch (          ExecutionException ex) {
+            LOG.error(ex,ex);
+          }
+catch (          InterruptedException ex) {
+            LOG.error(ex,ex);
+          }
+        }
+      }
       hostMap.put(entry.getGroupsId(),entry);
     }
     LOG.debug("Current host entries: ");
