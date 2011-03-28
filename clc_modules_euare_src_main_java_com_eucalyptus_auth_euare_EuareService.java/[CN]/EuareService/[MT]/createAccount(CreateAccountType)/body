@@ -1,0 +1,24 @@
+{
+  CreateAccountResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  Context ctx=Contexts.lookup();
+  User requestUser=ctx.getUser();
+  if (!ctx.hasAdministrativePrivileges()) {
+    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to create account by " + requestUser.getName());
+  }
+  try {
+    Account newAccount=Accounts.addAccount(request.getAccountName());
+    AccountType account=reply.getCreateAccountResult().getAccount();
+    account.setAccountName(newAccount.getName());
+    account.setAccountId(newAccount.getId());
+  }
+ catch (  Exception e) {
+    if (e instanceof AuthException && AuthException.ACCOUNT_ALREADY_EXISTS.equals(e.getMessage())) {
+      throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.ENTITY_ALREADY_EXISTS,"Account " + request.getAccountName() + " already exists.");
+    }
+ else {
+      throw new EucalyptusCloudException(e);
+    }
+  }
+  return reply;
+}
