@@ -5,6 +5,34 @@
   for (  String key : summary.keySet()) {
     System.out.println(key + summary.get(key));
   }
+  final Random rand=new Random();
+  for (int i=0; i < NUM_TESTS; i++) {
+    final long lowerBound=rand.nextInt((int)(RANGE - DISTANCE)) + START_TIME;
+    final long upperBound=rand.nextInt((int)(MAX_MS - (lowerBound + DISTANCE))) + lowerBound + DISTANCE;
+    final double fraction=((double)upperBound - (double)lowerBound) / ((double)MAX_MS - (double)START_TIME);
+    final double adjustedCorrectDisk=(double)CORRECT_DISK_USAGE * fraction;
+    final double adjustedCorrectNet=(double)CORRECT_NET_USAGE * fraction;
+    final double adjustedCorrectTime=(double)CORRECT_INSTANCE_USAGE * fraction;
+    final double adjustedError=ERROR_FACTOR * (1.0 + (1.0 - fraction));
+    final double adjustedInstanceError=INSTANCE_ERROR_FACTOR * (1.0 + (1.0 - fraction));
+    System.out.printf("#:%3d correct:(%d,%d,%d) fraction:%3.3f adjusted:(%3.3f , %3.3f , %3.3f)" + " adjustedError:(%3.3f , %3.3f)\n",i,CORRECT_DISK_USAGE,CORRECT_NET_USAGE,CORRECT_INSTANCE_USAGE,fraction,adjustedCorrectDisk,adjustedCorrectNet,adjustedCorrectTime,adjustedError,adjustedInstanceError);
+    summary=usageLog.scanSummarize(new Period(lowerBound,upperBound),GroupByCriterion.USER);
+    for (    String userId : summary.keySet()) {
+      InstanceUsageSummary ius=summary.get(userId);
+      long totalUsageSecs=ius.getM1SmallTimeSecs() + ius.getC1MediumTimeSecs() + ius.getM1LargeTimeSecs()+ ius.getM1XLargeTimeSecs()+ ius.getC1XLargeTimeSecs();
+      final double diskError=(double)ius.getDiskIoMegs() / adjustedCorrectDisk;
+      final double netError=(double)ius.getNetworkIoMegs() / adjustedCorrectNet;
+      ;
+      final double usageError=((double)totalUsageSecs / adjustedCorrectTime);
+      final boolean diskWithin=isWithinError(ius.getDiskIoMegs(),adjustedCorrectDisk,adjustedError);
+      final boolean netWithin=isWithinError(ius.getNetworkIoMegs(),adjustedCorrectNet,adjustedError);
+      final boolean usageWithin=isWithinError(totalUsageSecs,adjustedCorrectTime,adjustedInstanceError);
+      System.out.printf(" %8s:(%d/%3.3f , %d/%3.3f , %d/%3.3f) " + "error:(%3.3f,%3.3f,%3.3f) isWithin:(%s,%s,%s)\n",userId,ius.getDiskIoMegs(),adjustedCorrectDisk,ius.getNetworkIoMegs(),adjustedCorrectNet,totalUsageSecs,adjustedCorrectTime,diskError,netError,usageError,diskWithin,netWithin,usageWithin);
+      if (!diskWithin || !netWithin || !usageWithin) {
+        throw new RuntimeException("Incorrect result for user:" + userId);
+      }
+    }
+  }
   Map<String,TestResult> testResults=new HashMap<String,TestResult>();
   long sliceMs=(MAX_MS - START_TIME) / 10;
   for (long l=START_TIME; l < MAX_MS; l+=sliceMs) {
