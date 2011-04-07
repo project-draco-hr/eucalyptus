@@ -6,22 +6,19 @@
   User requestUser=ctx.getUser();
   Account account=ctx.getAccount();
   if (!Permissions.isAuthorized(PolicySpec.IAM_RESOURCE_GROUP,"",account,action,requestUser)) {
-    throw new EuareException(403,EuareException.NOT_AUTHORIZED,"Not authorized to create group by " + requestUser.getName());
+    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to create group by " + requestUser.getName());
   }
-  if (!Permissions.canAllocate(PolicySpec.IAM_RESOURCE_GROUP,"",action,requestUser,1)) {
-    throw new EuareException(409,EuareException.LIMIT_EXCEEDED,"Group quota exceeded");
+  if (!Permissions.canAllocate(PolicySpec.IAM_RESOURCE_GROUP,"",action,requestUser,1L)) {
+    throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.LIMIT_EXCEEDED,"Group quota exceeded");
   }
   try {
     Group newGroup=account.addGroup(request.getGroupName(),sanitizePath(request.getPath()));
     GroupType g=reply.getCreateGroupResult().getGroup();
-    g.setGroupName(newGroup.getName());
-    g.setPath(newGroup.getPath());
-    g.setGroupId(newGroup.getId());
-    g.setArn((new EuareResourceName(account.getId(),PolicySpec.IAM_RESOURCE_GROUP,newGroup.getPath(),newGroup.getName())).toString());
+    fillGroupResult(g,newGroup,account);
   }
  catch (  Exception e) {
     if (e instanceof AuthException && AuthException.GROUP_ALREADY_EXISTS.equals(e.getMessage())) {
-      throw new EuareException(409,EuareException.ENTITY_ALREADY_EXISTS,"Group " + request.getGroupName() + " already exists.");
+      throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.ENTITY_ALREADY_EXISTS,"Group " + request.getGroupName() + " already exists.");
     }
  else {
       throw new EucalyptusCloudException(e);
