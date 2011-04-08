@@ -1,0 +1,37 @@
+{
+  Set<ConfigResource> configs=Sets.newHashSet();
+  MuleContext muleCtx=null;
+  for (  Component component : components) {
+    ComponentId id=component.getComponentId();
+    String errMsg="Failed to render model for: " + component.getComponentId() + " because of: ";
+    LOG.info("-> Rendering configuration for " + component.getComponentId().name());
+    try {
+      String outString=Templates.prepare(id.getServiceModelFileName()).withProperty("components",Components.toIds(components)).withProperty("thisComponent",id).evaluate(id.getServiceModel());
+      ConfigResource configRsc=createConfigResource(component,outString);
+      configs.add(configRsc);
+      SpringXmlConfigurationBuilder builder=new SpringXmlConfigurationBuilder(configs.toArray(new ConfigResource[]{}));
+      try {
+        muleCtx=contextFactory.createMuleContext(builder);
+        this.enabledCompIds.clear();
+        this.enabledCompIds.addAll(currentComponentIds);
+      }
+ catch (      InitialisationException ex) {
+        LOG.error(ex,ex);
+        throw new ServiceInitializationException(errMsg + ex.getMessage(),ex);
+      }
+catch (      ConfigurationException ex) {
+        LOG.error(ex,ex);
+        throw new ServiceInitializationException(errMsg + ex.getMessage(),ex);
+      }
+    }
+ catch (    ServiceInitializationException ex) {
+      LOG.error(ex.getMessage(),ex);
+      throw ex;
+    }
+catch (    Exception ex) {
+      LOG.error(errMsg + ex.getMessage(),ex);
+      throw new ServiceInitializationException(errMsg + ex.getMessage(),ex);
+    }
+  }
+  return muleCtx;
+}
