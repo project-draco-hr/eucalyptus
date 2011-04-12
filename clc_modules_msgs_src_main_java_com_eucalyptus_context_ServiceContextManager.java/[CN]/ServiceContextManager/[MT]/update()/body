@@ -1,0 +1,36 @@
+{
+  List<Component> components=Components.whichAreEnabledLocally();
+  List<ComponentId> currentComponentIds=Components.toIds(components);
+  LOG.error("Restarting service context with these enabled services: " + currentComponentIds);
+  this.canHasWrite.lock();
+  try {
+    if (this.shouldReload()) {
+      if (this.context != null) {
+        this.shutdown();
+      }
+      this.context=this.createContext(components,currentComponentIds);
+      Assertions.assertNotNull(this.context,"BUG: failed to build mule context for reasons unknown");
+      try {
+        this.context.start();
+        this.client=new MuleClient(this.context);
+        this.endpointToService.clear();
+        this.serviceToEndpoint.clear();
+        for (        Object o : this.context.getRegistry().lookupServices()) {
+          Service s=(Service)o;
+          for (          Object p : s.getInboundRouter().getEndpoints()) {
+            InboundEndpoint in=(InboundEndpoint)p;
+            this.endpointToService.put(in.getEndpointURI().toString(),s.getName());
+            this.serviceToEndpoint.put(s.getName(),in.getEndpointURI().toString());
+          }
+        }
+      }
+ catch (      Throwable e) {
+        LOG.error(e,e);
+        throw new ServiceInitializationException("Failed to start service this.context.",e);
+      }
+    }
+  }
+  finally {
+    this.canHasWrite.unlock();
+  }
+}
