@@ -1,52 +1,41 @@
 {
   EventRecord.caller(Component.class,EventType.COMPONENT_SERVICE_START,this.getName(),config.getName(),config.getUri().toString()).info();
-  try {
-    this.serviceRegistry.register(this.serviceRegistry.lookup(config));
-  }
- catch (  NoSuchElementException ex1) {
-    this.serviceRegistry.register(new ComplexService(config));
-  }
-  if (config.isLocal()) {
-    this.getLocalService().setGoal(this.serviceRegistry.getServices().isEmpty() ? State.ENABLED : State.DISABLED);
-    if (this.inState(State.LOADED)) {
-      final CheckedListenableFuture<ServiceConfiguration> future=Futures.newGenericFuture();
-      try {
-        this.getLocalService().transition(Transition.STARTING).addListener(new Callable<ServiceConfiguration>(){
-          @Override public ServiceConfiguration call(){
-            try {
-              Component.this.getLocalService().transition(State.DISABLED);
-              future.set(Component.this.getLocalService().getServiceConfiguration());
-            }
- catch (            Throwable ex) {
-              future.setException(ex);
-              Exceptions.trace(new ServiceRegistrationException("Failed to mark service disabled: " + config + " because of: "+ ex.getMessage(),ex));
-            }
-            return Component.this.getLocalService().getServiceConfiguration();
+  final Service service=this.serviceRegistry.lookup(config);
+  service.setGoal(this.serviceRegistry.getServices().isEmpty() ? State.ENABLED : State.DISABLED);
+  if (service.getState().equals(State.LOADED)) {
+    final CheckedListenableFuture<ServiceConfiguration> future=Futures.newGenericFuture();
+    try {
+      service.transition(Transition.STARTING).addListener(new Callable<ServiceConfiguration>(){
+        @Override public ServiceConfiguration call(){
+          try {
+            service.transition(State.DISABLED);
+            future.set(service.getServiceConfiguration());
           }
+ catch (          Throwable ex) {
+            future.setException(ex);
+            Exceptions.trace(new ServiceRegistrationException("Failed to mark service disabled: " + config + " because of: "+ ex.getMessage(),ex));
+          }
+          return service.getServiceConfiguration();
         }
+      }
 );
-      }
- catch (      Throwable ex) {
-        future.setException(new ServiceRegistrationException("Failed to start service: " + config + " because of: "+ ex.getMessage(),ex));
-      }
+    }
+ catch (    Throwable ex) {
+      future.setException(new ServiceRegistrationException("Failed to start service: " + config + " because of: "+ ex.getMessage(),ex));
+    }
+    return future;
+  }
+ else   if (service.getState().equals(State.NOTREADY)) {
+    try {
+      return service.transition(State.DISABLED);
+    }
+ catch (    Throwable ex) {
+      final CheckedListenableFuture<ServiceConfiguration> future=Futures.newGenericFuture();
+      future.setException(new ServiceRegistrationException("Failed to mark service disabled: " + config + " because of: "+ ex.getMessage(),ex));
       return future;
     }
- else     if (this.inState(State.NOTREADY)) {
-      try {
-        return this.getLocalService().transition(State.DISABLED);
-      }
- catch (      Throwable ex) {
-        final CheckedListenableFuture<ServiceConfiguration> future=Futures.newGenericFuture();
-        future.setException(new ServiceRegistrationException("Failed to mark service disabled: " + config + " because of: "+ ex.getMessage(),ex));
-        return future;
-      }
-    }
- else {
-      return Futures.predestinedFuture(this.getLocalService().getServiceConfiguration());
-    }
   }
  else {
-    this.getBuilder().fireStart(config);
-    return Futures.predestinedFuture(this.getLocalService().getServiceConfiguration());
+    return Futures.predestinedFuture(service.getServiceConfiguration());
   }
 }

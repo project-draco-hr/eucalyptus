@@ -1,47 +1,42 @@
 {
   EventRecord.caller(Component.class,EventType.COMPONENT_SERVICE_ENABLED,this.getName(),config.getName(),config.getUri().toString()).info();
-  if (config.isLocal()) {
-    this.getLocalService().setGoal(State.ENABLED);
-    if (State.NOTREADY.equals(this.getLocalService().getState())) {
-      final CheckedListenableFuture<ServiceConfiguration> future=new TransitionFuture<ServiceConfiguration>();
-      try {
-        this.getLocalService().transition(Transition.READY_CHECK).addListener(new Callable<ServiceConfiguration>(){
-          @Override public ServiceConfiguration call(){
-            try {
-              Component.this.getLocalService().transition(State.ENABLED);
-              future.set(Component.this.getLocalService().getServiceConfiguration());
-            }
- catch (            Throwable ex) {
-              future.setException(ex);
-              Exceptions.trace(new ServiceRegistrationException("Failed to mark service enabled: " + config + " because of: "+ ex.getMessage(),ex));
-            }
-            return Component.this.getLocalService().getServiceConfiguration();
+  final Service service=this.serviceRegistry.lookup(config);
+  service.setGoal(State.ENABLED);
+  if (State.NOTREADY.equals(service.getState())) {
+    final CheckedListenableFuture<ServiceConfiguration> future=new TransitionFuture<ServiceConfiguration>();
+    try {
+      service.transition(Transition.READY_CHECK).addListener(new Callable<ServiceConfiguration>(){
+        @Override public ServiceConfiguration call(){
+          try {
+            service.transition(State.ENABLED);
+            future.set(service.getServiceConfiguration());
           }
+ catch (          Throwable ex) {
+            future.setException(ex);
+            Exceptions.trace(new ServiceRegistrationException("Failed to mark service enabled: " + config + " because of: "+ ex.getMessage(),ex));
+          }
+          return service.getServiceConfiguration();
         }
+      }
 );
-      }
- catch (      Throwable ex) {
-        future.setException(new ServiceRegistrationException("Failed to perform ready-check for service: " + config + " because of: "+ ex.getMessage(),ex));
-      }
+    }
+ catch (    Throwable ex) {
+      future.setException(new ServiceRegistrationException("Failed to perform ready-check for service: " + config + " because of: "+ ex.getMessage(),ex));
+    }
+    return future;
+  }
+ else   if (State.DISABLED.equals(service.getState())) {
+    try {
+      CheckedListenableFuture<ServiceConfiguration> ret=service.transition(State.ENABLED);
+      return ret;
+    }
+ catch (    Throwable ex) {
+      final CheckedListenableFuture<ServiceConfiguration> future=Futures.newGenericFuture();
+      future.setException(new ServiceRegistrationException("Failed to mark service enabled: " + config + " because of: "+ ex.getMessage(),ex));
       return future;
-    }
- else     if (State.DISABLED.equals(this.getLocalService().getState())) {
-      try {
-        CheckedListenableFuture<ServiceConfiguration> ret=Component.this.getLocalService().transition(State.ENABLED);
-        return ret;
-      }
- catch (      Throwable ex) {
-        final CheckedListenableFuture<ServiceConfiguration> future=Futures.newGenericFuture();
-        future.setException(new ServiceRegistrationException("Failed to mark service enabled: " + config + " because of: "+ ex.getMessage(),ex));
-        return future;
-      }
-    }
- else {
-      return Futures.predestinedFuture(this.getLocalService().getServiceConfiguration());
     }
   }
  else {
-    this.getBuilder().fireEnable(config);
-    return Futures.predestinedFuture(this.getLocalService().getServiceConfiguration());
+    return Futures.predestinedFuture(service.getServiceConfiguration());
   }
 }
