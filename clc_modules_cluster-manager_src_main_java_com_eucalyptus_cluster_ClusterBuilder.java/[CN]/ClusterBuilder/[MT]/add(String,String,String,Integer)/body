@@ -1,47 +1,15 @@
 {
   ClusterConfiguration prelimConfig=this.newInstance(partition,name,host,port);
-  File keyDir=ClusterBuilder.makeKeyDir(prelimConfig);
   try {
-    X509Certificate clusterX509;
-    X509Certificate nodeX509;
-    try {
-      List<ClusterConfiguration> otherConfigs=ClusterBuilder.lookupPartition(prelimConfig);
-      ClusterConfiguration otherConfig=otherConfigs.get(0);
-      clusterX509=X509CertHelper.toCertificate(otherConfig.getClusterCertificate());
-      nodeX509=X509CertHelper.toCertificate(otherConfig.getNodeCertificate());
-    }
- catch (    NoSuchElementException ex1) {
-      KeyPair clusterKp;
-      KeyPair nodeKp;
-      try {
-        clusterKp=Certs.generateKeyPair();
-        clusterX509=Certs.generateServiceCertificate(clusterKp,String.format(CLUSTER_KEY_FSTRING,prelimConfig.getName()));
-        nodeKp=Certs.generateKeyPair();
-        nodeX509=Certs.generateServiceCertificate(nodeKp,String.format(NODE_KEY_FSTRING,prelimConfig.getName()));
-        ClusterBuilder.writeClusterKeyFiles(prelimConfig,keyDir,clusterKp,clusterX509,nodeKp,nodeX509);
-      }
- catch (      Exception ex) {
-        LOG.error(ex,ex);
-        throw new ServiceRegistrationException("Failed to generate credentials for cluster: " + prelimConfig,ex);
-      }
-    }
-    try {
-      final String clusterCert=X509CertHelper.fromCertificate(clusterX509);
-      final String nodeCert=X509CertHelper.fromCertificate(nodeX509);
-      prelimConfig.setClusterCertificate(clusterCert);
-      prelimConfig.setNodeCertificate(nodeCert);
-    }
- catch (    Throwable ex) {
-      throw new ServiceRegistrationException("Failed to store cluster credentials during registration: " + prelimConfig,ex);
-    }
+    Partitions.lookup(prelimConfig);
     ServiceConfigurations.getInstance().store(prelimConfig);
   }
  catch (  ServiceRegistrationException ex) {
-    ClusterBuilder.removeKeyDirectory(prelimConfig);
+    Partitions.maybeRemove(prelimConfig.getPartition());
     throw ex;
   }
 catch (  Throwable ex) {
-    ClusterBuilder.removeKeyDirectory(prelimConfig);
+    Partitions.maybeRemove(prelimConfig.getPartition());
     LOG.error(ex,ex);
     throw new ServiceRegistrationException(String.format("Unexpected error caused cluster registration to fail for: partition=%s name=%s host=%s port=%d",partition,name,host,port),ex);
   }

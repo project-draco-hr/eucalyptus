@@ -1,0 +1,30 @@
+{
+  File keyDir=Partitions.makeKeyDir(config);
+  X509Certificate clusterX509;
+  X509Certificate nodeX509;
+  KeyPair clusterKp;
+  KeyPair nodeKp;
+  try {
+    clusterKp=Certs.generateKeyPair();
+    clusterX509=Certs.generateServiceCertificate(clusterKp,String.format(CLUSTER_KEY_FSTRING,config.getName()));
+    nodeKp=Certs.generateKeyPair();
+    nodeX509=Certs.generateServiceCertificate(nodeKp,String.format(NODE_KEY_FSTRING,config.getName()));
+    Partition partition=new Partition(config.getPartition(),clusterX509,nodeX509);
+    EntityWrapper<Partition> db=EntityWrapper.get(Partition.class);
+    try {
+      Partitions.writePartitionKeyFiles(partition,keyDir,clusterKp,clusterX509,nodeKp,nodeX509);
+      db.add(partition);
+      db.commit();
+      return partition;
+    }
+ catch (    Throwable ex) {
+      db.rollback();
+      Partitions.remove(partition.getName());
+      throw new ServiceRegistrationException("Failed to store partition credentials during registration: " + config,ex);
+    }
+  }
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+    throw new ServiceRegistrationException("Failed to generate credentials for partition: " + config,ex);
+  }
+}
