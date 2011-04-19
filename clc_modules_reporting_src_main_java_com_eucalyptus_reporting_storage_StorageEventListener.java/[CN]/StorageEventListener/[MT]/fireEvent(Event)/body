@@ -1,0 +1,72 @@
+{
+  if (event instanceof StorageEvent) {
+    StorageEvent storageEvent=(StorageEvent)event;
+    long timeMillis=getCurrentTimeMillis();
+    final StorageUsageLog usageLog=StorageUsageLog.getStorageUsageLog();
+    EntityWrapper<StorageUsageSnapshot> entityWrapper=EntityWrapper.get(StorageUsageSnapshot.class);
+    try {
+      LOG.info("Receive event:" + storageEvent.toString());
+      if (usageDataMap == null) {
+        this.usageDataMap=new HashMap<UsageDataKey,StorageUsageData>();
+        Iterator<StorageUsageSnapshot> iter=usageLog.scanLog(new Period(0l,Long.MAX_VALUE));
+        while (iter.hasNext()) {
+          StorageUsageSnapshot snapshot=iter.next();
+          UsageDataKey key=new UsageDataKey(snapshot.getSnapshotKey());
+          usageDataMap.put(key,snapshot.getUsageData());
+          System.out.println("Loaded key:" + key);
+        }
+        LOG.info("Loaded usageDataMap");
+        lastStoredMs=timeMillis;
+      }
+      UsageDataKey key=new UsageDataKey(storageEvent.getOwnerId(),storageEvent.getAccountId(),storageEvent.getClusterName(),storageEvent.getAvailabilityZone());
+      StorageUsageData usageData;
+      if (usageDataMap.containsKey(key)) {
+        usageData=usageDataMap.get(key);
+      }
+ else {
+        usageData=new StorageUsageData();
+        usageDataMap.put(key,usageData);
+      }
+      long addAmountMegs=(storageEvent.isCreateOrDelete()) ? storageEvent.getSizeMegs() : -storageEvent.getSizeMegs();
+      long addNum=(storageEvent.isCreateOrDelete()) ? 1 : -1;
+switch (storageEvent.getEventType()) {
+case S3Object:
+        Long newObjectsNum=addLong(usageData.getObjectsNum(),addNum);
+      usageData.setObjectsNum(newObjectsNum);
+    Long newObjectsMegs=addLong(usageData.getObjectsMegs(),addAmountMegs);
+  usageData.setObjectsMegs(newObjectsMegs);
+break;
+case EbsSnapshot:
+Long newSnapshotsNum=addLong(usageData.getSnapshotsNum(),addNum);
+usageData.setSnapshotsNum(newSnapshotsNum);
+Long newSnapshotsMegs=addLong(usageData.getSnapshotsMegs(),addAmountMegs);
+usageData.setSnapshotsMegs(newSnapshotsMegs);
+break;
+case EbsVolume:
+Long newVolumesNum=addLong(usageData.getVolumesNum(),addNum);
+usageData.setVolumesNum(newVolumesNum);
+Long newVolumesMegs=addLong(usageData.getVolumesMegs(),addAmountMegs);
+usageData.setVolumesMegs(newVolumesMegs);
+break;
+}
+if ((timeMillis - lastStoredMs) > WRITE_INTERVAL_MS) {
+for (UsageDataKey udk : usageDataMap.keySet()) {
+SnapshotKey snapshotKey=udk.newSnapshotKey(timeMillis);
+StorageUsageSnapshot sus=new StorageUsageSnapshot(snapshotKey,usageDataMap.get(key));
+System.out.println("Storing:" + sus);
+entityWrapper.add(sus);
+}
+}
+ else {
+SnapshotKey snapshotKey=key.newSnapshotKey(timeMillis);
+StorageUsageSnapshot sus=new StorageUsageSnapshot(snapshotKey,usageDataMap.get(key));
+System.out.println("Storing:" + sus);
+entityWrapper.add(sus);
+}
+}
+ catch (Exception ex) {
+entityWrapper.rollback();
+LOG.error(ex);
+}
+}
+}
