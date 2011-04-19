@@ -20,11 +20,11 @@
   if ((request.getSnapshotId() == null && request.getSize() == null)) {
     throw new EucalyptusCloudException("One of size or snapshotId is required as a parameter.");
   }
-  Service sc;
+  ServiceConfiguration sc;
   try {
-    sc=StorageUtil.getActiveSc(request.getAvailabilityZone());
+    sc=Partitions.lookupService(Storage.class,request.getAvailabilityZone());
   }
- catch (  NoSuchElementException ex) {
+ catch (  NoSuchComponentException ex) {
     throw new EucalyptusCloudException(ex.getMessage(),ex);
   }
   EntityWrapper<Volume> db=EntityWrapper.get(Volume.class);
@@ -47,7 +47,8 @@
     }
  catch (    EucalyptusCloudException e) {
       try {
-        newVol=new Volume(ctx.getUserFullName(),newId,new Integer(request.getSize() != null ? request.getSize() : "-1"),request.getAvailabilityZone(),request.getSnapshotId());
+        Integer newSize=new Integer(request.getSize() != null ? request.getSize() : "-1");
+        newVol=new Volume(ctx.getUserFullName(),newId,newSize,sc.getName(),sc.getPartition(),request.getSnapshotId());
         db.add(newVol);
         db.commit();
         break;
@@ -62,9 +63,9 @@
   try {
     CreateStorageVolumeType req=new CreateStorageVolumeType(newId,request.getSize(),request.getSnapshotId());
     req.regardingUserRequest(request);
-    sc.getDispatcher().send(req);
+    ServiceDispatcher.lookup(sc).send(req);
     try {
-      ListenerRegistry.getInstance().fireEvent(new StorageEvent(StorageEvent.EventType.EbsVolume,true,newVol.getSize(),newVol.getOwnerUserId(),newVol.getOwnerAccountId(),newVol.getCluster(),newVol.getPartition()));
+      ListenerRegistry.getInstance().fireEvent(new StorageEvent(StorageEvent.EventType.EbsVolume,true,newVol.getSize(),newVol.getOwnerUserId(),newVol.getOwnerAccountId(),newVol.getScName(),newVol.getPartition()));
     }
  catch (    EventFailedException ex) {
       LOG.error(ex,ex);
