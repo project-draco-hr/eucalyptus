@@ -17,11 +17,11 @@
   }
   Cluster cluster=null;
   try {
-    cluster=Clusters.getInstance().lookup(vm.getPlacement());
+    cluster=Clusters.getInstance().lookup(vm.getClusterName());
   }
  catch (  NoSuchElementException e) {
     LOG.debug(e,e);
-    throw new EucalyptusCloudException("Cluster does not exist: " + vm.getPlacement());
+    throw new EucalyptusCloudException("Cluster does not exist: " + vm.getClusterName());
   }
   final String deviceName=request.getDevice();
   final String volumeId=request.getVolumeId();
@@ -61,17 +61,17 @@
   if (!Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_VOLUME,request.getVolumeId(),volume.getOwner())) {
     throw new EucalyptusCloudException("Not authorized to attach volume " + request.getVolumeId() + " by "+ ctx.getUser().getName());
   }
-  Service sc;
+  ServiceConfiguration sc;
   try {
-    sc=StorageUtil.getActiveSc(volume.getCluster());
+    sc=Partitions.lookupService(Storage.class,volume.getPartition());
   }
- catch (  NoSuchElementException ex) {
+ catch (  NoSuchComponentException ex) {
     LOG.error(ex,ex);
-    throw new EucalyptusCloudException("Failed to lookup SC for volume: " + volume,ex);
+    throw new EucalyptusCloudException("Failed to lookup SC for volume: " + volume + " because of: "+ ex.getMessage(),ex);
   }
-  Service scVm;
+  ServiceConfiguration scVm;
   try {
-    scVm=StorageUtil.getActiveSc(cluster.getName());
+    scVm=Partitions.lookupService(Storage.class,cluster.getName());
   }
  catch (  Exception ex) {
     LOG.error(ex,ex);
@@ -85,7 +85,7 @@
   }
   AttachStorageVolumeResponseType scAttachResponse;
   try {
-    scAttachResponse=sc.getDispatcher().send(new AttachStorageVolumeType(cluster.getNode(vm.getServiceTag()).getIqn(),volume.getDisplayName()));
+    scAttachResponse=ServiceDispatcher.lookup(sc).send(new AttachStorageVolumeType(cluster.getNode(vm.getServiceTag()).getIqn(),volume.getDisplayName()));
   }
  catch (  Exception e) {
     LOG.debug(e,e);
@@ -96,7 +96,7 @@
   attachVol.setStatus("attaching");
   Callbacks.newRequest(new VolumeAttachCallback(request,attachVol)).dispatch(cluster.getConfiguration());
   vm.addVolumeAttachment(attachVol);
-  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getOwner().toString(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("cluster",vm.getPlacement()).info();
+  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getOwner().toString(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("cluster",vm.getClusterName()).info();
   volume.setState(State.BUSY);
   reply.setAttachedVolume(attachVol);
   return reply;
