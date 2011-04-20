@@ -8,20 +8,21 @@
   this.threadFactory=Threads.lookup(com.eucalyptus.component.id.ClusterController.class,Cluster.class,this.getFullName().toString());
   this.stateMachine=new StateMachineBuilder<Cluster,State,Transition>(this,State.DOWN){
 {
-      in(State.DOWN).run(new Callback<State>(){
-        @Override public void fire(        State t){
+      in(State.DOWN).run(new Callback<Cluster>(){
+        @Override public void fire(        Cluster t){
           Cluster.this.transitionIfSafe(Transition.START);
         }
       }
 );
-      in(State.AUTHENTICATING).run(new Callback<State>(){
-        @Override public void fire(        State t){
+      in(State.AUTHENTICATING).run(new Callback<Cluster>(){
+        @Override public void fire(        Cluster t){
           Cluster.this.transitionIfSafe(Transition.INIT_CERTS);
         }
       }
 );
       on(Transition.START).from(State.DOWN).to(State.AUTHENTICATING).noop();
-      on(Transition.INIT_CERTS).from(State.AUTHENTICATING).to(State.STARTING).error(State.DOWN).run(newRefresh(ClusterCertsCallback.class));
+      on(Transition.INIT_CERTS).from(State.AUTHENTICATING).to(State.CHECKING_SERVICE).error(State.DOWN).run(newRefresh(ClusterCertsCallback.class));
+      on(Transition.INIT_SERVICES).from(State.CHECKING_SERVICE).to(State.STARTING).error(State.DOWN).run(newRefresh(ServiceStateCallback.class));
       on(Transition.INIT_RESOURCES).from(State.STARTING).to(State.STARTING_RESOURCES).error(State.DOWN).run(newRefresh(ResourceStateCallback.class));
       on(Transition.INIT_NET).from(State.STARTING_RESOURCES).to(State.STARTING_NET).error(State.DOWN).run(newRefresh(NetworkStateCallback.class));
       on(Transition.INIT_VMS).from(State.STARTING_NET).to(State.STARTING_VMS).error(State.DOWN).run(newRefresh(VmStateCallback.class));
@@ -35,5 +36,5 @@
       on(Transition.ENABLE).from(State.DISABLED).to(State.DOWN).noop();
     }
   }
-.newAtomicState();
+.newAtomicMarkedState();
 }
