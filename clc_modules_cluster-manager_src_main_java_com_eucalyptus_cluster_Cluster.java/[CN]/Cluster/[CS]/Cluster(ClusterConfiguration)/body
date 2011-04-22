@@ -10,18 +10,58 @@
 {
       in(State.DOWN).run(new Callback<Cluster>(){
         @Override public void fire(        Cluster t){
-          Cluster.this.transitionIfSafe(Transition.START);
+          try {
+            Cluster.this.stateMachine.startTransitionTo(State.AUTHENTICATING);
+          }
+ catch (          IllegalStateException ex) {
+            LOG.error(ex,ex);
+          }
+catch (          ExistingTransitionException ex) {
+            LOG.debug(ex.getMessage());
+          }
+catch (          Exception ex) {
+            LOG.error(ex,ex);
+          }
         }
       }
 );
       in(State.AUTHENTICATING).run(new Callback<Cluster>(){
         @Override public void fire(        Cluster t){
-          Cluster.this.transitionIfSafe(Transition.INIT_CERTS);
+          try {
+            Cluster.this.stateMachine.startTransitionTo(State.CHECK_SERVICE_READY);
+          }
+ catch (          IllegalStateException ex) {
+            LOG.error(ex,ex);
+          }
+catch (          ExistingTransitionException ex) {
+            LOG.debug(ex.getMessage());
+          }
+catch (          Exception ex) {
+            LOG.error(ex,ex);
+          }
         }
       }
 );
-      on(Transition.START).from(State.DOWN).to(State.AUTHENTICATING).noop();
-      on(Transition.INIT_CERTS).from(State.AUTHENTICATING).to(State.STARTING).error(State.DOWN).run(newRefresh(ClusterCertsCallback.class));
+      in(State.CHECK_SERVICE_READY).run(new Callback<Cluster>(){
+        @Override public void fire(        Cluster t){
+          try {
+            Cluster.this.stateMachine.startTransitionTo(State.DISABLED);
+          }
+ catch (          IllegalStateException ex) {
+            LOG.error(ex,ex);
+          }
+catch (          ExistingTransitionException ex) {
+            LOG.debug(ex.getMessage());
+          }
+catch (          Exception ex) {
+            LOG.error(ex,ex);
+          }
+        }
+      }
+);
+      from(State.DOWN).to(State.AUTHENTICATING).on(Transition.START).noop();
+      from(State.AUTHENTICATING).to(State.CHECK_SERVICE_READY).on(Transition.INIT_CERTS).error(State.DOWN).run(newRefresh(ClusterCertsCallback.class));
+      from(State.CHECK_SERVICE_READY).to(State.DISABLED).on(Transition.INIT_SERVICES).error(State.DOWN).run(newRefresh(ServiceStateCallback.class));
       on(Transition.INIT_RESOURCES).from(State.STARTING).to(State.STARTING_RESOURCES).error(State.DOWN).run(newRefresh(ResourceStateCallback.class));
       on(Transition.INIT_NET).from(State.STARTING_RESOURCES).to(State.STARTING_NET).error(State.DOWN).run(newRefresh(NetworkStateCallback.class));
       on(Transition.INIT_VMS).from(State.STARTING_NET).to(State.STARTING_VMS).error(State.DOWN).run(newRefresh(VmStateCallback.class));
@@ -31,8 +71,8 @@
       on(Transition.RUNNING_RSC).from(State.RUNNING_ADDRS).to(State.RUNNING_RSC).error(State.DOWN).run(newRefresh(ResourceStateCallback.class));
       on(Transition.RUNNING_NET).from(State.RUNNING_RSC).to(State.RUNNING_NET).error(State.DOWN).run(newRefresh(NetworkStateCallback.class));
       on(Transition.RUNNING_VMS).from(State.RUNNING_NET).to(State.RUNNING_VMS).error(State.DOWN).run(newRefresh(VmStateCallback.class));
-      on(Transition.RUNNING_ADDRS).from(State.RUNNING_VMS).to(State.CHECKING_SERVICE).error(State.DOWN).run(newRefresh(PublicAddressStateCallback.class));
-      on(Transition.RUNNING_SERVICES).from(State.CHECKING_SERVICE).to(State.RUNNING_ADDRS).error(State.DOWN).run(newRefresh(ServiceStateCallback.class));
+      on(Transition.RUNNING_ADDRS).from(State.RUNNING_VMS).to(State.RUNNING_SERVICE_CHECK).error(State.DOWN).run(newRefresh(PublicAddressStateCallback.class));
+      on(Transition.RUNNING_SERVICES).from(State.RUNNING_SERVICE_CHECK).to(State.RUNNING_ADDRS).error(State.DOWN).run(newRefresh(ServiceStateCallback.class));
       on(Transition.ENABLE).from(State.DISABLED).to(State.DOWN).noop();
     }
   }
