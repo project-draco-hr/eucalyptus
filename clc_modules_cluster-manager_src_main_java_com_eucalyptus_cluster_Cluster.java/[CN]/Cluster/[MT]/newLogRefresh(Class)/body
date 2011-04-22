@@ -1,0 +1,38 @@
+{
+  return new AbstractTransitionAction<Cluster>(){
+    private final SubjectRemoteCallbackFactory<RemoteCallback,Cluster> factory=Callbacks.newSubjectMessageFactory(msgClass,Cluster.this);
+    @Override public final void leave(    final Cluster parent,    final Callback.Completion transitionCallback){
+      Callback.Completion cb=new Callback.Completion(){
+        @Override public void fire(){
+          transitionCallback.fire();
+        }
+        @Override public void fireException(        Throwable t){
+          if (!(t instanceof FailedRequestException)) {
+            LOG.trace(t,t);
+          }
+          transitionCallback.fireException(t);
+        }
+      }
+;
+      try {
+        ComponentId glId=ComponentIds.lookup(GatherLogService.class);
+        ServiceConfiguration conf=parent.getConfiguration();
+        Callbacks.newRequest(this.factory.newInstance()).then(cb).sendSync(ServiceConfigurations.createEphemeral(glId,conf.getPartition(),conf.getName(),glId.makeRemoteUri(conf.getHostName(),conf.getPort())));
+      }
+ catch (      ExecutionException e) {
+        if (e.getCause() instanceof FailedRequestException) {
+          LOG.error(e.getCause().getMessage());
+        }
+ else         if (e.getCause() instanceof ConnectionException || e.getCause() instanceof IOException) {
+        }
+ else {
+          LOG.error(e,e);
+        }
+      }
+catch (      InterruptedException e) {
+        LOG.error(e,e);
+      }
+    }
+  }
+;
+}
