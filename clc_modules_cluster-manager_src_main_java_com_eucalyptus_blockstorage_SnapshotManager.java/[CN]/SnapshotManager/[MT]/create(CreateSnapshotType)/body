@@ -11,17 +11,17 @@
   }
   EntityWrapper<Snapshot> db=EntityWrapper.get(Snapshot.class);
   Volume vol=db.recast(Volume.class).getUnique(Volume.named(ctx.getUserFullName(),request.getVolumeId()));
-  Service sc=null;
+  ServiceConfiguration sc=null;
   try {
-    sc=StorageUtil.getActiveSc(vol.getCluster());
+    sc=Partitions.lookupService(Storage.class,vol.getPartition());
   }
- catch (  NoSuchElementException e) {
-    throw new EucalyptusCloudException("Failed to find the storage controller information for volume: " + vol.getDisplayName() + " at "+ vol.getCluster(),e);
+ catch (  NoSuchComponentException ex) {
+    throw new EucalyptusCloudException(ex);
   }
   if (!vol.isReady()) {
     DescribeStorageVolumesType descVols=new DescribeStorageVolumesType(Lists.newArrayList(vol.getDisplayName()));
     try {
-      DescribeStorageVolumesResponseType volState=ServiceDispatcher.lookup(sc.getServiceConfiguration()).send(descVols);
+      DescribeStorageVolumesResponseType volState=ServiceDispatcher.lookup(sc).send(descVols);
       if (!volState.getVolumeSet().isEmpty()) {
         vol.setMappedState(volState.getVolumeSet().get(0).getStatus());
       }
@@ -47,7 +47,8 @@
       db.getUnique(Snapshot.named(newId));
     }
  catch (    EucalyptusCloudException e) {
-      snap=new Snapshot(ctx.getUserFullName(),newId,vol.getDisplayName());
+      snap=new Snapshot(ctx.getUserFullName(),newId,vol.getDisplayName(),sc.getName(),sc.getPartition());
+      snap.setVolumeSize(vol.getSize());
       db.add(snap);
       break;
     }
@@ -55,8 +56,7 @@
   CreateStorageSnapshotType scRequest=new CreateStorageSnapshotType(vol.getDisplayName(),newId);
   CreateStorageSnapshotResponseType scReply=null;
   try {
-    scReply=sc.getDispatcher().send(scRequest);
-    snap.setCluster(sc.getServiceConfiguration().getName());
+    scReply=ServiceDispatcher.lookup(sc).send(scRequest);
     snap.setMappedState(scReply.getStatus());
   }
  catch (  EucalyptusCloudException e) {
@@ -65,7 +65,12 @@
     throw new EucalyptusCloudException("Error calling CreateStorageSnapshot:" + e.getMessage(),e);
   }
   db.commit();
-  EventRecord.here(SnapshotManager.class,EventClass.SNAPSHOT,EventType.SNAPSHOT_CREATE,"user=" + snap.getOwner(),"snapshot=" + snap.getDisplayName(),"volume=" + snap.getParentVolume()).info();
+  try {
+    ListenerRegistry.getInstance().fireEvent(new StorageEvent(StorageEvent.EventType.EbsSnapshot,true,snap.getVolumeSize(),snap.getOwnerUserId(),snap.getOwnerAccountId(),snap.getVolumeCluster(),snap.getVolumePartition()));
+  }
+ catch (  EventFailedException ex) {
+    LOG.error(ex,ex);
+  }
   CreateSnapshotResponseType reply=(CreateSnapshotResponseType)request.getReply();
   edu.ucsb.eucalyptus.msgs.Snapshot snapMsg=snap.morph(new edu.ucsb.eucalyptus.msgs.Snapshot());
   snapMsg.setProgress("0%");
