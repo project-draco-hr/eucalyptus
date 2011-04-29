@@ -1,50 +1,49 @@
 {
   try {
+    if (this.stateMachine.isBusy()) {
+      return;
+    }
+ else {
 switch (this.stateMachine.getState()) {
-case STOPPED:
-      this.stateMachine.startTransitionTo(State.AUTHENTICATING);
-    break;
-case AUTHENTICATING:
-  this.stateMachine.startTransitionTo(State.CHECK_SERVICE_READY);
-break;
-case CHECK_SERVICE_READY:
-this.stateMachine.startTransitionTo(State.ENABLING);
-break;
+case PENDING:
+case STARTING_AUTHENTICATING:
+case STARTING_NOTREADY:
+        Automata.chainedTransition(this,State.PENDING,State.STARTING_AUTHENTICATING,State.STARTING_NOTREADY,State.NOTREADY).call();
+      break;
+case NOTREADY:
+    Automata.chainedTransition(this,State.NOTREADY,State.DISABLED).call();
+case DISABLED:
+  if (Component.State.ENABLED.apply(this.configuration)) {
+    Automata.chainedTransition(this,State.DISABLED,State.ENABLING).call();
+  }
+ else   if (Component.State.DISABLED.apply(this.configuration)) {
+    Automata.chainedTransition(this,State.DISABLED,State.DISABLED).call();
+  }
 case ENABLING:
-this.stateMachine.startTransitionTo(State.STARTING_RESOURCES);
+case ENABLING_RESOURCES:
+case ENABLING_NET:
+case ENABLING_VMS:
+case ENABLING_ADDRS:
+case ENABLING_VMS_PASS_TWO:
+case ENABLING_ADDRS_PASS_TWO:
+Automata.chainedTransition(this,State.ENABLING,State.ENABLING_RESOURCES,State.ENABLING_NET,State.ENABLING_VMS,State.ENABLING_ADDRS,State.ENABLING_VMS_PASS_TWO,State.ENABLING_ADDRS_PASS_TWO,State.ENABLED).call();
 break;
-case STARTING_RESOURCES:
-this.stateMachine.startTransitionTo(State.STARTING_NET);
-break;
-case STARTING_NET:
-this.stateMachine.startTransitionTo(State.STARTING_VMS);
-break;
-case STARTING_VMS:
-this.stateMachine.startTransition(Transition.INIT_ADDRS);
-break;
-case STARTING_ADDRS:
-this.stateMachine.startTransition(Transition.INIT_VMS2);
-break;
-case STARTING_VMS2:
-this.stateMachine.startTransition(Transition.INIT_ADDRS2);
-break;
-case RUNNING_ADDRS:
-this.stateMachine.startTransition(Transition.RUNNING_RSC);
-break;
-case RUNNING_RSC:
-this.stateMachine.startTransition(Transition.RUNNING_NET);
-break;
-case RUNNING_NET:
-this.stateMachine.startTransition(Transition.RUNNING_VMS);
-break;
-case RUNNING_VMS:
-this.stateMachine.startTransition(Transition.RUNNING_ADDRS);
-break;
-case RUNNING_SERVICE_CHECK:
-this.stateMachine.startTransition(Transition.RUNNING_SERVICES);
+case ENABLED:
+case ENABLED_ADDRS:
+case ENABLED_RSC:
+case ENABLED_NET:
+case ENABLED_VMS:
+case ENABLED_SERVICE_CHECK:
+if (Component.State.ENABLED.apply(this.configuration)) {
+Automata.chainedTransition(this,State.ENABLED,State.ENABLED_ADDRS,State.ENABLED_RSC,State.ENABLED_NET,State.ENABLED_VMS,State.ENABLED_SERVICE_CHECK).call();
+}
+ else if (Component.State.DISABLED.apply(this.configuration) || Component.State.NOTREADY.apply(this.configuration)) {
+this.stateMachine.transition(State.DISABLED);
+}
 break;
 default :
 break;
+}
 }
 }
  catch (IllegalStateException ex) {
@@ -52,5 +51,8 @@ Exceptions.trace(ex);
 }
 catch (ExistingTransitionException ex) {
 LOG.debug(ex.getMessage());
+}
+catch (Exception ex) {
+LOG.error(ex,ex);
 }
 }

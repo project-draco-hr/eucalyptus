@@ -6,36 +6,26 @@
   this.nodeState=new ClusterNodeState(configuration.getName());
   this.nodeMap=new ConcurrentSkipListMap<String,NodeInfo>();
   this.threadFactory=Threads.lookup(com.eucalyptus.component.id.ClusterController.class,Cluster.class,this.getFullName().toString());
-  this.stateMachine=new StateMachineBuilder<Cluster,State,Transition>(this,State.STOPPED){
+  this.stateMachine=new StateMachineBuilder<Cluster,State,Transition>(this,State.PENDING){
 {
-      Predicate<Cluster> COMPONENT_IS_ENABLED=new Predicate<Cluster>(){
-        @Override public boolean apply(        Cluster input){
-          return Component.State.ENABLED.equals(input.getConfiguration().lookupService().getState());
-        }
-      }
-;
-      Predicate<Cluster> COMPONENT_IS_STARTED=new Predicate<Cluster>(){
-        @Override public boolean apply(        Cluster input){
-          return Component.State.NOTREADY.ordinal() <= input.getConfiguration().lookupService().getState().ordinal();
-        }
-      }
-;
-      from(State.STOPPED).to(State.AUTHENTICATING).error(State.STOPPED).on(Transition.START).condition(COMPONENT_IS_STARTED);
-      from(State.AUTHENTICATING).to(State.CHECK_SERVICE_READY).error(State.STOPPED).on(Transition.INIT_CERTS).run(LogRefresh.CERTS);
-      from(State.CHECK_SERVICE_READY).to(State.NOTREADY).error(State.STOPPED).on(Transition.INIT_SERVICES).run(Refresh.SERVICESTATE);
-      from(State.NOTREADY).to(State.DISABLED).error(State.STOPPED).on(Transition.INIT_SERVICES).run(Refresh.SERVICESTATE);
-      from(State.DISABLED).to(State.ENABLING).error(State.NOTREADY).on(Transition.INIT_SERVICES).condition(COMPONENT_IS_ENABLED);
-      from(State.ENABLING).to(State.STARTING_RESOURCES).error(State.STOPPED).on(Transition.INIT_RESOURCES).run(Refresh.RESOURCES);
-      from(State.STARTING_RESOURCES).to(State.STARTING_NET).error(State.STOPPED).on(Transition.INIT_NET).run(Refresh.NETWORKS);
-      from(State.STARTING_NET).to(State.STARTING_VMS).error(State.STOPPED).on(Transition.INIT_VMS).run(Refresh.INSTANCES);
-      from(State.STARTING_VMS).to(State.STARTING_ADDRS).error(State.STOPPED).on(Transition.INIT_ADDRS).run(Refresh.ADDRESSES);
-      from(State.STARTING_ADDRS).to(State.STARTING_VMS2).error(State.STOPPED).on(Transition.INIT_VMS2).run(Refresh.INSTANCES);
-      from(State.STARTING_VMS2).to(State.RUNNING_ADDRS).error(State.STOPPED).on(Transition.INIT_ADDRS2).run(Refresh.ADDRESSES);
-      from(State.RUNNING_ADDRS).to(State.RUNNING_RSC).error(State.NOTREADY).on(Transition.RUNNING_RSC).run(Refresh.RESOURCES);
-      from(State.RUNNING_RSC).to(State.RUNNING_NET).error(State.NOTREADY).on(Transition.RUNNING_NET).run(Refresh.NETWORKS);
-      from(State.RUNNING_NET).to(State.RUNNING_VMS).error(State.NOTREADY).on(Transition.RUNNING_VMS).run(Refresh.INSTANCES);
-      from(State.RUNNING_VMS).to(State.RUNNING_SERVICE_CHECK).error(State.NOTREADY).on(Transition.RUNNING_ADDRS).run(Refresh.ADDRESSES);
-      from(State.RUNNING_SERVICE_CHECK).to(State.RUNNING_ADDRS).error(State.NOTREADY).on(Transition.RUNNING_SERVICES).run(Refresh.SERVICESTATE);
+      from(State.BROKEN).to(State.PENDING).error(State.BROKEN).on(Transition.RESTART_BROKEN).run(COMPONENT_IS_STARTED);
+      from(State.PENDING).to(State.STARTING_AUTHENTICATING).error(State.PENDING).on(Transition.START).run(COMPONENT_IS_STARTED);
+      from(State.STARTING_AUTHENTICATING).to(State.STARTING_NOTREADY).error(State.PENDING).on(Transition.STARTING_CERTS).run(LogRefresh.CERTS);
+      from(State.STARTING_NOTREADY).to(State.NOTREADY).error(State.PENDING).on(Transition.STARTING_SERVICES).run(Refresh.SERVICEREADY);
+      from(State.NOTREADY).to(State.DISABLED).error(State.NOTREADY).on(Transition.NOTREADYCHECK).run(Refresh.SERVICEREADY);
+      from(State.DISABLED).to(State.DISABLED).error(State.NOTREADY).on(Transition.DISABLEDCHECK).run(Refresh.SERVICEREADY);
+      from(State.DISABLED).to(State.ENABLING).error(State.DISABLED).on(Transition.ENABLE).run(COMPONENT_IS_ENABLED);
+      from(State.ENABLING).to(State.ENABLING_RESOURCES).error(State.NOTREADY).on(Transition.ENABLING_RESOURCES).run(Refresh.RESOURCES);
+      from(State.ENABLING_RESOURCES).to(State.ENABLING_NET).error(State.NOTREADY).on(Transition.ENABLING_NET).run(Refresh.NETWORKS);
+      from(State.ENABLING_NET).to(State.ENABLING_VMS).error(State.NOTREADY).on(Transition.ENABLING_VMS).run(Refresh.INSTANCES);
+      from(State.ENABLING_VMS).to(State.ENABLING_ADDRS).error(State.NOTREADY).on(Transition.ENABLING_ADDRS).run(Refresh.ADDRESSES);
+      from(State.ENABLING_ADDRS).to(State.ENABLING_VMS_PASS_TWO).error(State.NOTREADY).on(Transition.ENABLING_VMS_PASS_TWO).run(Refresh.INSTANCES);
+      from(State.ENABLING_VMS_PASS_TWO).to(State.ENABLED_ADDRS).error(State.NOTREADY).on(Transition.ENABLING_ADDRS_PASS_TWO).run(Refresh.ADDRESSES);
+      from(State.ENABLED_ADDRS).to(State.ENABLED_RSC).error(State.NOTREADY).on(Transition.ENABLED_RSC).run(Refresh.RESOURCES);
+      from(State.ENABLED_RSC).to(State.ENABLED_NET).error(State.NOTREADY).on(Transition.ENABLED_NET).run(Refresh.NETWORKS);
+      from(State.ENABLED_NET).to(State.ENABLED_VMS).error(State.NOTREADY).on(Transition.ENABLED_VMS).run(Refresh.INSTANCES);
+      from(State.ENABLED_VMS).to(State.ENABLED_SERVICE_CHECK).error(State.NOTREADY).on(Transition.ENABLED_ADDRS).run(Refresh.ADDRESSES);
+      from(State.ENABLED_SERVICE_CHECK).to(State.ENABLED_ADDRS).error(State.NOTREADY).on(Transition.ENABLED_SERVICES).run(Refresh.SERVICEREADY);
     }
   }
 .newAtomicMarkedState();
