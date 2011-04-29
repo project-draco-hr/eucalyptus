@@ -2,23 +2,35 @@
   Assertions.assertNotNull(componentType);
   Assertions.assertNotNull(partition);
   Assertions.assertNotNull(name);
-  this.componentId=componentType;
-  this.partition=partition;
+  this.realComponentId=componentType;
   this.name=name;
-  List<String> temp=Lists.newArrayList();
-  if (componentType != null) {
-    temp.add(componentType.name());
+  boolean hasParentComponent=!this.realComponentId.serviceDependencies().isEmpty();
+  ComponentId tempComponentId=Empyrean.INCOGNITO;
+  String tempPartition="";
+  if (hasParentComponent || this.realComponentId.isPartitioned()) {
+    tempComponentId=Eucalyptus.INCOGNITO;
+    tempPartition=partition;
   }
+ else   if (!hasParentComponent && !this.realComponentId.isPartitioned()) {
+    tempComponentId=this.realComponentId;
+    tempPartition=this.realComponentId.name();
+  }
+ else   if (!this.realComponentId.isPartitioned() && hasParentComponent) {
+    ComponentId parentId=ComponentIds.lookup(this.realComponentId.serviceDependencies().get(0));
+    if (parentId.getClass().equals(Eucalyptus.class)) {
+      tempComponentId=Eucalyptus.INCOGNITO;
+      tempPartition=tempComponentId.name();
+    }
  else {
-    temp.add(ComponentIds.lookup(Eucalyptus.class).name());
+      tempComponentId=Empyrean.INCOGNITO;
+      tempPartition=tempComponentId.name();
+    }
   }
-  temp.add(name);
-  temp.addAll(Arrays.asList(pathPartsArray));
-  this.authority=new StringBuilder().append(PREFIX).append(SEP).append(VENDOR).append(SEP).append(partition).append(SEP).append(this.componentId.getName()).append(SEP).toString();
-  StringBuilder rId=new StringBuilder();
-  for (  String pathPart : pathPartsArray) {
-    rId.append(SEP_PATH.substring(0,rId.length() == 0 ? 0 : 1)).append(pathPart);
-  }
-  this.relativeId=rId.toString();
+  this.componentId=tempComponentId;
+  this.partition=tempPartition;
+  String displayPartition=(this.componentId.name().equals(this.partition)) ? "" : this.partition;
+  String displayCompType=(this.realComponentId.equals(this.componentId)) ? "" : this.realComponentId.name();
+  this.authority=Joiner.on(SEP).join(PREFIX,this.componentId.name(),displayPartition,displayCompType,this.name);
+  this.relativeId=Joiner.on(SEP_PATH).join(pathPartsArray);
   this.qName=this.authority + this.relativeId;
 }
