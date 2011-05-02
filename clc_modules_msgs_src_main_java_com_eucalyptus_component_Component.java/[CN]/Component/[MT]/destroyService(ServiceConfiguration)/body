@@ -1,19 +1,28 @@
 {
   try {
-    if (config.isLocal() || Internets.testLocal(config.getHostName())) {
-      if (State.STOPPED.ordinal() < this.getLocalService().getStateMachine().getState().ordinal()) {
-        this.stopService(config);
-      }
+    Service service=null;
+    if (this.serviceRegistry.hasService(configuration)) {
+      service=this.serviceRegistry.lookup(configuration);
+      this.serviceRegistry.deregister(configuration);
     }
     try {
-      EventRecord.caller(Component.class,EventType.COMPONENT_SERVICE_DESTROY,this.getName(),config.getFullName(),config.getUri().toString()).info();
-      return config.lookupStateMachine().transitionByName(Transition.DESTROYING);
+      ServiceTransitions.stopTransitionChain(configuration).get();
+    }
+ catch (    ExecutionException ex1) {
+      configuration.error(ex1);
+    }
+catch (    InterruptedException ex1) {
+      configuration.error(ex1);
+    }
+    try {
+      EventRecord.caller(Component.class,EventType.COMPONENT_SERVICE_DESTROY,this.getName(),configuration.getFullName(),configuration.getUri().toString()).info();
+      return configuration.lookupStateMachine().transitionByName(Transition.DESTROYING);
     }
  catch (    Throwable ex) {
-      throw new ServiceRegistrationException("Failed to destroy service: " + config + " because of: "+ ex.getMessage(),ex);
+      throw new ServiceRegistrationException("Failed to destroy service: " + configuration + " because of: "+ ex.getMessage(),ex);
     }
   }
  catch (  NoSuchElementException ex) {
-    throw new ServiceRegistrationException("Failed to find service corresponding to: " + config,ex);
+    throw new ServiceRegistrationException("Failed to find service corresponding to: " + configuration,ex);
   }
 }
