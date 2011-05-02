@@ -1,38 +1,50 @@
 {
   final DescribeServicesResponseType reply=request.getReply();
+  final String typeFilter=request.getByType();
+  final String hostFilter=request.getByHost();
+  final String partitionFilter=request.getByPartition();
+  final String stateFilter=request.getByState();
   for (  Component comp : Components.list()) {
-    if (!Boolean.TRUE.equals(request.getListAll())) {
-      if (comp.hasLocalService()) {
-        final ServiceConfiguration config=comp.getLocalServiceConfiguration();
-        reply.getServiceStatuses().add(new ServiceStatusType(){
+    if (typeFilter == null || (typeFilter != null && !typeFilter.toLowerCase().equals(comp.getComponentId().name()))) {
+      if (!Boolean.TRUE.equals(request.getListAll()) || hostFilter == null || ((hostFilter != null && Internets.testLocal(hostFilter)))) {
+        if (comp.hasLocalService()) {
+          final ServiceConfiguration config=comp.getLocalServiceConfiguration();
+          if ((partitionFilter == null || partitionFilter.equals(config.getPartition())) && (stateFilter == null || stateFilter.toUpperCase().equals(config.lookupState()))) {
+            reply.getServiceStatuses().add(new ServiceStatusType(){
 {
-            setServiceId(TypeMappers.transform(config,ServiceId.class));
-            setLocalEpoch(reply.getBaseEpoch());
-            setLocalState(config.lookupStateMachine().getState().toString());
-            if (Boolean.TRUE.equals(request.getShowDetails())) {
-              getDetails().addAll(Collections2.transform(config.lookupDetails(),Functions.toStringFunction()));
+                setServiceId(TypeMappers.transform(config,ServiceId.class));
+                setLocalEpoch(reply.getBaseEpoch());
+                setLocalState(config.lookupStateMachine().getState().toString());
+                if (Boolean.TRUE.equals(request.getShowEvents())) {
+                  getStatusDetails().addAll(Collections2.transform(config.lookupDetails(),TypeMappers.lookup(ServiceCheckRecord.class,ServiceStatusDetail.class)));
+                }
+              }
             }
+);
           }
         }
-);
       }
-    }
  else {
-      for (      final ServiceConfiguration config : comp.lookupServiceConfigurations()) {
-        reply.getServiceStatuses().add(new ServiceStatusType(){
+        for (        final ServiceConfiguration config : comp.lookupServiceConfigurations()) {
+          if ((partitionFilter == null || partitionFilter.equals(config.getPartition())) && (hostFilter == null || Internets.testLocal(hostFilter)) && (stateFilter == null || stateFilter.toUpperCase().equals(config.lookupState()))) {
+            reply.getServiceStatuses().add(new ServiceStatusType(){
 {
-            setServiceId(TypeMappers.transform(config,ServiceId.class));
-            setLocalEpoch(reply.getBaseEpoch());
-            try {
-              setLocalState(config.lookupStateMachine().getState().toString());
+                setServiceId(TypeMappers.transform(config,ServiceId.class));
+                setLocalEpoch(reply.getBaseEpoch());
+                try {
+                  setLocalState(config.lookupStateMachine().getState().toString());
+                }
+ catch (                Exception ex) {
+                  setLocalState("n/a: " + ex.getMessage());
+                }
+                if (Boolean.TRUE.equals(request.getShowEvents())) {
+                  getStatusDetails().addAll(Collections2.transform(config.lookupDetails(),TypeMappers.lookup(ServiceCheckRecord.class,ServiceStatusDetail.class)));
+                }
+              }
             }
- catch (            Exception ex) {
-              setLocalState("n/a: " + ex.getMessage());
-            }
-            getDetails().addAll(Collections2.transform(config.lookupDetails(),Functions.toStringFunction()));
+);
           }
         }
-);
       }
     }
   }
