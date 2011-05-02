@@ -3,13 +3,24 @@
     super.fireLifecycleEvent(event);
   }
  else   if (event instanceof Hertz) {
-    Component c=this.getComponent();
-    if (c.hasLocalService() && Component.State.STOPPED.ordinal() < c.getState().ordinal()) {
-      if (Component.State.ENABLED.equals(c.getLocalServiceConfiguration().lookupService().getGoal()) && Component.State.NOTREADY.equals(c.getState())) {
-        Threads.lookup(Empyrean.class).submit(BasicService.this.checker);
+    ServiceConfiguration config=this.getServiceConfiguration();
+    if (Component.State.STOPPED.ordinal() < config.lookupState().ordinal()) {
+      try {
+        Threads.lookup(Empyrean.class).submit(BasicService.this.checker).get();
       }
- else       if (Component.State.ENABLED.equals(c.getLocalService().getGoal()) && Component.State.DISABLED.equals(c.getState())) {
-        c.enableTransition(c.getLocalService().getServiceConfiguration());
+ catch (      InterruptedException ex) {
+        config.error(ex);
+        config.lookupService().setGoal(Component.State.DISABLED);
+      }
+catch (      ExecutionException ex) {
+        config.error(ex.getCause());
+        config.lookupService().setGoal(Component.State.DISABLED);
+      }
+      if (Component.State.ENABLED.equals(config.lookupService().getGoal()) && Component.State.DISABLED.isIn(config)) {
+        config.lookupComponent().enableTransition(config);
+      }
+ else       if (Component.State.DISABLED.equals(config.lookupService().getGoal()) && Component.State.ENABLED.isIn(config)) {
+        config.lookupComponent().disableTransition(config);
       }
     }
   }
