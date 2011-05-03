@@ -5,15 +5,15 @@
   try {
     List<Snapshot> snapshots=db.query(Snapshot.ownedBy(ctx.getUserFullName()));
     for (    Snapshot v : snapshots) {
-      if (!Lookups.checkPrivilege(request,PolicySpec.EC2_RESOURCE_SNAPSHOT,v.getDisplayName(),v.getOwner())) {
+      if (!Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_SNAPSHOT,v.getDisplayName(),v.getOwner())) {
         LOG.debug("Skip snapshot " + v.getDisplayName() + " due to access right");
         continue;
       }
       DescribeStorageSnapshotsType scRequest=new DescribeStorageSnapshotsType(Lists.newArrayList(v.getDisplayName()));
       if (request.getSnapshotSet().isEmpty() || request.getSnapshotSet().contains(v.getDisplayName())) {
         try {
-          ServiceConfiguration sc=StorageUtil.getActiveSc(v.getCluster()).getServiceConfiguration();
-          DescribeStorageSnapshotsResponseType snapshotInfo=StorageUtil.send(sc.getName(),scRequest);
+          ServiceConfiguration sc=Partitions.lookupService(Storage.class,v.getPartition());
+          DescribeStorageSnapshotsResponseType snapshotInfo=ServiceDispatcher.lookup(sc).send(scRequest);
           for (          StorageSnapshot storageSnapshot : snapshotInfo.getSnapshotSet()) {
             v.setMappedState(storageSnapshot.getStatus());
             edu.ucsb.eucalyptus.msgs.Snapshot snapReply=v.morph(new edu.ucsb.eucalyptus.msgs.Snapshot());

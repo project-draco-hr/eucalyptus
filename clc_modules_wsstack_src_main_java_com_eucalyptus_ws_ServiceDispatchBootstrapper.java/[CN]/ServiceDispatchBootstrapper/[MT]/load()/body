@@ -17,28 +17,30 @@
       }
     }
   }
-  LOG.trace("Touching class: " + ServiceDispatcher.class);
-  boolean failed=false;
-  Component euca=Components.lookup(Eucalyptus.class);
-  for (  Component comp : Components.list()) {
-    EventRecord.here(ServiceVerifyBootstrapper.class,EventType.COMPONENT_INFO,comp.getName(),comp.isAvailableLocally().toString()).info();
-    for (    ServiceConfiguration s : comp.lookupServiceConfigurations()) {
-      if (euca.isLocal() && euca.getComponentId().hasDispatcher()) {
-        try {
-          comp.loadService(s);
-        }
- catch (        ServiceRegistrationException ex) {
-          LOG.error(ex,ex);
-          failed=true;
-        }
-catch (        Throwable ex) {
-          Exceptions.trace("load(): Building service failed: " + Components.componentToString().apply(comp),ex);
+  for (  final Component comp : Components.list()) {
+    LOG.info("load(): " + comp);
+    if (Bootstrap.isCloudController() && !(comp.getBuilder() instanceof DummyServiceBuilder)) {
+      for (      ServiceConfiguration config : comp.getBuilder().list()) {
+        LOG.info("loadService(): " + config);
+        comp.loadService(config);
+      }
+    }
+ else     if (comp.hasLocalService()) {
+      LOG.info("load(): " + comp);
+      for (      final ServiceConfiguration s : comp.lookupServiceConfigurations()) {
+        if (s.isLocal() && comp.getComponentId().hasDispatcher()) {
+          try {
+            comp.loadService(s).get();
+          }
+ catch (          ServiceRegistrationException ex) {
+            LOG.error(ex,ex);
+          }
+catch (          Throwable ex) {
+            Exceptions.trace("load(): Building service failed: " + Components.Functions.componentToString().apply(comp),ex);
+          }
         }
       }
     }
-  }
-  if (failed) {
-    Exceptions.trace("Failures occurred while attempting to load component services.  See the log files for more information.");
   }
   return true;
 }

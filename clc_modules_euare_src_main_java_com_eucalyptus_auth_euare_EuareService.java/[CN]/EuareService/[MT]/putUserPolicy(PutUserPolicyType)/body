@@ -11,20 +11,23 @@
   }
  catch (  Exception e) {
     if (e instanceof AuthException && AuthException.NO_SUCH_USER.equals(e.getMessage())) {
-      throw new EuareException(404,EuareException.NO_SUCH_ENTITY,"Can not find user " + request.getUserName());
+      throw new EuareException(HttpResponseStatus.NOT_FOUND,EuareException.NO_SUCH_ENTITY,"Can not find user " + request.getUserName());
     }
  else {
       throw new EucalyptusCloudException(e);
     }
   }
-  if (!Permissions.isAuthorized(PolicySpec.IAM_RESOURCE_USER,getUserFullName(userFound),account,action,requestUser)) {
-    throw new EuareException(403,EuareException.NOT_AUTHORIZED,"Not authorized to put user policy for " + request.getUserName() + " by "+ requestUser.getName());
+  if (userFound.isAccountAdmin()) {
+    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Only system admin can put policy on an account");
+  }
+  if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_USER,getUserFullName(userFound),account,action,requestUser)) {
+    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to put user policy for " + request.getUserName() + " by "+ requestUser.getName());
   }
   try {
     userFound.addPolicy(request.getPolicyName(),request.getPolicyDocument());
   }
  catch (  PolicyParseException e) {
-    throw new EuareException(400,EuareException.MALFORMED_POLICY_DOCUMENT,"Error in uploaded policy: " + request.getPolicyDocument(),e);
+    throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.MALFORMED_POLICY_DOCUMENT,"Error in uploaded policy: " + request.getPolicyDocument(),e);
   }
 catch (  Exception e) {
     throw new EucalyptusCloudException(e);
