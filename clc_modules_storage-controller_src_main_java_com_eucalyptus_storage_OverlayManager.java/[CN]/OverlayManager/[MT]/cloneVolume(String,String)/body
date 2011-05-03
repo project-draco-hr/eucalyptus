@@ -1,0 +1,52 @@
+{
+  VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
+  LVMVolumeInfo foundVolumeInfo=volumeManager.getVolumeInfo(parentVolumeId);
+  if (foundVolumeInfo != null) {
+    String vgName="vg-" + Hashes.getRandom(4);
+    String lvName="lv-" + Hashes.getRandom(4);
+    String loFileName=foundVolumeInfo.getLoFileName();
+    LVMVolumeInfo lvmVolumeInfo=volumeManager.getVolumeInfo();
+    int size=foundVolumeInfo.getSize();
+    volumeManager.finish();
+    try {
+      String rawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId;
+      File parentVolumeFile=new File(DirectStorageInfo.getStorageInfo().getVolumesDir() + PATH_SEPARATOR + parentVolumeId);
+      assert(parentVolumeFile.exists());
+      long absoluteSize=parentVolumeFile.length();
+      String loDevName=createLoopback(rawFileName,absoluteSize);
+      createLogicalVolume(loDevName,vgName,lvName);
+      String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
+      duplicateLogicalVolume(loFileName,absoluteLVName);
+      try {
+        volumeManager.exportVolume(lvmVolumeInfo,vgName,lvName);
+      }
+ catch (      EucalyptusCloudException ex) {
+        String returnValue=removeLogicalVolume(absoluteLVName);
+        returnValue=removeVolumeGroup(vgName);
+        returnValue=removePhysicalVolume(loDevName);
+        removeLoopback(loDevName);
+        throw ex;
+      }
+      lvmVolumeInfo.setVolumeId(volumeId);
+      lvmVolumeInfo.setLoDevName(loDevName);
+      lvmVolumeInfo.setPvName(loDevName);
+      lvmVolumeInfo.setVgName(vgName);
+      lvmVolumeInfo.setLvName(lvName);
+      lvmVolumeInfo.setStatus(StorageProperties.Status.available.toString());
+      lvmVolumeInfo.setSize(size);
+      volumeManager=new VolumeEntityWrapperManager();
+      volumeManager.add(lvmVolumeInfo);
+      volumeManager.finish();
+    }
+ catch (    ExecutionException ex) {
+      volumeManager.abort();
+      String error="Unable to run command: " + ex.getMessage();
+      LOG.error(error);
+      throw new EucalyptusCloudException(error);
+    }
+  }
+ else {
+    volumeManager.abort();
+    throw new EucalyptusCloudException("Unable to find volume: " + parentVolumeId);
+  }
+}
