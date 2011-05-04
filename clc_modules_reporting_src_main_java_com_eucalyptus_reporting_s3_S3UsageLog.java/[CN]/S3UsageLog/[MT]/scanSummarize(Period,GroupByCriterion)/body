@@ -1,0 +1,22 @@
+{
+  final Map<String,SummaryInfo> infoMap=new HashMap<String,SummaryInfo>();
+  Iterator<S3UsageSnapshot> iter=scanLog(period);
+  while (iter.hasNext()) {
+    S3UsageSnapshot snapshot=iter.next();
+    long timestampMs=snapshot.getSnapshotKey().getTimestampMs().longValue();
+    String critVal=getAttributeValue(criterion,snapshot.getSnapshotKey());
+    if (infoMap.containsKey(critVal)) {
+      SummaryInfo info=infoMap.get(critVal);
+      S3UsageData lastData=info.getLastData();
+      long durationSecs=(timestampMs - info.getLastTimestamp()) / 1000;
+      info.getSummary().updateValues(lastData.getObjectsMegs(),lastData.getBucketsNum(),durationSecs);
+      info.setLastTimestamp(timestampMs);
+      info.setLastData(snapshot.getUsageData());
+    }
+ else {
+      SummaryInfo info=new SummaryInfo(timestampMs,new S3UsageSummary(),snapshot.getUsageData());
+      infoMap.put(critVal,info);
+    }
+  }
+  return convertOneCriterion(infoMap);
+}

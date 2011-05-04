@@ -1,0 +1,32 @@
+{
+  final Map<String,Map<String,SummaryInfo>> infoMap=new HashMap<String,Map<String,SummaryInfo>>();
+  Iterator<S3UsageSnapshot> iter=scanLog(period);
+  while (iter.hasNext()) {
+    S3UsageSnapshot snapshot=iter.next();
+    long timestampMs=snapshot.getSnapshotKey().getTimestampMs().longValue();
+    String outerCritVal=getAttributeValue(outerCriterion,snapshot.getSnapshotKey());
+    Map<String,SummaryInfo> innerMap=null;
+    if (infoMap.containsKey(outerCritVal)) {
+      innerMap=infoMap.get(outerCritVal);
+    }
+ else {
+      innerMap=new HashMap<String,SummaryInfo>();
+      infoMap.put(outerCritVal,innerMap);
+    }
+    String innerCritVal=getAttributeValue(innerCriterion,snapshot.getSnapshotKey());
+    if (innerMap.containsKey(innerCritVal)) {
+      SummaryInfo info=innerMap.get(innerCritVal);
+      S3UsageData lastData=info.getLastData();
+      long durationSecs=(timestampMs - info.getLastTimestamp()) / 1000;
+      System.out.println("info:" + info + " summary:"+ info.getSummary()+ " lastData:"+ lastData);
+      info.getSummary().updateValues(lastData.getObjectsMegs(),lastData.getBucketsNum(),durationSecs);
+      info.setLastTimestamp(timestampMs);
+      info.setLastData(snapshot.getUsageData());
+    }
+ else {
+      SummaryInfo info=new SummaryInfo(timestampMs,new S3UsageSummary(),snapshot.getUsageData());
+      innerMap.put(innerCritVal,info);
+    }
+  }
+  return convertTwoCriteria(infoMap);
+}
