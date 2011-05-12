@@ -1,11 +1,34 @@
 {
   Clusters.getInstance().registerDisabled(this);
   this.configuration.lookupService().getEndpoint().start();
-  ListenerRegistry.getInstance().register(ClockTick.class,this);
-  ListenerRegistry.getInstance().register(Hertz.class,this);
   try {
-    final Callable<CheckedListenableFuture<Cluster>> transition=Automata.sequenceTransitions(this,State.PENDING,State.STARTING,State.STARTING_AUTHENTICATING,State.STARTING_NOTREADY,State.NOTREADY);
-    Threads.lookup(ClusterController.class,Cluster.class).submit(transition).get();
+    Threads.lookup(ClusterController.class,Cluster.class).submit(new Callable<CheckedListenableFuture<Cluster>>(){
+      @Override public CheckedListenableFuture<Cluster> call() throws Exception {
+        final Callable<CheckedListenableFuture<Cluster>> transition=Automata.sequenceTransitions(Cluster.this,State.PENDING,State.STARTING,State.STARTING_AUTHENTICATING,State.STARTING_NOTREADY,State.NOTREADY);
+        CheckedListenableFuture<Cluster> future=null;
+        Exception error=null;
+        for (int i=0; i < Cluster.CLUSTER_STARTUP_SYNC_RETRIES; i++) {
+          try {
+            transition.call().get();
+            break;
+          }
+ catch (          Exception ex) {
+            LOG.error(ex);
+            error=ex;
+          }
+          TimeUnit.SECONDS.sleep(1);
+        }
+        ListenerRegistry.getInstance().register(ClockTick.class,Cluster.this);
+        ListenerRegistry.getInstance().register(Hertz.class,Cluster.this);
+        if (future != null) {
+          return future;
+        }
+ else {
+          throw error;
+        }
+      }
+    }
+).get();
   }
  catch (  InterruptedException ex) {
     Thread.currentThread().interrupt();
