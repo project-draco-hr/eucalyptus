@@ -16,20 +16,35 @@
                   final CheckedListenableFuture<P> secondFuture=secondCall.call();
                   secondFuture.addListener(new Runnable(){
                     @Override public void run(){
-                      try {
-                        resultFuture.set(secondFuture.get());
+                      if (!secondFuture.isDone()) {
+                        LOG.error("BUG BUG Executing listener for a future which is not yet done.");
                       }
- catch (                      final ExecutionException ex) {
-                        resultFuture.setException(ex);
-                      }
-catch (                      final InterruptedException ex) {
-                        Automata.LOG.error("BUG BUG BUG Interrupted calling .get() on a Future which isDone(): " + ex.getMessage(),ex);
-                        Thread.currentThread().interrupt();
-                        resultFuture.setException(ex);
+                      Exception lastEx=null;
+                      for (int i=0; i < 10; i++) {
+                        try {
+                          P res=secondFuture.get(100,TimeUnit.MILLISECONDS);
+                          resultFuture.set(secondFuture.get());
+                          return;
+                        }
+ catch (                        final ExecutionException ex) {
+                          resultFuture.setException(ex);
+                          return;
+                        }
+catch (                        final InterruptedException ex) {
+                          Automata.LOG.error("BUG BUG BUG Interrupted calling .get() on a Future which isDone(): " + ex.getMessage(),ex);
+                          resultFuture.setException(ex);
+                          Thread.currentThread().interrupt();
+                          return;
+                        }
+catch (                        TimeoutException ex) {
+                          Logs.exhaust().error(ex);
+                          lastEx=ex;
+                          continue;
+                        }
                       }
                     }
                   }
-);
+,Threads.lookup(Empyrean.class,Futures.class,secondCall.getClass().getCanonicalName()));
                 }
  catch (                final Exception ex) {
                   resultFuture.setException(ex);
@@ -45,7 +60,7 @@ catch (            final InterruptedException ex) {
             }
           }
         }
-);
+,Threads.lookup(Empyrean.class,Futures.class,firstCall.getClass().getCanonicalName()));
       }
  catch (      final Exception ex) {
         Automata.LOG.error(ex,ex);
