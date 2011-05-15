@@ -1,45 +1,29 @@
 {
   Clusters.getInstance().registerDisabled(this);
   this.configuration.lookupService().getEndpoint().start();
+  final Callable<CheckedListenableFuture<Cluster>> transition=Automata.sequenceTransitions(Cluster.this,State.PENDING,State.AUTHENTICATING,State.STARTING,State.STARTING_NOTREADY,State.NOTREADY,State.DISABLED);
+  Exception error=null;
   try {
-    Threads.lookup(ClusterController.class,Cluster.class).submit(new Callable<CheckedListenableFuture<Cluster>>(){
-      @Override public CheckedListenableFuture<Cluster> call() throws Exception {
-        final Callable<CheckedListenableFuture<Cluster>> transition=Automata.sequenceTransitions(Cluster.this,State.PENDING,State.AUTHENTICATING,State.STARTING,State.STARTING_NOTREADY,State.NOTREADY,State.DISABLED);
-        CheckedListenableFuture<Cluster> future=null;
-        Exception error=null;
-        try {
-          for (int i=0; i < Cluster.CLUSTER_STARTUP_SYNC_RETRIES; i++) {
-            try {
-              transition.call().get();
-              break;
-            }
- catch (            Exception ex) {
-              LOG.error(ex);
-              error=ex;
-            }
-            TimeUnit.SECONDS.sleep(1);
-          }
-        }
-  finally {
-          ListenerRegistry.getInstance().register(ClockTick.class,Cluster.this);
-          ListenerRegistry.getInstance().register(Hertz.class,Cluster.this);
-          if (future != null) {
-            return future;
-          }
- else {
-            throw error != null ? error : new TimeoutException("Timed out trying to perform transition start() on cluster " + Cluster.this.configuration.getFullName());
-          }
-        }
+    for (int i=0; i < Cluster.CLUSTER_STARTUP_SYNC_RETRIES; i++) {
+      try {
+        transition.call().get();
+        break;
       }
+ catch (      Exception ex) {
+        LOG.error(ex);
+        error=ex;
+      }
+      TimeUnit.SECONDS.sleep(1);
     }
-).get();
   }
  catch (  InterruptedException ex) {
-    Thread.currentThread().interrupt();
-    LOG.error(ex);
+    LOG.error(ex,ex);
   }
-catch (  ExecutionException ex) {
-    LOG.error(ex.getCause());
-    Logs.exhaust().error(ex.getCause(),ex.getCause());
+ finally {
+    ListenerRegistry.getInstance().register(ClockTick.class,Cluster.this);
+    ListenerRegistry.getInstance().register(Hertz.class,Cluster.this);
+  }
+  if (error != null) {
+    throw new ServiceRegistrationException(error);
   }
 }
