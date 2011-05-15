@@ -1,2 +1,37 @@
 {
+  PutGetImageInfo ret=null;
+  String imageName=(imageNameArg != null) ? imageNameArg : manifest.getName();
+switch (manifest.getImageType()) {
+case kernel:
+    ret=new KernelImageInfo(creator,ImageUtil.newImageId(Image.Type.kernel.getTypePrefix(),manifest.getImageLocation()),imageName,imageDescription,manifest.getImageLocation(),manifest.getSize(),manifest.getBundledSize(),manifest.getArchitecture(),manifest.getPlatform());
+  break;
+case ramdisk:
+ret=new RamdiskImageInfo(creator,ImageUtil.newImageId(Image.Type.ramdisk.getTypePrefix(),manifest.getImageLocation()),imageName,imageDescription,manifest.getImageLocation(),manifest.getSize(),manifest.getBundledSize(),manifest.getArchitecture(),manifest.getPlatform());
+break;
+case machine:
+ret=new MachineImageInfo(creator,ImageUtil.newImageId(Image.Type.machine.getTypePrefix(),manifest.getImageLocation()),imageName,imageDescription,manifest.getImageLocation(),manifest.getSize(),manifest.getBundledSize(),manifest.getArchitecture(),manifest.getPlatform());
+break;
+}
+if (ret == null) {
+throw new IllegalArgumentException("Failed to prepare image using the provided image manifest: " + manifest);
+}
+ else {
+ret.setSignature(manifest.getSignature());
+ret.setState(Image.State.available);
+EntityWrapper<PutGetImageInfo> db=EntityWrapper.get(PutGetImageInfo.class);
+try {
+ret=db.merge(ret);
+db.commit();
+LOG.info("Registering image pk=" + ret.getDisplayName() + " ownerId="+ creator);
+}
+ catch (Exception e) {
+db.rollback();
+throw new EucalyptusCloudException("Failed to register image: " + manifest + " because of: "+ e.getMessage(),e);
+}
+LOG.info("Triggering cache population in Walrus for: " + ret.getDisplayName());
+if (ret instanceof Image.StaticDiskImage) {
+WalrusUtil.triggerCaching((StaticDiskImage)ret);
+}
+return ret;
+}
 }
