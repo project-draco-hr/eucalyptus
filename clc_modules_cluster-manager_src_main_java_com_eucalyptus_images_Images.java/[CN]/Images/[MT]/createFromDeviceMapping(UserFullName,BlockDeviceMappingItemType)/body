@@ -1,11 +1,17 @@
 {
+  Context ctx=Contexts.lookup();
   String snapshotId=rootBlockDevice.getEbs().getSnapshotId();
   try {
-    Transactions.one(Snapshot.named(userFullName,snapshotId),new Tx<Snapshot>(){
+    Snapshot snap=Transactions.one(Snapshot.named(userFullName,snapshotId),new Tx<Snapshot>(){
       @Override public void fire(      Snapshot t) throws Throwable {
       }
     }
 );
+    if (!userFullName.getUserId().equals(snap.getOwnerUserId())) {
+      throw new EucalyptusCloudException("Failed to create image from specified block device mapping: " + rootBlockDevice + " because of: you must the owner of the source snapshot.");
+    }
+    BlockStorageImageInfo ret=Transactions.save(new BlockStorageImageInfo(generateImageId(Image.Type.machine.getTypePrefix(),snapshotId),snap.getDisplayName(),(snap.getVolumeSize() >= rootBlockDevice.getSize()) ? snap.getVolumeSize() : rootBlockDevice.getEbs().getVolumeSize(),Boolean.TRUE.equals(rootBlockDevice.getEbs().getDeleteOnTermination())));
+    return ret;
   }
  catch (  TransactionFireException ex) {
     throw new EucalyptusCloudException("Failed to create image from specified block device mapping: " + rootBlockDevice + " because of: "+ ex.getMessage());
@@ -14,5 +20,4 @@ catch (  ExecutionException ex) {
     LOG.error(ex,ex);
     throw new EucalyptusCloudException("Failed to create image from specified block device mapping: " + rootBlockDevice + " because of: "+ ex.getMessage());
   }
-  return null;
 }
