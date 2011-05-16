@@ -1,28 +1,34 @@
 {
-  if (Component.State.ENABLED.equals(input.getConfiguration().lookupStateMachine().getState())) {
-    try {
-      AsyncRequests.newRequest(new EnableServiceCallback(input)).sendSync(input.configuration);
-      return true;
-    }
- catch (    ExecutionException ex) {
-      input.errors.add(ex.getCause());
-      return false;
-    }
-catch (    InterruptedException ex) {
-      input.errors.add(ex.getCause());
-      return false;
-    }
- finally {
+  final SubjectRemoteCallbackFactory<RemoteCallback,Cluster> factory=newSubjectMessageFactory(this.refresh,cluster);
+  return new AbstractTransitionAction<Cluster>(){
+    @Override public final void leave(    final Cluster parent,    final Callback.Completion transitionCallback){
       try {
-        Clusters.getInstance().enable(input.getName());
+        BaseMessage res=AsyncRequests.newRequest(factory.newInstance()).then(transitionCallback).sendSync(parent.getLogServiceConfiguration());
+        LOG.error(res);
       }
- catch (      NoSuchElementException ex) {
-        Clusters.getInstance().register(input);
-        LOG.error(ex,ex);
+ catch (      final ExecutionException e) {
+        if (e.getCause() instanceof FailedRequestException) {
+          LOG.error(e.getCause().getMessage());
+          parent.errors.add(e);
+        }
+ else         if ((e.getCause() instanceof ConnectionException) || (e.getCause() instanceof IOException)) {
+          LOG.error(parent.getName() + ": Error communicating with cluster: " + e.getCause().getMessage());
+          parent.errors.add(e);
+        }
+ else {
+          LOG.error(e,e);
+          parent.errors.add(e);
+        }
+      }
+catch (      final InterruptedException e) {
+        LOG.error(e,e);
+        parent.errors.add(e);
+      }
+catch (      final Throwable e) {
+        LOG.error(e,e);
+        parent.errors.add(e);
       }
     }
   }
- else {
-    return false;
-  }
+;
 }
