@@ -1,7 +1,8 @@
 {
   super();
-  this.response=new AsyncResponseFuture<R>();
-  this.handler=new AsyncRequestHandler<Q,R>(this.response);
+  this.result=new AsyncResponseFuture<R>();
+  this.requestResult=new AsyncResponseFuture<R>();
+  this.handler=new AsyncRequestHandler<Q,R>(this.requestResult);
   this.callbackSequence=new CallbackListenerSequence<R>();
   this.callback=new TwiceChecked<Q,R>(){
     @Override public void fireException(    Throwable t){
@@ -9,6 +10,7 @@
         cb.fireException(t);
       }
  catch (      Throwable ex) {
+        AsyncRequest.this.result.setException(ex);
         LOG.error(ex,ex);
       }
       try {
@@ -25,6 +27,7 @@
         }
         cb.fire(r);
         try {
+          AsyncRequest.this.result.set(r);
           AsyncRequest.this.callbackSequence.fire(r);
         }
  catch (        Throwable ex) {
@@ -33,9 +36,11 @@
       }
  catch (      RuntimeException ex) {
         LOG.error(ex,ex);
+        AsyncRequest.this.result.setException(ex);
         AsyncRequest.this.callbackSequence.fireException(ex);
       }
 catch (      Exception ex) {
+        AsyncRequest.this.result.setException(ex);
         AsyncRequest.this.callbackSequence.fireException(ex);
       }
     }
@@ -46,5 +51,5 @@ catch (      Exception ex) {
     }
   }
 ;
-  Callbacks.addListenerHandler(response,this.callback);
+  Callbacks.addListenerHandler(requestResult,this.callback);
 }
