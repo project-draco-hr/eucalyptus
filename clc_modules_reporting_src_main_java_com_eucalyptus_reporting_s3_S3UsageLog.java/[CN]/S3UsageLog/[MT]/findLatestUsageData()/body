@@ -1,0 +1,22 @@
+{
+  log.info("LoadLastUsageData");
+  final Map<S3SummaryKey,S3UsageData> usageMap=new HashMap<S3SummaryKey,S3UsageData>();
+  EntityWrapper<S3UsageSnapshot> entityWrapper=EntityWrapper.get(S3UsageSnapshot.class);
+  try {
+    long latestSnapshotBeforeMs=findLatestAllSnapshotBefore(System.currentTimeMillis());
+    @SuppressWarnings("rawtypes") Iterator iter=entityWrapper.createQuery("from S3UsageSnapshot as sus" + " WHERE sus.key.timestampMs > ?").setLong(0,new Long(latestSnapshotBeforeMs)).iterate();
+    while (iter.hasNext()) {
+      S3UsageSnapshot snapshot=(S3UsageSnapshot)iter.next();
+      S3SnapshotKey snapshotKey=snapshot.getSnapshotKey();
+      S3SummaryKey summaryKey=new S3SummaryKey(snapshotKey);
+      usageMap.put(summaryKey,snapshot.getUsageData());
+    }
+    entityWrapper.commit();
+  }
+ catch (  Exception ex) {
+    log.error(ex);
+    entityWrapper.rollback();
+    throw new RuntimeException(ex);
+  }
+  return usageMap;
+}

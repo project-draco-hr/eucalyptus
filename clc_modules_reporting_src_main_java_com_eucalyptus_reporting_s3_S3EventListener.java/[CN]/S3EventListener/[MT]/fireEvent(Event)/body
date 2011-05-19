@@ -7,20 +7,10 @@
     try {
       LOG.info("Receive event:" + s3Event.toString());
       if (usageDataMap == null) {
-        this.usageDataMap=new HashMap<UsageDataKey,S3UsageData>();
-        Iterator<S3UsageSnapshot> iter=usageLog.scanLog(new Period(0l,Long.MAX_VALUE));
-        while (iter.hasNext()) {
-          S3UsageSnapshot snapshot=iter.next();
-          UsageDataKey key=new UsageDataKey(snapshot.getSnapshotKey());
-          usageDataMap.put(key,snapshot.getUsageData());
-          if (snapshot.getSnapshotKey().getAllSnapshot()) {
-            lastAllSnapshotMs=timeMillis;
-          }
-          System.out.println("Loaded key:" + key);
-        }
-        LOG.info("Loaded usageDataMap, lastSnapshot:" + lastAllSnapshotMs);
+        this.usageDataMap=usageLog.findLatestUsageData();
+        LOG.info("Loaded usageDataMap");
       }
-      UsageDataKey key=new UsageDataKey(s3Event.getOwnerId(),s3Event.getAccountId());
+      S3SummaryKey key=new S3SummaryKey(s3Event.getOwnerId(),s3Event.getAccountId());
       S3UsageData usageData;
       if (usageDataMap.containsKey(key)) {
         usageData=usageDataMap.get(key);
@@ -43,8 +33,8 @@
       }
       if ((timeMillis - lastAllSnapshotMs) > WRITE_INTERVAL_MS) {
         LOG.info("Starting allSnapshot...");
-        for (        UsageDataKey udk : usageDataMap.keySet()) {
-          S3SnapshotKey snapshotKey=udk.newSnapshotKey(timeMillis);
+        for (        S3SummaryKey summaryKey : usageDataMap.keySet()) {
+          S3SnapshotKey snapshotKey=new S3SnapshotKey(summaryKey.getOwnerId(),summaryKey.getAccountId(),timeMillis);
           S3UsageSnapshot sus=new S3UsageSnapshot(snapshotKey,usageDataMap.get(key));
           sus.getSnapshotKey().setAllSnapshot(true);
           LOG.info("Storing part of allSnapshot:" + sus);
@@ -54,7 +44,7 @@
         LOG.info("Ending allSnapshot...");
       }
  else {
-        S3SnapshotKey snapshotKey=key.newSnapshotKey(timeMillis);
+        S3SnapshotKey snapshotKey=new S3SnapshotKey(key.getOwnerId(),key.getAccountId(),timeMillis);
         S3UsageSnapshot sus=new S3UsageSnapshot(snapshotKey,usageDataMap.get(key));
         LOG.info("Storing:" + sus);
         entityWrapper.add(sus);

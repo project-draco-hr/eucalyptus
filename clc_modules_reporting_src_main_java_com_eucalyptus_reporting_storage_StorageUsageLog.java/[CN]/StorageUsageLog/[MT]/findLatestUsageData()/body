@@ -1,0 +1,22 @@
+{
+  log.info("LoadLastUsageData");
+  final Map<StorageSummaryKey,StorageUsageData> usageMap=new HashMap<StorageSummaryKey,StorageUsageData>();
+  EntityWrapper<StorageUsageSnapshot> entityWrapper=EntityWrapper.get(StorageUsageSnapshot.class);
+  try {
+    long latestSnapshotBeforeMs=findLatestAllSnapshotBefore(System.currentTimeMillis());
+    @SuppressWarnings("rawtypes") Iterator iter=entityWrapper.createQuery("from StorageUsageSnapshot as sus" + " WHERE sus.key.timestampMs > ?").setLong(0,new Long(latestSnapshotBeforeMs)).iterate();
+    while (iter.hasNext()) {
+      StorageUsageSnapshot snapshot=(StorageUsageSnapshot)iter.next();
+      StorageSnapshotKey snapshotKey=snapshot.getSnapshotKey();
+      StorageSummaryKey summaryKey=new StorageSummaryKey(snapshotKey);
+      usageMap.put(summaryKey,snapshot.getUsageData());
+    }
+    entityWrapper.commit();
+  }
+ catch (  Exception ex) {
+    log.error(ex);
+    entityWrapper.rollback();
+    throw new RuntimeException(ex);
+  }
+  return usageMap;
+}
