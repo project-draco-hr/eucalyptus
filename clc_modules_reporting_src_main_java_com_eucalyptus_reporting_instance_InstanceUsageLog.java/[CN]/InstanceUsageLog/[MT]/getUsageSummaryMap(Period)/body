@@ -1,5 +1,6 @@
 {
   log.info("GetUsageSummaryMap period:" + period);
+  final Map<InstanceSummaryKey,InstanceUsageSummary> usageMap=new HashMap<InstanceSummaryKey,InstanceUsageSummary>();
   Map<String,InstanceDataAccumulator> dataAccumulatorMap=new HashMap<String,InstanceDataAccumulator>();
   EntityWrapper<InstanceUsageSnapshot> entityWrapper=EntityWrapper.get(InstanceUsageSnapshot.class);
   try {
@@ -20,24 +21,23 @@
         accumulator.update(snapshot);
       }
     }
+    for (    String uuid : dataAccumulatorMap.keySet()) {
+      InstanceDataAccumulator accumulator=dataAccumulatorMap.get(uuid);
+      InstanceSummaryKey key=new InstanceSummaryKey(accumulator.getInstanceAttributes());
+      if (!usageMap.containsKey(key)) {
+        usageMap.put(key,new InstanceUsageSummary());
+      }
+      InstanceUsageSummary ius=usageMap.get(key);
+      ius.addDiskIoMegs(accumulator.getDiskIoMegs());
+      ius.addNetworkIoMegs(accumulator.getNetIoMegs());
+      ius.sumFromPeriodType(accumulator.getDurationPeriod(),accumulator.getInstanceAttributes().getInstanceType());
+    }
     entityWrapper.commit();
   }
  catch (  Exception ex) {
     log.error(ex);
     entityWrapper.rollback();
     throw new RuntimeException(ex);
-  }
-  final Map<InstanceSummaryKey,InstanceUsageSummary> usageMap=new HashMap<InstanceSummaryKey,InstanceUsageSummary>();
-  for (  String uuid : dataAccumulatorMap.keySet()) {
-    InstanceDataAccumulator accumulator=dataAccumulatorMap.get(uuid);
-    InstanceSummaryKey key=new InstanceSummaryKey(accumulator.getInstanceAttributes());
-    if (!usageMap.containsKey(key)) {
-      usageMap.put(key,new InstanceUsageSummary());
-    }
-    InstanceUsageSummary ius=usageMap.get(key);
-    ius.addDiskIoMegs(accumulator.getDiskIoMegs());
-    ius.addNetworkIoMegs(accumulator.getNetIoMegs());
-    ius.sumFromPeriodType(accumulator.getDurationPeriod(),accumulator.getInstanceAttributes().getInstanceType());
   }
   return usageMap;
 }
