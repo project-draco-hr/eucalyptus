@@ -1,19 +1,58 @@
 {
   final DescribeServicesResponseType reply=request.getReply();
-  for (  Component comp : Components.list()) {
-    if (comp.isEnabledLocally()) {
-      final Service localService=comp.getLocalService();
-      reply.getServiceStatuses().add(new ServiceStatusType(){
+  ComponentId compId=(request.getByServiceType() != null) ? ComponentIds.lookup(request.getByServiceType().toLowerCase()) : Any.INSTANCE;
+  final boolean showEventStacks=Boolean.TRUE.equals(request.getShowEventStacks());
+  final boolean showEvents=Boolean.TRUE.equals(request.getShowEvents()) || showEventStacks;
+  Function<ServiceConfiguration,ServiceStatusType> transformToStatus=new Function<ServiceConfiguration,ServiceStatusType>(){
+    @Override public ServiceStatusType apply(    final ServiceConfiguration config){
+      return new ServiceStatusType(){
 {
-          setServiceId(localService.getServiceId());
-          setLocalEpoch(reply.getBaseEpoch());
-          setLocalState(localService.getState().toString());
-          if (localService.getDetails() != null) {
-            getDetails().addAll(localService.getDetails());
+          this.setServiceId(TypeMappers.transform(config,ServiceId.class));
+          this.setLocalEpoch(reply.getBaseEpoch());
+          try {
+            this.setLocalState(config.lookupStateMachine().getState().toString());
+          }
+ catch (          Exception ex) {
+            this.setLocalState("n/a: " + ex.getMessage());
+          }
+          if (showEvents) {
+            this.getStatusDetails().addAll(Collections2.transform(config.lookupDetails(),TypeMappers.lookup(ServiceCheckRecord.class,ServiceStatusDetail.class)));
+            if (!showEventStacks) {
+              for (              ServiceStatusDetail a : this.getStatusDetails()) {
+                a.setStackTrace("");
+              }
+            }
           }
         }
       }
-);
+;
+    }
+  }
+;
+  List<Predicate<ServiceConfiguration>> filters=new ArrayList<Predicate<ServiceConfiguration>>(){
+{
+      if (request.getByPartition() != null) {
+        Partitions.exists(request.getByPartition());
+        this.add(Filters.host(request.getByPartition()));
+      }
+      if (request.getByState() != null) {
+        Component.State stateFilter=Component.State.valueOf(request.getByState().toUpperCase());
+        this.add(Filters.state(stateFilter));
+      }
+      this.add(Filters.host(request.getByHost()));
+      this.add(Filters.listAllOrInternal(request.getListAll(),request.getListInternal()));
+    }
+  }
+;
+  Predicate<Component> componentFilter=Filters.componentType(compId);
+  Predicate<ServiceConfiguration> configPredicate=Predicates.and(filters);
+  for (  Component comp : Components.list()) {
+    if (componentFilter.apply(comp)) {
+      for (      final ServiceConfiguration config : comp.lookupServiceConfigurations()) {
+        if (configPredicate.apply(config)) {
+          reply.getServiceStatuses().add(transformToStatus.apply(config));
+        }
+      }
     }
   }
   return reply;

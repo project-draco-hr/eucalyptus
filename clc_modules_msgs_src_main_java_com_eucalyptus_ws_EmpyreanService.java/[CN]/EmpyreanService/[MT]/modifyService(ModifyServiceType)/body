@@ -1,0 +1,60 @@
+{
+  ModifyServiceResponseType reply=request.getReply();
+  TransitionName transition=TransitionName.valueOf(request.getState().toUpperCase());
+  for (  Component comp : Components.list()) {
+    ServiceConfiguration a;
+    try {
+      a=comp.lookupServiceConfiguration(request.getName());
+    }
+ catch (    Exception ex1) {
+      continue;
+    }
+    Component.State serviceState=a.lookupState();
+    reply.set_return(true);
+    try {
+switch (transition) {
+case DISABLE:
+        if (!Component.State.DISABLED.equals(a.lookupState()) && !Component.State.NOTREADY.equals(a.lookupState())) {
+          return reply;
+        }
+ else {
+          comp.disableTransition(a).get();
+        }
+      break;
+case ENABLE:
+    if (Component.State.ENABLED.equals(a.lookupState())) {
+      return reply;
+    }
+ else {
+      comp.enableTransition(a).get();
+    }
+  break;
+case STOP:
+if (Component.State.STOPPED.equals(a.lookupState())) {
+  return reply;
+}
+ else {
+  comp.stopTransition(a).get();
+}
+break;
+case START:
+if (Component.State.NOTREADY.ordinal() <= a.lookupState().ordinal()) {
+return reply;
+}
+ else {
+comp.startTransition(a).get();
+}
+break;
+case RESTART:
+comp.stopTransition(a).get();
+comp.enableTransition(a).get();
+break;
+}
+}
+ catch (Exception ex) {
+LOG.error(ex,ex);
+return reply.markFailed();
+}
+}
+return reply;
+}

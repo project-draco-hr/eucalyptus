@@ -1,14 +1,17 @@
 {
   super();
-  this.response=Futures.newAsyncMessageFuture();
-  this.handler=new AsyncRequestHandler<Q,R>(this.response);
+  this.result=new AsyncResponseFuture<R>();
+  this.requestResult=new AsyncResponseFuture<R>();
+  this.handler=new AsyncRequestHandler<Q,R>(this.requestResult);
   this.callbackSequence=new CallbackListenerSequence<R>();
   this.callback=new TwiceChecked<Q,R>(){
     @Override public void fireException(    Throwable t){
       try {
         cb.fireException(t);
+        AsyncRequest.this.result.setException(t);
       }
  catch (      Throwable ex) {
+        AsyncRequest.this.result.setException(ex);
         LOG.error(ex,ex);
       }
       try {
@@ -20,25 +23,35 @@
     }
     @Override public void fire(    R r){
       try {
+        if (Logs.EXTREME) {
+          LOG.debug(cb.getClass().getCanonicalName() + ".fire():\n" + r);
+        }
         cb.fire(r);
         try {
+          AsyncRequest.this.result.set(r);
           AsyncRequest.this.callbackSequence.fire(r);
         }
  catch (        Throwable ex) {
+          AsyncRequest.this.result.setException(ex);
           LOG.error(ex,ex);
         }
       }
  catch (      RuntimeException ex) {
         LOG.error(ex,ex);
+        AsyncRequest.this.result.setException(ex);
         AsyncRequest.this.callbackSequence.fireException(ex);
       }
 catch (      Exception ex) {
+        AsyncRequest.this.result.setException(ex);
         AsyncRequest.this.callbackSequence.fireException(ex);
       }
     }
     @Override public void initialize(    Q request) throws Exception {
+      if (Logs.EXTREME) {
+        LOG.debug(cb.getClass().getCanonicalName() + ".initialize():\n" + request);
+      }
     }
   }
 ;
-  Futures.addListenerHandler(response,this.callback);
+  Callbacks.addListenerHandler(requestResult,this.callback);
 }
