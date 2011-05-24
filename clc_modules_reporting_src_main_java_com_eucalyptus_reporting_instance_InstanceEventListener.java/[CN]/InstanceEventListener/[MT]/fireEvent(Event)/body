@@ -1,16 +1,20 @@
 {
   final long receivedEventMs=this.getCurrentTimeMillis();
   if (e instanceof InstanceEvent) {
-    log.info("Received instance event");
     InstanceEvent event=(InstanceEvent)e;
+    log.info("--: Received instance event:" + event);
     final String uuid=event.getUuid();
-    EntityWrapper<InstanceAttributes> entityWrapper=EntityWrapper.get(InstanceAttributes.class);
+    if (uuid == null) {
+      log.warn("--: Received null uuid");
+      return;
+    }
+    InstanceAttributes insAttrs=new InstanceAttributes(uuid,event.getInstanceId(),event.getInstanceType(),event.getUserId(),event.getAccountId(),event.getClusterName(),event.getAvailabilityZone());
+    InstanceUsageSnapshot insUsageSnapshot=new InstanceUsageSnapshot(uuid,receivedEventMs,event.getCumulativeNetworkIoMegs(),event.getCumulativeDiskIoMegs());
+    EntityWrapper<InstanceAttributes> attrEntityWrapper=EntityWrapper.get(InstanceAttributes.class);
     try {
-      InstanceAttributes insAttrs=new InstanceAttributes(uuid,event.getInstanceId(),event.getInstanceType(),event.getUserId(),event.getAccountId(),event.getClusterName(),event.getAvailabilityZone());
-      InstanceUsageSnapshot insUsageSnapshot=new InstanceUsageSnapshot(uuid,receivedEventMs,event.getCumulativeNetworkIoMegs(),event.getCumulativeDiskIoMegs());
       if (!recentlySeenUuids.contains(uuid)) {
         try {
-          entityWrapper.getUnique(new InstanceAttributes(){
+          attrEntityWrapper.getUnique(new InstanceAttributes(){
 {
               setUuid(uuid);
             }
@@ -18,30 +22,37 @@
 );
         }
  catch (        Exception ex) {
-          entityWrapper.add(insAttrs);
-          log.info("Wrote Reporting Instance:" + uuid);
+          attrEntityWrapper.add(insAttrs);
+          log.info("--: Wrote Reporting Instance:" + uuid);
         }
         recentlySeenUuids.add(uuid);
       }
-      if (!recentUsageSnapshots.containsKey(uuid)) {
+    }
+ catch (    Exception ex) {
+      attrEntityWrapper.rollback();
+      log.error(ex);
+    }
+    if (!recentUsageSnapshots.containsKey(uuid)) {
+      recentUsageSnapshots.put(uuid,insUsageSnapshot);
+    }
+ else {
+      InstanceUsageSnapshot oldSnapshot=recentUsageSnapshots.get(uuid);
+      if (oldSnapshot.getTimestampMs() < insUsageSnapshot.getTimestampMs()) {
         recentUsageSnapshots.put(uuid,insUsageSnapshot);
       }
  else {
-        InstanceUsageSnapshot oldSnapshot=recentUsageSnapshots.get(uuid);
-        if (oldSnapshot.getTimestampMs() < insUsageSnapshot.getTimestampMs()) {
-          recentUsageSnapshots.put(uuid,insUsageSnapshot);
-        }
- else {
-          log.error("Events are arriving out of order");
-        }
+        log.error("Events are arriving out of order");
       }
-      log.info("Determining if events should be written");
+    }
+    EntityWrapper<InstanceUsageSnapshot> entityWrapper=EntityWrapper.get(InstanceUsageSnapshot.class);
+    try {
+      log.info("--: Determining if events should be written, interval:" + getWriteIntervalMs());
       if (receivedEventMs > (lastWriteMs + getWriteIntervalMs())) {
         for (        String key : recentUsageSnapshots.keySet()) {
-          log.info("beginning event writing for:" + uuid);
           InstanceUsageSnapshot ius=recentUsageSnapshots.get(key);
-          entityWrapper.recast(InstanceUsageSnapshot.class).add(ius);
-          log.info("Wrote Instance Usage:" + ius.getUuid() + ":"+ ius.getEntityId());
+          log.info("--: beginning event writing for:" + ius.getUuid() + ":"+ ius.getEntityId());
+          entityWrapper.add(ius);
+          log.info("--: Wrote Instance Usage:" + ius.getUuid() + ":"+ ius.getEntityId());
         }
         recentUsageSnapshots.clear();
         lastWriteMs=receivedEventMs;
