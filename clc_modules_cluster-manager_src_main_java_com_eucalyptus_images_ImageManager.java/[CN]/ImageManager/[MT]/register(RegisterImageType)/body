@@ -1,6 +1,5 @@
 {
   final Context ctx=Contexts.lookup();
-  String imageLocation=request.getImageLocation();
   User requestUser=Contexts.lookup().getUser();
   String action=PolicySpec.requestToAction(request);
   if (!ctx.hasAdministrativePrivileges()) {
@@ -11,99 +10,23 @@
       throw new EucalyptusCloudException("Quota exceeded in registering image for " + requestUser.getName());
     }
   }
-  String[] imagePathParts;
-  try {
-    imagePathParts=ImageUtil.getImagePathParts(imageLocation);
-    ImageUtil.checkBucketAcl(request,imagePathParts);
-  }
- catch (  EucalyptusCloudException e) {
-    LOG.trace(e,e);
-    throw e;
-  }
-  try {
-    WalrusUtil.verifyManifestIntegrity(ctx.getUser(),imageLocation);
-  }
- catch (  EucalyptusCloudException e) {
-    throw new EucalyptusCloudException("Image registration failed because the manifest referenced is invalid or unavailable.");
-  }
-  Document inputSource=ImageUtil.getManifestDocument(imagePathParts,ctx.getUserFullName());
-  XPath xpath=XPathFactory.newInstance().newXPath();
-  Image.Architecture arch=ImageUtil.extractArchitecture(inputSource,xpath);
   ImageInfo imageInfo=null;
-  String kernelId=ImageUtil.extractKernelId(inputSource,xpath);
-  String ramdiskId=ImageUtil.extractRamdiskId(inputSource,xpath);
-  Image.Type imageType=Image.Type.machine;
-  String signature=null;
-  try {
-    signature=(String)xpath.evaluate("/manifest/signature/text()",inputSource,XPathConstants.STRING);
+  final String rootDevName=(request.getRootDeviceName() != null) ? request.getRootDeviceName() : "/dev/sda1";
+  final String eki=request.getKernelId();
+  final String eri=request.getRamdiskId();
+  if (request.getImageLocation() != null) {
+    ImageManifest manifest=ImageManifests.lookup(request.getImageLocation());
+    LOG.debug("Obtained manifest information for requested image registration: " + manifest);
+    List<DeviceMapping> vbr=Lists.transform(request.getBlockDeviceMappings(),Images.deviceMappingGenerator(imageInfo));
+    imageInfo=Images.createFromManifest(ctx.getUserFullName(),request.getName(),request.getDescription(),eki,eri,manifest);
+    imageInfo.getDeviceMappings().addAll(vbr);
   }
- catch (  XPathExpressionException e) {
-    LOG.warn(e.getMessage());
-  }
-  if ("yes".equals(kernelId) || "true".equals(kernelId) || imagePathParts[1].startsWith("vmlinuz")) {
-    if (!Contexts.lookup().hasAdministrativePrivileges()) {
-      throw new EucalyptusCloudException("Only administrators can register kernel images.");
-    }
-    imageType=Image.Type.kernel;
-    imageInfo=new KernelImageInfo(ctx.getUserFullName(),ImageUtil.newImageId(imageType.getTypePrefix(),imageLocation),imageLocation,arch,Image.Platform.linux);
-  }
- else   if ("yes".equals(ramdiskId) || "true".equals(ramdiskId) || imagePathParts[1].startsWith("initrd")) {
-    if (!Contexts.lookup().hasAdministrativePrivileges()) {
-      throw new EucalyptusCloudException("Only administrators can register ramdisk images.");
-    }
-    imageType=Image.Type.ramdisk;
-    imageInfo=new RamdiskImageInfo(ctx.getUserFullName(),ImageUtil.newImageId(imageType.getTypePrefix(),imageLocation),imageLocation,arch,Image.Platform.linux);
+ else   if (rootDevName != null && Iterables.any(request.getBlockDeviceMappings(),Images.findEbsRoot(rootDevName))) {
+    imageInfo=Images.createFromDeviceMapping(ctx.getUserFullName(),rootDevName,request.getBlockDeviceMappings());
   }
  else {
-    if (imagePathParts[1].startsWith(Image.Platform.windows.toString())) {
-      imageType=Image.Type.machine;
-      imageInfo=new MachineImageInfo(ctx.getUserFullName(),ImageUtil.newImageId(imageType.getTypePrefix(),imageLocation),imageLocation,arch,Image.Platform.windows);
-    }
- else {
-      if (kernelId != null) {
-        ImageInfo k=null;
-        try {
-          k=Images.lookupImage(kernelId);
-        }
- catch (        Exception ex) {
-          LOG.error(ex,ex);
-          throw new EucalyptusCloudException("Referenced kernel id is invalid: " + kernelId,ex);
-        }
-        if (!Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_IMAGE,kernelId,k.getOwner())) {
-          throw new EucalyptusCloudException("Access to kernel image " + kernelId + " is deined for "+ ctx.getUser().getName());
-        }
-      }
-      if (ramdiskId != null) {
-        ImageInfo r=null;
-        try {
-          r=Images.lookupImage(ramdiskId);
-        }
- catch (        Exception ex) {
-          LOG.error(ex,ex);
-          throw new EucalyptusCloudException("Referenced ramdisk id is invalid: " + ramdiskId,ex);
-        }
-        if (!Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_IMAGE,ramdiskId,r.getOwner())) {
-          throw new EucalyptusCloudException("Access to ramdisk image " + ramdiskId + " is deined for "+ ctx.getUser().getName());
-        }
-      }
-      imageType=Image.Type.machine;
-      imageInfo=new MachineImageInfo(ctx.getUserFullName(),ImageUtil.newImageId(imageType.getTypePrefix(),imageLocation),imageLocation,arch,Image.Platform.linux,kernelId,ramdiskId);
-    }
+    throw new EucalyptusCloudException("Malformed registration. A request must specify either " + "a manifest path or a snapshot to use for BFE. Provided values are: imageLocation=" + request.getImageLocation() + " blockDeviceMappings="+ request.getBlockDeviceMappings());
   }
-  imageInfo.setSignature(signature);
-  imageInfo.setState(Image.State.available);
-  EntityWrapper<ImageInfo> db=EntityWrapper.get(ImageInfo.class);
-  try {
-    imageInfo=db.merge(imageInfo);
-    db.commit();
-    LOG.info("Registering image pk=" + imageInfo.getDisplayName() + " ownerId="+ ctx.getUserFullName());
-  }
- catch (  Exception e) {
-    db.rollback();
-    throw new EucalyptusCloudException("failed to register image.");
-  }
-  LOG.info("Triggering cache population in Walrus for: " + imageInfo.getDisplayName());
-  WalrusUtil.triggerCaching(imageInfo);
   RegisterImageResponseType reply=(RegisterImageResponseType)request.getReply();
   reply.setImageId(imageInfo.getDisplayName());
   return reply;

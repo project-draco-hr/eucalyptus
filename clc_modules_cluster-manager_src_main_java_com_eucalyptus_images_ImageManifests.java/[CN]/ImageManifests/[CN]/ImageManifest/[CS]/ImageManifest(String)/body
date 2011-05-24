@@ -1,0 +1,101 @@
+{
+  Context ctx=Contexts.lookup();
+  String cleanLocation=imageLocation.replaceAll("^/*","");
+  this.imageLocation=cleanLocation;
+  int index=cleanLocation.indexOf('/');
+  if (index < 2 || index + 1 >= cleanLocation.length()) {
+    throw new EucalyptusCloudException("Image registration failed:  Invalid image location: " + imageLocation);
+  }
+  String bucketName=cleanLocation.substring(0,index);
+  String manifestKey=cleanLocation.substring(index + 1);
+  final String manifestName=manifestKey.replaceAll(".*/","");
+  if (!ImageManifests.verifyBucketAcl(bucketName)) {
+    throw new EucalyptusCloudException("Image registration failed: you must own the bucket containing the image.");
+  }
+  this.manifest=ImageManifests.requestManifestData(ctx.getUserFullName(),bucketName,manifestKey);
+  try {
+    DocumentBuilder builder=DocumentBuilderFactory.newInstance().newDocumentBuilder();
+    this.inputSource=builder.parse(new ByteArrayInputStream(this.manifest.getBytes()));
+  }
+ catch (  Exception e) {
+    throw new EucalyptusCloudException("Failed to read manifest file: " + bucketName + "/"+ manifestKey,e);
+  }
+  this.xpath=XPathFactory.newInstance().newXPath();
+  this.xpathHelper=new Function<String,String>(){
+    @Override public String apply(    String input){
+      try {
+        return (String)ImageManifest.this.xpath.evaluate(input,ImageManifest.this.inputSource,XPathConstants.STRING);
+      }
+ catch (      XPathExpressionException ex) {
+        return null;
+      }
+    }
+  }
+;
+  String temp;
+  this.name=((temp=this.xpathHelper.apply("/manifest/image/name/text()")) != null) ? temp : manifestName.replace(".manifest.xml","");
+  this.signature=((temp=this.xpathHelper.apply("//signature")) != null) ? temp : null;
+  this.encryptedKey=this.xpathHelper.apply("//ec2_encrypted_key");
+  this.encryptedIV=this.xpathHelper.apply("//ec2_encrypted_iv");
+  Predicate<Image.Type> checkIdType=new Predicate<Image.Type>(){
+    @Override public boolean apply(    Image.Type input){
+      String value=ImageManifest.this.xpathHelper.apply(input.getManifestPath());
+      if ("yes".equals(value) || "true".equals(value) || manifestName.startsWith(input.getNamePrefix())) {
+        return true;
+      }
+ else {
+        return false;
+      }
+    }
+  }
+;
+  String typeInManifest=this.xpathHelper.apply(Image.TYPE_MANIFEST_XPATH);
+  this.size=((temp=this.xpathHelper.apply("/manifest/image/size/text()")) != null) ? Long.parseLong(temp) : -1l;
+  this.bundledSize=((temp=this.xpathHelper.apply("/manifest/image/bundled_size/text()")) != null) ? Long.parseLong(temp) : -1l;
+  String arch=this.xpathHelper.apply("/manifest/machine_configuration/architecture/text()");
+  this.architecture=Image.Architecture.valueOf(((arch == null) ? "i386" : arch));
+  if ((checkIdType.apply(Image.Type.kernel) || checkIdType.apply(Image.Type.ramdisk)) && !ctx.hasAdministrativePrivileges()) {
+    throw new EucalyptusCloudException("Only administrators can register kernel images.");
+  }
+ else {
+    if (checkIdType.apply(Image.Type.kernel)) {
+      this.imageType=Image.Type.kernel;
+      this.platform=Image.Platform.linux;
+      this.kernelId=null;
+      this.ramdiskId=null;
+    }
+ else     if (checkIdType.apply(Image.Type.ramdisk)) {
+      this.imageType=Image.Type.ramdisk;
+      this.platform=Image.Platform.linux;
+      this.kernelId=null;
+      this.ramdiskId=null;
+    }
+ else {
+      String kId=this.xpathHelper.apply(Image.Type.kernel.getManifestPath());
+      String rId=this.xpathHelper.apply(Image.Type.ramdisk.getManifestPath());
+      this.imageType=Image.Type.machine;
+      if (!manifestName.startsWith(Image.Platform.windows.toString())) {
+        this.platform=Image.Platform.linux;
+        if (kId != null && kId.startsWith(Image.Type.kernel.getTypePrefix())) {
+          ImageManifests.checkPrivileges(this.kernelId);
+          this.kernelId=kId;
+        }
+ else {
+          this.kernelId=null;
+        }
+        if (kId != null && kId.startsWith(Image.Type.kernel.getTypePrefix())) {
+          ImageManifests.checkPrivileges(this.ramdiskId);
+          this.ramdiskId=rId;
+        }
+ else {
+          this.ramdiskId=null;
+        }
+      }
+ else {
+        this.platform=Image.Platform.windows;
+        this.kernelId=null;
+        this.ramdiskId=null;
+      }
+    }
+  }
+}

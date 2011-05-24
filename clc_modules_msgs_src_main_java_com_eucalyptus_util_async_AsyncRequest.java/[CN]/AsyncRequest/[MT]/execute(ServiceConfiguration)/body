@@ -7,17 +7,18 @@
  catch (    Throwable e) {
       Logger.getLogger(this.callback.getClass()).error(e.getMessage(),e);
       RequestException ex=(e instanceof RequestException) ? (RequestException)e : new RequestInitializationException(this.callback.getClass().getSimpleName() + " failed: " + e.getMessage(),e,this.getRequest());
-      this.response.setException(ex);
+      this.result.setException(ex);
       throw ex;
     }
     Logger.getLogger(this.callback.getClass()).debug("fire: endpoint " + config);
     if (!this.handler.fire(config,this.request)) {
-      if (this.response.isDone()) {
+      if (this.requestResult.isDone()) {
         try {
-          R r=this.response.get(1,TimeUnit.MILLISECONDS);
+          R r=this.requestResult.get(1,TimeUnit.MILLISECONDS);
           throw new RequestException("Request failed but produced a response: " + r,this.getRequest());
         }
  catch (        ExecutionException e) {
+          this.result.setException(e.getCause());
           if (e.getCause() != null && e.getCause() instanceof RequestException) {
             Logger.getLogger(this.callback.getClass()).error(e.getCause());
             throw (RequestException)e.getCause();
@@ -28,10 +29,12 @@
           }
         }
 catch (        RequestException e) {
+          this.result.setException(e);
           Logger.getLogger(this.callback.getClass()).error(e);
           throw e;
         }
 catch (        Throwable e) {
+          this.result.setException(e);
           Logger.getLogger(this.callback.getClass()).error(e);
           throw new RequestException("Request failed due to: " + e.getMessage(),e,this.getRequest());
         }
@@ -39,16 +42,31 @@ catch (        Throwable e) {
  else {
         RequestException ex=new RequestException("Error occured attempting to fire the request.",this.getRequest());
         try {
-          this.response.setException(ex);
+          this.result.setException(ex);
         }
  catch (        Throwable t) {
         }
         throw ex;
       }
     }
+ else {
+      try {
+        this.result.set(this.requestResult.get());
+      }
+ catch (      ExecutionException ex) {
+        LOG.error(ex,ex);
+        this.result.setException(ex.getCause());
+      }
+catch (      InterruptedException ex) {
+        LOG.error(ex,ex);
+        Thread.currentThread().interrupt();
+        this.result.setException(ex);
+      }
+    }
   }
  catch (  RuntimeException ex) {
     LOG.error(ex,ex);
+    this.result.setException(ex);
     throw ex;
   }
   return this;
