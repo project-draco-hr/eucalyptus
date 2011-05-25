@@ -1,0 +1,32 @@
+{
+  return new Function<BlockDeviceMappingItemType,DeviceMapping>(){
+    @Override public DeviceMapping apply(    BlockDeviceMappingItemType input){
+      assertThat(input,notNullValue());
+      assertThat(input.getDeviceName(),notNullValue());
+      if (input.getEbs() != null) {
+        EbsDeviceMapping ebsInfo=input.getEbs();
+        Snapshot snap;
+        Integer size;
+        try {
+          snap=Snapshots.lookup(ebsInfo.getSnapshotId());
+          size=snap.getVolumeSize();
+          if (ebsInfo.getVolumeSize() != null && ebsInfo.getVolumeSize() >= snap.getVolumeSize()) {
+            size=ebsInfo.getVolumeSize();
+          }
+        }
+ catch (        ExecutionException ex) {
+          LOG.error(ex,ex);
+          size=input.getEbs().getVolumeSize();
+        }
+        return new BlockStorageDeviceMapping(parent,input.getDeviceName(),input.getEbs().getVirtualName(),ebsInfo.getSnapshotId(),size,ebsInfo.getDeleteOnTermination());
+      }
+ else       if (input.getVirtualName() != null && input.getVirtualName().matches("ephemeral[0123]")) {
+        return new EphemeralDeviceMapping(parent,input.getDeviceName(),input.getVirtualName());
+      }
+ else {
+        return new SuppressDeviceMappping(parent,input.getDeviceName());
+      }
+    }
+  }
+;
+}

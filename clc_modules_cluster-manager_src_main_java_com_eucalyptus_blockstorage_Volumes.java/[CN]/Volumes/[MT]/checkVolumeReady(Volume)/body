@@ -1,0 +1,33 @@
+{
+  if (vol.isReady()) {
+    return vol;
+  }
+ else {
+    final ServiceConfiguration sc=Partitions.lookupService(Storage.class,vol.getPartition());
+    final DescribeStorageVolumesType descVols=new DescribeStorageVolumesType(Lists.newArrayList(vol.getDisplayName()));
+    try {
+      Transactions.one(Volume.named(vol.getDisplayName()),new Callback<Volume>(){
+        @Override public void fire(        Volume t){
+          try {
+            DescribeStorageVolumesResponseType volState=ServiceDispatcher.lookup(sc).send(descVols);
+            if (!volState.getVolumeSet().isEmpty()) {
+              vol.setMappedState(volState.getVolumeSet().get(0).getStatus());
+            }
+          }
+ catch (          EucalyptusCloudException ex) {
+            LOG.error(ex,ex);
+            throw new UndeclaredThrowableException(ex,"Failed to update the volume state " + vol.getDisplayName() + " not yet ready");
+          }
+        }
+      }
+);
+    }
+ catch (    ExecutionException ex) {
+      throw new EucalyptusCloudException(ex.getCause());
+    }
+    if (!vol.isReady()) {
+      throw new EucalyptusCloudException("Volume " + vol.getDisplayName() + " not yet ready");
+    }
+    return vol;
+  }
+}
