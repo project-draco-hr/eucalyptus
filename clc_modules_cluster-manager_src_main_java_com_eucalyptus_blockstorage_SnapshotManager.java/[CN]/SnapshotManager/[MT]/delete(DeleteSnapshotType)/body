@@ -1,48 +1,43 @@
 {
-  DeleteSnapshotResponseType reply=(DeleteSnapshotResponseType)request.getReply();
+  final DeleteSnapshotResponseType reply=(DeleteSnapshotResponseType)request.getReply();
   reply.set_return(false);
-  Context ctx=Contexts.lookup();
-  EntityWrapper<Snapshot> db=EntityWrapper.get(Snapshot.class);
+  final Context ctx=Contexts.lookup();
   try {
-    Snapshot snap=db.getUnique(Snapshot.named(ctx.getUserFullName(),request.getSnapshotId()));
-    if (!State.EXTANT.equals(snap.getState())) {
-      db.rollback();
-      reply.set_return(false);
-      return reply;
-    }
-    if (!Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_SNAPSHOT,request.getSnapshotId(),snap.getOwner())) {
-      throw new EucalyptusCloudException("Not authorized to delete snapshot " + request.getSnapshotId() + " by "+ ctx.getUser().getName());
-    }
-    db.delete(snap);
-    ServiceConfiguration sc=null;
-    try {
-      sc=Partitions.lookupService(Storage.class,snap.getVolumePartition());
-    }
- catch (    NoSuchElementException e) {
-    }
-catch (    NoSuchComponentException ex) {
-      throw new EucalyptusCloudException("Failed to find the storage controller information for volume: " + snap.getDisplayName() + " at "+ snap.getVolumePartition()+ " because of "+ ex.getMessage(),ex);
-    }
-    DeleteStorageSnapshotResponseType scReply=ServiceDispatcher.lookup(sc).send(new DeleteStorageSnapshotType(snap.getDisplayName()));
-    if (scReply.get_return()) {
-      StorageUtil.dispatchAll(new DeleteStorageSnapshotType(snap.getDisplayName()));
-      db.commit();
-      try {
-        ListenerRegistry.getInstance().fireEvent(new StorageEvent(StorageEvent.EventType.EbsSnapshot,true,snap.getVolumeSize(),snap.getOwnerUserId(),snap.getOwnerAccountId(),snap.getVolumeCluster(),snap.getVolumePartition()));
-      }
- catch (      EventFailedException ex) {
-        LOG.error(ex,ex);
-      }
-    }
+    Transactions.one(Snapshot.named(ctx.getUserFullName(),request.getSnapshotId()),new Callback<Snapshot>(){
+      @Override public void fire(      Snapshot snap){
+        if (!State.EXTANT.equals(snap.getState())) {
+          reply.set_return(false);
+          return;
+        }
+        if (!Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_SNAPSHOT,request.getSnapshotId(),snap.getOwner())) {
+          throw Exceptions.undeclared("Not authorized to delete snapshot " + request.getSnapshotId() + " by "+ ctx.getUser().getName(),new EucalyptusCloudException());
+        }
+        Transactions.join().delete(snap);
+        ServiceConfiguration sc=Partitions.lookupService(Storage.class,snap.getVolumePartition());
+        try {
+          DeleteStorageSnapshotResponseType scReply=ServiceDispatcher.lookup(sc).send(new DeleteStorageSnapshotType(snap.getDisplayName()));
+          if (scReply.get_return()) {
+            StorageUtil.dispatchAll(new DeleteStorageSnapshotType(snap.getDisplayName()));
+            try {
+              ListenerRegistry.getInstance().fireEvent(new StorageEvent(StorageEvent.EventType.EbsSnapshot,true,snap.getVolumeSize(),snap.getOwnerUserId(),snap.getOwnerAccountId(),snap.getVolumeCluster(),snap.getVolumePartition()));
+            }
+ catch (            EventFailedException ex) {
+              LOG.error(ex,ex);
+            }
+          }
  else {
-      db.rollback();
-      throw new EucalyptusCloudException("Unable to delete snapshot.");
+            throw Exceptions.undeclared("Unable to delete snapshot.",new EucalyptusCloudException());
+          }
+        }
+ catch (        EucalyptusCloudException ex1) {
+          throw Exceptions.undeclared(ex1.getMessage(),ex1);
+        }
+      }
     }
+);
   }
- catch (  EucalyptusCloudException e) {
-    LOG.debug(e,e);
-    db.rollback();
-    throw new EucalyptusCloudException("Error deleting storage volume:" + e.getMessage(),e);
+ catch (  ExecutionException ex1) {
+    throw new EucalyptusCloudException(ex1.getCause());
   }
   reply.set_return(true);
   return reply;
