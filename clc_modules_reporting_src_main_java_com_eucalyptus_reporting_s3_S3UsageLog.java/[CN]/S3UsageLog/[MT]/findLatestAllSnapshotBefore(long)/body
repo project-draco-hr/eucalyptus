@@ -1,0 +1,25 @@
+{
+  long foundTimestampMs=0l;
+  EntityWrapper<S3UsageSnapshot> entityWrapper=EntityWrapper.get(S3UsageSnapshot.class);
+  try {
+    final long oneHourMs=60 * 60 * 1000;
+    for (int i=2; (timestampMs - oneHourMs * (long)i) > 0; i=(int)Math.pow(i,2)) {
+      long startingMs=timestampMs - (oneHourMs * i);
+      log.info("Searching for latest timestamp before beginning:" + startingMs);
+      @SuppressWarnings("rawtypes") List list=entityWrapper.createQuery("from S3UsageSnapshot as sus" + " WHERE sus.key.timestampMs > ?" + " AND sus.key.timestampMs < ?"+ " AND sus.allSnapshot = true").setLong(0,new Long(startingMs)).setLong(1,new Long(timestampMs)).list();
+      for (      Object obj : list) {
+        S3UsageSnapshot snapshot=(S3UsageSnapshot)obj;
+        foundTimestampMs=snapshot.getSnapshotKey().getTimestampMs();
+      }
+      if (foundTimestampMs != 0l)       break;
+    }
+    log.info("Found latest timestamp before beginning:" + foundTimestampMs);
+    entityWrapper.commit();
+  }
+ catch (  Exception ex) {
+    log.error(ex);
+    entityWrapper.rollback();
+    throw new RuntimeException(ex);
+  }
+  return foundTimestampMs;
+}

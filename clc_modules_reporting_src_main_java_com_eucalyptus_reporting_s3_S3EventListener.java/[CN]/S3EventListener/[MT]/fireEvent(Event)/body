@@ -1,0 +1,59 @@
+{
+  if (event instanceof S3Event) {
+    S3Event s3Event=(S3Event)event;
+    long timeMillis=getCurrentTimeMillis();
+    final S3UsageLog usageLog=S3UsageLog.getS3UsageLog();
+    EntityWrapper<S3UsageSnapshot> entityWrapper=EntityWrapper.get(S3UsageSnapshot.class);
+    try {
+      LOG.info("Receive event:" + s3Event.toString());
+      if (usageDataMap == null) {
+        this.usageDataMap=usageLog.findLatestUsageData();
+        LOG.info("Loaded usageDataMap");
+      }
+      S3SummaryKey key=new S3SummaryKey(s3Event.getOwnerId(),s3Event.getAccountId());
+      S3UsageData usageData;
+      if (usageDataMap.containsKey(key)) {
+        usageData=usageDataMap.get(key);
+      }
+ else {
+        usageData=new S3UsageData();
+        usageDataMap.put(key,usageData);
+      }
+      long addNum=(s3Event.isCreateOrDelete()) ? 1 : -1;
+      if (s3Event.isObjectOrBucket()) {
+        long addAmountMegs=(s3Event.isCreateOrDelete()) ? s3Event.getSizeMegs() : -s3Event.getSizeMegs();
+        Long newObjectsNum=addLong(usageData.getObjectsNum(),addNum);
+        usageData.setObjectsNum(newObjectsNum);
+        Long newObjectsMegs=addLong(usageData.getObjectsMegs(),addAmountMegs);
+        usageData.setObjectsMegs(newObjectsMegs);
+      }
+ else {
+        Long newBucketsNum=addLong(usageData.getBucketsNum(),addNum);
+        usageData.setBucketsNum(newBucketsNum);
+      }
+      if ((timeMillis - lastAllSnapshotMs) > WRITE_INTERVAL_MS) {
+        LOG.info("Starting allSnapshot...");
+        for (        S3SummaryKey summaryKey : usageDataMap.keySet()) {
+          S3SnapshotKey snapshotKey=new S3SnapshotKey(summaryKey.getOwnerId(),summaryKey.getAccountId(),timeMillis);
+          S3UsageSnapshot sus=new S3UsageSnapshot(snapshotKey,usageDataMap.get(key));
+          sus.setAllSnapshot(true);
+          LOG.info("Storing part of allSnapshot:" + sus);
+          entityWrapper.add(sus);
+          lastAllSnapshotMs=timeMillis;
+        }
+        LOG.info("Ending allSnapshot...");
+      }
+ else {
+        S3SnapshotKey snapshotKey=new S3SnapshotKey(key.getOwnerId(),key.getAccountId(),timeMillis);
+        S3UsageSnapshot sus=new S3UsageSnapshot(snapshotKey,usageDataMap.get(key));
+        LOG.info("Storing:" + sus);
+        entityWrapper.add(sus);
+      }
+      entityWrapper.commit();
+    }
+ catch (    Exception ex) {
+      entityWrapper.rollback();
+      LOG.error(ex);
+    }
+  }
+}

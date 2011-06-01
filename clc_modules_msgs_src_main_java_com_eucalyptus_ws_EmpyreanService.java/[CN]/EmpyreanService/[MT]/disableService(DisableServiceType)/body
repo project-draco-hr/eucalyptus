@@ -3,27 +3,34 @@
   for (  ServiceInfoType serviceInfo : request.getServices()) {
     try {
       Component c=Components.lookup(serviceInfo.getType());
-      for (      Service service : c.lookupServices()) {
-        String partition=service.getServiceConfiguration().getPartition();
-        String name=service.getServiceConfiguration().getName();
+      for (      ServiceConfiguration config : c.lookupServiceConfigurations()) {
+        String partition=config.getPartition();
+        String name=config.getName();
         if (partition.equals(serviceInfo.getPartition()) && name.equals(serviceInfo.getName())) {
-          if (Component.State.ENABLED.equals(service.getState())) {
+          if (Component.State.ENABLED.equals(config.lookupState())) {
             try {
-              c.disableService(service.getServiceConfiguration());
+              c.disableTransition(config).get();
               reply.getServices().add(serviceInfo);
             }
- catch (            ServiceRegistrationException ex) {
-              LOG.error("DISABLE'ing service failed: " + ex.getMessage(),ex);
+ catch (            ExecutionException ex) {
+              LOG.error(ex,ex);
+              return reply.markFailed();
+            }
+catch (            InterruptedException ex) {
+              LOG.error(ex,ex);
+              return reply.markFailed();
             }
           }
  else {
-            LOG.error("Attempt to DISABLE a service which is not currently ENABLED: " + service.toString());
+            LOG.error("Attempt to DISABLE a service which is not currently ENABLED: " + config.toString());
+            return reply.markFailed();
           }
         }
       }
     }
  catch (    NoSuchElementException ex) {
       Exceptions.trace("Failed to lookup component of type: " + serviceInfo.getType(),ex);
+      return reply.markFailed();
     }
   }
   return reply;
