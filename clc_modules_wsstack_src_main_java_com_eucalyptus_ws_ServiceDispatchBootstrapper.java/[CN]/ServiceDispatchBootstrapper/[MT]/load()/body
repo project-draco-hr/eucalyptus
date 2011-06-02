@@ -17,27 +17,36 @@
       }
     }
   }
-  LOG.trace("Touching class: " + ServiceDispatcher.class);
-  boolean failed=false;
-  Component euca=Components.lookup(Eucalyptus.class);
   for (  final Component comp : Components.list()) {
-    EventRecord.here(ServiceVerifyBootstrapper.class,EventType.COMPONENT_INFO,comp.getName(),comp.isAvailableLocally().toString()).info();
-    for (    final ServiceConfiguration s : comp.lookupServiceConfigurations()) {
-      if (euca.isLocal() && euca.getComponentId().hasDispatcher()) {
-        Threads.lookup(Empyrean.class,ServiceDispatchBootstrapper.class).submit(new Runnable(){
-          @Override public void run(){
-            try {
-              comp.loadService(s).get();
-            }
- catch (            ServiceRegistrationException ex) {
-              LOG.error(ex,ex);
-            }
-catch (            Throwable ex) {
-              Exceptions.trace("load(): Building service failed: " + Components.componentToString().apply(comp),ex);
-            }
-          }
+    LOG.info("load(): " + comp);
+    if (Bootstrap.isCloudController() && !(comp.getBuilder() instanceof DummyServiceBuilder)) {
+      for (      ServiceConfiguration config : comp.getBuilder().list()) {
+        LOG.info("loadService(): " + config);
+        try {
+          comp.loadService(config).get();
         }
-);
+ catch (        ServiceRegistrationException ex) {
+          config.error(ex);
+        }
+catch (        Throwable ex) {
+          config.error(ex);
+        }
+      }
+    }
+ else     if (comp.hasLocalService()) {
+      LOG.info("load(): " + comp);
+      final ServiceConfiguration s=comp.getLocalServiceConfiguration();
+      if (s.isVmLocal() && comp.getComponentId().hasDispatcher()) {
+        try {
+          comp.loadService(s).get();
+        }
+ catch (        ServiceRegistrationException ex) {
+          s.error(ex);
+        }
+catch (        Throwable ex) {
+          Exceptions.trace("load(): Building service failed: " + Components.Functions.componentToString().apply(comp),ex);
+          s.error(ex);
+        }
       }
     }
   }

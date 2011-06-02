@@ -5,35 +5,35 @@
   this.state=new ClusterState(configuration.getName());
   this.nodeState=new ClusterNodeState(configuration.getName());
   this.nodeMap=new ConcurrentSkipListMap<String,NodeInfo>();
-  this.threadFactory=Threads.lookup(com.eucalyptus.component.id.Cluster.class,Cluster.class,this.getFullName().toString());
-  this.stateMachine=new StateMachineBuilder<Cluster,State,Transition>(this,State.DOWN){
+  this.threadFactory=Threads.lookup(com.eucalyptus.component.id.ClusterController.class,Cluster.class,this.getFullName().toString());
+  this.stateMachine=new StateMachineBuilder<Cluster,State,Transition>(this,State.PENDING){
 {
-      in(State.DOWN).run(new Callback<State>(){
-        @Override public void fire(        State t){
-          Cluster.this.transitionIfSafe(Transition.START);
-        }
-      }
-);
-      in(State.AUTHENTICATING).run(new Callback<State>(){
-        @Override public void fire(        State t){
-          Cluster.this.transitionIfSafe(Transition.INIT_CERTS);
-        }
-      }
-);
-      on(Transition.START).from(State.DOWN).to(State.AUTHENTICATING).noop();
-      on(Transition.INIT_CERTS).from(State.AUTHENTICATING).to(State.STARTING).error(State.DOWN).run(newRefresh(ClusterCertsCallback.class));
-      on(Transition.INIT_RESOURCES).from(State.STARTING).to(State.STARTING_RESOURCES).error(State.DOWN).run(newRefresh(ResourceStateCallback.class));
-      on(Transition.INIT_NET).from(State.STARTING_RESOURCES).to(State.STARTING_NET).error(State.DOWN).run(newRefresh(NetworkStateCallback.class));
-      on(Transition.INIT_VMS).from(State.STARTING_NET).to(State.STARTING_VMS).error(State.DOWN).run(newRefresh(VmStateCallback.class));
-      on(Transition.INIT_ADDRS).from(State.STARTING_VMS).to(State.STARTING_ADDRS).error(State.DOWN).run(newRefresh(PublicAddressStateCallback.class));
-      on(Transition.INIT_VMS2).from(State.STARTING_ADDRS).to(State.STARTING_VMS2).error(State.DOWN).run(newRefresh(VmStateCallback.class));
-      on(Transition.INIT_ADDRS2).from(State.STARTING_VMS2).to(State.RUNNING_ADDRS).error(State.DOWN).run(newRefresh(PublicAddressStateCallback.class));
-      on(Transition.RUNNING_RSC).from(State.RUNNING_ADDRS).to(State.RUNNING_RSC).error(State.DOWN).run(newRefresh(ResourceStateCallback.class));
-      on(Transition.RUNNING_NET).from(State.RUNNING_RSC).to(State.RUNNING_NET).error(State.DOWN).run(newRefresh(NetworkStateCallback.class));
-      on(Transition.RUNNING_VMS).from(State.RUNNING_NET).to(State.RUNNING_VMS).error(State.DOWN).run(newRefresh(VmStateCallback.class));
-      on(Transition.RUNNING_ADDRS).from(State.RUNNING_VMS).to(State.RUNNING_ADDRS).error(State.DOWN).run(newRefresh(PublicAddressStateCallback.class));
-      on(Transition.ENABLE).from(State.DISABLED).to(State.DOWN).noop();
+      final TransitionAction<Cluster> noop=Transitions.noop();
+      this.from(State.BROKEN).to(State.PENDING).error(State.BROKEN).on(Transition.RESTART_BROKEN).run(noop);
+      this.from(State.STOPPED).to(State.PENDING).error(State.PENDING).on(Transition.PRESTART).run(noop);
+      this.from(State.PENDING).to(State.AUTHENTICATING).error(State.PENDING).on(Transition.AUTHENTICATE).run(LogRefresh.CERTS);
+      this.from(State.AUTHENTICATING).to(State.STARTING).error(State.PENDING).on(Transition.START).run(Cluster.ComponentStatePredicates.STARTED);
+      this.from(State.STARTING).to(State.STARTING_NOTREADY).error(State.PENDING).on(Transition.START_CHECK).run(Refresh.SERVICEREADY);
+      this.from(State.STARTING_NOTREADY).to(State.NOTREADY).error(State.PENDING).on(Transition.STARTING_SERVICES).run(Refresh.SERVICEREADY);
+      this.from(State.NOTREADY).to(State.DISABLED).error(State.NOTREADY).on(Transition.NOTREADYCHECK).run(Refresh.SERVICEREADY);
+      this.from(State.DISABLED).to(State.DISABLED).error(State.NOTREADY).on(Transition.DISABLEDCHECK).run(Refresh.SERVICEREADY);
+      this.from(State.DISABLED).to(State.ENABLING).error(State.DISABLED).on(Transition.ENABLE).run(Cluster.ComponentStatePredicates.ENABLED);
+      this.from(State.DISABLED).to(State.STOPPED).error(State.PENDING).on(Transition.STOP).run(noop);
+      this.from(State.ENABLED).to(State.DISABLED).error(State.NOTREADY).on(Transition.DISABLE).run(Cluster.ComponentStatePredicates.DISABLED);
+      this.from(State.ENABLING).to(State.ENABLING_RESOURCES).error(State.NOTREADY).on(Transition.ENABLING_RESOURCES).run(Refresh.RESOURCES);
+      this.from(State.ENABLING_RESOURCES).to(State.ENABLING_NET).error(State.NOTREADY).on(Transition.ENABLING_NET).run(Refresh.NETWORKS);
+      this.from(State.ENABLING_NET).to(State.ENABLING_VMS).error(State.NOTREADY).on(Transition.ENABLING_VMS).run(Refresh.INSTANCES);
+      this.from(State.ENABLING_VMS).to(State.ENABLING_ADDRS).error(State.NOTREADY).on(Transition.ENABLING_ADDRS).run(Refresh.ADDRESSES);
+      this.from(State.ENABLING_ADDRS).to(State.ENABLING_VMS_PASS_TWO).error(State.NOTREADY).on(Transition.ENABLING_VMS_PASS_TWO).run(Refresh.INSTANCES);
+      this.from(State.ENABLING_VMS_PASS_TWO).to(State.ENABLING_ADDRS_PASS_TWO).error(State.NOTREADY).on(Transition.ENABLING_ADDRS_PASS_TWO).run(Refresh.ADDRESSES);
+      this.from(State.ENABLING_ADDRS_PASS_TWO).to(State.ENABLED).error(State.NOTREADY).on(Transition.ENABLING_ADDRS_PASS_TWO).run(Refresh.ADDRESSES);
+      this.from(State.ENABLED).to(State.ENABLED_SERVICE_CHECK).error(State.NOTREADY).on(Transition.ENABLED_SERVICES).run(Refresh.SERVICEREADY);
+      this.from(State.ENABLED_SERVICE_CHECK).to(State.ENABLED_ADDRS).error(State.NOTREADY).on(Transition.ENABLED_ADDRS).run(Refresh.ADDRESSES);
+      this.from(State.ENABLED_ADDRS).to(State.ENABLED_RSC).error(State.NOTREADY).on(Transition.ENABLED_RSC).run(Refresh.RESOURCES);
+      this.from(State.ENABLED_RSC).to(State.ENABLED_NET).error(State.NOTREADY).on(Transition.ENABLED_NET).run(Refresh.NETWORKS);
+      this.from(State.ENABLED_NET).to(State.ENABLED_VMS).error(State.NOTREADY).on(Transition.ENABLED_VMS).run(Refresh.INSTANCES);
+      this.from(State.ENABLED_VMS).to(State.ENABLED).error(State.NOTREADY).on(Transition.ENABLED).run(noop);
     }
   }
-.newAtomicState();
+.newAtomicMarkedState();
 }

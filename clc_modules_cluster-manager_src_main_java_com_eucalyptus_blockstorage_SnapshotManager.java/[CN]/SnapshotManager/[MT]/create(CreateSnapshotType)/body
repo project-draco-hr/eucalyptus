@@ -2,70 +2,25 @@
   Context ctx=Contexts.lookup();
   String action=PolicySpec.requestToAction(request);
   if (!ctx.hasAdministrativePrivileges()) {
-    if (!Permissions.isAuthorized(PolicySpec.EC2_RESOURCE_SNAPSHOT,"",ctx.getAccount(),action,ctx.getUser())) {
+    if (!Permissions.isAuthorized(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_SNAPSHOT,"",ctx.getAccount(),action,ctx.getUser())) {
       throw new EucalyptusCloudException("Not authorized to create snapshot by " + ctx.getUser().getName());
     }
-    if (!Permissions.canAllocate(PolicySpec.EC2_RESOURCE_SNAPSHOT,"",action,ctx.getUser(),1L)) {
+    if (!Permissions.canAllocate(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_SNAPSHOT,"",action,ctx.getUser(),1L)) {
       throw new EucalyptusCloudException("Quota exceeded in creating snapshot by " + ctx.getUser().getName());
     }
   }
   EntityWrapper<Snapshot> db=EntityWrapper.get(Snapshot.class);
-  Volume vol=db.recast(Volume.class).getUnique(Volume.named(ctx.getUserFullName(),request.getVolumeId()));
-  Service sc=null;
+  Volume vol;
   try {
-    sc=StorageUtil.getActiveSc(vol.getCluster());
+    vol=Transactions.find(Volume.named(ctx.getUserFullName(),request.getVolumeId()));
   }
- catch (  NoSuchElementException e) {
-    throw new EucalyptusCloudException("Failed to find the storage controller information for volume: " + vol.getDisplayName() + " at "+ vol.getCluster(),e);
+ catch (  ExecutionException ex1) {
+    throw new EucalyptusCloudException(ex1);
   }
-  if (!vol.isReady()) {
-    DescribeStorageVolumesType descVols=new DescribeStorageVolumesType(Lists.newArrayList(vol.getDisplayName()));
-    try {
-      DescribeStorageVolumesResponseType volState=ServiceDispatcher.lookup(sc.getServiceConfiguration()).send(descVols);
-      if (!volState.getVolumeSet().isEmpty()) {
-        vol.setMappedState(volState.getVolumeSet().get(0).getStatus());
-      }
- else {
-        throw new EucalyptusCloudException("Failed to update the volume state " + request.getVolumeId() + " not yet ready");
-      }
-    }
- catch (    Exception e1) {
-      LOG.debug(e1,e1);
-      db.rollback();
-      throw new EucalyptusCloudException("Failed to update the volume state " + request.getVolumeId() + " not yet ready");
-    }
-    if (!vol.isReady()) {
-      db.rollback();
-      throw new EucalyptusCloudException("Volume " + request.getVolumeId() + " not yet ready");
-    }
-  }
-  String newId=null;
-  Snapshot snap=null;
-  while (true) {
-    newId=Crypto.generateId(ctx.getUserFullName().getUniqueId(),ID_PREFIX);
-    try {
-      db.getUnique(Snapshot.named(newId));
-    }
- catch (    EucalyptusCloudException e) {
-      snap=new Snapshot(ctx.getUserFullName(),newId,vol.getDisplayName());
-      db.add(snap);
-      break;
-    }
-  }
-  CreateStorageSnapshotType scRequest=new CreateStorageSnapshotType(vol.getDisplayName(),newId);
-  CreateStorageSnapshotResponseType scReply=null;
-  try {
-    scReply=sc.getDispatcher().send(scRequest);
-    snap.setCluster(sc.getServiceConfiguration().getName());
-    snap.setMappedState(scReply.getStatus());
-  }
- catch (  EucalyptusCloudException e) {
-    LOG.debug(e,e);
-    db.rollback();
-    throw new EucalyptusCloudException("Error calling CreateStorageSnapshot:" + e.getMessage(),e);
-  }
-  db.commit();
-  EventRecord.here(SnapshotManager.class,EventClass.SNAPSHOT,EventType.SNAPSHOT_CREATE,"user=" + snap.getOwner(),"snapshot=" + snap.getDisplayName(),"volume=" + snap.getParentVolume()).info();
+  ServiceConfiguration sc=Partitions.lookupService(Storage.class,vol.getPartition());
+  vol=Volumes.checkVolumeReady(vol);
+  Snapshot snap=Snapshots.initializeSnapshot(ctx.getUserFullName(),vol,sc);
+  snap=Snapshots.startCreateSnapshot(vol,snap);
   CreateSnapshotResponseType reply=(CreateSnapshotResponseType)request.getReply();
   edu.ucsb.eucalyptus.msgs.Snapshot snapMsg=snap.morph(new edu.ucsb.eucalyptus.msgs.Snapshot());
   snapMsg.setProgress("0%");

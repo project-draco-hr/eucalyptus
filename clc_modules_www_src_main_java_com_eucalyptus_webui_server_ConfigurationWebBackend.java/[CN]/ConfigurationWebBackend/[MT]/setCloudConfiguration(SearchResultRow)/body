@@ -1,0 +1,74 @@
+{
+  final int i=COMMON_FIELD_DESCS.size();
+  EntityWrapper<SystemConfiguration> db=EntityWrapper.get(SystemConfiguration.class);
+  SystemConfiguration sysConf=null;
+  try {
+    sysConf=db.getUnique(new SystemConfiguration());
+    deserializeSystemConfiguration(sysConf,input,i);
+    db.commit();
+    DNSProperties.update();
+  }
+ catch (  EucalyptusCloudException e) {
+    try {
+      LOG.debug(e,e);
+      sysConf=new SystemConfiguration();
+      deserializeSystemConfiguration(sysConf,input,i);
+      db.persist(sysConf);
+      db.commit();
+      DNSProperties.update();
+    }
+ catch (    Exception e1) {
+      LOG.error("Failed to set system configuration",e1);
+      throw new EucalyptusServiceException("Failed to set system configuration",e1);
+    }
+  }
+  try {
+    ListenerRegistry.getInstance().fireEvent(new SystemConfigurationEvent(sysConf));
+  }
+ catch (  EventFailedException e) {
+    LOG.debug(e,e);
+  }
+  final int j=i + 3;
+  try {
+    Transactions.one(ImageConfiguration.getInstance(),new Callback<ImageConfiguration>(){
+      @Override public void fire(      ImageConfiguration t){
+        int n=j;
+        t.setDefaultKernelId(input.getField(n++));
+        t.setDefaultRamdiskId(input.getField(n++));
+      }
+    }
+);
+  }
+ catch (  ExecutionException e) {
+    LOG.error("Failed to set image configuration",e);
+    LOG.debug(e,e);
+    throw new EucalyptusServiceException("Failed to set image configuration",e);
+  }
+  final int k=j + 2;
+  try {
+    Transactions.one(AddressingConfiguration.getInstance(),new Callback<AddressingConfiguration>(){
+      @Override public void fire(      AddressingConfiguration t){
+        int n=k;
+        t.setDoDynamicPublicAddresses(Boolean.parseBoolean(input.getField(n++)));
+        try {
+          t.setMaxUserPublicAddresses(Integer.parseInt(input.getField(n++)));
+        }
+ catch (        Exception e) {
+          LOG.error(e,e);
+        }
+        try {
+          t.setSystemReservedPublicAddresses(Integer.parseInt(input.getField(n++)));
+        }
+ catch (        Exception e) {
+          LOG.error(e,e);
+        }
+      }
+    }
+);
+  }
+ catch (  ExecutionException e) {
+    LOG.error("Failed to set addressing configuration",e);
+    LOG.debug(e,e);
+    throw new EucalyptusServiceException("Failed to set image configuration",e);
+  }
+}

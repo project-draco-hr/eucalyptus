@@ -28,16 +28,16 @@
       LOG.error("Invalid content length " + request.getContentLength());
       objSize=1L;
     }
-    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getId()) && Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.S3_RESOURCE_BUCKET,bucketName,bucket.getOwnerId()) && Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,objectKey),bucket.getOwnerId())&& Permissions.canAllocate(PolicySpec.S3_RESOURCE_BUCKET,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),objSize))) {
+    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,bucket.getOwnerId()) && Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,objectKey),bucket.getOwnerId())&& Permissions.canAllocate(PolicySpec.S3_RESOURCE_BUCKET,PolicySpec.VENDOR_S3,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),objSize))) {
       if (logData != null)       reply.setLogData(logData);
       String objectName;
       String versionId;
       ObjectInfo objectInfo=null;
       if (bucket.isVersioningEnabled()) {
         objectInfo=new ObjectInfo(bucketName,objectKey);
-        objectInfo.setOwnerId(account.getId());
+        objectInfo.setOwnerId(account.getAccountNumber());
         List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-        objectInfo.addGrants(account.getId(),grantInfos,accessControlList);
+        objectInfo.addGrants(account.getAccountNumber(),grantInfos,accessControlList);
         objectInfo.setGrants(grantInfos);
         objectName=UUID.randomUUID().toString();
         objectInfo.setObjectName(objectName);
@@ -51,7 +51,7 @@
         EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
         try {
           ObjectInfo foundObject=dbObject.getUnique(searchObject);
-          if (!foundObject.canWrite(account.getId())) {
+          if (!foundObject.canWrite(account.getAccountNumber())) {
             db.rollback();
             messenger.removeQueue(key,randomKey);
             throw new AccessDeniedException("Key",objectKey,logData);
@@ -63,9 +63,9 @@
         }
 catch (        EucalyptusCloudException ex) {
           objectInfo=new ObjectInfo(bucketName,objectKey);
-          objectInfo.setOwnerId(account.getId());
+          objectInfo.setOwnerId(account.getAccountNumber());
           List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-          objectInfo.addGrants(account.getId(),grantInfos,accessControlList);
+          objectInfo.addGrants(account.getAccountNumber(),grantInfos,accessControlList);
           objectInfo.setGrants(grantInfos);
           objectName=UUID.randomUUID().toString();
           objectInfo.setObjectName(objectName);
@@ -92,7 +92,7 @@ synchronized (monitor) {
               lastModified=monitor.getLastModified();
               md5=monitor.getMd5();
               if (fileIO != null)               fileIO.finish();
-              ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,-1L);
+              ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,-1L,ctx);
               objectDeleter.start();
               LOG.info("Transfer interrupted: " + key);
               messenger.removeQueue(key,randomKey);
@@ -133,9 +133,9 @@ synchronized (monitor) {
             ObjectInfo foundObject;
             try {
               foundObject=dbObject.getUnique(searchObject);
-              if (ctx.hasAdministrativePrivileges() || foundObject.canWriteACP(account.getId())) {
+              if (ctx.hasAdministrativePrivileges() || foundObject.canWriteACP(account.getAccountNumber())) {
                 List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-                foundObject.addGrants(account.getId(),grantInfos,accessControlList);
+                foundObject.addGrants(account.getAccountNumber(),grantInfos,accessControlList);
                 foundObject.setGrants(grantInfos);
               }
               if (WalrusProperties.enableTorrents) {
@@ -228,6 +228,8 @@ synchronized (monitor) {
             messenger.removeMonitor(key);
             messenger.removeQueue(key,randomKey);
             LOG.info("Transfer complete: " + key);
+            QueueSender queueSender=QueueFactory.getInstance().getSender(QueueIdentifier.S3);
+            queueSender.send(new S3Event(true,size / WalrusProperties.M,ctx.getUser().getName(),ctx.getAccount().getName()));
             break;
           }
  else {

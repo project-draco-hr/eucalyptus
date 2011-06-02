@@ -1,20 +1,32 @@
 {
   Component euca=Components.lookup(Eucalyptus.class);
   for (  final Component comp : Components.list()) {
-    EventRecord.here(ServiceVerifyBootstrapper.class,EventType.COMPONENT_INFO,comp.getName(),comp.isAvailableLocally().toString()).info();
+    LOG.info("start(): " + comp);
+    EventRecord.here(ServiceDispatchBootstrapper.class,EventType.COMPONENT_INFO,comp.getName(),comp.isAvailableLocally().toString()).info();
     for (    final ServiceConfiguration s : comp.lookupServiceConfigurations()) {
-      if (euca.isLocal() && euca.getComponentId().hasDispatcher()) {
-        Threads.lookup(Empyrean.class,ServiceDispatchBootstrapper.class).submit(new Runnable(){
-          @Override public void run(){
-            try {
-              comp.enableTransition(s).get();
-            }
- catch (            Throwable ex) {
-              Exceptions.trace("start()/enable(): Starting service failed: " + Components.componentToString().apply(comp),ex);
+      if (!comp.getComponentId().hasDispatcher()) {
+        continue;
+      }
+ else       if (Bootstrap.isCloudController()) {
+        try {
+          final CheckedListenableFuture<ServiceConfiguration> future=comp.startTransition(s);
+          Runnable followRunner=new Runnable(){
+            public void run(){
+              try {
+                future.get();
+                comp.enableTransition(s);
+              }
+ catch (              Exception ex) {
+                LOG.error(ex,ex);
+              }
             }
           }
+;
+          Threads.lookup(ConfigurationService.class,ComponentRegistrationHandler.class,s.getFullName().toString()).submit(followRunner);
         }
-);
+ catch (        Exception e) {
+          LOG.error(e,e);
+        }
       }
     }
   }
