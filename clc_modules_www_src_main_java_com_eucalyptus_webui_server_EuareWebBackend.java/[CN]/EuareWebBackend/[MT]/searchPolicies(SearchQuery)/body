@@ -1,0 +1,66 @@
+{
+  if ((query.has(USER) || query.has(USERID)) && (query.has(GROUP) && query.has(GROUPID))) {
+    throw new EucalyptusServiceException("Invalid policy search: can not have both user and group conditions.");
+  }
+  List<SearchResultRow> results=Lists.newArrayList();
+  try {
+    if (query.hasOnlySingle(USERID)) {
+      User user=Accounts.lookupUserById(query.getSingle(USERID).getValue());
+      Account account=user.getAccount();
+      for (      Policy policy : user.getPolicies()) {
+        results.add(serializePolicy(policy,account,null,user));
+      }
+    }
+ else     if (query.hasOnlySingle(GROUPID)) {
+      Group group=Accounts.lookupGroupById(query.getSingle(GROUPID).getValue());
+      Account account=group.getAccount();
+      for (      Policy policy : group.getPolicies()) {
+        results.add(serializePolicy(policy,account,group,null));
+      }
+    }
+ else     if (query.hasOnlySingle(ACCOUNTID)) {
+      Account account=Accounts.lookupAccountById(query.getSingle(ACCOUNTID).getValue());
+      User admin=account.lookupUserByName(User.ACCOUNT_ADMIN);
+      for (      Policy policy : admin.getPolicies()) {
+        results.add(serializePolicy(policy,account,null,null));
+      }
+    }
+ else {
+      for (      Account account : getAccounts(query)) {
+        if (query.has(USER) || query.has(USERID)) {
+          for (          User user : getUsers(account,query)) {
+            if (user.isAccountAdmin())             continue;
+            for (            Policy policy : user.getPolicies()) {
+              if (policyMatchQuery(policy,query)) {
+                results.add(serializePolicy(policy,account,null,user));
+              }
+            }
+          }
+        }
+ else         if (query.has(GROUP) || query.has(GROUPID)) {
+          for (          Group group : getGroups(account,query)) {
+            for (            Policy policy : group.getPolicies()) {
+              if (policyMatchQuery(policy,query)) {
+                results.add(serializePolicy(policy,account,group,null));
+              }
+            }
+          }
+        }
+ else {
+          User admin=account.lookupUserByName(User.ACCOUNT_ADMIN);
+          for (          Policy policy : admin.getPolicies()) {
+            if (policyMatchQuery(policy,query)) {
+              results.add(serializePolicy(policy,account,null,null));
+            }
+          }
+        }
+      }
+    }
+  }
+ catch (  Exception e) {
+    LOG.error("Failed to get policies",e);
+    LOG.debug(e,e);
+    throw new EucalyptusServiceException("Failed to get policies for query " + query + ": "+ e.getMessage());
+  }
+  return results;
+}
