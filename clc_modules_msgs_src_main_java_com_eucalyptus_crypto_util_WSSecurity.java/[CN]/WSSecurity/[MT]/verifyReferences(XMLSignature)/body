@@ -1,0 +1,33 @@
+{
+  if (sig.getSignedInfo() == null)   throw new WSSecurityException(WSSecurityException.SECURITY_TOKEN_UNAVAILABLE,"SignedInfo");
+  SignedInfo si=sig.getSignedInfo();
+  boolean tsSigned=false;
+  boolean bdSigned=false;
+  for (int i=0; i < si.getLength(); i++) {
+    org.apache.xml.security.signature.Reference ref=si.item(i);
+    String uri=ref.getURI();
+    if ("".compareTo(uri) == 0) {
+      throw new XMLSignatureException("signature.Transform.NotYetImplemented",new Object[]{"XPath"});
+    }
+    XMLSignatureInput xmlInput=ref.getContentsBeforeTransformation();
+    if (xmlInput.isElement()) {
+      Node subNode=xmlInput.getSubNode();
+      String name=subNode.getLocalName();
+      LOG.debug("Reference: name = " + subNode.getNodeName() + ", type = "+ subNode.getNodeType());
+      if (WSConstants.TIMESTAMP_TOKEN_LN.compareTo(name) == 0) {
+        verifyTimestamp(subNode);
+        tsSigned=true;
+      }
+ else       if (WSConstants.ELEM_BODY.compareTo(name) == 0) {
+        verifyBodyLocation(subNode);
+        bdSigned=true;
+      }
+    }
+ else {
+      throw new XMLSignatureException("generic.NotYetImplemented",new Object[]{"References to multiple elements"});
+    }
+  }
+  if (!tsSigned)   throw new WSSecurityException(WSSecurityException.FAILED_CHECK,"requiredElementNotSigned",new Object[]{WSConstants.TIMESTAMP_TOKEN_LN});
+  if (!bdSigned)   throw new WSSecurityException(WSSecurityException.FAILED_CHECK,"requiredElementNotSigned",new Object[]{WSConstants.ELEM_BODY});
+  return true;
+}
