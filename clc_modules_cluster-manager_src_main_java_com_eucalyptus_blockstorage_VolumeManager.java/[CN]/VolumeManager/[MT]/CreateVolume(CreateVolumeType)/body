@@ -13,7 +13,6 @@
   if ((request.getSnapshotId() == null && request.getSize() == null)) {
     throw new EucalyptusCloudException("One of size or snapshotId is required as a parameter.");
   }
-  final ServiceConfiguration sc=Partitions.lookupService(Storage.class,partition);
   if (snapId != null) {
     try {
       Snapshots.lookup(snapId);
@@ -22,26 +21,13 @@
       throw new EucalyptusCloudException("Failed to create volume because the referenced snapshot id is invalid: " + snapId);
     }
   }
+  Integer newSize=new Integer(request.getSize() != null ? request.getSize() : "-1");
   Exception lastEx=null;
   for (int i=0; i < VOL_CREATE_RETRIES; i++) {
-    String newId=Crypto.generateId(ctx.getUserFullName().getAccountNumber(),ID_PREFIX);
-    Integer newSize=new Integer(request.getSize() != null ? request.getSize() : "-1");
     try {
-      Volume newVol=Transactions.save(new Volume(ctx.getUserFullName(),newId,newSize,sc.getName(),sc.getPartition(),snapId),new Callback<Volume>(){
-        @Override public void fire(        Volume t){
-          t.setState(State.GENERATING);
-          try {
-            ListenerRegistry.getInstance().fireEvent(new StorageEvent(StorageEvent.EventType.EbsVolume,true,t.getSize(),t.getOwnerUserId(),t.getOwnerAccountId(),t.getScName(),t.getPartition()));
-            CreateStorageVolumeType req=new CreateStorageVolumeType(t.getDisplayName(),t.getSize(),snapId,null).regardingUserRequest(request);
-            ServiceDispatcher.lookup(sc).send(req);
-          }
- catch (          Exception ex) {
-            LOG.error("Failed to create volume: " + t.toString(),ex);
-            Transactions.join().delete(t);
-          }
-        }
-      }
-);
+      final ServiceConfiguration sc=Partitions.lookupService(Storage.class,partition);
+      UserFullName owner=ctx.getUserFullName();
+      Volume newVol=Volumes.createStorageVolume(sc,owner,snapId,newSize,request);
       CreateVolumeResponseType reply=request.getReply();
       reply.setVolume(newVol.morph(new edu.ucsb.eucalyptus.msgs.Volume()));
       return reply;
