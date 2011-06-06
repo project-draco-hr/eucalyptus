@@ -30,13 +30,25 @@
       if (root.isBlockStorage()) {
         childVmInfo=vmInfo.child();
         Volume vol=this.allocInfo.getPersistentVolumes().get(index);
-        for (        String nodeTag : this.cluster.getNodeTags()) {
+        Dispatcher sc=ServiceDispatcher.lookup(Partitions.lookupService(Storage.class,vol.getPartition()));
+        for (int i=0; i < 60; i++) {
           try {
-            AttachStorageVolumeResponseType scAttachResponse=ServiceDispatcher.lookup(sc).send(new AttachStorageVolumeType(this.cluster.getNode(nodeTag).getIqn(),vol.getDisplayName()));
-            childVmInfo.lookupRoot().setResourceLocation("iqn://" + scAttachResponse.getRemoteDeviceString());
+            DescribeStorageVolumesResponseType volState=sc.send(new DescribeStorageVolumesType(Lists.newArrayList(vol.getDisplayName())));
+            if ("available".equals(volState.getVolumeSet().get(0).getStatus())) {
+              break;
+            }
           }
  catch (          EucalyptusCloudException ex) {
             LOG.error(ex,ex);
+          }
+          for (          String nodeTag : this.cluster.getNodeTags()) {
+            try {
+              AttachStorageVolumeResponseType scAttachResponse=sc.send(new AttachStorageVolumeType(this.cluster.getNode(nodeTag).getIqn(),vol.getDisplayName()));
+              childVmInfo.lookupRoot().setResourceLocation("iqn://" + scAttachResponse.getRemoteDeviceString());
+            }
+ catch (            EucalyptusCloudException ex) {
+              LOG.error(ex,ex);
+            }
           }
         }
       }
