@@ -25,7 +25,22 @@
   int index=0;
   try {
     for (    ResourceToken childToken : this.cluster.getNodeState().splitToken(token)) {
-      cb=makeRunRequest(request,childToken,this.allocInfo.getOwnerFullName(),rsvId,keyInfo,vmInfo,this.allocInfo.getBootSet().getMachine().getPlatform().name(),vlan,networkNames,userData);
+      VirtualBootRecord root=vmInfo.lookupRoot();
+      VmTypeInfo childVmInfo=vmInfo;
+      if (root.isBlockStorage()) {
+        childVmInfo=vmInfo.child();
+        Volume vol=this.allocInfo.getPersistentVolumes().get(index);
+        for (        String nodeTag : this.cluster.getNodeTags()) {
+          try {
+            AttachStorageVolumeResponseType scAttachResponse=ServiceDispatcher.lookup(sc).send(new AttachStorageVolumeType(this.cluster.getNode(nodeTag).getIqn(),vol.getDisplayName()));
+            childVmInfo.lookupRoot().setResourceLocation("iqn://" + scAttachResponse.getRemoteDeviceString());
+          }
+ catch (          EucalyptusCloudException ex) {
+            LOG.error(ex,ex);
+          }
+        }
+      }
+      cb=makeRunRequest(request,childToken,this.allocInfo.getOwnerFullName(),rsvId,keyInfo,childVmInfo,this.allocInfo.getBootSet().getMachine().getPlatform().name(),vlan,networkNames,userData);
       this.messages.addRequest(State.CREATE_VMS,cb);
       index++;
     }
