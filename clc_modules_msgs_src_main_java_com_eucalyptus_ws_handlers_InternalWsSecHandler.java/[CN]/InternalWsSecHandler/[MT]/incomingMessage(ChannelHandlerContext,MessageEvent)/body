@@ -7,11 +7,16 @@
     final XMLSignature sig=WSSecurity.getXMLSignature(secNode);
     String sigValue=new String(sig.getSignatureValue());
     SecurityContext.enqueueSignature(sigValue);
-    final X509Certificate cert=WSSecurity.verifySignature(secNode,sig);
-    if (cert != null) {
-      if (!cert.equals(SystemCredentialProvider.getCredentialProvider(Eucalyptus.class).getCertificate())) {
-        throw new WSSecurityException(WSSecurityException.FAILED_AUTHENTICATION);
+    try {
+      X509Certificate cert=WSSecurity.verifySignature(secNode,sig);
+      Logs.exhaust().debug(cert);
+      if (cert == null || !cert.equals(SystemCredentialProvider.getCredentialProvider(Eucalyptus.class).getCertificate())) {
+        throw new WebServicesException("Authentication failed: The following certificate is not trusted:\n " + cert);
       }
+    }
+ catch (    Exception ex) {
+      Logs.exhaust().error(ex,ex);
+      throw new WebServicesException("Authentication failed: " + ex.getMessage(),ex);
     }
     Contexts.lookup(((MappingHttpMessage)o).getCorrelationId()).setUser(FakePrincipals.SYSTEM_USER);
   }
