@@ -1,7 +1,12 @@
 {
-  if (parent.isVmLocal()) {
+  if (parent.isVmLocal() || parent.isHostLocal()) {
     try {
-      parent.lookupComponent().getBootstrapper().load();
+      if (State.LOADED.ordinal() < parent.lookupComponent().getState().ordinal()) {
+        parent.lookupComponent().getBootstrapper().check();
+        if (parent.lookupComponent().hasLocalService()) {
+          parent.lookupComponent().getBuilder().fireCheck(parent);
+        }
+      }
       transitionCallback.fire();
     }
  catch (    Throwable ex) {
@@ -14,6 +19,17 @@
     }
   }
  else {
-    transitionCallback.fire();
+    try {
+      parent.lookupComponent().getBuilder().fireCheck(parent);
+      transitionCallback.fire();
+    }
+ catch (    Throwable ex) {
+      if (ServiceTransitions.filterExceptions(parent,ex,errorFilterCheckTransition(parent))) {
+        transitionCallback.fireException(ex);
+      }
+ else {
+        transitionCallback.fire();
+      }
+    }
   }
 }

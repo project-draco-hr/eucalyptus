@@ -1,11 +1,10 @@
 {
-  if (parent.isVmLocal() || Internets.testLocal(parent.getHostName())) {
+  EventRecord.here(ServiceBuilder.class,EventType.COMPONENT_SERVICE_START,parent.getFullName().toString(),parent.toString()).info();
+  if (parent.isVmLocal() || parent.isHostLocal()) {
     try {
-      if (State.LOADED.ordinal() < parent.lookupComponent().getState().ordinal()) {
-        parent.lookupComponent().getBootstrapper().check();
-        if (parent.lookupComponent().hasLocalService()) {
-          parent.lookupComponent().getBuilder().fireCheck(parent);
-        }
+      parent.lookupComponent().getBootstrapper().start();
+      if (parent.lookupComponent().hasLocalService()) {
+        parent.lookupComponent().getBuilder().fireStart(parent);
       }
       transitionCallback.fire();
     }
@@ -20,10 +19,17 @@
   }
  else {
     try {
-      parent.lookupComponent().getBuilder().fireCheck(parent);
+      AsyncRequests.sendSync(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE,parent.getInetAddress()),new StartServiceType());
+      try {
+        parent.lookupComponent().getBuilder().fireStart(parent);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex,ex);
+      }
       transitionCallback.fire();
     }
  catch (    Throwable ex) {
+      LOG.error(ex,ex);
       if (ServiceTransitions.filterExceptions(parent,ex,errorFilterCheckTransition(parent))) {
         transitionCallback.fireException(ex);
       }
