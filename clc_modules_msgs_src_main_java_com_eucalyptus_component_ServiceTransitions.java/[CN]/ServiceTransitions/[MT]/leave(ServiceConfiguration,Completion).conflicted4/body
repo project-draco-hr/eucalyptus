@@ -1,7 +1,9 @@
 {
-  if (parent.isVmLocal()) {
+  EventRecord.here(ServiceBuilder.class,EventType.COMPONENT_SERVICE_DISABLE,parent.getFullName().toString(),parent.toString()).info();
+  if (parent.isVmLocal() || parent.isHostLocal()) {
     try {
-      parent.lookupComponent().getBootstrapper().load();
+      parent.lookupComponent().getBootstrapper().disable();
+      parent.lookupComponent().getBuilder().fireDisable(parent);
       transitionCallback.fire();
     }
  catch (    Throwable ex) {
@@ -14,6 +16,24 @@
     }
   }
  else {
-    transitionCallback.fire();
+    try {
+      AsyncRequests.sendSync(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE,parent.getInetAddress()),new StartServiceType());
+      try {
+        parent.lookupComponent().getBuilder().fireDisable(parent);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex,ex);
+      }
+      transitionCallback.fire();
+    }
+ catch (    Throwable ex) {
+      LOG.error(ex,ex);
+      if (ServiceTransitions.filterExceptions(parent,ex,errorFilterCheckTransition(parent))) {
+        transitionCallback.fireException(ex);
+      }
+ else {
+        transitionCallback.fire();
+      }
+    }
   }
 }
