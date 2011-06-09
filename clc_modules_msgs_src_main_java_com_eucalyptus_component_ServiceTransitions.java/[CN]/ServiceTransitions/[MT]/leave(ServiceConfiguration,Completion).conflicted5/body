@@ -1,13 +1,11 @@
 {
-  EventRecord.here(ServiceBuilder.class,EventType.COMPONENT_SERVICE_ENABLE,parent.getFullName().toString(),parent.toString()).info();
+  EventRecord.here(ServiceBuilder.class,EventType.COMPONENT_SERVICE_START,parent.getFullName().toString(),parent.toString()).info();
   if (parent.isVmLocal() || parent.isHostLocal()) {
     try {
-      if (State.NOTREADY.equals(parent.lookupComponent().getState())) {
-        parent.lookupComponent().getBootstrapper().check();
-        parent.lookupComponent().getBuilder().fireCheck(parent);
+      parent.lookupComponent().getBootstrapper().start();
+      if (parent.lookupComponent().hasLocalService()) {
+        parent.lookupComponent().getBuilder().fireStart(parent);
       }
-      parent.lookupComponent().getBootstrapper().enable();
-      parent.lookupComponent().getBuilder().fireEnable(parent);
       transitionCallback.fire();
     }
  catch (    Throwable ex) {
@@ -21,9 +19,21 @@
   }
  else {
     try {
-      AsyncRequests.sendSync(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE,parent.getInetAddress()),new EnableServiceType());
+      AsyncRequests.sendSync(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE,parent.getInetAddress()),new StartServiceType(){
+{
+          this.getServices().add(new ServiceInfoType(){
+{
+              setPartition(parent.getPartition());
+              setName(parent.getName());
+              setType(parent.getComponentId().name());
+            }
+          }
+);
+        }
+      }
+);
       try {
-        parent.lookupComponent().getBuilder().fireEnable(parent);
+        parent.lookupComponent().getBuilder().fireStart(parent);
       }
  catch (      Exception ex) {
         LOG.error(ex,ex);
@@ -32,18 +42,6 @@
     }
  catch (    Throwable ex) {
       LOG.error(ex,ex);
-      if (ServiceTransitions.filterExceptions(parent,ex,errorFilterCheckTransition(parent))) {
-        transitionCallback.fireException(ex);
-      }
- else {
-        transitionCallback.fire();
-      }
-    }
-    try {
-      parent.lookupComponent().getBuilder().fireEnable(parent);
-      transitionCallback.fire();
-    }
- catch (    Throwable ex) {
       if (ServiceTransitions.filterExceptions(parent,ex,errorFilterCheckTransition(parent))) {
         transitionCallback.fireException(ex);
       }

@@ -1,9 +1,13 @@
 {
-  EventRecord.here(ServiceBuilder.class,EventType.COMPONENT_SERVICE_STOP,parent.getFullName().toString(),parent.toString()).debug();
+  EventRecord.here(ServiceBuilder.class,EventType.COMPONENT_SERVICE_ENABLE,parent.getFullName().toString(),parent.toString()).info();
   if (parent.isVmLocal() || parent.isHostLocal()) {
     try {
-      parent.lookupComponent().getBootstrapper().stop();
-      parent.lookupComponent().getBuilder().fireStop(parent);
+      if (State.NOTREADY.equals(parent.lookupComponent().getState())) {
+        parent.lookupComponent().getBootstrapper().check();
+        parent.lookupComponent().getBuilder().fireCheck(parent);
+      }
+      parent.lookupComponent().getBootstrapper().enable();
+      parent.lookupComponent().getBuilder().fireEnable(parent);
       transitionCallback.fire();
     }
  catch (    Throwable ex) {
@@ -17,9 +21,21 @@
   }
  else {
     try {
-      AsyncRequests.sendSync(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE,parent.getInetAddress()),new StartServiceType());
+      AsyncRequests.sendSync(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE,parent.getInetAddress()),new EnableServiceType(){
+{
+          this.getServices().add(new ServiceInfoType(){
+{
+              setPartition(parent.getPartition());
+              setName(parent.getName());
+              setType(parent.getComponentId().name());
+            }
+          }
+);
+        }
+      }
+);
       try {
-        parent.lookupComponent().getBuilder().fireStop(parent);
+        parent.lookupComponent().getBuilder().fireEnable(parent);
       }
  catch (      Exception ex) {
         LOG.error(ex,ex);
@@ -28,6 +44,18 @@
     }
  catch (    Throwable ex) {
       LOG.error(ex,ex);
+      if (ServiceTransitions.filterExceptions(parent,ex,errorFilterCheckTransition(parent))) {
+        transitionCallback.fireException(ex);
+      }
+ else {
+        transitionCallback.fire();
+      }
+    }
+    try {
+      parent.lookupComponent().getBuilder().fireEnable(parent);
+      transitionCallback.fire();
+    }
+ catch (    Throwable ex) {
       if (ServiceTransitions.filterExceptions(parent,ex,errorFilterCheckTransition(parent))) {
         transitionCallback.fireException(ex);
       }
