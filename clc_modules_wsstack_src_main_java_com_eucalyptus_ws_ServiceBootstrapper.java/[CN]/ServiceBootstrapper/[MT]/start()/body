@@ -1,21 +1,32 @@
 {
-  Component euca=Components.lookup(Eucalyptus.class);
-  for (  final Component comp : Components.list()) {
-    LOG.info("start(): " + comp);
-    for (    final ServiceConfiguration s : comp.lookupServiceConfigurations()) {
-      if (comp.getComponentId().isAlwaysLocal()) {
-        ServiceBootstrapper.startupService(comp,s);
+  ServiceBootstrapper.execute(new Predicate<ServiceConfiguration>(){
+    @Override public boolean apply(    final ServiceConfiguration config){
+      final Component comp=config.lookupComponent();
+      try {
+        if (!comp.hasService(config)) {
+          comp.loadService(config).get();
+        }
+        final CheckedListenableFuture<ServiceConfiguration> future=comp.startTransition(config);
+        Runnable followRunner=new Runnable(){
+          @Override public void run(){
+            try {
+              future.get();
+              comp.enableTransition(config);
+            }
+ catch (            Exception ex) {
+              LOG.error(ex,ex);
+            }
+          }
+        }
+;
+        Threads.lookup(ConfigurationService.class,ComponentRegistrationHandler.class,config.getFullName().toString()).submit(followRunner);
       }
- else       if (!comp.getComponentId().hasDispatcher()) {
-        continue;
+ catch (      Exception e) {
+        LOG.error(e,e);
       }
- else       if (s.isHostLocal()) {
-        comp.loadService(s).get();
-      }
- else       if (Bootstrap.isCloudController()) {
-        ServiceBootstrapper.startupService(comp,s);
-      }
+      return false;
     }
   }
+);
   return true;
 }

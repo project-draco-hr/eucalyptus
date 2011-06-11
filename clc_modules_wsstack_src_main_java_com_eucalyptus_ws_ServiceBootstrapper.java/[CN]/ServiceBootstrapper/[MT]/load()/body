@@ -1,45 +1,23 @@
 {
-  for (  ComponentId c : ComponentIds.list()) {
-    if (c.hasDispatcher() && c.isAlwaysLocal()) {
+  ServiceBootstrapper.execute(new Predicate<ServiceConfiguration>(){
+    @Override public boolean apply(    final ServiceConfiguration config){
+      final Component comp=config.lookupComponent();
+      LOG.info("load(): " + config);
       try {
-        Component comp=Components.lookup(c);
+        comp.loadService(config).get();
+        return true;
       }
- catch (      NoSuchElementException e) {
-        throw BootstrapException.throwFatal("Failed to lookup component which is alwaysLocal: " + c.name(),e);
+ catch (      ServiceRegistrationException ex) {
+        config.error(ex);
+        return false;
       }
-    }
- else     if (c.hasDispatcher()) {
-      try {
-        Component comp=Components.lookup(c);
-      }
- catch (      NoSuchElementException e) {
-        Exceptions.eat("Failed to lookup component which may have dispatcher references: " + c.name(),e);
+catch (      Throwable ex) {
+        Exceptions.trace("load(): Building service failed: " + Components.Functions.componentToString().apply(comp),ex);
+        config.error(ex);
+        return false;
       }
     }
   }
-  for (  final Component comp : Components.list()) {
-    if (!(comp.getBuilder() instanceof DummyServiceBuilder)) {
-      for (      ServiceConfiguration config : comp.getBuilder().list()) {
-        if (ServiceBootstrapper.shouldLoad(config)) {
-          ServiceBootstrapper.loadService(config);
-        }
-      }
-    }
- else     if (comp.hasLocalService()) {
-      final ServiceConfiguration s=comp.getLocalServiceConfiguration();
-      if (s.isVmLocal() && comp.getComponentId().hasDispatcher()) {
-        try {
-          comp.loadService(s).get();
-        }
- catch (        ServiceRegistrationException ex) {
-          s.error(ex);
-        }
-catch (        Throwable ex) {
-          Exceptions.trace("load(): Building service failed: " + Components.Functions.componentToString().apply(comp),ex);
-          s.error(ex);
-        }
-      }
-    }
-  }
+);
   return true;
 }
