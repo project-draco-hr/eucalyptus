@@ -3,23 +3,41 @@
     throw new EucalyptusCloudException("You are not authorized to interact with this service.");
   }
   ModifyPropertyValueResponseType reply=request.getReply();
-  try {
-    ConfigurableProperty entry=PropertyDirectory.getPropertyEntry(request.getName());
-    String oldValue="********";
-    if (!entry.getWidgetType().equals(ConfigurableFieldType.KEYVALUEHIDDEN))     oldValue=entry.getValue();
-    reply.setOldValue(oldValue);
+  if (INTERNAL_OP.equals(request.getName())) {
+    LOG.debug("Performing euca operation: \n" + request.getValue());
     try {
-      entry.setValue(request.getValue());
+      reply.setName(INTERNAL_OP);
+      reply.setValue("" + GroovyUtil.eval(request.getValue()));
+      reply.setOldValue("executed successfully.");
     }
- catch (    Exception e) {
-      entry.setValue(oldValue);
+ catch (    Throwable ex) {
+      LOG.error(ex,ex);
+      reply.setName(INTERNAL_OP);
+      reply.setOldValue("euca operation failed because of: " + ex.getMessage());
+      reply.setValue(Exceptions.string(ex));
     }
-    ConfigurationProperties.store(entry.getEntrySetName());
-    reply.setValue(entry.getValue());
-    reply.setName(request.getName());
   }
- catch (  IllegalAccessException e) {
-    throw new EucalyptusCloudException("Failed to set property: " + e.getMessage());
+ else {
+    try {
+      ConfigurableProperty entry=PropertyDirectory.getPropertyEntry(request.getName());
+      String oldValue="********";
+      if (!entry.getWidgetType().equals(ConfigurableFieldType.KEYVALUEHIDDEN)) {
+        oldValue=entry.getValue();
+      }
+      reply.setOldValue(oldValue);
+      try {
+        entry.setValue(request.getValue());
+      }
+ catch (      Exception e) {
+        entry.setValue(oldValue);
+      }
+      ConfigurationProperties.store(entry.getEntrySetName());
+      reply.setValue(entry.getValue());
+      reply.setName(request.getName());
+    }
+ catch (    IllegalAccessException e) {
+      throw new EucalyptusCloudException("Failed to set property: " + e.getMessage());
+    }
   }
   return reply;
 }
