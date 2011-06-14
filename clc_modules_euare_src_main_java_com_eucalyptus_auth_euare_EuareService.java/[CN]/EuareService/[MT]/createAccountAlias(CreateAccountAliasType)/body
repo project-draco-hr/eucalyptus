@@ -1,0 +1,28 @@
+{
+  CreateAccountAliasResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  String action=PolicySpec.requestToAction(request);
+  Context ctx=Contexts.lookup();
+  User requestUser=ctx.getUser();
+  Account account=getRealAccount(ctx,request.getDelegateAccount());
+  if (Account.SYSTEM_ACCOUNT.equals(account.getName())) {
+    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Can not modify system account alias or name");
+  }
+  try {
+    Accounts.lookupAccountByName(request.getAccountAlias());
+  }
+ catch (  AuthException ae) {
+    if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.ALL_RESOURCE,PolicySpec.ALL_RESOURCE,account,action,requestUser)) {
+      throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to create account alias by " + requestUser.getName());
+    }
+    try {
+      account.setName(request.getAccountAlias());
+      return reply;
+    }
+ catch (    Exception e) {
+      LOG.debug(e,e);
+      throw new EucalyptusCloudException(e);
+    }
+  }
+  throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.ENTITY_ALREADY_EXISTS,"Can not change to a name already in use: " + request.getAccountAlias());
+}
