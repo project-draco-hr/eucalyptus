@@ -1,0 +1,57 @@
+{
+  if (event instanceof Hertz && ((Hertz)event).isAsserted(5l)) {
+    this.getWorker().submit(new Runnable(){
+      @Override public void run(){
+        List<ServiceConfiguration> checkServicesList=ServiceConfigurations.collect(new Predicate<ServiceConfiguration>(){
+          @Override public boolean apply(          ServiceConfiguration arg0){
+            if (Bootstrap.isCloudController()) {
+              return true;
+            }
+ else {
+              return arg0.isVmLocal();
+            }
+          }
+        }
+);
+        Predicate<Future<?>> futureIsDone=new Predicate<Future<?>>(){
+          @Override public boolean apply(          Future<?> arg0){
+            return arg0.isDone();
+          }
+        }
+;
+        Map<ServiceConfiguration,Future<ServiceConfiguration>> futures=Maps.newHashMap();
+        for (        ServiceConfiguration config : checkServicesList) {
+          futures.put(config,Topology.getInstance().submitExternal(config,TopologyChanges.checkFunction()));
+        }
+        for (int i=0; i < 100 && !Iterables.all(futures.values(),futureIsDone); i++) {
+          try {
+            TimeUnit.MILLISECONDS.sleep(100);
+          }
+ catch (          InterruptedException ex) {
+            LOG.error(ex,ex);
+            Thread.currentThread().interrupt();
+          }
+        }
+        for (        Map.Entry<ServiceConfiguration,Future<ServiceConfiguration>> result : futures.entrySet()) {
+          try {
+            result.getValue().get();
+          }
+ catch (          InterruptedException ex) {
+            LOG.error(ex,ex);
+            Thread.currentThread().interrupt();
+          }
+catch (          ExecutionException ex) {
+            LOG.error(ex,ex);
+            try {
+              Topology.this.getGuard().tryDisable(ServiceKey.create(result.getKey()),result.getKey());
+            }
+ catch (            ServiceRegistrationException ex1) {
+              LOG.error(ex1,ex1);
+            }
+          }
+        }
+      }
+    }
+);
+  }
+}
