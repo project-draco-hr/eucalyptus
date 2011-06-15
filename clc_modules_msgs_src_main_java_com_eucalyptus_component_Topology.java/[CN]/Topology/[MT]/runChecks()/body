@@ -33,6 +33,7 @@
           Thread.currentThread().interrupt();
         }
       }
+      List<ServiceConfiguration> disabledServices=Lists.newArrayList();
       for (      Map.Entry<ServiceConfiguration,Future<ServiceConfiguration>> result : futures.entrySet()) {
         LOG.debug("Inspecting result of CHECK for: " + result.getKey());
         try {
@@ -46,9 +47,41 @@ catch (        ExecutionException ex) {
           LOG.error(ex,ex);
           try {
             Topology.this.getGuard().tryDisable(ServiceKey.create(result.getKey()),result.getKey());
+            disabledServices.add(result.getKey());
           }
  catch (          ServiceRegistrationException ex1) {
             LOG.error(ex1,ex1);
+          }
+        }
+      }
+      if (Bootstrap.isCloudController()) {
+        List<ServiceConfiguration> failoverServicesList=ServiceConfigurations.collect(new Predicate<ServiceConfiguration>(){
+          @Override public boolean apply(          ServiceConfiguration arg0){
+            try {
+              ServiceKey key=ServiceKey.create(arg0);
+              return Bootstrap.isCloudController() && Component.State.DISABLED.isIn(arg0) && !Topology.this.services.containsKey(key);
+            }
+ catch (            ServiceRegistrationException ex) {
+              LOG.error(ex,ex);
+              return false;
+            }
+          }
+        }
+);
+        failoverServicesList.removeAll(disabledServices);
+        for (        ServiceConfiguration config : failoverServicesList) {
+          try {
+            Topology.getInstance().submitExternal(config,CloudTopologyCallables.ENABLE).get();
+          }
+ catch (          InterruptedException ex) {
+            LOG.error(ex,ex);
+            Thread.currentThread().interrupt();
+          }
+catch (          ExecutionException ex) {
+            LOG.error(ex,ex);
+          }
+catch (          Exception ex) {
+            LOG.error(ex,ex);
           }
         }
       }
