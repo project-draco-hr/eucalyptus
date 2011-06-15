@@ -1,17 +1,18 @@
 {
   LOG.debug("Transition commit(): " + this.currentTransition.get());
-  if (this.currentTransition.get() == null) {
+  if (!this.state.isMarked()) {
     Exceptions.trace(new IllegalStateException("commit() called when there is no currently pending transition: " + this.toString()));
+    this.currentTransition.set(null);
   }
  else {
     ActiveTransition tr=this.currentTransition.getAndSet(null);
-    boolean doFireInListeners=!this.state.getReference().equals(tr.getTransitionRule().getFromState());
-    if (!this.state.compareAndSet(tr.getTransitionRule().getToState(),tr.getTransitionRule().getToState(),true,tr.getTransitionRule().getToStateMark())) {
-      this.state.set(this.state.getReference(),false);
-      Exceptions.trace(new IllegalStateException("Failed to apply toState for the transition: " + tr.toString() + " for current state: "+ this.toString()));
-    }
-    if (doFireInListeners) {
+    this.state.set(tr.getTransitionRule().getToState(),tr.getTransitionRule().getToStateMark());
+    if (!tr.getTransitionRule().getFromState().equals(tr.getTransitionRule().getToState())) {
+      this.state.set(tr.getTransitionRule().getToState(),false);
       this.fireInListeners(tr.getTransitionRule().getToState());
+    }
+ else {
+      this.state.set(tr.getTransitionRule().getToState(),false);
     }
   }
 }
