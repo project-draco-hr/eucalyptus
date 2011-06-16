@@ -1,4 +1,25 @@
 {
   ImportKeyPairResponseType reply=request.getReply();
+  Context ctx=Contexts.lookup();
+  String action=PolicySpec.requestToAction(request);
+  if (!ctx.hasAdministrativePrivileges()) {
+    if (!Permissions.isAuthorized(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_KEYPAIR,"",ctx.getAccount(),action,ctx.getUser())) {
+      throw new AuthException("Permission denied while trying to create keypair by " + ctx.getUser());
+    }
+    if (!Permissions.canAllocate(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_KEYPAIR,"",action,ctx.getUser(),1L)) {
+      throw new AuthException("Quota exceeded while trying to create keypair by " + ctx.getUser());
+    }
+  }
+  try {
+    KeyPairUtil.getUserKeyPair(ctx.getUserFullName(),request.getKeyName());
+  }
+ catch (  Exception e1) {
+    SshKeyPair newKey=new SshKeyPair(ctx.getUserFullName(),request.getKeyName());
+    newKey.setPublicKey(request.getPublicKeyMaterial());
+    byte[] digest=Digest.MD5.get().digest(request.getPublicKeyMaterial().getBytes());
+    String fingerprint=String.format("%032X",new BigInteger(digest));
+    newKey.setFingerPrint(fingerprint);
+    reply.setKeyName(request.getKeyName());
+  }
   return reply;
 }
