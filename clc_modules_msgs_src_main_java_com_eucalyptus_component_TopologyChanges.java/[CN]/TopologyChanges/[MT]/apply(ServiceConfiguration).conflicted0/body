@@ -1,33 +1,33 @@
 {
-  if (!Bootstrap.isFinished()) {
-    LOG.debug(this.toString() + " aborted because bootstrap is not complete");
-    return config;
-  }
- else   if (config.isVmLocal() && !config.lookupStateMachine().isBusy()) {
-    State initialState=config.lookupState();
-    State nextState=config.lookupState();
-    if (initialState.ordinal() < State.NOTREADY.ordinal()) {
-      return config;
+  try {
+    ServiceKey serviceKey=ServiceKey.create(config);
+    if (Topology.getInstance().getGuard().tryEnable(serviceKey,config)) {
+      CheckedListenableFuture<ServiceConfiguration> transition=ServiceTransitions.transitionChain(config,Component.State.ENABLED);
+      try {
+        return transition.get();
+      }
+ catch (      InterruptedException ex) {
+        Thread.currentThread().interrupt();
+        throw ex;
+      }
+catch (      Exception ex) {
+        Topology.getInstance().getGuard().tryDisable(serviceKey,config);
+        throw ex;
+      }
     }
- else     if (State.NOTREADY.equals(initialState)) {
-      nextState=State.DISABLED;
-    }
-    try {
-      Future<ServiceConfiguration> result=config.lookupStateMachine().transition(initialState);
-      State endState=result.get().lookupState();
-      LOG.debug(this.toString() + " completed for: " + result+ " trying "+ initialState+ "->"+ nextState+ " ended in: "+ endState);
-      return result.get();
-    }
- catch (    InterruptedException ex) {
-      Thread.currentThread().interrupt();
-      return config;
-    }
-catch (    Exception ex) {
-      LOG.error(ex,ex);
-      throw new UndeclaredThrowableException(ex);
-    }
-  }
  else {
-    return config;
+      CheckedListenableFuture<ServiceConfiguration> transition=ServiceTransitions.transitionChain(config,Component.State.DISABLED);
+      try {
+        return transition.get();
+      }
+ catch (      InterruptedException ex) {
+        Thread.currentThread().interrupt();
+        throw ex;
+      }
+    }
+  }
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+    throw new UndeclaredThrowableException(ex);
   }
 }
