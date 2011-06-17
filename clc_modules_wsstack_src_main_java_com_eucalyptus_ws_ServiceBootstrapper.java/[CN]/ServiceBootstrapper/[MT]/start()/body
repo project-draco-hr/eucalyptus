@@ -4,24 +4,43 @@
       final Component comp=config.lookupComponent();
       try {
         final CheckedListenableFuture<ServiceConfiguration> future=comp.startTransition(config);
-        Runnable followRunner=new Runnable(){
-          @Override public void run(){
-            try {
-              future.get();
-              comp.enableTransition(config);
-            }
- catch (            Exception ex) {
-              LOG.error(ex,ex);
-            }
-          }
-        }
-;
+        Runnable followRunner=getTransitionRunnable(config,comp,future);
         Threads.lookup(ConfigurationService.class,ComponentRegistrationHandler.class,config.getFullName().toString()).submit(followRunner);
+        return true;
       }
  catch (      Exception e) {
         LOG.error(e,e);
+        return false;
       }
-      return false;
+    }
+    private Runnable getTransitionRunnable(    final ServiceConfiguration config,    final Component comp,    final CheckedListenableFuture<ServiceConfiguration> future){
+      Runnable followRunner=new Runnable(){
+        @Override public void run(){
+          try {
+            future.get();
+            try {
+              comp.enableTransition(config).get();
+            }
+ catch (            ServiceRegistrationException ex) {
+              LOG.error(ex,ex);
+            }
+catch (            IllegalStateException ex) {
+              LOG.error(ex,ex);
+            }
+catch (            InterruptedException ex) {
+              LOG.error(ex,ex);
+            }
+catch (            ExecutionException ex) {
+              LOG.error(ex,ex);
+            }
+          }
+ catch (          Exception ex) {
+            LOG.error(ex,ex);
+          }
+        }
+      }
+;
+      return followRunner;
     }
   }
 );
