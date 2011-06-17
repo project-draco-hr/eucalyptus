@@ -1,73 +1,24 @@
 {
+  this.doInitializeCallback(config);
   try {
-    Logger.getLogger(this.callback.getClass()).trace("initialize: endpoint " + config);
-    try {
-      this.callback.initialize(this.request);
-    }
- catch (    Throwable e) {
-      Logger.getLogger(this.callback.getClass()).error(e.getMessage(),e);
-      RequestException ex=(e instanceof RequestException) ? (RequestException)e : new RequestInitializationException(this.callback.getClass().getSimpleName() + " failed: " + e.getMessage(),e,this.getRequest());
-      this.result.setException(ex);
-      throw ex;
-    }
-    Logger.getLogger(this.callback.getClass()).debug("fire: endpoint " + config);
+    Logger.getLogger(this.cb.getClass()).debug("fire: endpoint " + config);
     if (!this.handler.fire(config,this.request)) {
-      if (this.requestResult.isDone()) {
-        try {
-          R r=this.requestResult.get(1,TimeUnit.MILLISECONDS);
-          throw new RequestException("Request failed but produced a response: " + r,this.getRequest());
-        }
- catch (        ExecutionException e) {
-          this.result.setException(e.getCause());
-          if (e.getCause() != null && e.getCause() instanceof RequestException) {
-            Logger.getLogger(this.callback.getClass()).error(e.getCause());
-            throw (RequestException)e.getCause();
-          }
- else {
-            Logger.getLogger(this.callback.getClass()).error(e);
-            throw new RequestException("Request failed due to: " + e.getMessage(),e,this.getRequest());
-          }
-        }
-catch (        RequestException e) {
-          this.result.setException(e);
-          Logger.getLogger(this.callback.getClass()).error(e);
-          throw e;
-        }
-catch (        Throwable e) {
-          this.result.setException(e);
-          Logger.getLogger(this.callback.getClass()).error(e);
-          throw new RequestException("Request failed due to: " + e.getMessage(),e,this.getRequest());
-        }
-      }
- else {
+      LOG.error("Error occurred while trying to send request: " + this.request);
+      if (!this.requestResult.isDone()) {
         RequestException ex=new RequestException("Error occured attempting to fire the request.",this.getRequest());
         try {
           this.result.setException(ex);
         }
  catch (        Throwable t) {
         }
-        throw ex;
-      }
-    }
- else {
-      try {
-        this.result.set(this.requestResult.get());
-      }
- catch (      ExecutionException ex) {
-        LOG.error(ex,ex);
-        this.result.setException(ex.getCause());
-      }
-catch (      InterruptedException ex) {
-        LOG.error(ex,ex);
-        Thread.currentThread().interrupt();
-        this.result.setException(ex);
       }
     }
   }
  catch (  RuntimeException ex) {
     LOG.error(ex,ex);
-    this.result.setException(ex);
-    throw ex;
+    if (!this.result.isDone()) {
+      this.result.setException(ex);
+    }
   }
   return this;
 }
