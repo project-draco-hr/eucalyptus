@@ -3,18 +3,8 @@
     @Override public boolean apply(    final ServiceConfiguration config){
       final Component comp=config.lookupComponent();
       try {
-        final CheckedListenableFuture<ServiceConfiguration> future=comp.startTransition(config);
-        Future<?> runResult=Threads.lookup(ConfigurationService.class,ServiceBootstrapper.class).submit(getTransitionRunnable(config,comp,future));
-        try {
-          runResult.get(100,TimeUnit.MILLISECONDS);
-        }
- catch (        TimeoutException ex) {
-          LOG.error(ex);
-        }
-catch (        InterruptedException ex) {
-          LOG.error(ex,ex);
-          Thread.currentThread().interrupt();
-        }
+        final CheckedListenableFuture<ServiceConfiguration> future=ServiceTransitions.transitionChain(config,Component.State.NOTREADY);
+        Threads.lookup(ConfigurationService.class,ServiceBootstrapper.class).submit(getTransitionRunnable(config,comp,future));
         return true;
       }
  catch (      Exception e) {
@@ -28,21 +18,15 @@ catch (        InterruptedException ex) {
           try {
             future.get();
             try {
-              comp.enableTransition(config).get(100,TimeUnit.MILLISECONDS);
+              ServiceTransitions.transitionChain(config,Component.State.ENABLED).get();
             }
- catch (            ServiceRegistrationException ex) {
-              LOG.error(ex,ex);
-            }
-catch (            IllegalStateException ex) {
+ catch (            IllegalStateException ex) {
               LOG.error(ex,ex);
             }
 catch (            InterruptedException ex) {
               LOG.error(ex,ex);
             }
 catch (            ExecutionException ex) {
-              LOG.error(ex,ex);
-            }
-catch (            TimeoutException ex) {
               LOG.error(ex,ex);
             }
           }
