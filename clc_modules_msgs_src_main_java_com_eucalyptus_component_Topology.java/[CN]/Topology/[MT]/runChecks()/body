@@ -1,0 +1,115 @@
+{
+  this.getWorker().submit(new Runnable(){
+    @Override public void run(){
+      List<ServiceConfiguration> checkServicesList=ServiceConfigurations.collect(new Predicate<ServiceConfiguration>(){
+        @Override public boolean apply(        ServiceConfiguration arg0){
+          if (Bootstrap.isCloudController()) {
+            return true;
+          }
+ else {
+            return arg0.isVmLocal();
+          }
+        }
+      }
+);
+      LOG.debug("PARTITIONS ==============================\n" + Joiner.on("\n\t").join(Topology.this.services.keySet()));
+      LOG.debug("PRIMARY =================================\n" + Joiner.on("\n\t").join(Topology.this.services.values()));
+      Predicate<Future<?>> futureIsDone=new Predicate<Future<?>>(){
+        @Override public boolean apply(        Future<?> arg0){
+          return arg0.isDone();
+        }
+      }
+;
+      Map<ServiceConfiguration,Future<ServiceConfiguration>> futures=Maps.newHashMap();
+      for (      ServiceConfiguration config : checkServicesList) {
+        futures.put(config,Topology.getInstance().submitExternal(config,TopologyChanges.checkFunction()));
+      }
+      for (int i=0; i < 100 && !Iterables.all(futures.values(),futureIsDone); i++) {
+        try {
+          TimeUnit.MILLISECONDS.sleep(100);
+        }
+ catch (        InterruptedException ex) {
+          LOG.error(ex,ex);
+          Thread.currentThread().interrupt();
+        }
+      }
+      final List<ServiceConfiguration> disabledServices=Lists.newArrayList();
+      final List<ServiceConfiguration> checkedServices=Lists.newArrayList();
+      for (      Map.Entry<ServiceConfiguration,Future<ServiceConfiguration>> result : futures.entrySet()) {
+        try {
+          ServiceConfiguration resultConfig=result.getValue().get();
+          checkedServices.add(resultConfig);
+        }
+ catch (        InterruptedException ex) {
+          LOG.error(ex,ex);
+          Thread.currentThread().interrupt();
+        }
+catch (        Throwable ex) {
+          Throwable e=ex;
+          if (ex instanceof ExecutionException) {
+            LOG.debug("Error while inspecting result of CHECK for: \n\t" + result.getKey() + ": \n\t"+ ex.getCause().getMessage());
+            e=ex.getCause();
+          }
+ else {
+            LOG.debug("Error while inspecting result of CHECK for: \n\t" + result.getKey() + ": \n\t"+ ex.getMessage());
+          }
+          try {
+            disabledServices.add(result.getKey());
+            Topology.this.getGuard().tryDisable(ServiceKey.create(result.getKey()),result.getKey());
+          }
+ catch (          ServiceRegistrationException ex1) {
+            LOG.error(ex1,ex1);
+          }
+          LOG.error(ex,ex);
+        }
+      }
+      LOG.debug("CHECK ===================================\n" + Joiner.on("\n\t").join(checkedServices));
+      LOG.debug("DISABLED ================================\n" + Joiner.on("\n\t").join(disabledServices));
+      if (Bootstrap.isCloudController()) {
+        List<ServiceConfiguration> failoverServicesList=ServiceConfigurations.collect(new Predicate<ServiceConfiguration>(){
+          @Override public boolean apply(          ServiceConfiguration arg0){
+            try {
+              ServiceKey key=ServiceKey.create(arg0);
+              if (!Bootstrap.isCloudController()) {
+                return false;
+              }
+ else               if (disabledServices.contains(arg0)) {
+                return false;
+              }
+ else               if (!Component.State.NOTREADY.isIn(arg0)) {
+                return false;
+              }
+ else               if (!Topology.this.services.containsKey(key)) {
+                return false;
+              }
+ else {
+                return true;
+              }
+            }
+ catch (            ServiceRegistrationException ex) {
+              LOG.error(ex,ex);
+              return false;
+            }
+          }
+        }
+);
+        for (        ServiceConfiguration config : failoverServicesList) {
+          try {
+            Topology.getInstance().submitExternal(config,CloudTopologyCallables.ENABLE).get();
+          }
+ catch (          InterruptedException ex) {
+            LOG.error(ex,ex);
+            Thread.currentThread().interrupt();
+          }
+catch (          ExecutionException ex) {
+            LOG.error(ex,ex);
+          }
+catch (          Exception ex) {
+            LOG.error(ex,ex);
+          }
+        }
+      }
+    }
+  }
+);
+}
