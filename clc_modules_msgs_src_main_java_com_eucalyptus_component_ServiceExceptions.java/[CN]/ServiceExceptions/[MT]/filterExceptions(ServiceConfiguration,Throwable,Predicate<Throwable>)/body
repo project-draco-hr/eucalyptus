@@ -1,40 +1,31 @@
 {
   LOG.error("Transition failed on " + parent.lookupComponent().getName() + " due to "+ ex.toString(),ex);
-  boolean foundError=false;
   if (ex instanceof CheckException) {
     CheckException checkExHead=(CheckException)ex;
     for (    CheckException checkEx : checkExHead) {
-switch (checkEx.getSeverity()) {
-case ERROR:
-case URGENT:
-case FATAL:
-        if (!foundError) {
-          foundError=true;
-          try {
-            failureAction.apply(ex);
-          }
- catch (          Exception ex1) {
-            LOG.error(ex1,ex1);
-          }
+      LifecycleEvents.fireExceptionEvent(parent,checkEx.getSeverity(),checkEx);
+    }
+    for (    CheckException checkEx : checkExHead) {
+      if (checkEx.getSeverity().ordinal() >= Severity.ERROR.ordinal()) {
+        try {
+          failureAction.apply(ex);
         }
-      break;
-case DEBUG:
-case INFO:
-case WARNING:
-    break;
-}
-}
-parent.error(checkExHead);
-}
+ catch (        Exception ex1) {
+          LOG.error(ex1,ex1);
+        }
+        return true;
+      }
+    }
+    return false;
+  }
  else {
-foundError=true;
-try {
-failureAction.apply(ex);
-}
- catch (Exception ex1) {
-LOG.error(ex1,ex1);
-}
-parent.error(ex);
-}
-return foundError;
+    LifecycleEvents.fireExceptionEvent(parent,Severity.ERROR,ex);
+    try {
+      failureAction.apply(ex);
+    }
+ catch (    Exception ex1) {
+      LOG.error(ex1,ex1);
+    }
+    return true;
+  }
 }
