@@ -1,10 +1,17 @@
 {
-  if (State.NOTREADY.equals(this.getStateMachine().getState())) {
-    final Callable<CheckedListenableFuture<Cluster>> transition=Automata.sequenceTransitions(this,State.ENABLED,State.DISABLED);
-    Threads.lookup(ClusterController.class,Cluster.class).submit(transition);
+  try {
+    if (State.NOTREADY.equals(this.getStateMachine().getState())) {
+      Automata.sequenceTransitions(this,State.ENABLED,State.DISABLED).call().get();
+    }
+ else     if (State.ENABLED.equals(this.getStateMachine().getState())) {
+      Automata.sequenceTransitions(this,State.NOTREADY,State.DISABLED).call().get();
+    }
   }
- else   if (State.ENABLED.equals(this.getStateMachine().getState())) {
-    final Callable<CheckedListenableFuture<Cluster>> transition=Automata.sequenceTransitions(this,State.NOTREADY,State.DISABLED);
-    Threads.lookup(ClusterController.class,Cluster.class).submit(transition);
+ catch (  InterruptedException ex) {
+    Thread.currentThread().interrupt();
+  }
+catch (  Exception ex) {
+    Logs.exhaust().debug(ex,ex);
+    throw new ServiceRegistrationException("Failed to call disable() on cluster " + this.configuration + " because of: "+ ex.getMessage(),ex);
   }
 }
