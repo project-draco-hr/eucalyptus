@@ -12,8 +12,8 @@
         }
       }
 );
-      LOG.debug("PARTITIONS ==============================\n" + Joiner.on("\n\t").join(Topology.this.services.keySet()));
-      LOG.debug("PRIMARY =================================\n" + Joiner.on("\n\t").join(Topology.this.services.values()));
+      Logs.exhaust().debug("PARTITIONS ==============================\n" + Joiner.on("\n\t").join(Topology.this.services.keySet()));
+      Logs.exhaust().debug("PRIMARY =================================\n" + Joiner.on("\n\t").join(Topology.this.services.values()));
       Predicate<Future<?>> futureIsDone=new Predicate<Future<?>>(){
         @Override public boolean apply(        Future<?> arg0){
           return arg0.isDone();
@@ -29,8 +29,8 @@
           TimeUnit.MILLISECONDS.sleep(100);
         }
  catch (        InterruptedException ex) {
-          LOG.error(ex,ex);
           Thread.currentThread().interrupt();
+          return;
         }
       }
       final List<ServiceConfiguration> disabledServices=Lists.newArrayList();
@@ -55,7 +55,7 @@ catch (        Throwable ex) {
           }
           try {
             disabledServices.add(result.getKey());
-            Topology.this.getGuard().tryDisable(ServiceKey.create(result.getKey()),result.getKey());
+            Topology.this.getGuard().tryDisable(result.getKey());
           }
  catch (          ServiceRegistrationException ex1) {
             LOG.error(ex1,ex1);
@@ -63,26 +63,35 @@ catch (        Throwable ex) {
           LOG.error(ex,ex);
         }
       }
-      LOG.debug("CHECK ===================================\n" + Joiner.on("\n\t").join(checkedServices));
-      LOG.debug("DISABLED ================================\n" + Joiner.on("\n\t").join(disabledServices));
+      Logs.exhaust().debug("CHECK ===================================\n" + Joiner.on("\n\t").join(checkedServices));
+      Logs.exhaust().debug("DISABLED ================================\n" + Joiner.on("\n\t").join(disabledServices));
       if (Bootstrap.isCloudController()) {
-        List<ServiceConfiguration> failoverServicesList=ServiceConfigurations.collect(new Predicate<ServiceConfiguration>(){
+        final Predicate<ServiceConfiguration> predicate=new Predicate<ServiceConfiguration>(){
           @Override public boolean apply(          ServiceConfiguration arg0){
             try {
               ServiceKey key=ServiceKey.create(arg0);
               if (!Bootstrap.isCloudController()) {
+                Logs.exhaust().debug("FAILOVER-REJECT: " + arg0 + ": not cloud controller.");
                 return false;
               }
  else               if (disabledServices.contains(arg0)) {
+                Logs.exhaust().debug("FAILOVER-REJECT: " + arg0 + ": service was just DISABLED.");
                 return false;
               }
- else               if (!Component.State.NOTREADY.isIn(arg0)) {
+ else               if (Component.State.NOTREADY.isIn(arg0)) {
+                Logs.exhaust().debug("FAILOVER-REJECT: " + arg0 + ": service is NOTREADY.");
+                return false;
+              }
+ else               if (Topology.this.services.containsKey(key) && arg0.equals(Topology.this.services.get(key))) {
+                Logs.exhaust().debug("FAILOVER-REJECT: " + arg0 + ": service is ENABLED.");
                 return false;
               }
  else               if (!Topology.this.services.containsKey(key)) {
-                return false;
+                Logs.exhaust().debug("FAILOVER-ACCEPT: " + arg0 + ": service for partition: "+ key);
+                return true;
               }
  else {
+                Logs.exhaust().debug("FAILOVER-ACCEPT: " + arg0);
                 return true;
               }
             }
@@ -92,7 +101,9 @@ catch (        Throwable ex) {
             }
           }
         }
-);
+;
+        List<ServiceConfiguration> failoverServicesList=ServiceConfigurations.collect(predicate);
+        Logs.exhaust().debug("FAILOVER ================================\n" + Joiner.on("\n\t").join(failoverServicesList));
         for (        ServiceConfiguration config : failoverServicesList) {
           try {
             Topology.getInstance().submitExternal(config,CloudTopologyCallables.ENABLE).get();
