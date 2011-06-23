@@ -16,16 +16,49 @@
     networkIndexes=Lists.newArrayList(Collections.nCopies(token.getAmount(),"-1"));
   }
   final List<String> addresses=Lists.newArrayList(token.getAddresses());
-  RunInstancesType request=this.vmAllocInfo.getRequest();
-  String rsvId=this.vmAllocInfo.getReservationId();
-  VmKeyInfo keyInfo=this.vmAllocInfo.getKeyInfo();
-  VmTypeInfo vmInfo=this.vmAllocInfo.getVmTypeInfo();
-  String userData=this.vmAllocInfo.getRequest().getUserData();
+  RunInstancesType request=this.allocInfo.getRequest();
+  String rsvId=this.allocInfo.getReservationId();
+  VmKeyInfo keyInfo=this.allocInfo.getKeyInfo();
+  VmTypeInfo vmInfo=this.allocInfo.getVmTypeInfo();
+  String userData=this.allocInfo.getRequest().getUserData();
   Request cb=null;
   int index=0;
   try {
     for (    ResourceToken childToken : this.cluster.getNodeState().splitToken(token)) {
-      cb=makeRunRequest(request,childToken,this.vmAllocInfo.getOwnerId(),rsvId,keyInfo,vmInfo,this.vmAllocInfo.getPlatform(),vlan,networkNames,userData);
+      VirtualBootRecord root=vmInfo.lookupRoot();
+      VmTypeInfo childVmInfo=vmInfo;
+      if (root.isBlockStorage()) {
+        childVmInfo=vmInfo.child();
+        Volume vol=this.allocInfo.getPersistentVolumes().get(index);
+        Dispatcher sc=ServiceDispatcher.lookup(Partitions.lookupService(Storage.class,vol.getPartition()));
+        for (int i=0; i < 60; i++) {
+          try {
+            DescribeStorageVolumesResponseType volState=sc.send(new DescribeStorageVolumesType(Lists.newArrayList(vol.getDisplayName())));
+            if ("available".equals(volState.getVolumeSet().get(0).getStatus())) {
+              break;
+            }
+ else {
+              TimeUnit.SECONDS.sleep(1);
+            }
+          }
+ catch (          InterruptedException ex) {
+            Thread.currentThread().interrupt();
+          }
+catch (          Exception ex) {
+            LOG.error(ex,ex);
+          }
+        }
+        for (        String nodeTag : this.cluster.getNodeTags()) {
+          try {
+            AttachStorageVolumeResponseType scAttachResponse=sc.send(new AttachStorageVolumeType(this.cluster.getNode(nodeTag).getIqn(),vol.getDisplayName()));
+            childVmInfo.lookupRoot().setResourceLocation(scAttachResponse.getRemoteDeviceString());
+          }
+ catch (          Exception ex) {
+            LOG.error(ex,ex);
+          }
+        }
+      }
+      cb=makeRunRequest(request,childToken,this.allocInfo.getOwnerFullName(),rsvId,keyInfo,childVmInfo,this.allocInfo.getBootSet().getMachine().getPlatform().name(),vlan,networkNames,userData);
       this.messages.addRequest(State.CREATE_VMS,cb);
       index++;
     }

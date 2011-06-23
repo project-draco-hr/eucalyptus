@@ -1,8 +1,9 @@
 {
   try {
+    String instanceUuid=runVm.getUuid();
     String instanceId=runVm.getInstanceId();
     String reservationId=runVm.getReservationId();
-    UserFullName ownerId=Accounts.lookupUserFullNameById(runVm.getOwnerId());
+    UserFullName ownerId=UserFullName.getInstance(runVm.getOwnerId());
     String placement=cluster;
     byte[] userData=new byte[0];
     if (runVm.getUserData() != null && runVm.getUserData().length() > 1) {
@@ -14,7 +15,11 @@
     }
  catch (    NumberFormatException e) {
     }
-    ImageInfo img=Transactions.one(Images.exampleMachineWithImageId(runVm.getInstanceType().lookupRoot().getId()),Tx.NOOP);
+    ImageInfo img=Transactions.one(Images.exampleMachineWithImageId(runVm.getInstanceType().lookupRoot().getId()),new Callback<ImageInfo>(){
+      @Override public void fire(      ImageInfo t){
+      }
+    }
+);
     VmKeyInfo keyInfo=null;
     SshKeyPair key=null;
     if (runVm.getKeyValue() != null || !"".equals(runVm.getKeyValue())) {
@@ -52,6 +57,12 @@
       }
  catch (      NoSuchElementException e1) {
         try {
+          try {
+            notwork=NetworkGroupUtil.getUserNetworkRulesGroup(UserFullName.getInstance(runVm.getOwnerId()),netName).getVmNetwork();
+          }
+ catch (          Exception e) {
+            notwork=NetworkGroupUtil.getUserNetworkRulesGroup(UserFullName.getInstance(runVm.getOwnerId()),"default").getVmNetwork();
+          }
           networks.add(notwork);
           NetworkToken netToken=Clusters.getInstance().lookup(runVm.getPlacement()).getState().extantAllocation(runVm.getOwnerId(),netName,notwork.getUuid(),runVm.getNetParams().getVlan());
           notwork.addTokenIfAbsent(netToken);
@@ -62,7 +73,7 @@
         }
       }
     }
-    VmInstance vm=new VmInstance(reservationId,launchIndex,instanceId,ownerId,placement,userData,keyInfo,vmType,img.getPlatform().toString(),networks,Integer.toString(runVm.getNetParams().getNetworkIndex()));
+    VmInstance vm=new VmInstance(ownerId,instanceId,instanceUuid,reservationId,launchIndex,placement,userData,keyInfo,vmType,img.getPlatform().toString(),networks,Integer.toString(runVm.getNetParams().getNetworkIndex()));
     vm.clearPending();
     vm.setLaunchTime(runVm.getLaunchTime());
     vm.updatePublicAddress(VmInstance.DEFAULT_IP);
@@ -71,7 +82,7 @@
   }
  catch (  NoSuchElementException e) {
     ClusterConfiguration config=Clusters.getInstance().lookup(runVm.getPlacement()).getConfiguration();
-    Callbacks.newRequest(new TerminateCallback(runVm.getInstanceId())).dispatch(runVm.getPlacement());
+    AsyncRequests.newRequest(new TerminateCallback(runVm.getInstanceId())).dispatch(runVm.getPlacement());
   }
 catch (  Throwable t) {
     LOG.error(t,t);

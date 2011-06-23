@@ -11,7 +11,7 @@
     LOG.info(builder.getClass().getSimpleName() + ": checkRemove failed.");
     throw new ServiceRegistrationException(builder.getClass().getSimpleName() + ": checkRemove failed with message: " + e.getMessage(),e);
   }
-  ServiceConfiguration conf;
+  final ServiceConfiguration conf;
   try {
     conf=builder.lookupByName(name);
   }
@@ -21,14 +21,28 @@
     throw e;
   }
   try {
-    try {
-      builder.getComponent().disableService(conf).get();
-      builder.getComponent().stopService(conf).get();
-      builder.getComponent().destroyService(conf).get();
+    Runnable followRunner=new Runnable(){
+      public void run(){
+        try {
+          Topology.getInstance().stop(conf).get();
+          for (int i=0; i < 3; i++) {
+            try {
+              component.destroyTransition(conf);
+              break;
+            }
+ catch (            IllegalStateException ex) {
+              LOG.error(ex,Exceptions.filterStackTrace(ex,10));
+              continue;
+            }
+          }
+        }
+ catch (        Exception ex) {
+          LOG.error(ex,ex);
+        }
+      }
     }
- catch (    Throwable ex) {
-      LOG.error(ex,ex);
-    }
+;
+    Threads.lookup(ConfigurationService.class,ComponentRegistrationHandler.class,conf.getFullName().toString()).submit(followRunner);
     builder.remove(conf);
     return true;
   }

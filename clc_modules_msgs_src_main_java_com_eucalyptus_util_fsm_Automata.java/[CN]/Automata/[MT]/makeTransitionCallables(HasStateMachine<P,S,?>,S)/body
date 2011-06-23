@@ -1,0 +1,47 @@
+{
+  final List<Callable<CheckedListenableFuture<P>>> callables=Lists.newArrayList();
+  final StateMachine<P,S,?> fsm=hasFsm.getStateMachine();
+  if (toStates.length > 0) {
+    for (    final S toState : toStates) {
+      callables.add(new Callable<CheckedListenableFuture<P>>(){
+        @Override public CheckedListenableFuture<P> call(){
+          S fromState=fsm.getState();
+          try {
+            CheckedListenableFuture<P> res=fsm.transition(toState);
+            res.get();
+            Logs.exhaust().debug(fsm.toString() + " transitioned from " + fromState+ "->"+ toState);
+            return res;
+          }
+ catch (          final IllegalStateException ex) {
+            Logs.exhaust().debug(fsm.toString() + " failed transitioned from " + fromState+ "->"+ toState);
+            Logs.exhaust().error(ex,ex);
+            throw ex;
+          }
+catch (          final ExistingTransitionException ex) {
+            Logs.exhaust().error(ex,ex);
+            throw new UndeclaredThrowableException(ex.getCause());
+          }
+catch (          final UndeclaredThrowableException ex) {
+            Logs.exhaust().error(ex,ex);
+            throw ex;
+          }
+catch (          final Throwable ex) {
+            Logs.exhaust().error(ex,ex);
+            throw new UndeclaredThrowableException(ex);
+          }
+        }
+      }
+);
+    }
+  }
+ else {
+    callables.add(new Callable<CheckedListenableFuture<P>>(){
+      @Override public CheckedListenableFuture<P> call(){
+        CheckedListenableFuture<P> ret=Futures.predestinedFuture(hasFsm.getStateMachine().getParent());
+        return ret;
+      }
+    }
+);
+  }
+  return callables;
+}

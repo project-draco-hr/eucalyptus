@@ -1,7 +1,7 @@
 {
   if (!this.request.compareAndSet(null,request)) {
     LOG.warn("Duplicate write attempt for request: " + this.request.get().getClass().getSimpleName());
-    return true;
+    return false;
   }
  else {
     final SocketAddress serviceSocketAddress=config.getSocketAddress();
@@ -22,26 +22,10 @@
         @Override public void operationComplete(        ChannelFuture future) throws Exception {
           try {
             if (future.isSuccess()) {
-              final String localhostAddr=((InetSocketAddress)future.getChannel().getLocalAddress()).getAddress().getHostAddress();
+              final InetAddress localAddr=((InetSocketAddress)future.getChannel().getLocalAddress()).getAddress();
               if (!factory.getClass().getSimpleName().startsWith("GatherLog")) {
-                List<ServiceInfoType> serviceInfos=new ArrayList<ServiceInfoType>(){
-{
-                    addAll(Components.lookup(Eucalyptus.class).getServiceSnapshot(localhostAddr));
-                    addAll(Components.lookup(Walrus.class).getServiceSnapshot(localhostAddr));
-                    for (                    ServiceInfoType s : Components.lookup(Storage.class).getServiceSnapshot(localhostAddr)) {
-                      if (config.getPartition().equals(s.getPartition())) {
-                        add(s);
-                      }
-                    }
-                    for (                    ServiceInfoType s : Components.lookup(ClusterController.class).getServiceSnapshot(localhostAddr)) {
-                      if (config.getPartition().equals(s.getPartition())) {
-                        add(s);
-                      }
-                    }
-                  }
-                }
-;
-                AsyncRequestHandler.this.request.get().getBaseServices().addAll(serviceInfos);
+                AsyncRequestHandler.this.request.get().set_epoch(Topology.epoch());
+                AsyncRequestHandler.this.request.get().get_services().addAll(Topology.partitionRelativeView(config.lookupPartition(),localAddr));
               }
               EventRecord.here(request.getClass(),EventClass.SYSTEM_REQUEST,EventType.CHANNEL_OPEN,request.getClass().getSimpleName(),request.getCorrelationId(),serviceSocketAddress.toString(),"" + future.getChannel().getLocalAddress(),"" + future.getChannel().getRemoteAddress()).trace();
               future.getChannel().getCloseFuture().addListener(new ChannelFutureListener(){
@@ -62,7 +46,7 @@
               AsyncRequestHandler.this.teardown(future.getCause());
             }
           }
- catch (          RuntimeException ex) {
+ catch (          Exception ex) {
             LOG.error(ex,ex);
             AsyncRequestHandler.this.teardown(future.getCause());
           }

@@ -1,17 +1,33 @@
 {
   final DescribeServicesResponseType reply=request.getReply();
-  for (  Component comp : Components.list()) {
-    if (comp.isEnabledLocally()) {
-      final Service localService=comp.getLocalService();
-      reply.getServiceStatuses().add(new ServiceStatusType(){
+  ComponentId compId=(request.getByServiceType() != null) ? ComponentIds.lookup(request.getByServiceType().toLowerCase()) : Empyrean.INSTANCE;
+  final boolean showEventStacks=Boolean.TRUE.equals(request.getShowEventStacks());
+  final boolean showEvents=Boolean.TRUE.equals(request.getShowEvents()) || showEventStacks;
+  Function<ServiceConfiguration,ServiceStatusType> transformToStatus=ServiceConfigurations.asServiceStatus(showEvents,showEventStacks);
+  List<Predicate<ServiceConfiguration>> filters=new ArrayList<Predicate<ServiceConfiguration>>(){
 {
-          setServiceId(localService.getServiceId());
-          setLocalEpoch(reply.getBaseEpoch());
-          setLocalState(localService.getState().toString());
-          getDetails().addAll(localService.getDetails());
+      if (request.getByPartition() != null) {
+        Partitions.exists(request.getByPartition());
+        this.add(Filters.host(request.getByPartition()));
+      }
+      if (request.getByState() != null) {
+        Component.State stateFilter=Component.State.valueOf(request.getByState().toUpperCase());
+        this.add(Filters.state(stateFilter));
+      }
+      this.add(Filters.host(request.getByHost()));
+      this.add(Filters.listAllOrInternal(request.getListAll(),request.getListInternal()));
+    }
+  }
+;
+  Predicate<Component> componentFilter=Filters.componentType(compId);
+  Predicate<ServiceConfiguration> configPredicate=Predicates.and(filters);
+  for (  Component comp : Components.list()) {
+    if (componentFilter.apply(comp)) {
+      for (      final ServiceConfiguration config : comp.lookupServiceConfigurations()) {
+        if (configPredicate.apply(config)) {
+          reply.getServiceStatuses().add(transformToStatus.apply(config));
         }
       }
-);
     }
   }
   return reply;
