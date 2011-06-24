@@ -1,27 +1,36 @@
 {
   try {
     Clusters.getInstance().registerDisabled(this);
-    ListenerRegistry.getInstance().register(ClockTick.class,this);
-    ListenerRegistry.getInstance().register(Hertz.class,this);
     if (!State.DISABLED.equals(this.stateMachine.getState())) {
-      Automata.sequenceTransitions(this,State.PENDING,State.AUTHENTICATING,State.STARTING,State.STARTING_NOTREADY,State.NOTREADY,State.DISABLED).call().get();
+      Callable<CheckedListenableFuture<Cluster>> trans=Automata.sequenceTransitions(this,State.PENDING,State.AUTHENTICATING,State.STARTING,State.STARTING_NOTREADY,State.NOTREADY,State.DISABLED);
+      Exception lastEx=null;
+      for (int i=0; i < CLUSTER_STARTUP_SYNC_RETRIES; i++) {
+        try {
+          trans.call().get();
+          lastEx=null;
+          break;
+        }
+ catch (        InterruptedException ex) {
+          Thread.currentThread().interrupt();
+        }
+catch (        ServiceRegistrationException ex) {
+          lastEx=ex;
+          Logs.exhaust().debug(ex,ex);
+        }
+catch (        Exception ex) {
+          lastEx=ex;
+          Logs.exhaust().debug(ex,ex);
+        }
+      }
+      ListenerRegistry.getInstance().register(ClockTick.class,this);
+      ListenerRegistry.getInstance().register(Hertz.class,this);
     }
   }
- catch (  InterruptedException ex) {
-    Thread.currentThread().interrupt();
-  }
-catch (  NoSuchElementException ex) {
-    this.stop();
-    Logs.exhaust().debug(ex,ex);
-    throw ex;
-  }
-catch (  ServiceRegistrationException ex) {
-    this.stop();
+ catch (  NoSuchElementException ex) {
     Logs.exhaust().debug(ex,ex);
     throw ex;
   }
 catch (  Exception ex) {
-    this.stop();
     Logs.exhaust().debug(ex,ex);
     throw new ServiceRegistrationException("Failed to call start() on cluster " + this.configuration + " because of: "+ ex.getMessage(),ex);
   }
