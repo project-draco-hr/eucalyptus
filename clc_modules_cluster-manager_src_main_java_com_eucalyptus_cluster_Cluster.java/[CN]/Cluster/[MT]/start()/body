@@ -1,20 +1,37 @@
 {
-  Clusters.getInstance().registerDisabled(this);
   try {
-    ListenerRegistry.getInstance().register(ClockTick.class,Cluster.this);
-    ListenerRegistry.getInstance().register(Hertz.class,Cluster.this);
-  }
- catch (  Exception ex1) {
-    LOG.error(ex1,ex1);
-  }
-  if (!State.DISABLED.equals(this.stateMachine.getState())) {
-    final Callable<CheckedListenableFuture<Cluster>> transition=Automata.sequenceTransitions(Cluster.this,State.PENDING,State.AUTHENTICATING,State.STARTING,State.STARTING_NOTREADY,State.NOTREADY,State.DISABLED);
-    try {
-      transition.call().get();
+    Clusters.getInstance().registerDisabled(this);
+    if (!State.DISABLED.equals(this.stateMachine.getState())) {
+      Callable<CheckedListenableFuture<Cluster>> trans=Automata.sequenceTransitions(this,State.PENDING,State.AUTHENTICATING,State.STARTING,State.STARTING_NOTREADY,State.NOTREADY,State.DISABLED);
+      Exception lastEx=null;
+      for (int i=0; i < CLUSTER_STARTUP_SYNC_RETRIES; i++) {
+        try {
+          trans.call().get();
+          lastEx=null;
+          break;
+        }
+ catch (        InterruptedException ex) {
+          Thread.currentThread().interrupt();
+        }
+catch (        ServiceRegistrationException ex) {
+          lastEx=ex;
+          Logs.exhaust().debug(ex,ex);
+        }
+catch (        Exception ex) {
+          lastEx=ex;
+          Logs.exhaust().debug(ex,ex);
+        }
+      }
+      ListenerRegistry.getInstance().register(ClockTick.class,this);
+      ListenerRegistry.getInstance().register(Hertz.class,this);
     }
- catch (    Exception ex) {
-      Logs.exhaust().error(ex,ex);
-      throw new ServiceRegistrationException("Failed to call start() on cluster: " + this.configuration + " because of: "+ ex.getMessage(),ex);
-    }
+  }
+ catch (  NoSuchElementException ex) {
+    Logs.exhaust().debug(ex,ex);
+    throw ex;
+  }
+catch (  Exception ex) {
+    Logs.exhaust().debug(ex,ex);
+    throw new ServiceRegistrationException("Failed to call start() on cluster " + this.configuration + " because of: "+ ex.getMessage(),ex);
   }
 }
