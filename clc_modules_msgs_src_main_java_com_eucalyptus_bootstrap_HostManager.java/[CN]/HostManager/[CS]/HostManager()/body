@@ -1,16 +1,24 @@
 {
+  this.view=new CurrentView();
   this.membershipChannel=HostManager.buildChannel();
-  this.membershipChannel.setReceiver(this);
+  this.stateListener=Bootstrap.isCloudController() ? new CloudControllerHostStateHandler() : new RemoteHostStateListener();
+  this.membershipChannel.setReceiver(this.stateListener);
   this.membershipGroupName=SystemIds.membershipGroupName();
   try {
     LOG.info("Starting membership channel... ");
     this.membershipChannel.connect(this.membershipGroupName);
     this.physicalAddress=(PhysicalAddress)this.membershipChannel.downcall(new org.jgroups.Event(org.jgroups.Event.GET_PHYSICAL_ADDRESS,this.membershipChannel.getAddress()));
     LOG.info("Started membership channel: " + this.membershipGroupName);
+    this.dbFilter=new Predicate<Host>(){
+      @Override public boolean apply(      Host arg0){
+        return arg0.hasDatabase() || arg0.getGroupsId().equals(HostManager.this.membershipChannel.getLocalAddress());
+      }
+    }
+;
+    ListenerRegistry.getInstance().register(Hertz.class,this.stateListener);
   }
  catch (  ChannelException ex) {
     LOG.fatal(ex,ex);
     throw BootstrapException.throwFatal("Failed to connect membership channel because of " + ex.getMessage(),ex);
   }
-  ListenerRegistry.getInstance().register(ClockTick.class,this);
 }
