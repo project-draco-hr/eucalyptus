@@ -1,22 +1,26 @@
 {
   Component euca=Components.lookup(Eucalyptus.class);
-  for (  Host host : hosts) {
-    Hosts.updateHost(getCurrentView(),host);
-    if (Bootstrap.isFinished() && !host.hasDatabase()) {
+  for (  final Host host : hosts) {
+    if (Bootstrap.isFinished() && !host.hasDatabase() && !host.isLocalHost()) {
       try {
         ServiceConfiguration config=euca.getBuilder().lookupByHost(host.getHostAddress().getHostAddress());
         LOG.debug("Requesting first time initialization for remote cloud controller: " + host);
-        HostManager.this.membershipChannel.send(new Message(host.getGroupsId(),null,new Initialize()));
+        Threads.lookup(Empyrean.class,HostManager.class).submit(new Runnable(){
+          @Override public void run(){
+            try {
+              HostManager.this.membershipChannel.send(new Message(host.getGroupsId(),null,new Initialize()));
+            }
+ catch (            Exception ex) {
+              LOG.error(ex,ex);
+            }
+          }
+        }
+);
       }
  catch (      ServiceRegistrationException ex) {
         LOG.trace(ex);
       }
-catch (      ChannelNotConnectedException ex) {
-        LOG.error(ex,ex);
-      }
-catch (      ChannelClosedException ex) {
-        LOG.error(ex,ex);
-      }
     }
+    Hosts.updateHost(getCurrentView(),host);
   }
 }
