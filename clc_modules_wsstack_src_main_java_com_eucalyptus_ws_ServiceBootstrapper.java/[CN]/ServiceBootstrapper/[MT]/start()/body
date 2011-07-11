@@ -2,28 +2,33 @@
   ServiceBootstrapper.execute(new Predicate<ServiceConfiguration>(){
     @Override public boolean apply(    final ServiceConfiguration config){
       final Component comp=config.lookupComponent();
-      try {
-        final CheckedListenableFuture<ServiceConfiguration> future=comp.startTransition(config);
-        Runnable followRunner=new Runnable(){
-          @Override public void run(){
+      ServiceBootstrapWorker.submit(new Runnable(){
+        @Override public void run(){
+          try {
+            ServiceTransitions.transitionChain(config,Component.State.NOTREADY).get();
             try {
-              future.get();
-              comp.enableTransition(config);
+              ServiceTransitions.transitionChain(config,Component.State.ENABLED).get();
             }
- catch (            Exception ex) {
+ catch (            IllegalStateException ex) {
+              LOG.error(ex,ex);
+            }
+catch (            InterruptedException ex) {
+              LOG.error(ex,ex);
+            }
+catch (            ExecutionException ex) {
               LOG.error(ex,ex);
             }
           }
+ catch (          Exception ex) {
+            LOG.error(ex,ex);
+          }
         }
-;
-        Threads.lookup(ConfigurationService.class,ComponentRegistrationHandler.class,config.getFullName().toString()).submit(followRunner);
       }
- catch (      Exception e) {
-        LOG.error(e,e);
-      }
-      return false;
+);
+      return true;
     }
   }
 );
+  ServiceBootstrapWorker.markFinished();
   return true;
 }

@@ -2,24 +2,22 @@
   try {
     boolean notConnected=false;
     if (!isConnected()) {
-      connectResource();
-      if (!isConnected()) {
-        LOG.warn("Unable to connect resource");
-        notConnected=true;
+      try {
+        connectResource();
       }
-    }
-    boolean notUpToDate=false;
-    if (!isUpToDate()) {
-      LOG.warn("Resource is not up to date");
-      notUpToDate=true;
+ catch (      Exception e) {
+        LOG.error(e);
+      }
     }
     if (Component.State.ENABLED.equals(Components.lookup("walrus").getState())) {
       if (!isPrimary()) {
-        throw new EucalyptusCloudException("I am the master, but not DRBD primary. Aborting!");
+        throw new EucalyptusCloudException("I am the master, but not DRBD primary. Please make me primary. Aborting!");
       }
-      return;
     }
  else {
+      if ((isConnected()) && (!isUpToDate())) {
+        throw new EucalyptusCloudException("Resource connected but not up to date!");
+      }
       if (Component.State.DISABLED.equals(Components.lookup("walrus").getState())) {
         if (!isSecondary()) {
           LOG.warn("I am the slave, but not DRBD secondary. Trying to become secondary...");
@@ -28,20 +26,6 @@
             throw new EucalyptusCloudException("Attempt to set secondary failed. Unable to proceed!");
           }
         }
-        NavigableSet<ServiceConfiguration> hii=Components.lookup("walrus").lookupServiceConfigurations();
-        boolean isOtherPrimary=false;
-        for (        ServiceConfiguration ii : hii) {
-          isOtherPrimary|=Component.State.ENABLED.equals(ii.lookupStateMachine().getState()) && !ii.isVmLocal() ? true : false;
-        }
-        if (!isOtherPrimary) {
-          return;
-        }
-      }
-      if (!notConnected) {
-        throw new EucalyptusCloudException("Resource not connected and not primary or cannot become one!");
-      }
-      if (!notUpToDate) {
-        throw new EucalyptusCloudException("Resource not up to date and not primary or cannot become one!");
       }
     }
   }
