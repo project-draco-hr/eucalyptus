@@ -1,13 +1,12 @@
 {
-  if (Internets.testLocal(updatedHost.getHostAddress())) {
+  if (Internets.testLocal(updatedHost.getBindAddress())) {
     return Hosts.localHost();
   }
 synchronized (Hosts.class) {
-    List<Address> currentMembers=Lists.newArrayList(currentView.getMembers());
     Host entry=null;
     if (hostMap.containsKey(updatedHost.getGroupsId())) {
       entry=hostMap.get(updatedHost.getGroupsId());
-      entry.update(currentView.getViewId(),updatedHost.hasDatabase(),updatedHost.hasBootstrapped(),updatedHost.getHostAddresses());
+      entry.update(updatedHost.hasDatabase(),updatedHost.hasBootstrapped(),updatedHost.getHostAddresses());
     }
  else {
       Component empyrean=Components.lookup(Empyrean.class);
@@ -18,10 +17,14 @@ synchronized (Hosts.class) {
           try {
             ServiceConfiguration config=empyrean.initRemoteService(addr);
             empyrean.loadService(ephemeralConfig).get();
-            entry=new Host(currentView.getViewId(),updatedHost.getGroupsId(),updatedHost.hasDatabase(),updatedHost.hasBootstrapped(),updatedHost.getHostAddresses(),config);
+            entry=new Host(updatedHost.getGroupsId(),updatedHost.getBindAddress(),updatedHost.hasDatabase(),updatedHost.hasBootstrapped(),updatedHost.getHostAddresses(),config);
             Host temp=hostMap.putIfAbsent(entry.getGroupsId(),entry);
-            entry=(temp != null) ? temp : entry;
-            Mbeans.register(entry);
+            if (temp == null) {
+              Mbeans.register(entry);
+            }
+ else {
+              entry=temp;
+            }
           }
  catch (          ServiceRegistrationException ex) {
             LOG.error(ex,ex);
@@ -35,10 +38,6 @@ catch (          InterruptedException ex) {
           }
         }
       }
-    }
-    Logs.exhaust().debug("Current host entries: ");
-    for (    Host host : hostMap.values()) {
-      Logs.exhaust().debug("-> " + host);
     }
     return entry;
   }
