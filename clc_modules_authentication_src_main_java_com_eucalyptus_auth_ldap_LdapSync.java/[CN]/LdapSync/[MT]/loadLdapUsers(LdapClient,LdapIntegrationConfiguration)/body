@@ -4,23 +4,20 @@
   if (!lic.getUserInfoAttributes().keySet().contains(lic.getUserIdAttribute())) {
     attrNames.add(lic.getUserIdAttribute());
   }
-  List<Attributes> attrsList=retrieveSelection(ldap,lic.getUserBaseDn(),lic.getUsersSelection(),attrNames.toArray(new String[0]));
-  try {
-    Map<String,Map<String,String>> userMap=Maps.newHashMap();
-    for (    Attributes attrs : attrsList) {
+  final Map<String,Map<String,String>> userMap=Maps.newHashMap();
+  retrieveSelection(ldap,lic.getUserBaseDn(),lic.getUsersSelection(),attrNames.toArray(new String[0]),new LdapEntryProcessor(){
+    @Override public void processLdapEntry(    String dn,    Attributes attrs) throws NamingException {
       if (VERBOSE) {
-        LOG.debug("Retrieved user: " + attrs);
+        LOG.debug("Retrieved user: " + dn + " -> "+ attrs);
       }
       Map<String,String> infoMap=Maps.newHashMap();
-      for (      String attr : lic.getUserInfoAttributes().keySet()) {
-        infoMap.put(lic.getUserInfoAttributes().get(attr),(String)attrs.get(attr).get());
+      for (      String attrName : lic.getUserInfoAttributes().keySet()) {
+        infoMap.put(lic.getUserInfoAttributes().get(attrName),(String)attrs.get(attrName).get());
       }
+      infoMap.put(User.DN,dn);
       userMap.put(getId(lic.getUserIdAttribute(),attrs),infoMap);
     }
-    return userMap;
   }
- catch (  NamingException e) {
-    LOG.error(e,e);
-    throw new LdapException("Error reading users",e);
-  }
+);
+  return userMap;
 }
