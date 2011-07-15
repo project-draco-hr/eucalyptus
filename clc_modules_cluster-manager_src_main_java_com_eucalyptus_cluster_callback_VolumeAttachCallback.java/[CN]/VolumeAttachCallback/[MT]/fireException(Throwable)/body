@@ -3,27 +3,43 @@
   LOG.debug("Trying to remove invalid volume attachment " + this.getRequest().getVolumeId() + " from instance "+ this.getRequest().getInstanceId());
   try {
     VmInstance vm=VmInstances.getInstance().lookup(this.getRequest().getInstanceId());
+    Cluster cluster=Clusters.getInstance().lookup(vm.getClusterName());
+    ServiceConfiguration sc=Partitions.lookupService(Storage.class,cluster.getConfiguration().getPartition());
+    try {
+      AsyncRequests.sendSync(cluster.getConfiguration(),new DetachVolumeType(){
+{
+          this.setVolumeId(VolumeAttachCallback.this.getRequest().getVolumeId());
+          this.setInstanceId(VolumeAttachCallback.this.getRequest().getInstanceId());
+          this.setRemoteDevice(VolumeAttachCallback.this.getRequest().getRemoteDevice());
+          this.setDevice(VolumeAttachCallback.this.getRequest().getDevice());
+          this.setForce(true);
+        }
+      }
+);
+    }
+ catch (    Throwable ex) {
+      LOG.error(ex,ex);
+    }
+    try {
+      Dispatcher dispatcher=ServiceDispatcher.lookup(sc);
+      String iqn=cluster.getNode(vm.getServiceTag()).getIqn();
+      LOG.debug("Sending detach after async failure in attach volume: cluster=" + cluster.getName() + " iqn="+ iqn+ " sc="+ sc+ " dispatcher="+ dispatcher.getName()+ " uri="+ dispatcher.getAddress());
+      dispatcher.send(new DetachStorageVolumeType(iqn,this.getRequest().getVolumeId()));
+    }
+ catch (    EucalyptusCloudException ex) {
+      LOG.error(ex,ex);
+    }
     AttachedVolume failVol=new AttachedVolume(this.getRequest().getVolumeId());
     try {
       AttachedVolume volume=vm.removeVolumeAttachment(this.getRequest().getVolumeId());
       LOG.debug("Found volume attachment info in async error path: " + volume);
-      try {
-        Cluster cluster=Clusters.getInstance().lookup(vm.getClusterName());
-        ServiceConfiguration sc=Partitions.lookupService(Storage.class,cluster.getConfiguration().getPartition());
-        Dispatcher dispatcher=ServiceDispatcher.lookup(sc);
-        String iqn=cluster.getNode(vm.getServiceTag()).getIqn();
-        LOG.debug("Sending detach after async failure in attach volume: cluster=" + cluster.getName() + " iqn="+ iqn+ " sc="+ sc+ " dispatcher="+ dispatcher.getName()+ " uri="+ dispatcher.getAddress());
-        dispatcher.send(new DetachStorageVolumeType(iqn,volume.getVolumeId()));
-      }
- catch (      EucalyptusCloudException ex) {
-        LOG.error(ex,ex);
-      }
     }
- catch (    Exception ex1) {
+ catch (    NoSuchElementException ex1) {
       LOG.error("Failed to find volume attachment information for volume: " + failVol);
     }
     LOG.debug("Removed failed attachment: " + failVol.getVolumeId() + " -> "+ vm.getInstanceId());
   }
- catch (  NoSuchElementException e1) {
+ catch (  Exception e1) {
+    LOG.error(e1,e1);
   }
 }
