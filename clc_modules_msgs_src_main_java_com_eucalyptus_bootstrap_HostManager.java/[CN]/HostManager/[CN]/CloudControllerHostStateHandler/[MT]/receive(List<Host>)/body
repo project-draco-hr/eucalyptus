@@ -1,25 +1,30 @@
 {
   Component euca=Components.lookup(Eucalyptus.class);
   if (!Bootstrap.isFinished()) {
+    for (    final Host host : hosts) {
+      Hosts.update(host);
+    }
+    for (    Host host : Hosts.listRemoteDatabases()) {
+      Eucalyptus.setupServiceDependencies(host.getBindAddress());
+    }
+    HostManager.this.view.markReady();
     return;
   }
-  for (  final Host host : hosts) {
-    Hosts.update(host);
-    if (!host.hasBootstrapped() && !host.hasDatabase() && !host.isLocalHost()) {
-      try {
-        ServiceConfiguration config=euca.getBuilder().lookupByHost(host.getBindAddress().getHostAddress());
-        LOG.debug("Requesting first time initialization for remote cloud controller: " + host);
-        HostManager.send(host.getGroupsId(),new Initialize());
+ else {
+    for (    final Host host : hosts) {
+      Hosts.update(host);
+      if (!host.hasBootstrapped() && !host.isLocalHost()) {
+        try {
+          ServiceConfiguration config=euca.getBuilder().lookupByHost(host.getBindAddress().getHostAddress());
+          LOG.debug("Requesting first time initialization for remote cloud controller: " + host);
+          HostManager.send(host.getGroupsId(),new Initialize());
+        }
+ catch (        Exception ex) {
+          Logs.exhaust().error(ex);
+          LOG.debug("Requesting remote component startup: " + host);
+          HostManager.send(host.getGroupsId(),new NoInitialize());
+        }
       }
- catch (      Exception ex) {
-        Logs.exhaust().error(ex);
-        LOG.debug("Requesting remote component startup: " + host);
-        HostManager.send(host.getGroupsId(),new NoInitialize());
-      }
-    }
- else     if (!host.hasBootstrapped()) {
-      LOG.debug("Requesting remote component startup: " + host);
-      HostManager.send(host.getGroupsId(),new NoInitialize());
     }
   }
 }
