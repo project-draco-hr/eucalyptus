@@ -1,25 +1,20 @@
 {
   InetAddress laddr=null;
-  if (!Bootstrap.parseBindAddrs().isEmpty()) {
+  LOG.info("Trying to determine local bind address based on cli (--bind-addr)... ");
+  if (!BootstrapArgs.bindAddresses().isEmpty()) {
     laddr=lookupBindAddresses();
   }
   if (laddr == null) {
-    try {
-      String localAddr=(String)GroovyUtil.eval("hi=\"ip -o route get 4.2.2.1\".execute();hi.waitFor();hi.text");
-      String[] parts=localAddr.replaceAll(".*src *","").split(" ");
-      if (parts.length >= 1) {
-        laddr=InetAddresses.forString(parts[0]);
-      }
-    }
- catch (    ScriptExecutionFailedException ex) {
-      LOG.error(ex,ex);
-    }
-catch (    Exception ex) {
-      LOG.error(ex,ex);
-    }
+    LOG.info("Trying to determine local bind address based on the default route... ");
+    laddr=lookupDefaultRoute();
   }
   if (laddr == null) {
+    LOG.info("Trying to determine local bind address based on a netmask and scope maximizing heuristic... ");
     laddr=Internets.getAllInetAddresses().get(0);
   }
+  LOG.info("==> Decided to use local bind address: " + laddr);
+  System.setProperty("bind.address",laddr.getHostAddress());
+  System.setProperty("jgroups.bind_addr",laddr.getHostAddress());
+  System.setProperty("jgroups.udp.bind_addr",laddr.getHostAddress());
   return laddr;
 }

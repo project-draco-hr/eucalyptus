@@ -1,0 +1,27 @@
+{
+  Long imgSize=img.getImageSizeBytes();
+  if (imgSize > 1024l * 1024l * 1024l* vmType.getDisk()) {
+    throw new EucalyptusCloudException("image too large [size=" + imgSize / (1024l * 1024l) + "MB] for instance type " + vmType.getName() + " [disk=" + vmType.getDisk() * 1024l + "MB]");
+  }
+  VmTypeInfo vmTypeInfo=null;
+  if (img instanceof StaticDiskImage) {
+    if (Image.Platform.windows.equals(img.getPlatform())) {
+      vmTypeInfo=VmTypes.InstanceStoreWindowsVmTypeInfoMapper.INSTANCE.apply(vmType);
+      vmTypeInfo.setEphemeral(0,"sdb",vmType.getDisk() * 1024l * 1024l* 1024l - imgSize);
+    }
+ else {
+      vmTypeInfo=VmTypes.InstanceStoreVmTypeInfoMapper.INSTANCE.apply(vmType);
+      vmTypeInfo.setEphemeral(0,"sda2",vmType.getDisk() * 1024l * 1024l* 1024l - imgSize);
+    }
+    vmTypeInfo.setRoot(img.getDisplayName(),((StaticDiskImage)img).getManifestLocation(),imgSize);
+  }
+ else   if (img instanceof BlockStorageImageInfo) {
+    vmTypeInfo=VmTypes.BlockStorageVmTypeInfoMapper.INSTANCE.apply(vmType);
+    vmTypeInfo.setEbsRoot(img.getDisplayName(),null,imgSize);
+    vmTypeInfo.setEphemeral(0,"sdb",vmType.getDisk() * 1024l * 1024l* 1024l);
+  }
+ else {
+    throw new EucalyptusCloudException("Failed to identify the root machine image type: " + img);
+  }
+  return vmTypeInfo;
+}

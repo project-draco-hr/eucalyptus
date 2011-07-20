@@ -1,18 +1,10 @@
 {
+  ServiceKey serviceKey=null;
   try {
-    ServiceKey serviceKey=ServiceKey.create(config);
-    if (Topology.getInstance().getGuard().tryEnable(config)) {
-      try {
-        return ServiceTransitions.transitionChain(config,Component.State.ENABLED).get();
-      }
- catch (      Exception ex) {
-        Topology.getInstance().getGuard().tryDisable(config);
-        throw ex;
-      }
-    }
- else {
-      return ServiceTransitions.transitionChain(config,Component.State.DISABLED).get();
-    }
+    serviceKey=ServiceKey.create(config);
+    Future<ServiceConfiguration> transition=ServiceTransitions.transitionChain(config,Component.State.DISABLED);
+    ServiceConfiguration result=transition.get();
+    return result;
   }
  catch (  InterruptedException ex) {
     Thread.currentThread().interrupt();
@@ -21,5 +13,15 @@
 catch (  Exception ex) {
     LOG.error(ex,ex);
     throw new UndeclaredThrowableException(ex);
+  }
+ finally {
+    if (serviceKey != null) {
+      try {
+        Topology.getInstance().getGuard().tryDisable(config);
+      }
+ catch (      ServiceRegistrationException ex) {
+        LOG.error(ex,ex);
+      }
+    }
   }
 }
