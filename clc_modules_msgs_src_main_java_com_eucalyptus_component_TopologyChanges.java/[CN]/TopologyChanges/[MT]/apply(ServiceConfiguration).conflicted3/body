@@ -1,34 +1,25 @@
 {
-  if (!Bootstrap.isFinished()) {
-    LOG.debug(this.toString() + " aborted because bootstrap is not complete for service: " + config);
-    return config;
-  }
- else   if (config.isVmLocal() && !config.getStateMachine().isBusy()) {
-    State initialState=config.lookupState();
-    State nextState=config.lookupState();
-    if (State.NOTREADY.equals(initialState) || State.BROKEN.equals(initialState)) {
-      nextState=State.DISABLED;
+  try {
+    ServiceKey serviceKey=ServiceKey.create(config);
+    if (Topology.getInstance().getGuard().tryEnable(config)) {
+      try {
+        return ServiceTransitions.transitionChain(config,Component.State.ENABLED).get();
+      }
+ catch (      Exception ex) {
+        Topology.getInstance().getGuard().tryDisable(config);
+        throw ex;
+      }
     }
- else     if (initialState.ordinal() < State.NOTREADY.ordinal()) {
-      return config;
-    }
-    try {
-      Future<ServiceConfiguration> result=ServiceTransitions.transitionChain(config,nextState);
-      ServiceConfiguration endConfig=result.get();
-      State endState=endConfig.lookupState();
-      LOG.debug(this.toString() + " completed for: " + endConfig+ " trying "+ initialState+ "->"+ nextState+ " ended in: "+ endState);
-      return endConfig;
-    }
- catch (    InterruptedException ex) {
-      Thread.currentThread().interrupt();
-      return config;
-    }
-catch (    Exception ex) {
-      LOG.error(ex,ex);
-      throw new UndeclaredThrowableException(ex);
-    }
-  }
  else {
-    return config;
+      return ServiceTransitions.transitionChain(config,Component.State.DISABLED).get();
+    }
+  }
+ catch (  InterruptedException ex) {
+    Thread.currentThread().interrupt();
+    throw new UndeclaredThrowableException(ex);
+  }
+catch (  Exception ex) {
+    LOG.error(ex,ex);
+    throw new UndeclaredThrowableException(ex);
   }
 }
