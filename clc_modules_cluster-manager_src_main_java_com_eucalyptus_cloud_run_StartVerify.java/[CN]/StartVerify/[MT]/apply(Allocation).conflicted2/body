@@ -1,0 +1,30 @@
+{
+  if (SshKeyPair.NO_KEY_NAME.equals(allocInfo.getRequest().getKeyName()) || allocInfo.getRequest().getKeyName() == null) {
+    if (Image.Platform.windows.name().equals(allocInfo.getBootSet().getMachine().getPlatform())) {
+      throw new InvalidMetadataException("You must specify a keypair when running a windows vm: " + allocInfo.getRequest().getImageId());
+    }
+ else {
+      allocInfo.setKeyInfo(new VmKeyInfo());
+      return true;
+    }
+  }
+  Context ctx=allocInfo.getContext();
+  RunInstancesType request=allocInfo.getRequest();
+  String action=PolicySpec.requestToAction(request);
+  String keyName=request.getKeyName();
+  Account account=ctx.getAccount();
+  if (!ctx.hasAdministrativePrivileges() && !Permissions.isAuthorized(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_KEYPAIR,keyName,account,action,ctx.getUser())) {
+    throw new IllegalMetadataAccessException("Not authorized to use keypair " + keyName + " by "+ ctx.getUser().getName());
+  }
+  try {
+    SshKeyPair keypair=KeyPairUtil.getUserKeyPair(ctx.getUserFullName(),keyName);
+    if (keypair == null) {
+      throw new NoSuchMetadataException("Failed to find keypair: " + keyName);
+    }
+    allocInfo.setKeyInfo(new VmKeyInfo(keypair.getDisplayName(),keypair.getPublicKey(),keypair.getFingerPrint()));
+  }
+ catch (  EucalyptusCloudException ex) {
+    throw new InvalidMetadataException("Failed to find keypair: " + keyName + " because of "+ ex.getMessage(),ex);
+  }
+  return true;
+}

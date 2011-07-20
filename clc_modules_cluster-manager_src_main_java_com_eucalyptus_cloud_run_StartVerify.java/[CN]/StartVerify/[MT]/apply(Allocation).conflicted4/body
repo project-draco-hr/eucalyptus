@@ -1,0 +1,33 @@
+{
+  Context ctx=allocInfo.getContext();
+  NetworkGroupUtil.makeDefault(ctx.getUserFullName());
+  RunInstancesType request=allocInfo.getRequest();
+  String action=PolicySpec.requestToAction(request);
+  User requestUser=ctx.getUser();
+  ArrayList<String> networkNames=new ArrayList<String>(request.getGroupSet());
+  if (networkNames.size() < 1) {
+    networkNames.add("default");
+  }
+  for (  String groupName : networkNames) {
+    if (!ctx.hasAdministrativePrivileges() && !Permissions.isAuthorized(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_SECURITYGROUP,groupName,ctx.getAccount(),action,ctx.getUser())) {
+      throw new IllegalMetadataAccessException("Not authorized to use network group " + groupName + " for "+ ctx.getUser().getName());
+    }
+  }
+  try {
+    Map<String,NetworkRulesGroup> networkRuleGroups=new HashMap<String,NetworkRulesGroup>();
+    for (    String groupName : networkNames) {
+      NetworkRulesGroup group=NetworkGroupUtil.getUserNetworkRulesGroup(ctx.getUserFullName(),groupName);
+      networkRuleGroups.put(groupName,group);
+      allocInfo.getNetworks().add(group.getVmNetwork());
+    }
+    ArrayList<String> userNetworks=new ArrayList<String>(networkRuleGroups.keySet());
+    if (!userNetworks.containsAll(networkNames)) {
+      networkNames.removeAll(userNetworks);
+      throw new NoSuchMetadataException("Failed to find " + networkNames);
+    }
+  }
+ catch (  EucalyptusCloudException ex) {
+    throw new InvalidMetadataException("Failed to find " + networkNames + " because of "+ ex.getMessage(),ex);
+  }
+  return true;
+}
