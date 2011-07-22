@@ -1,0 +1,62 @@
+{
+  if (this.isBound) {
+    throw new IllegalStateException("Call not allowed after bindings compiled");
+  }
+ else {
+    URL url=Resources.getResource(path);
+    InputSupplier<InputStream> inSupplier=Resources.newInputStreamSupplier(url);
+    if (inSupplier == null) {
+      throw new IOException("Resource " + path + " not found");
+    }
+ else {
+      String fname=path;
+      int split=fname.lastIndexOf('/');
+      if (split >= 0) {
+        fname=fname.substring(split + 1);
+      }
+      String defaultBindingName=Utility.bindingFromFileName(fname);
+      try {
+        ValidationContext vctx=BindingElement.newValidationContext();
+        BindingElement root=BindingElement.validateBinding(fname,url,inSupplier.getInput(),vctx);
+        if (vctx.getErrorCount() == 0 && vctx.getFatalCount() == 0) {
+          ClassFile classFile=findMappedClass(root);
+          String tpack=root.getTargetPackage();
+          if (tpack == null && classFile != null) {
+            tpack=classFile.getPackage();
+          }
+          String bindingName=root.getName();
+          UnmarshallingContext uctx=new UnmarshallingContext();
+          uctx.setDocument(inSupplier.getInput(),fname,null);
+          if (classFile != null) {
+            bindingName=(bindingName == null ? defaultBindingName : bindingName);
+            BoundClass.setModify(classFile.getRoot(),tpack,bindingName);
+          }
+          BindingDefinition bindingDefinition=BindingBuilder.unmarshalBindingDefinition(uctx,defaultBindingName,url);
+          File rootFile=null;
+          if (tpack == null) {
+            tpack=bindingDefinition.getDefaultPackage();
+          }
+          if (classFile == null) {
+            rootFile=ClassCache.getModifiablePath();
+            if (root == null) {
+              throw new IllegalStateException("Need modifiable directory on classpath for storing generated factory class file");
+            }
+            if (tpack == null) {
+              tpack="";
+            }
+          }
+ else {
+            rootFile=classFile.getRoot();
+            if (tpack == null) {
+              tpack=classFile.getPackage();
+            }
+          }
+          bindingDefinition.setFactoryLocation(tpack,rootFile);
+        }
+      }
+ catch (      JiBXException ex) {
+        LOG.error("Unable to process binding " + url,ex);
+      }
+    }
+  }
+}
