@@ -1,12 +1,16 @@
 {
   DescribeImageAttributeResponseType reply=(DescribeImageAttributeResponseType)request.getReply();
   reply.setImageId(request.getImageId());
+  final Context ctx=Contexts.lookup();
+  final String requestAccountId=ctx.getUserFullName().getAccountNumber();
   if (request.getAttribute() != null)   request.applyAttribute();
   EntityWrapper<ImageInfo> db=EntityWrapper.get(ImageInfo.class);
   try {
     ImageInfo imgInfo=db.getUnique(Images.exampleWithImageId(request.getImageId()));
-    if (!imgInfo.isAllowed(Contexts.lookup().getAccount()) || !Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_IMAGE,request.getImageId(),imgInfo.getOwner())) {
-      throw new EucalyptusCloudException("Permission to describe image attribute is denied");
+    if (!ctx.hasAdministrativePrivileges()) {
+      if (!imgInfo.hasPermissionForOne(requestAccountId) || !Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_IMAGE,request.getImageId(),imgInfo.getOwner())) {
+        throw new EucalyptusCloudException("Permission to describe image attribute is denied");
+      }
     }
     if (request.getKernel() != null) {
       reply.setRealResponse(reply.getKernel());
@@ -48,9 +52,8 @@
       throw new EucalyptusCloudException("invalid image attribute request.");
     }
   }
- catch (  EucalyptusCloudException e) {
+  finally {
     db.commit();
-    throw e;
   }
   return reply;
 }
