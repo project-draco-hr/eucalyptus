@@ -1,0 +1,30 @@
+{
+  if (event.getMessage() instanceof MappingHttpMessage) {
+    MappingHttpMessage httpMessage=(MappingHttpMessage)event.getMessage();
+    String content=httpMessage.getContent().toString("UTF-8");
+    httpMessage.setMessageString(content);
+    HoldMe.canHas.lock();
+    SOAPEnvelope env=null;
+    try {
+      StAXSOAPModelBuilder soapBuilder=null;
+      try {
+        SOAPFactory factory=HoldMe.getOMSOAP11Factory();
+        soapBuilder=new StAXSOAPModelBuilder(HoldMe.getXMLStreamReader(content),factory,SOAP11Constants.SOAP_ENVELOPE_NAMESPACE_URI);
+      }
+ catch (      Exception e) {
+        SOAPFactory factory=HoldMe.getOMSOAP12Factory();
+        soapBuilder=new StAXSOAPModelBuilder(HoldMe.getXMLStreamReader(content),factory,SOAP12Constants.SOAP_ENVELOPE_NAMESPACE_URI);
+      }
+      env=(SOAPEnvelope)soapBuilder.getDocumentElement();
+    }
+ catch (    Exception ex) {
+      LOG.error("Failed to marshall response: " + content);
+      LOG.error(ex,ex);
+      throw new WebServicesException("Failed to marshall response: " + content,ex);
+    }
+ finally {
+      HoldMe.canHas.unlock();
+    }
+    httpMessage.setSoapEnvelope(env);
+  }
+}

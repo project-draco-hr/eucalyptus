@@ -1,0 +1,37 @@
+{
+  List<ResourceAllocator> finished=Lists.newArrayList();
+  for (  ResourceAllocator allocator : pending) {
+    try {
+      allocator.allocate(allocInfo);
+      finished.add(allocator);
+    }
+ catch (    ScriptExecutionFailedException e) {
+      if (e.getCause() != null) {
+        throw new EucalyptusCloudException(e.getCause().getMessage(),e.getCause());
+      }
+ else {
+        throw new EucalyptusCloudException(e.getMessage(),e);
+      }
+    }
+catch (    Throwable e) {
+      LOG.debug(e,e);
+      try {
+        allocator.fail(allocInfo,e);
+      }
+ catch (      Throwable e1) {
+        LOG.debug(e1,e1);
+      }
+      for (      ResourceAllocator rollback : Iterables.reverse(finished)) {
+        try {
+          rollback.fail(allocInfo,e);
+        }
+ catch (        Throwable e1) {
+          LOG.debug(e1,e1);
+        }
+      }
+      throw new EucalyptusCloudException(e.getMessage(),e);
+    }
+  }
+  EventRecord.here(this.getClass(),EventType.VM_RESERVED,LogUtil.dumpObject(allocInfo)).trace();
+  return allocInfo;
+}
