@@ -1,14 +1,16 @@
 {
   DeregisterImageResponseType reply=request.getReply();
-  Context ctx=Contexts.lookup();
+  final Context ctx=Contexts.lookup();
+  final String requestAccountId=ctx.getUserFullName().getAccountNumber();
+  final User requestUser=Contexts.lookup().getUser();
+  final String action=PolicySpec.requestToAction(request);
+  EntityWrapper<ImageInfo> db=EntityWrapper.get(ImageInfo.class);
   try {
-    ImageInfo imgInfo=EntityWrapper.get(ImageInfo.class).lookupAndClose(Images.exampleWithImageId(request.getImageId()));
-    if (Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_IMAGE,request.getImageId(),UserFullName.getInstance(imgInfo.getOwnerUserId()))) {
-      Images.deregisterImage(imgInfo.getDisplayName());
+    ImageInfo imgInfo=db.getUnique(Images.exampleWithImageId(request.getImageId()));
+    if (!ctx.hasAdministrativePrivileges() && (!imgInfo.getOwnerAccountId().equals(requestAccountId) || !Permissions.isAuthorized(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_IMAGE,request.getImageId(),null,action,requestUser))) {
+      throw new EucalyptusCloudException("Not authorized to deregister image");
     }
- else {
-      throw new EucalyptusCloudException("Only the owner of a registered image or the administrator can deregister it.");
-    }
+    Images.deregisterImage(imgInfo.getDisplayName());
     return reply;
   }
  catch (  NoSuchImageException ex) {
@@ -20,5 +22,8 @@ catch (  NoSuchElementException ex) {
     LOG.trace(ex);
     reply.set_return(false);
     return reply;
+  }
+ finally {
+    db.commit();
   }
 }
