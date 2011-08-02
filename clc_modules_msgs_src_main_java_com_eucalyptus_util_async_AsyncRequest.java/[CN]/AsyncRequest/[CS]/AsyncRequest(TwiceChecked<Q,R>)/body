@@ -4,14 +4,15 @@
   this.requestResult=new AsyncResponseFuture<R>();
   this.handler=new AsyncRequestHandler<Q,R>(this.requestResult);
   this.callbackSequence=new CallbackListenerSequence<R>();
-  this.callback=new TwiceChecked<Q,R>(){
+  this.cb=cb;
+  this.wrapperCallback=new TwiceChecked<Q,R>(){
     @Override public void fireException(    Throwable t){
       try {
         cb.fireException(t);
         AsyncRequest.this.result.setException(t);
       }
  catch (      Throwable ex) {
-        AsyncRequest.this.result.setException(ex);
+        AsyncRequest.this.result.setException(t);
         LOG.error(ex,ex);
       }
       try {
@@ -24,16 +25,16 @@
     @Override public void fire(    R r){
       try {
         if (Logs.EXTREME) {
-          LOG.debug(cb.getClass().getCanonicalName() + ".fire():\n" + r);
+          Logs.extreme().debug(cb.getClass().getCanonicalName() + ".fire():\n" + r);
         }
         cb.fire(r);
+        AsyncRequest.this.result.set(r);
         try {
-          AsyncRequest.this.result.set(r);
           AsyncRequest.this.callbackSequence.fire(r);
         }
  catch (        Throwable ex) {
-          AsyncRequest.this.result.setException(ex);
           LOG.error(ex,ex);
+          AsyncRequest.this.result.setException(ex);
         }
       }
  catch (      RuntimeException ex) {
@@ -42,16 +43,25 @@
         AsyncRequest.this.callbackSequence.fireException(ex);
       }
 catch (      Exception ex) {
+        LOG.error(ex,ex);
         AsyncRequest.this.result.setException(ex);
         AsyncRequest.this.callbackSequence.fireException(ex);
       }
     }
     @Override public void initialize(    Q request) throws Exception {
       if (Logs.EXTREME) {
-        LOG.debug(cb.getClass().getCanonicalName() + ".initialize():\n" + request);
+        Logs.extreme().debug(cb.getClass().getCanonicalName() + ".initialize():\n" + request);
+      }
+      try {
+        cb.initialize(request);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex,ex);
+        AsyncRequest.this.result.setException(ex);
+        AsyncRequest.this.callbackSequence.fireException(ex);
       }
     }
   }
 ;
-  Callbacks.addListenerHandler(requestResult,this.callback);
+  Callbacks.addListenerHandler(requestResult,this.wrapperCallback);
 }

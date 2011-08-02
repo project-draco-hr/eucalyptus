@@ -1,13 +1,25 @@
 {
-  CheckedListenableFuture<R> ret=this.execute(serviceConfig).getResponse();
   try {
-    ret.get();
+    serviceConfig.lookupService().enqueue(this);
+    return this.getResponse();
   }
- catch (  ExecutionException ex) {
-    LOG.error(ex,ex);
+ catch (  Exception ex1) {
+    Future<CheckedListenableFuture<R>> res=Threads.lookup(Empyrean.class,AsyncRequest.class,serviceConfig.getFullName().toString()).limitTo(NUM_WORKERS).submit(new Callable<CheckedListenableFuture<R>>(){
+      @Override public CheckedListenableFuture<R> call() throws Exception {
+        return AsyncRequest.this.execute(serviceConfig).getResponse();
+      }
+    }
+);
+    try {
+      res.get().get();
+    }
+ catch (    ExecutionException ex) {
+      LOG.error(ex,ex);
+    }
+catch (    InterruptedException ex) {
+      Thread.currentThread().interrupt();
+      LOG.error(ex,ex);
+    }
+    return this.getResponse();
   }
-catch (  InterruptedException ex) {
-    LOG.error(ex,ex);
-  }
-  return ret;
 }

@@ -1,15 +1,18 @@
 {
-  if (!State.NOTREADY.equals(config.lookupState()) && !State.DISABLED.equals(config.lookupState())) {
-    Callable<CheckedListenableFuture<ServiceConfiguration>> transition=Automata.sequenceTransitions(config,Component.State.INITIALIZED,Component.State.LOADED,Component.State.NOTREADY,Component.State.DISABLED);
-    try {
-      return transition.call();
+  Callable<CheckedListenableFuture<ServiceConfiguration>> transition=null;
+  if (!State.NOTREADY.equals(config.lookupState()) && !State.DISABLED.equals(config.lookupState()) && !State.ENABLED.equals(config.lookupState())) {
+    if (State.STOPPED.isIn(config)) {
+      transition=Automata.sequenceTransitions(config,Component.State.INITIALIZED,Component.State.LOADED,Component.State.NOTREADY,Component.State.DISABLED);
     }
- catch (    Exception ex) {
-      LOG.error(ex,ex);
-      throw new RuntimeException(ex);
+ else     if (State.INITIALIZED.isIn(config)) {
+      transition=Automata.sequenceTransitions(config,Component.State.LOADED,Component.State.NOTREADY,Component.State.DISABLED);
     }
-  }
+ else     if (State.BROKEN.isIn(config)) {
+      transition=Automata.sequenceTransitions(config,Component.State.BROKEN,Component.State.INITIALIZED,Component.State.LOADED,Component.State.NOTREADY,Component.State.DISABLED);
+    }
  else {
-    return Futures.predestinedFuture(config);
+      transition=Automata.sequenceTransitions(config,config.lookupState(),Component.State.NOTREADY,Component.State.DISABLED);
+    }
   }
+  return executeTransition(config,transition);
 }
