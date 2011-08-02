@@ -3,7 +3,7 @@
     String instanceUuid=runVm.getUuid();
     String instanceId=runVm.getInstanceId();
     String reservationId=runVm.getReservationId();
-    UserFullName ownerId=UserFullName.getInstance(runVm.getOwnerId());
+    final UserFullName ownerId=UserFullName.getInstance(runVm.getOwnerId());
     String placement=cluster;
     byte[] userData=new byte[0];
     if (runVm.getUserData() != null && runVm.getUserData().length() > 1) {
@@ -38,39 +38,19 @@
       key=KeyPairs.noKey();
     }
     VmType vmType=VmTypes.getVmType(runVm.getInstanceType().getName());
-    List<Network> networks=new ArrayList<Network>();
-    for (    String netName : runVm.getGroupNames()) {
-      Network notwork=null;
-      try {
-        notwork=Networks.getInstance().lookup(runVm.getOwnerId() + "-" + netName);
-        networks.add(notwork);
+    List<NetworkRulesGroup> networks=Lists.transform(runVm.getGroupNames(),new Function<String,NetworkRulesGroup>(){
+      @Override public NetworkRulesGroup apply(      String arg0){
         try {
-          NetworkToken netToken=Clusters.getInstance().lookup(runVm.getPlacement()).getState().extantAllocation(runVm.getOwnerId(),netName,notwork.getUuid(),runVm.getNetParams().getVlan());
-          notwork.addTokenIfAbsent(netToken);
+          return NetworkGroups.lookup(ownerId,arg0);
         }
- catch (        NetworkAlreadyExistsException e) {
-          LOG.trace(e);
-        }
-        notwork.extantNetworkIndex(runVm.getPlacement(),runVm.getNetParams().getNetworkIndex());
-      }
- catch (      NoSuchElementException e1) {
-        try {
-          try {
-            notwork=NetworkGroupUtil.getUserNetworkRulesGroup(UserFullName.getInstance(runVm.getOwnerId()),netName).getVmNetwork();
-          }
- catch (          Exception e) {
-            notwork=NetworkGroupUtil.getUserNetworkRulesGroup(UserFullName.getInstance(runVm.getOwnerId()),"default").getVmNetwork();
-          }
-          networks.add(notwork);
-          NetworkToken netToken=Clusters.getInstance().lookup(runVm.getPlacement()).getState().extantAllocation(runVm.getOwnerId(),netName,notwork.getUuid(),runVm.getNetParams().getVlan());
-          notwork.addTokenIfAbsent(netToken);
-          Networks.getInstance().registerIfAbsent(notwork,Networks.State.ACTIVE);
-        }
- catch (        NetworkAlreadyExistsException e) {
-          LOG.trace(e);
+ catch (        NoSuchMetadataException ex) {
+          LOG.error(ex);
+          Logs.extreme().error(ex,ex);
+          throw new RuntimeException("Failed to find information for group owned by: " + ownerId + " which is called "+ arg0);
         }
       }
     }
+);
     VmInstance vm=new VmInstance(ownerId,instanceId,instanceUuid,reservationId,launchIndex,placement,userData,runVm.getInstanceType(),key,vmType,img.getPlatform().toString(),networks,Integer.toString(runVm.getNetParams().getNetworkIndex()));
     vm.clearPending();
     vm.updatePublicAddress(VmInstance.DEFAULT_IP);
