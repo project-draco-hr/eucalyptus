@@ -1,10 +1,14 @@
 {
   ResetImageAttributeResponseType reply=(ResetImageAttributeResponseType)request.getReply();
   reply.set_return(true);
+  final Context ctx=Contexts.lookup();
+  final String requestAccountId=ctx.getUserFullName().getAccountNumber();
+  final User requestUser=ctx.getUser();
+  final String action=PolicySpec.requestToAction(request);
   EntityWrapper<ImageInfo> db=EntityWrapper.get(ImageInfo.class);
   try {
     ImageInfo imgInfo=db.getUnique(Images.exampleWithImageId(request.getImageId()));
-    if (Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_IMAGE,request.getImageId(),imgInfo.getOwner())) {
+    if (ctx.hasAdministrativePrivileges() || (imgInfo.getOwnerAccountId().equals(requestAccountId) && Permissions.isAuthorized(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_IMAGE,request.getImageId(),null,action,requestUser))) {
       imgInfo.resetPermission();
       db.commit();
     }
@@ -14,6 +18,7 @@
     }
   }
  catch (  EucalyptusCloudException e) {
+    LOG.error(e,e);
     db.rollback();
     reply.set_return(false);
   }
