@@ -1,20 +1,16 @@
 {
   Logs.extreme().error(e,e);
   if (e instanceof RuntimeException) {
-    for (    Class<?> p : Classes.classAncestors(e)) {
+    final ErrorCategory category=PersistenceErrorFilter.classify(e);
+    final RuntimeException up=category.handleException((RuntimeException)e);
+    if (!category.isRecoverable()) {
+      throw up;
     }
-    Class<? extends Throwable> type=e.getClass();
-    for (Class<? extends Throwable> t=type; t.getSuperclass() != null && t.getSuperclass() != Exception.class; t=(Class<? extends Throwable>)t.getSuperclass()) {
-      if (errorCategorization.containsValue(t)) {
-        for (        ErrorCategory category : ErrorCategory.values()) {
-          errorCategorization.get(category).contains(type);
-          throw category.handleException((RuntimeException)e);
-        }
-      }
+ else {
+      return new RecoverablePersistenceException("Error during transaction: " + Joiner.on('\n').join(Exceptions.causes(e)),e);
     }
-    return new RecoverablePersistenceException(ErrorCategory.RUNTIME.handleException(new PersistenceException("Unclassified error occurred: " + e.getMessage(),e)));
   }
  else {
-    return new RecoverablePersistenceException(ErrorCategory.APPLICATION.handleException(new PersistenceException("Unclassified error occurred: " + e.getMessage(),e)));
+    throw ErrorCategory.APPLICATION.handleException(new PersistenceException("Error during transaction: " + e.getMessage(),e));
   }
 }
