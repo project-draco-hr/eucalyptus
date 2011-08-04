@@ -6,17 +6,20 @@
     return true;
   }
  else {
-    LOG.debug("Potential replay attack is detected [" + e + "]");
+    LOG.debug("Use of the same signature is detected: " + e);
     Long now=System.nanoTime();
-    Long adjust=TimeUnit.NANOSECONDS.convert(3,TimeUnit.SECONDS);
-    Long timeNanos=now - adjust;
-    TimestampedElement fakeElem=new TimestampedElement(e,timeNanos);
+    Long adjust=TimeUnit.NANOSECONDS.convert(StackConfiguration.REPLAY_SKEW_WINDOW_SEC,TimeUnit.SECONDS);
+    if (adjust <= 0) {
+      return false;
+    }
+    Long timeNanosAdj=now - adjust;
+    TimestampedElement fakeElem=new TimestampedElement(e,timeNanosAdj);
     NavigableSet<TimestampedElement> elems=this.timestamps.tailSet(fakeElem,true);
     for (Iterator<TimestampedElement> iter=elems.iterator(); iter.hasNext(); ) {
       TimestampedElement elem=iter.next();
       E sig=elem.get();
       if (e.equals(sig)) {
-        LOG.debug("Found elem with signature " + sig + " with time "+ elem.timeNanos+ " <= "+ timeNanos);
+        LOG.debug("Found elem with signature " + sig + " within allowed "+ StackConfiguration.REPLAY_SKEW_WINDOW_SEC+ " sec window ");
         return true;
       }
     }
