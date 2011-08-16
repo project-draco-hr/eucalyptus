@@ -1,20 +1,24 @@
 {
+  PersistentResource<T,R> input=Entities.get(this.getClass()).getByNaturalId(this);
   try {
-    return Transactions.naturalId((T)this,new Callback<T>(){
-      @Override public void fire(      T input){
-        if (!preconditionState.equals(input.getState())) {
-          throw new RuntimeException("Error allocating resource " + PersistentResource.this.getClass().getSimpleName() + " with id "+ PersistentResource.this.getDisplayName()+ " as the state is not "+ preconditionState.name()+ " (currently "+ PersistentResource.this.getState()+ ").");
-        }
- else {
-          PersistentResource.this.setReferer(referer);
-          PersistentResource.this.setState(finalState);
-        }
-      }
+    if (!preconditionState.equals(input.getState())) {
+      throw new RuntimeException("Error allocating resource " + PersistentResource.this.getClass().getSimpleName() + " with id "+ this.getDisplayName()+ " as the state is not "+ preconditionState.name()+ " (currently "+ this.getState()+ ").");
     }
-);
+ else {
+      this.setReferer(referer);
+      this.setState(finalState);
+    }
+    Entities.get(this.getClass()).commit();
+    return input.get();
   }
- catch (  TransactionException ex) {
+ catch (  Exception ex) {
     Logs.extreme().error(ex,ex);
-    throw new ResourceAllocationException(ex);
+    LOG.error(ex);
+    try {
+      Entities.get(this.getClass()).rollback();
+    }
+  finally {
+      throw new ResourceAllocationException(ex);
+    }
   }
 }

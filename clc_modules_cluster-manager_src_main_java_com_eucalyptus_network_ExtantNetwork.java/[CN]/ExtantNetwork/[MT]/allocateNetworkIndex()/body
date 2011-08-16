@@ -1,31 +1,25 @@
 {
+  EntityWrapper<ExtantNetwork> db=Entities.get(ExtantNetwork.class);
+  ExtantNetwork exNet=this;
   try {
-    Transactions.one(this,new Callback<ExtantNetwork>(){
-      @Override public void fire(      final ExtantNetwork input){
-        if (input.getIndexes().isEmpty()) {
-          input.populateIndexes();
-        }
-      }
+    exNet=db.getUnique(this);
+    if (exNet.getIndexes().isEmpty()) {
+      this.initNetworkIndexes(exNet);
+      db.commit();
+      db=Entities.get(ExtantNetwork.class);
     }
-);
-    return Transactions.transformOne(this,new Function<ExtantNetwork,SetReference<PrivateNetworkIndex,VmInstance>>(){
-      @Override public SetReference<PrivateNetworkIndex,VmInstance> apply(      final ExtantNetwork input){
-        for (        final PrivateNetworkIndex idx : input.getIndexes()) {
-          if (ResourceAllocation.State.FREE.equals(idx.getState())) {
-            try {
-              return idx.allocate();
-            }
- catch (            final ResourceAllocationException ex) {
-              LOG.error(ex,ex);
-            }
-          }
-        }
-        throw new UndeclaredThrowableException(new NoSuchElementException("Failed to locate a free network index."));
-      }
-    }
-);
+    exNet=db.getUnique(this);
+    SetReference<PrivateNetworkIndex,VmInstance> next=PrivateNetworkIndex.allocateNext(exNet);
+    return next;
   }
- catch (  final TransactionException ex) {
-    throw ex;
+ catch (  EucalyptusCloudException ex) {
+    Logs.extreme().error(ex,ex);
+    db.rollback();
+    throw new TransactionExecutionException(ex);
+  }
+catch (  ResourceAllocationException ex) {
+    Logs.extreme().error(ex,ex);
+    db.rollback();
+    throw new TransactionExecutionException(ex);
   }
 }
