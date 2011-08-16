@@ -1,5 +1,5 @@
 {
-  long quantity=getVmAllocationNumber(allocInfo);
+  long quantity=allocInfo.getAllocationTokens().size();
   Context ctx=allocInfo.getContext();
   User requestUser=ctx.getUser();
   UserFullName userFullName=ctx.getUserFullName();
@@ -14,36 +14,18 @@
   String reservationId=VmInstances.getId(allocInfo.getReservationIndex(),-1).replaceAll("i-","r-");
   int vmIndex=0;
   for (  ResourceToken token : allocInfo.getAllocationTokens()) {
-    if (Clusters.getInstance().hasNetworking()) {
-      for (      SetReference<PrivateNetworkIndex,VmInstance> networkIndex : token.getPrimaryNetwork().getIndexes()) {
-        try {
-          VmInstance vmInst=getVmInstance(userFullName,allocInfo,reservationId,token,vmIndex++,networkIndex.get());
-          VmInstances.getInstance().register(vmInst);
-          try {
-            Transactions.save(vmInst);
-          }
- catch (          ExecutionException ex) {
-            LOG.error(ex,ex);
-          }
-          token.getInstanceIds().add(vmInst.getInstanceId());
-        }
- catch (        TransactionException ex) {
-          LOG.error(ex,ex);
-        }
+    try {
+      VmInstance vmInst=makeVmInstance(token);
+      VmInstances.getInstance().register(vmInst);
+      try {
+        Transactions.save(vmInst);
+      }
+ catch (      ExecutionException ex) {
+        LOG.error(ex,ex);
       }
     }
- else {
-      for (int i=0; i < token.getAmount(); i++) {
-        VmInstance vmInst=getVmInstance(userFullName,allocInfo,reservationId,token,vmIndex++,PrivateNetworkIndex.bogus());
-        VmInstances.getInstance().register(vmInst);
-        try {
-          Transactions.save(vmInst);
-        }
- catch (        ExecutionException ex) {
-          LOG.error(ex,ex);
-        }
-        token.getInstanceIds().add(vmInst.getInstanceId());
-      }
+ catch (    TransactionException ex) {
+      LOG.error(ex,ex);
     }
   }
   return allocInfo;

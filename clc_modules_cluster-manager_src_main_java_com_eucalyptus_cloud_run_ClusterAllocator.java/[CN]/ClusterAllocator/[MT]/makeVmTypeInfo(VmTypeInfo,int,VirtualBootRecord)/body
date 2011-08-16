@@ -1,0 +1,35 @@
+{
+  VmTypeInfo childVmInfo=vmInfo;
+  if (root.isBlockStorage()) {
+    childVmInfo=vmInfo.child();
+    final Volume vol=this.allocInfo.getPersistentVolumes().get(index);
+    final Dispatcher sc=ServiceDispatcher.lookup(Partitions.lookupService(Storage.class,vol.getPartition()));
+    for (int i=0; i < 60; i++) {
+      try {
+        final DescribeStorageVolumesResponseType volState=sc.send(new DescribeStorageVolumesType(Lists.newArrayList(vol.getDisplayName())));
+        if ("available".equals(volState.getVolumeSet().get(0).getStatus())) {
+          break;
+        }
+ else {
+          TimeUnit.SECONDS.sleep(1);
+        }
+      }
+ catch (      final InterruptedException ex) {
+        Thread.currentThread().interrupt();
+      }
+catch (      final Exception ex) {
+        LOG.error(ex,ex);
+      }
+    }
+    for (    final String nodeTag : this.cluster.getNodeTags()) {
+      try {
+        final AttachStorageVolumeResponseType scAttachResponse=sc.send(new AttachStorageVolumeType(this.cluster.getNode(nodeTag).getIqn(),vol.getDisplayName()));
+        childVmInfo.lookupRoot().setResourceLocation(scAttachResponse.getRemoteDeviceString());
+      }
+ catch (      final Exception ex) {
+        LOG.error(ex,ex);
+      }
+    }
+  }
+  return childVmInfo;
+}

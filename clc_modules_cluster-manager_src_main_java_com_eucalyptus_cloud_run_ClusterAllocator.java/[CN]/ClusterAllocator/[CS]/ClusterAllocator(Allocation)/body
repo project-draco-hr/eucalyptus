@@ -1,0 +1,28 @@
+{
+  this.allocInfo=allocInfo;
+  try {
+    this.cluster=Clusters.lookup(allocInfo.getPartition());
+    this.messages=new StatefulMessageSet<State>(this.cluster,State.values());
+    this.setupVolumeMessages();
+    for (    final NetworkGroup network : allocInfo.getNetworkGroups()) {
+      this.setupNetworkMessages(network);
+    }
+    for (    final ResourceToken token : allocInfo.getAllocationTokens()) {
+      this.setupVmMessages(token);
+    }
+  }
+ catch (  final Exception e) {
+    LOG.debug(e,e);
+    this.allocInfo.abort();
+    for (    final ResourceToken token : allocInfo.getAllocationTokens()) {
+      try {
+        final VmInstance vm=VmInstances.getInstance().lookup(token.getInstanceId());
+        vm.setState(VmState.TERMINATED,Reason.FAILED,e.getMessage());
+        VmInstances.getInstance().disable(token.getInstanceId());
+      }
+ catch (      final Exception e1) {
+        LOG.debug(e1,e1);
+      }
+    }
+  }
+}
