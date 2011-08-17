@@ -1,18 +1,29 @@
 {
+  checkTransaction();
   assertThat(search,notNullValue());
   assertThat(precondition,notNullValue());
   EntityWrapper<T> db=Transactions.get(search);
   try {
     T entity=db.getUnique(search);
-    if (precondition.apply(entity)) {
-      db.delete(entity);
-      return true;
-    }
+    try {
+      if (precondition.apply(entity)) {
+        db.delete(entity);
+        return true;
+      }
  else {
-      return false;
+        return false;
+      }
+    }
+ catch (    Exception ex) {
+      throw new TransactionCallbackException(ex);
     }
   }
- catch (  Throwable t) {
+ catch (  TransactionCallbackException e) {
+    db.rollback();
+    Logs.extreme().error(e,e);
+    throw e;
+  }
+catch (  Throwable t) {
     db.rollback();
     throw Transactions.transformException(t);
   }

@@ -1,24 +1,36 @@
 {
+  checkTransaction();
   assertThat(search,notNullValue());
   assertThat(c,notNullValue());
   EntityWrapper<T> db=Transactions.get(search);
   try {
     List<T> res=db.query(search);
     for (    T t : res) {
-      c.fire(t);
+      try {
+        c.fire(t);
+      }
+ catch (      Exception ex) {
+        throw new TransactionCallbackException(ex);
+      }
     }
     return res;
   }
- catch (  UndeclaredThrowableException e) {
+ catch (  TransactionCallbackException e) {
     db.rollback();
-    LOG.error(e,e);
+    Logs.extreme().error(e,e);
+    throw e;
+  }
+catch (  UndeclaredThrowableException e) {
+    db.rollback();
+    Logs.extreme().error(e,e);
+    throw e;
   }
 catch (  Throwable e) {
     db.rollback();
-    LOG.error(e,e);
+    Logs.extreme().error(e,e);
+    throw new TransactionInternalException(e);
   }
  finally {
     pop();
   }
-  return Lists.newArrayList();
 }
