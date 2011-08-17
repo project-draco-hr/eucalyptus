@@ -4,37 +4,18 @@
   }
  else   if (this.extantNetwork == null) {
     ExtantNetwork exNet=null;
-    for (int i=NetworkGroups.networkingConfiguration().getMinNetworkTag(); i < NetworkGroups.networkingConfiguration().getMaxNetworkTag(); i++) {
-      final EntityWrapper<NetworkGroup> db=EntityWrapper.get(NetworkGroup.class);
+    final EntityWrapper<NetworkGroup> db=Entities.get(NetworkGroup.class);
+    for (    Integer i : NetworkGroups.shuffled(NetworkGroups.networkTagInterval())) {
       try {
-        final NetworkGroup net=db.getUnique(this);
-        try {
-          db.recast(ExtantNetwork.class).getUnique(ExtantNetwork.named(i));
-        }
- catch (        final Exception ex) {
-          try {
-            exNet=db.recast(ExtantNetwork.class).add(ExtantNetwork.create(net,i));
-            db.commit();
-            this.extantNetwork=exNet;
-            break;
-          }
- catch (          final Exception ex1) {
-            exNet=null;
-            continue;
-          }
-        }
+        db.uniqueResult(ExtantNetwork.named(i));
       }
- catch (      final Exception ex) {
-        LOG.error("Failed to add extant network: " + this.extantNetwork + " due to: "+ ex.getMessage());
-        Logs.extreme().error("Failed to add extant network: " + this.extantNetwork + " due to: "+ ex.getMessage(),ex);
+ catch (      TransactionException ex) {
+        exNet=db.persist(ExtantNetwork.create(this,i));
+        db.commit();
+        return exNet;
       }
     }
-    if (exNet == null) {
-      throw new NotEnoughResourcesAvailable("Failed to add extant network: " + this.extantNetwork + " due to: no network tags are free.");
-    }
- else {
-      return exNet;
-    }
+    throw new NotEnoughResourcesAvailable("Failed to add extant network: " + this.extantNetwork + " due to: no network tags are free.");
   }
  else {
     return this.getExtantNetwork();
