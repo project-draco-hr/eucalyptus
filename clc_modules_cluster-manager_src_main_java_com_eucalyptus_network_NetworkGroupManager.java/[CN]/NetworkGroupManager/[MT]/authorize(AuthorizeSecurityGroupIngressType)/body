@@ -2,7 +2,6 @@
   Context ctx=Contexts.lookup();
   NetworkGroups.createDefault(ctx.getUserFullName());
   AuthorizeSecurityGroupIngressResponseType reply=(AuthorizeSecurityGroupIngressResponseType)request.getReply();
-  EntityWrapper<NetworkGroup> db=Entities.get(NetworkGroup.class);
   NetworkGroup ruleGroup=NetworkGroupUtil.getUserNetworkRulesGroup(ctx.getUserFullName(),request.getGroupName());
   if (!ctx.hasAdministrativePrivileges() && !Permissions.isAuthorized(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_SECURITYGROUP,request.getGroupName(),ctx.getAccount(),PolicySpec.requestToAction(request),ctx.getUser())) {
     throw new EucalyptusCloudException("Not authorized to authorize network group " + request.getGroupName() + " for "+ ctx.getUser());
@@ -15,7 +14,6 @@
  catch (    IllegalArgumentException ex) {
       LOG.error(ex.getMessage());
       reply.set_return(false);
-      db.rollback();
       return reply;
     }
   }
@@ -31,12 +29,12 @@
   }
 )) {
     reply.set_return(false);
-    db.rollback();
     return reply;
   }
-  ruleGroup.getNetworkRules().addAll(ruleList);
-  db.merge(ruleGroup);
-  db.commit();
-  reply.set_return(true);
+ else {
+    ruleGroup.getNetworkRules().addAll(ruleList);
+    EntityWrapper.get(ruleGroup).mergeAndCommit(ruleGroup);
+    reply.set_return(true);
+  }
   return reply;
 }
