@@ -1,28 +1,24 @@
 {
   EntityTransaction db=Entities.get(ExtantNetwork.class);
-  ExtantNetwork exNet=this;
-  try {
-    exNet=Entities.uniqueResult(this);
-    if (exNet.getIndexes().isEmpty()) {
-      this.initNetworkIndexes(exNet);
+  SetReference<PrivateNetworkIndex,VmInstance> ref=null;
+  if (this.getIndexes().isEmpty()) {
+    this.initNetworkIndexes();
+  }
+  for (  PrivateNetworkIndex idx : Iterables.filter(this.getIndexes(),PrivateNetworkIndex.filterFree())) {
+    try {
+      ref=idx.allocate();
+      break;
     }
-    SetReference<PrivateNetworkIndex,VmInstance> next=PrivateNetworkIndex.allocateNext(exNet);
+ catch (    Exception ex1) {
+      continue;
+    }
+  }
+  if (ref != null) {
     db.commit();
-    return next;
+    return ref;
   }
- catch (  TransactionException ex) {
-    LOG.trace(ex,ex);
+ else {
     db.rollback();
-    throw ex;
-  }
-catch (  ResourceAllocationException ex) {
-    LOG.trace(ex,ex);
-    db.rollback();
-    throw new TransactionExecutionException(ex);
-  }
-catch (  Exception ex) {
-    LOG.trace(ex,ex);
-    db.rollback();
-    throw new TransactionExecutionException(ex);
+    throw new TransactionExecutionException("Failed to allocate a private network index in network: " + this.displayName);
   }
 }
