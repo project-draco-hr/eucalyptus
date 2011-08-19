@@ -1,25 +1,27 @@
 {
-  EntityWrapper<ExtantNetwork> db=EntityWrapper.get(ExtantNetwork.class);
+  EntityTransaction db=Entities.get(ExtantNetwork.class);
   ExtantNetwork exNet=this;
   try {
-    exNet=db.getUnique(this);
+    exNet=Entities.uniqueResult(this);
     if (exNet.getIndexes().isEmpty()) {
       this.initNetworkIndexes(exNet);
-      db=EntityWrapper.get(ExtantNetwork.class);
     }
-    exNet=db.getUnique(this);
     SetReference<PrivateNetworkIndex,VmInstance> next=PrivateNetworkIndex.allocateNext(exNet);
+    db.commit();
     return next;
   }
- catch (  EucalyptusCloudException ex) {
-    Logs.extreme().error(ex,ex);
-    LOG.debug(ex);
+ catch (  TransactionException ex) {
+    LOG.trace(ex,ex);
+    db.rollback();
+    throw ex;
+  }
+catch (  ResourceAllocationException ex) {
+    LOG.trace(ex,ex);
     db.rollback();
     throw new TransactionExecutionException(ex);
   }
-catch (  ResourceAllocationException ex) {
-    Logs.extreme().error(ex,ex);
-    LOG.debug(ex);
+catch (  Exception ex) {
+    LOG.trace(ex,ex);
     db.rollback();
     throw new TransactionExecutionException(ex);
   }
