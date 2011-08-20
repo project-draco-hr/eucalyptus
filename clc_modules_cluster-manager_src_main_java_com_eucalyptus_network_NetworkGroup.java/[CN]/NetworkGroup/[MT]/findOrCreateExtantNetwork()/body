@@ -1,23 +1,30 @@
 {
   EntityTransaction db=Entities.get(NetworkGroup.class);
-  NetworkGroup ngNet=Entities.merge(this);
-  ExtantNetwork exNet=null;
   try {
-    exNet=ngNet.lookupExtantNetwork();
+    NetworkGroup ngNet=Entities.merge(this);
+    ExtantNetwork exNet=null;
+    try {
+      exNet=ngNet.lookupExtantNetwork();
+    }
+ catch (    Exception ex) {
+      Logs.extreme().error(ex,ex);
+    }
+    if (exNet == null) {
+      int tag=ngNet.attemptNetworkTagging();
+      exNet=ExtantNetwork.create(ngNet,tag);
+      ngNet.setExtantNetwork(exNet);
+      Entities.persist(exNet);
+      Entities.merge(ngNet);
+      db.commit();
+      return exNet;
+    }
+ else {
+      db.commit();
+      return exNet;
+    }
   }
  catch (  Exception ex) {
-    Logs.extreme().error(ex,ex);
-  }
-  if (exNet == null) {
-    exNet=ngNet.attemptNetworkTagging();
-  }
-  if (exNet != null) {
-    Entities.persist(exNet);
-    this.setExtantNetwork(exNet);
-    Entities.merge(ngNet);
-    return exNet;
-  }
- else {
-    throw new NotEnoughResourcesException("Cannot has.");
+    db.rollback();
+    throw new NotEnoughResourcesException("Cannot has: " + ex.getMessage(),ex);
   }
 }
