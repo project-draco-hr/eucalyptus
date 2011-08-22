@@ -2,22 +2,18 @@
   if (!NetworkGroups.networkingConfiguration().hasNetworking()) {
     return ExtantNetwork.bogus(this);
   }
+ else   if (!Entities.isPersistent(this)) {
+    throw new TransientEntityException(this.toString());
+  }
  else {
-    final EntityTransaction db=Entities.get(NetworkGroup.class);
-    try {
-      NetworkGroup net=Entities.merge(this);
-      ExtantNetwork exNet=net.getExtantNetwork();
-      if (net.getExtantNetwork() == null) {
-        exNet=net.findOrCreateExtantNetwork();
-      }
-      Entities.merge(net);
-      db.commit();
-      return exNet;
+    ExtantNetwork exNet=this.getExtantNetwork();
+    if (exNet == null) {
+      int tag=this.attemptNetworkTagging();
+      exNet=ExtantNetwork.create(this,tag);
+      Entities.persist(exNet);
+      this.setExtantNetwork(exNet);
     }
- catch (    Exception ex) {
-      db.rollback();
-      Logs.exhaust().trace(ex,ex);
-      throw new NotEnoughResourcesException(ex);
-    }
+    Entities.merge(this);
+    return this.getExtantNetwork();
   }
 }
