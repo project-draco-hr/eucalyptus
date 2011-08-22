@@ -3,39 +3,38 @@
   SetReference<PrivateNetworkIndex,VmInstance> ref=null;
   try {
     ExtantNetwork exNet=Entities.merge(this);
-    for (    PrivateNetworkIndex idx : Iterables.filter(exNet.getIndexes(),PrivateNetworkIndex.filterFree())) {
+    PrivateNetworkIndex netIdx=null;
+    for (    Long i : Numbers.shuffled(NetworkGroups.networkIndexInterval())) {
       try {
-        ref=idx.allocate();
-        break;
-      }
- catch (      Exception ex1) {
+        Entities.uniqueResult(PrivateNetworkIndex.create(this,i));
         continue;
       }
-    }
-    if (exNet.getIndexes().isEmpty()) {
-      for (long i=NetworkGroups.networkingConfiguration().getMinNetworkIndex(); i < NetworkGroups.networkingConfiguration().getMaxNetworkIndex(); i++) {
-        PrivateNetworkIndex newIdx=PrivateNetworkIndex.create(exNet,i);
-        exNet.getIndexes().add(newIdx);
-        PrivateNetworkIndex netIdx=Entities.persist(newIdx);
+ catch (      Exception ex) {
+        try {
+          netIdx=PrivateNetworkIndex.create(exNet,i);
+          exNet.getIndexes().add(netIdx);
+          netIdx=Entities.persist(netIdx);
+          exNet=Entities.merge(exNet);
+          break;
+        }
+ catch (        Exception ex1) {
+          continue;
+        }
       }
-      Entities.merge(exNet);
     }
-    for (    PrivateNetworkIndex idx : Iterables.filter(exNet.getIndexes(),PrivateNetworkIndex.filterFree())) {
+    if (netIdx != null) {
       try {
-        ref=idx.allocate();
-        break;
+        ref=netIdx.allocate();
+        Entities.merge(this);
+        db.commit();
+        return ref;
       }
  catch (      Exception ex1) {
-        continue;
+        db.rollback();
+        throw new TransactionExecutionException("Failed to allocate a private network index in network: " + this.displayName);
       }
-    }
-    Entities.merge(this);
-    if (ref != null) {
-      db.commit();
-      return ref;
     }
  else {
-      db.rollback();
       throw new TransactionExecutionException("Failed to allocate a private network index in network: " + this.displayName);
     }
   }
