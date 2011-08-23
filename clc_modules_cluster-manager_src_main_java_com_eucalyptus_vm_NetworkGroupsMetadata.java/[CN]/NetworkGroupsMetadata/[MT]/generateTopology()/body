@@ -1,0 +1,32 @@
+{
+  StringBuilder buf=new StringBuilder();
+  Multimap<String,String> networks=ArrayListMultimap.create();
+  Multimap<String,String> rules=ArrayListMultimap.create();
+  EntityTransaction db=Entities.get(VmInstance.class);
+  try {
+    for (    VmInstance vm : VmInstances.listValues()) {
+      if (VmState.RUNNING.ordinal() < vm.getState().ordinal())       continue;
+      for (      NetworkGroup ruleGroup : vm.getNetworkRulesGroups()) {
+        networks.put(ruleGroup.getNaturalId(),vm.getPrivateAddress());
+        if (!rules.containsKey(ruleGroup.getNaturalId())) {
+          for (          NetworkRule netRule : ruleGroup.getNetworkRules()) {
+            String rule=String.format("-P %s -%s %d%s%d ",netRule.getProtocol(),("icmp".equals(netRule.getProtocol()) ? "t" : "p"),netRule.getLowPort(),("icmp".equals(netRule.getProtocol()) ? ":" : "-"),netRule.getHighPort());
+            for (            NetworkPeer peer : netRule.getNetworkPeers()) {
+              rules.put(ruleGroup.getName(),String.format("%s -o %s -u %s",rule,peer.getGroupName(),peer.getUserQueryKey()));
+            }
+            for (            IpRange cidr : netRule.getIpRanges()) {
+              rules.put(ruleGroup.getName(),String.format("%s -s %s",rule,cidr.getValue()));
+            }
+          }
+        }
+      }
+    }
+    buf.append(rulesToString(rules));
+    buf.append(groupsToString(networks));
+    db.commit();
+  }
+ catch (  Exception ex) {
+    db.rollback();
+  }
+  return buf;
+}
