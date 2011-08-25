@@ -3,7 +3,7 @@
     try {
       return PrivateNetworkIndex.bogus().allocate();
     }
- catch (    ResourceAllocationException ex) {
+ catch (    final ResourceAllocationException ex) {
       throw new RuntimeException("BUG BUG BUG: failed to call PrivateNetworkIndex.allocate() on the .bogus() index.");
     }
   }
@@ -11,31 +11,30 @@
     throw new TransientEntityException(this.toString());
   }
  else {
-    SetReference<PrivateNetworkIndex,VmInstance> ref=null;
+    EntityTransaction db=Entities.get(PrivateNetworkIndex.class);
     try {
-      PrivateNetworkIndex netIdx=null;
-      for (      Long i : Numbers.shuffled(NetworkGroups.networkIndexInterval())) {
+      for (      final Long i : Numbers.shuffled(NetworkGroups.networkIndexInterval())) {
         try {
           Entities.uniqueResult(PrivateNetworkIndex.named(this,i));
           continue;
         }
- catch (        Exception ex) {
+ catch (        final Exception ex) {
           try {
-            netIdx=PrivateNetworkIndex.create(this,i);
-            Entities.persist(netIdx);
-            return netIdx.allocate();
+            PrivateNetworkIndex netIdx=Entities.persist(PrivateNetworkIndex.create(this,i));
+            SetReference<PrivateNetworkIndex,VmInstance> ref=netIdx.allocate();
+            db.commit();
+            return ref;
           }
- catch (          Exception ex1) {
+ catch (          final Exception ex1) {
             continue;
           }
         }
       }
-      throw new TransactionExecutionException("Failed to allocate a private network index in network: " + this.displayName);
+      throw new NoSuchElementException();
     }
- catch (    TransactionException ex) {
-      throw ex;
-    }
-catch (    Exception ex) {
+ catch (    Exception ex) {
+      Logs.exhaust().error(ex,ex);
+      db.rollback();
       throw new TransactionExecutionException("Failed to allocate a private network index in network: " + this.displayName,ex);
     }
   }
