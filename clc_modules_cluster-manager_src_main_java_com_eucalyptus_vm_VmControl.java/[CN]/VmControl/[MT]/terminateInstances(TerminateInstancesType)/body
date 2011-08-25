@@ -6,14 +6,19 @@
     Iterables.all(request.getInstancesSet(),new Predicate<String>(){
       @Override public boolean apply(      final String instanceId){
         try {
-          final VmInstance v=VmInstances.lookup(instanceId);
-          if (RestrictedTypes.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_INSTANCE,instanceId,v.getOwner())) {
-            final int oldCode=v.getRuntimeState().getCode(), newCode=VmState.SHUTTING_DOWN.getCode();
-            final String oldState=v.getRuntimeState().getName(), newState=VmState.SHUTTING_DOWN.getName();
-            results.add(new TerminateInstancesItemType(v.getInstanceId(),oldCode,oldState,newCode,newState));
-            if (VmState.RUNNING.equals(v.getRuntimeState()) || VmState.PENDING.equals(v.getRuntimeState())) {
-              v.setState(VmState.SHUTTING_DOWN,Reason.USER_TERMINATED);
+          try {
+            VmInstance vm=RestrictedTypes.doPrivileged(instanceId,VmInstance.Lookup.INSTANCE);
+            final int oldCode=vm.getRuntimeState().getCode(), newCode=VmState.SHUTTING_DOWN.getCode();
+            final String oldState=vm.getRuntimeState().getName(), newState=VmState.SHUTTING_DOWN.getName();
+            if (VmState.RUNNING.equals(vm.getRuntimeState()) || VmState.PENDING.equals(vm.getRuntimeState())) {
+              vm.setState(VmState.SHUTTING_DOWN,Reason.USER_TERMINATED);
             }
+            results.add(new TerminateInstancesItemType(vm.getInstanceId(),oldCode,oldState,newCode,newState));
+          }
+ catch (          AuthException ex) {
+            LOG.error(ex);
+          }
+catch (          Exception ex) {
           }
           return true;
         }
