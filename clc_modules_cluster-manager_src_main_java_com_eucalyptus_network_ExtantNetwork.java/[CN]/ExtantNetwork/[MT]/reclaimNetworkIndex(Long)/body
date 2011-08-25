@@ -11,33 +11,43 @@
     throw new TransientEntityException(this.toString());
   }
  else {
-    SetReference<PrivateNetworkIndex,VmInstance> ref=null;
-    PrivateNetworkIndex netIdx=null;
+    EntityTransaction db=Entities.get(PrivateNetworkIndex.class);
     try {
-      netIdx=Entities.uniqueResult(PrivateNetworkIndex.named(this,idx));
-      if (Resource.State.FREE.equals(netIdx.getState())) {
-        return netIdx.allocate();
-      }
- else {
-        try {
-          netIdx.teardown();
-          return netIdx.allocate();
+      try {
+        PrivateNetworkIndex netIdx=Entities.uniqueResult(PrivateNetworkIndex.named(this,idx));
+        if (Resource.State.FREE.equals(netIdx.getState())) {
+          SetReference<PrivateNetworkIndex,VmInstance> ref=netIdx.allocate();
+          db.commit();
+          return ref;
         }
- catch (        Exception ex) {
-          LOG.error(ex,ex);
+ else {
+          try {
+            netIdx.teardown();
+          }
+ catch (          Exception ex) {
+            LOG.error(ex,ex);
+          }
+          SetReference<PrivateNetworkIndex,VmInstance> ref=netIdx.allocate();
+          db.commit();
+          return ref;
+        }
+      }
+ catch (      Exception ex) {
+        try {
+          PrivateNetworkIndex netIdx=PrivateNetworkIndex.create(this,idx);
+          Entities.persist(netIdx);
+          SetReference<PrivateNetworkIndex,VmInstance> ref=netIdx.allocate();
+          db.commit();
+          return ref;
+        }
+ catch (        Exception ex1) {
+          throw new TransactionExecutionException("Failed to allocate a private network index in network: " + this.displayName,ex1);
         }
       }
     }
  catch (    Exception ex) {
-      try {
-        netIdx=PrivateNetworkIndex.create(this,idx);
-        Entities.persist(netIdx);
-        this.getIndexes().add(netIdx);
-        return netIdx.allocate();
-      }
- catch (      Exception ex1) {
-        throw new TransactionExecutionException("Failed to allocate a private network index in network: " + this.displayName,ex1);
-      }
+      Logs.exhaust().error(ex,ex);
+      db.rollback();
     }
   }
 }
