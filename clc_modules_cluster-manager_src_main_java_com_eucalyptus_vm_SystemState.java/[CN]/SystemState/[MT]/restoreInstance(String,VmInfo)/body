@@ -1,4 +1,69 @@
 {
+  EntityTransaction db=Entities.get(VmInstance.class);
+  try {
+    final VmType vmType=VmTypes.getVmType(runVm.getInstanceType().getName());
+    final UserFullName userFullName=UserFullName.getInstance(runVm.getOwnerId());
+    Partition partition;
+    try {
+      partition=Partitions.lookupByName(runVm.getPlacement());
+    }
+ catch (    Exception ex2) {
+    }
+    @SuppressWarnings("deprecation") BootableSet bootSet=Emis.newBootableSet(vmType,partition,runVm.getImageId(),runVm.getKernelId(),runVm.getRamdiskId());
+    int launchIndex;
+    try {
+      launchIndex=Integer.parseInt(runVm.getLaunchIndex());
+    }
+ catch (    Exception ex1) {
+      launchIndex=1;
+    }
+    SshKeyPair keyPair;
+    try {
+      keyPair=KeyPairs.lookup(userFullName,runVm.getKeyValue());
+    }
+ catch (    Exception ex) {
+      LOG.error(ex,ex);
+    }
+    byte[] userData;
+    try {
+      userData=Base64.decode(runVm.getUserData());
+    }
+ catch (    Exception ex) {
+      LOG.error(ex,ex);
+    }
+    List<NetworkGroup> networks;
+    try {
+      networks=Lists.transform(runVm.getGroupNames(),transformNetworkNames(userFullName));
+    }
+ catch (    Exception ex) {
+      LOG.error(ex,ex);
+    }
+    SetReference<PrivateNetworkIndex,VmInstance> index;
+    ExtantNetwork exNet;
+    NetworkGroup network=(!networks.isEmpty() ? networks.get(0) : null);
+    if (network != null) {
+      if (!network.hasExtantNetwork()) {
+        exNet=network.reclaim(runVm.getNetParams().getVlan());
+      }
+ else {
+        exNet=network.extantNetwork();
+        if (!exNet.getTag().equals(runVm.getNetParams().getVlan())) {
+          exNet=null;
+        }
+ else {
+          index=exNet.reclaimNetworkIndex(runVm.getNetParams().getNetworkIndex());
+        }
+      }
+    }
+    VmInstance vmInst=new VmInstance.Builder().owner(userFullName).withIds(runVm.getInstanceId(),runVm.getReservationId()).bootRecord(bootSet,userData,keyPair,vmType).placement(partition,partition.getName()).networking(networks,index).build(launchIndex);
+    vmInst.setNaturalId(runVm.getUuid());
+    Entities.persist(vmInst);
+    db.commit();
+  }
+ catch (  Exception ex) {
+    Logs.exhaust().error(ex,ex);
+    db.rollback();
+  }
   try {
     String instanceUuid=runVm.getUuid();
     String instanceId=runVm.getInstanceId();
@@ -33,19 +98,9 @@
       key=KeyPairs.noKey();
     }
     VmType vmType=VmTypes.getVmType(runVm.getInstanceType().getName());
-    List<NetworkGroup> networks=Lists.transform(runVm.getGroupNames(),new Function<String,NetworkGroup>(){
-      @Override public NetworkGroup apply(      String arg0){
-        try {
-          return NetworkGroups.lookup(ownerId,arg0);
-        }
- catch (        MetadataException ex) {
-          LOG.error(ex);
-          Logs.extreme().error(ex,ex);
-          throw new RuntimeException("Failed to find information for group owned by: " + ownerId + " which is called "+ arg0);
-        }
-      }
-    }
-);
+    vm.clearPending();
+    vm.updatePublicAddress(VmInstance.DEFAULT_IP);
+    VmInstances.register(vm);
   }
  catch (  Exception t) {
     LOG.error(t,t);
