@@ -1,44 +1,24 @@
 {
-  long quantity=getVmAllocationNumber(allocInfo);
-  Context ctx=allocInfo.getContext();
-  User requestUser=ctx.getUser();
-  UserFullName userFullName=ctx.getUserFullName();
-  String action=PolicySpec.requestToAction(allocInfo.getRequest());
-  String vmType=allocInfo.getVmType().getName();
+  final long quantity=allocInfo.getAllocationTokens().size();
+  final Context ctx=allocInfo.getContext();
+  final User requestUser=ctx.getUser();
+  final UserFullName userFullName=ctx.getUserFullName();
+  final String action=PolicySpec.requestToAction(allocInfo.getRequest());
+  final String vmType=allocInfo.getVmType().getName();
   if (!Permissions.canAllocate(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_VMTYPE,vmType,action,requestUser,1L)) {
     throw new EucalyptusCloudException("Quota exceeded in allocating vm type " + vmType + " for "+ requestUser.getName());
   }
   if (!Permissions.canAllocate(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_INSTANCE,"",action,requestUser,quantity)) {
     throw new EucalyptusCloudException("Quota exceeded in allocating " + quantity + " vm instances for "+ requestUser.getName());
   }
-  String reservationId=VmInstances.getId(allocInfo.getReservationIndex(),-1).replaceAll("i-","r-");
-  int vmIndex=0;
-  for (  ResourceToken token : allocInfo.getAllocationTokens()) {
-    if (Clusters.getInstance().hasNetworking()) {
-      for (      Integer networkIndex : token.getPrimaryNetwork().getIndexes()) {
-        VmInstance vmInst=getVmInstance(userFullName,allocInfo,reservationId,token,vmIndex++,networkIndex);
-        VmInstances.getInstance().register(vmInst);
-        try {
-          Transactions.save(vmInst);
-        }
- catch (        Throwable ex) {
-          LOG.error(ex,ex);
-        }
-        token.getInstanceIds().add(vmInst.getInstanceId());
-      }
+  for (  final ResourceToken token : allocInfo.getAllocationTokens()) {
+    try {
+      VmInstance vmInst=VmInstance.Create.INSTANCE.apply(token);
+      token.setVmInstance(vmInst);
     }
- else {
-      for (int i=0; i < token.getAmount(); i++) {
-        VmInstance vmInst=getVmInstance(userFullName,allocInfo,reservationId,token,vmIndex++,-1);
-        VmInstances.getInstance().register(vmInst);
-        try {
-          Transactions.save(vmInst);
-        }
- catch (        ExecutionException ex) {
-          LOG.error(ex,ex);
-        }
-        token.getInstanceIds().add(vmInst.getInstanceId());
-      }
+ catch (    Exception ex) {
+      LOG.error(ex,ex);
+      throw new RuntimeException(ex);
     }
   }
   return allocInfo;

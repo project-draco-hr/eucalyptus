@@ -1,0 +1,27 @@
+{
+  this.startTime=System.currentTimeMillis();
+  this.txUuid=String.format("%s:%s",ctx,UUID.randomUUID().toString());
+  this.stopWatch=new StopWatch();
+  this.stopWatch.start();
+  this.owner=Logs.isExtrrreeeme() ? Threads.currentStackString() : "n/a";
+  try {
+    this.eventLog(TxStep.BEGIN,TxEvent.CREATE);
+    final EntityManagerFactory anemf=(EntityManagerFactoryImpl)PersistenceContexts.getEntityManagerFactory(ctx);
+    assertThat(anemf,notNullValue());
+    this.em=anemf.createEntityManager();
+    assertThat(this.em,notNullValue());
+    this.transaction=this.em.getTransaction();
+    this.transaction.begin();
+    this.session=new WeakReference<Session>((Session)this.em.getDelegate());
+    this.eventLog(TxStep.END,TxEvent.CREATE);
+  }
+ catch (  final Throwable ex) {
+    Logs.exhaust().error(ex,ex);
+    this.eventLog(TxStep.FAIL,TxEvent.CREATE);
+    this.rollback();
+    throw new RuntimeException(PersistenceExceptions.throwFiltered(ex));
+  }
+ finally {
+    outstanding.put(this.txUuid,this);
+  }
+}

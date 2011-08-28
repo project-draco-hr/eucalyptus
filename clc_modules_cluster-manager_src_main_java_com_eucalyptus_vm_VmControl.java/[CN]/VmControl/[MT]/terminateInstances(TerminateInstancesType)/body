@@ -5,26 +5,49 @@
     final List<TerminateInstancesItemType> results=reply.getInstancesSet();
     Iterables.all(request.getInstancesSet(),new Predicate<String>(){
       @Override public boolean apply(      final String instanceId){
+        EntityTransaction db=Entities.get(VmInstance.class);
         try {
-          final VmInstance v=VmInstances.getInstance().lookup(instanceId);
-          if (Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_INSTANCE,instanceId,v.getOwner())) {
-            final int oldCode=v.getRuntimeState().getCode(), newCode=VmState.SHUTTING_DOWN.getCode();
-            final String oldState=v.getRuntimeState().getName(), newState=VmState.SHUTTING_DOWN.getName();
-            results.add(new TerminateInstancesItemType(v.getInstanceId(),oldCode,oldState,newCode,newState));
-            if (VmState.RUNNING.equals(v.getRuntimeState()) || VmState.PENDING.equals(v.getRuntimeState())) {
-              v.setState(VmState.SHUTTING_DOWN,Reason.USER_TERMINATED);
-            }
-          }
-          return true;
-        }
- catch (        final NoSuchElementException e) {
+          VmInstance vm=null;
           try {
-            VmInstances.getInstance().lookupDisabled(instanceId).setState(VmState.BURIED,Reason.BURIED);
+            try {
+              vm=RestrictedTypes.doPrivileged(instanceId,VmInstance.Lookup.INSTANCE);
+            }
+ catch (            NoSuchElementException ex) {
+              vm=RestrictedTypes.doPrivileged(instanceId,VmInstance.Lookup.TERMINATED);
+            }
+            final int oldCode=vm.getState().getCode(), newCode=VmState.SHUTTING_DOWN.getCode();
+            final String oldState=vm.getState().getName(), newState=VmState.SHUTTING_DOWN.getName();
+            if (VmStateSet.DONE.apply(vm)) {
+              VmInstances.delete(vm);
+            }
+ else {
+              VmInstances.terminate(vm);
+            }
+            results.add(new TerminateInstancesItemType(vm.getInstanceId(),oldCode,oldState,newCode,newState));
+            db.commit();
             return true;
           }
- catch (          final NoSuchElementException e1) {
+ catch (          final NoSuchElementException e) {
+            db.rollback();
             return false;
           }
+        }
+ catch (        AuthException ex) {
+          db.rollback();
+          throw new AccessControlException("Not authorized to terminate instance: " + instanceId + " because of: "+ ex.getMessage());
+        }
+catch (        IllegalContextAccessException ex) {
+          db.rollback();
+          throw new RuntimeException("Failed to terminate instance: " + instanceId + " becuase of: "+ ex.getMessage(),ex);
+        }
+catch (        PersistenceException ex) {
+          db.rollback();
+          throw new RuntimeException("Failed to terminate instance: " + instanceId + " becuase of: "+ ex.getMessage(),ex);
+        }
+catch (        Exception ex) {
+          Logs.exhaust().error(ex,ex);
+          db.rollback();
+          throw new RuntimeException("Failed to terminate instance: " + instanceId + " becuase of: "+ ex.getMessage(),ex);
         }
       }
     }

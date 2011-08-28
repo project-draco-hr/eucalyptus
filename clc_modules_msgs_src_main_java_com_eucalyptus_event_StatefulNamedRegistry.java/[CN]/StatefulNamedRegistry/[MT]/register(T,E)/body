@@ -1,25 +1,26 @@
 {
-  T oldValue=null;
-  if (obj == null) {
-    throw new IllegalArgumentException("Value cannot be null: " + obj);
-  }
+  StatefulValue oldValue=null;
+  StatefulValue newValue=null;
+  assertThat(obj,notNullValue());
   this.canHas.writeLock().lock();
   try {
-    oldValue=this.lookup(obj.getName());
-    E oldState=this.getState(oldValue.getName());
-    this.stateMaps.get(oldState).remove(obj.getName());
+    newValue=new StatefulValue(nextState,obj);
+    oldValue=this.stateMap.putIfAbsent(obj.getName(),newValue);
+    if (oldValue != null) {
+      newValue=new StatefulValue(nextState,oldValue.getValue());
+      if (this.stateMap.replace(obj.getName(),oldValue,newValue)) {
+        return newValue.getValue();
+      }
+ else {
+        return (newValue=oldValue).getValue();
+      }
+    }
+ else {
+      return newValue.getValue();
+    }
   }
- catch (  NoSuchElementException e) {
-    this.stateMaps.get(initialState).put(obj.getName(),obj);
-  }
- finally {
+  finally {
     this.canHas.writeLock().unlock();
-    try {
-      ListenerRegistry.getInstance().fireEvent(new StateEvent<T,E>(initialState,obj));
-    }
- catch (    EventFailedException e) {
-      LOG.warn("Registry change was vetoed: " + e,e);
-    }
+    this.fireStateChange(oldValue,nextState);
   }
-  return oldValue;
 }
