@@ -1,17 +1,19 @@
 {
-  T value=null;
+  StatefulValue oldValue=null;
   this.canHas.writeLock().lock();
   try {
-    value=this.remove(name);
-    this.stateMaps.get(newState).put(name,value);
+    oldValue=this.lookupEntry(name);
+    if (oldValue.getState().equals(newState)) {
+      return true;
+    }
+ else {
+      return this.stateMap.replace(name,oldValue,new StatefulValue(newState,oldValue.getValue()));
+    }
   }
   finally {
     this.canHas.writeLock().unlock();
-    try {
-      ListenerRegistry.getInstance().fireEvent(new StateEvent<T,E>(newState,value));
-    }
- catch (    EventFailedException e) {
-      LOG.warn("Registry change was vetoed: " + e,e);
+    if (oldValue != null && !oldValue.getState().equals(newState)) {
+      this.fireStateChange(oldValue,newState);
     }
   }
 }

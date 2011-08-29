@@ -1,41 +1,30 @@
 {
+  final DescribeSecurityGroupsResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  NetworkGroups.makeDefault(ctx.getUserFullName());
+  NetworkGroups.createDefault(ctx.getUserFullName());
   final List<String> groupNames=request.getSecurityGroupSet();
-  DescribeSecurityGroupsResponseType reply=(DescribeSecurityGroupsResponseType)request.getReply();
-  final List<SecurityGroupItemType> replyList=reply.getSecurityGroupInfo();
-  if (Contexts.lookup().hasAdministrativePrivileges()) {
-    try {
-      for (      SecurityGroupItemType group : Iterables.filter(NetworkGroupUtil.getUserNetworksAdmin(ctx.getUserFullName(),request.getSecurityGroupSet()),new Predicate<SecurityGroupItemType>(){
-        @Override public boolean apply(        SecurityGroupItemType arg0){
-          return groupNames.isEmpty() || groupNames.contains(arg0.getGroupName());
-        }
-      }
-)) {
-        replyList.add(group);
-      }
-    }
- catch (    Exception e) {
-      LOG.debug(e,e);
+  final Predicate<NetworkGroup> argListFilter=new Predicate<NetworkGroup>(){
+    @Override public boolean apply(    final NetworkGroup arg0){
+      return groupNames.isEmpty() || groupNames.contains(arg0.getName());
     }
   }
- else {
-    try {
-      for (      SecurityGroupItemType group : Iterables.filter(NetworkGroupUtil.getUserNetworks(ctx.getUserFullName(),request.getSecurityGroupSet()),new Predicate<SecurityGroupItemType>(){
-        @Override public boolean apply(        SecurityGroupItemType arg0){
-          if (!Permissions.isAuthorized(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_SECURITYGROUP,arg0.getGroupName(),ctx.getAccount(),PolicySpec.requestToAction(request),ctx.getUser())) {
-            return false;
-          }
-          return groupNames.isEmpty() || groupNames.contains(arg0.getGroupName());
-        }
-      }
-)) {
-        replyList.add(group);
-      }
-    }
- catch (    Exception e) {
-      LOG.debug(e,e);
-    }
+;
+  Predicate<NetworkGroup> netFilter=Predicates.and(argListFilter,userAuthFilter());
+  OwnerFullName ownerFn=AccountFullName.getInstance(ctx.getAccount());
+  if (Contexts.lookup().hasAdministrativePrivileges()) {
+    ownerFn=null;
+    netFilter=argListFilter;
+  }
+  final EntityTransaction db=Entities.get(NetworkGroup.class);
+  try {
+    List<NetworkGroup> networks=Entities.query(NetworkGroup.named(ownerFn,null));
+    final Iterable<NetworkGroup> matches=Iterables.filter(networks,netFilter);
+    final Iterable<SecurityGroupItemType> transformed=Iterables.transform(matches,TypeMappers.lookup(NetworkGroup.class,SecurityGroupItemType.class));
+    Iterables.addAll(reply.getSecurityGroupInfo(),transformed);
+    db.commit();
+  }
+ catch (  Exception ex) {
+    db.rollback();
   }
   return reply;
 }
