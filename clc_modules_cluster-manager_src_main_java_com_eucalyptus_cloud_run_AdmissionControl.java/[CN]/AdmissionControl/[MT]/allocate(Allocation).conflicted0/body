@@ -1,63 +1,24 @@
 {
-  RunInstancesType request=allocInfo.getRequest();
-  String clusterName=allocInfo.getPartition().getName();
-  String vmTypeName=allocInfo.getVmType().getName();
-  final int minAmount=allocInfo.getMinCount();
-  final int maxAmount=allocInfo.getMaxCount();
-  Context ctx=Contexts.lookup();
-  if (false) {
-    throw new NotEnoughResourcesException("Not authorized: you do not have sufficient permission to use " + clusterName);
-  }
- else {
-    String zoneName=(clusterName != null) ? clusterName : "default";
-    String action=PolicySpec.requestToAction(request);
-    User requestUser=ctx.getUser();
-    List<Cluster> authorizedClusters=this.doPrivilegedLookup(zoneName,vmTypeName,action,requestUser);
-    int remaining=maxAmount;
-    int available=0;
-    LOG.info("Found authorized clusters: " + Iterables.transform(authorizedClusters,new Function<Cluster,String>(){
-      @Override public String apply(      Cluster arg0){
-        return arg0.getName();
+  if (NetworkGroups.networkingConfiguration().hasNetworking()) {
+    EntityTransaction db=Entities.get(NetworkGroup.class);
+    try {
+      NetworkGroup net=Entities.merge(allocInfo.getPrimaryNetwork());
+      ExtantNetwork exNet=net.extantNetwork();
+      for (      ResourceToken rscToken : allocInfo.getAllocationTokens()) {
+        rscToken.setExtantNetwork(exNet);
       }
+      Entities.merge(net);
+      db.commit();
     }
-));
-    if ((available=checkAvailability(vmTypeName,authorizedClusters)) < minAmount) {
-      throw new NotEnoughResourcesException("Not enough resources (" + available + " in "+ zoneName+ " < "+ minAmount+ "): vm instances.");
+ catch (    TransientEntityException ex) {
+      LOG.error(ex,ex);
+      db.rollback();
+      throw ex;
     }
- else {
-      for (      Cluster cluster : authorizedClusters) {
-        if (remaining <= 0) {
-          break;
-        }
- else {
-          ClusterNodeState state=cluster.getNodeState();
-          Partition partition=cluster.getConfiguration().lookupPartition();
-          if (allocInfo.getBootSet().getMachine() instanceof BlockStorageImageInfo) {
-            try {
-              ServiceConfiguration sc=Partitions.lookupService(Storage.class,partition);
-            }
- catch (            Exception ex) {
-              throw new NotEnoughResourcesException("Not enough resources: " + ex.getMessage(),ex);
-            }
-          }
-          try {
-            int tryAmount=(remaining > state.getAvailability(vmTypeName).getAvailable()) ? state.getAvailability(vmTypeName).getAvailable() : remaining;
-            List<ResourceToken> tokens=this.requestResourceToken(allocInfo,tryAmount,maxAmount);
-            remaining-=tokens.size();
-            allocInfo.setPartition(partition);
-          }
- catch (          Exception t) {
-            if (((available=checkAvailability(vmTypeName,authorizedClusters)) < remaining) || remaining > 0) {
-              allocInfo.abort();
-              throw new NotEnoughResourcesException("Not enough resources (" + available + " in "+ zoneName+ " < "+ minAmount+ "): vm instances.");
-            }
- else {
-              LOG.error(t,t);
-              throw new NotEnoughResourcesException("Not enough resources (" + available + " in "+ zoneName+ " < "+ minAmount+ "): vm instances.");
-            }
-          }
-        }
-      }
+catch (    Exception ex) {
+      LOG.error(ex,ex);
+      db.rollback();
+      throw ex;
     }
   }
 }
