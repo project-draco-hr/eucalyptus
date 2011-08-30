@@ -1,33 +1,29 @@
 {
-  LOG.debug("-> Release resource tokens for unused resources.");
+  EntityTransaction db=Entities.get(VmInstance.class);
   try {
-    Clusters.getInstance().lookup(token.getCluster()).getNodeState().releaseToken(token);
-  }
- catch (  Throwable e2) {
-    LOG.debug(e2,e2);
-  }
-  LOG.debug("-> Release network index allocation.");
-  if (this.token.getPrimaryNetwork() != null) {
+    LOG.debug("-> Release resource tokens for unused resources.");
     try {
-      NetworkToken net=this.token.getPrimaryNetwork();
-      Network network=Networks.getInstance().lookup(net.getName());
-      for (      Integer index : this.token.getPrimaryNetwork().getIndexes()) {
-        network.returnNetworkIndex(index);
-      }
+      this.token.release();
     }
- catch (    Throwable e2) {
-      LOG.debug(e2,e2);
+ catch (    final Exception ex) {
+      LOG.error(ex.getMessage());
+      Logs.extreme().error(ex,ex);
     }
-  }
-  for (  String addr : this.token.getAddresses()) {
+    final Address addr=this.token.getAddress();
+    LOG.debug("-> Release addresses from failed vm run allocation: " + addr);
     try {
-      Address address=Addresses.getInstance().lookup(addr);
-      address.release();
-      LOG.debug("-> Release addresses from failed vm run allocation: " + addr);
+      addr.release();
     }
- catch (    NoSuchElementException e1) {
+ catch (    final Exception ex) {
+      LOG.error(ex.getMessage());
+      Logs.extreme().error(ex,ex);
     }
+    LOG.debug(LogUtil.header("Failing run instances because of: " + e.getMessage()),e);
+    LOG.debug(LogUtil.subheader(this.getRequest().toString()));
+    db.commit();
   }
-  LOG.debug(LogUtil.header("Failing run instances because of: " + e.getMessage()),e);
-  LOG.debug(LogUtil.subheader(this.getRequest().toString()));
+ catch (  Exception ex) {
+    Logs.exhaust().error(ex,ex);
+    db.commit();
+  }
 }

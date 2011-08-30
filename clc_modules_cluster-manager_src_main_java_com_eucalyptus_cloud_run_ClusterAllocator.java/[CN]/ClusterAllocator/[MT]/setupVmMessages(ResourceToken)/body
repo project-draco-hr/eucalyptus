@@ -1,69 +1,16 @@
 {
-  Integer vlan=null;
-  List<String> networkNames=null;
-  ArrayList<String> networkIndexes=Lists.newArrayList();
-  if (token.getPrimaryNetwork() != null) {
-    vlan=token.getPrimaryNetwork().getVlan();
-    if (vlan < 0)     vlan=9;
-    networkNames=Lists.newArrayList(token.getPrimaryNetwork().getNetworkName());
-    for (    Integer index : token.getPrimaryNetwork().getIndexes()) {
-      networkIndexes.add(index.toString());
-    }
-  }
- else {
-    vlan=-1;
-    networkNames=Lists.newArrayList(Collections.nCopies(token.getAmount(),"default"));
-    networkIndexes=Lists.newArrayList(Collections.nCopies(token.getAmount(),"-1"));
-  }
-  final List<String> addresses=Lists.newArrayList(token.getAddresses());
-  BaseMessage request=this.allocInfo.getRequest();
-  String rsvId=this.allocInfo.getReservationId();
-  SshKeyPair keyInfo=this.allocInfo.getSshKeyPair();
-  VmTypeInfo vmInfo=this.allocInfo.getVmTypeInfo();
-  String userData=this.allocInfo.getRequest().getUserData();
+  final String networkName=NetworkGroups.networkingConfiguration().hasNetworking() ? this.allocInfo.getPrimaryNetwork().getNaturalId() : NetworkGroups.lookup(this.allocInfo.getOwnerFullName(),NetworkGroups.defaultNetworkName()).getNaturalId();
+  final SshKeyPair keyInfo=this.allocInfo.getSshKeyPair();
+  final VmTypeInfo vmInfo=this.allocInfo.getVmTypeInfo();
   Request cb=null;
-  int index=0;
   try {
-    for (    ResourceToken childToken : this.cluster.getNodeState().splitToken(token)) {
-      VirtualBootRecord root=vmInfo.lookupRoot();
-      VmTypeInfo childVmInfo=vmInfo;
-      if (root.isBlockStorage()) {
-        childVmInfo=vmInfo.child();
-        Volume vol=this.allocInfo.getPersistentVolumes().get(index);
-        Dispatcher sc=ServiceDispatcher.lookup(Partitions.lookupService(Storage.class,vol.getPartition()));
-        for (int i=0; i < 60; i++) {
-          try {
-            DescribeStorageVolumesResponseType volState=sc.send(new DescribeStorageVolumesType(Lists.newArrayList(vol.getDisplayName())));
-            if ("available".equals(volState.getVolumeSet().get(0).getStatus())) {
-              break;
-            }
- else {
-              TimeUnit.SECONDS.sleep(1);
-            }
-          }
- catch (          InterruptedException ex) {
-            Thread.currentThread().interrupt();
-          }
-catch (          Exception ex) {
-            LOG.error(ex,ex);
-          }
-        }
-        for (        String nodeTag : this.cluster.getNodeTags()) {
-          try {
-            AttachStorageVolumeResponseType scAttachResponse=sc.send(new AttachStorageVolumeType(this.cluster.getNode(nodeTag).getIqn(),vol.getDisplayName()));
-            childVmInfo.lookupRoot().setResourceLocation(scAttachResponse.getRemoteDeviceString());
-          }
- catch (          Exception ex) {
-            LOG.error(ex,ex);
-          }
-        }
-      }
-      cb=makeRunRequest(request,childToken,this.allocInfo.getOwnerFullName(),rsvId,keyInfo,childVmInfo,this.allocInfo.getBootSet().getMachine().getPlatform().name(),vlan,networkNames,userData);
-      this.messages.addRequest(State.CREATE_VMS,cb);
-      index++;
-    }
+    final VirtualBootRecord root=vmInfo.lookupRoot();
+    final VmTypeInfo childVmInfo=this.makeVmTypeInfo(vmInfo,token.getLaunchIndex(),root);
+    cb=this.makeRunRequest(token,childVmInfo,networkName);
+    this.messages.addRequest(State.CREATE_VMS,cb);
   }
- catch (  NoSuchTokenException ex) {
-    throw new RuntimeException(ex);
+ catch (  final Exception ex) {
+    Logs.extreme().error(ex,ex);
+    throw ex;
   }
 }

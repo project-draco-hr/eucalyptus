@@ -1,5 +1,19 @@
 {
-  if (Clusters.getInstance().hasNetworking()) {
-    allocInfo.requestNetworkIndexes();
+  if (NetworkGroups.networkingConfiguration().hasNetworking()) {
+    for (    ResourceToken rscToken : allocInfo.getAllocationTokens()) {
+      EntityTransaction db=Entities.get(ExtantNetwork.class);
+      try {
+        ExtantNetwork exNet=Entities.merge(rscToken.getExtantNetwork());
+        assertThat(exNet,notNullValue());
+        PrivateNetworkIndex addrIndex=exNet.allocateNetworkIndex();
+        rscToken.setNetworkIndex(addrIndex);
+        rscToken.setExtantNetwork(Entities.merge(exNet));
+        db.commit();
+      }
+ catch (      Exception ex) {
+        db.rollback();
+        throw new NotEnoughResourcesException("Not enough addresses left in the network subnet assigned to requested group: " + rscToken,ex);
+      }
+    }
   }
 }
