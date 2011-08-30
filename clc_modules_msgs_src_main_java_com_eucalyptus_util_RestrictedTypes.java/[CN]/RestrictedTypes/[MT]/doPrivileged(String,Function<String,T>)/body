@@ -1,0 +1,66 @@
+{
+  Context ctx=Contexts.lookup();
+  Class<? extends BaseMessage> msgType=ctx.getRequest().getClass();
+  LOG.debug("Attempting to lookup " + identifier + " using lookup: "+ lookupFunction.getClass()+ " typed as "+ Classes.genericsToClasses(lookupFunction));
+  List<Class<?>> lookupTypes=Classes.genericsToClasses(lookupFunction);
+  if (lookupTypes.isEmpty()) {
+    throw new IllegalArgumentException("Failed to find required generic type for lookup " + lookupFunction.getClass() + " so the policy type for looking up "+ identifier+ " cannot be determined.");
+  }
+ else {
+    Class<?> rscType;
+    try {
+      rscType=Iterables.find(lookupTypes,new Predicate<Class<?>>(){
+        @Override public boolean apply(        Class<?> arg0){
+          return RestrictedType.class.isAssignableFrom(arg0);
+        }
+      }
+);
+    }
+ catch (    NoSuchElementException ex1) {
+      LOG.error(ex1,ex1);
+      throw ex1;
+    }
+    Ats ats=Ats.inClassHierarchy(rscType);
+    Ats msgAts=Ats.inClassHierarchy(msgType);
+    if (!ats.has(PolicyVendor.class) && !msgAts.has(PolicyVendor.class)) {
+      throw new IllegalArgumentException("Failed to determine policy for looking up identifier " + identifier + ": required @PolicyVendor missing in resource type hierarchy "+ rscType.getCanonicalName()+ " and request type hierarchy "+ msgType.getCanonicalName());
+    }
+ else     if (!ats.has(PolicyResourceType.class) && !msgAts.has(PolicyResourceType.class)) {
+      throw new IllegalArgumentException("Failed to determine policy for looking up identifier " + identifier + ": required @PolicyResourceType missing in resource type hierarchy "+ rscType.getCanonicalName()+ " and request type hierarchy "+ msgType.getCanonicalName());
+    }
+ else {
+      PolicyVendor vendor=ats.get(PolicyVendor.class);
+      PolicyResourceType type=ats.get(PolicyResourceType.class);
+      String action=PolicySpec.requestToAction(ctx.getRequest());
+      if (action == null) {
+        action=vendor.value() + ":" + ctx.getRequest().getClass().getSimpleName().replaceAll("(ResponseType|Type)$","").toLowerCase();
+      }
+      User requestUser=ctx.getUser();
+      T requestedObject;
+      try {
+        requestedObject=lookupFunction.apply(identifier);
+        if (requestedObject == null) {
+          throw new NoSuchElementException("Failed to lookup requested " + rscType.getCanonicalName() + " with id "+ identifier+ " using "+ lookupFunction.getClass());
+        }
+      }
+ catch (      NoSuchElementException ex) {
+        throw ex;
+      }
+catch (      PersistenceException ex) {
+        Logs.extreme().error(ex,ex);
+        LOG.error(ex);
+        throw ex;
+      }
+catch (      Exception ex) {
+        Logs.extreme().error(ex,ex);
+        LOG.error(ex);
+        throw new PersistenceException("Error occurred while attempting to lookup " + identifier + " using lookup: "+ lookupFunction.getClass()+ " typed as "+ rscType,ex);
+      }
+      Account owningAccount=Accounts.lookupUserById(requestedObject.getOwner().getUniqueId()).getAccount();
+      if (!Permissions.isAuthorized(vendor.value(),type.value(),identifier,owningAccount,action,requestUser)) {
+        throw new AuthException("Not authorized to use " + type.value() + " identified by "+ identifier+ " as the user "+ requestUser.getName());
+      }
+      return requestedObject;
+    }
+  }
+}

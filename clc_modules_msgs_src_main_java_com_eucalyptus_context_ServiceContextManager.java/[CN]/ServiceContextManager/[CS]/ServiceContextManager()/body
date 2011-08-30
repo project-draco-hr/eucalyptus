@@ -1,7 +1,23 @@
 {
   this.canHasRead=this.canHas.readLock();
   this.canHasWrite=this.canHas.writeLock();
-  executor.submit(new Runnable(){
+  Runtime.getRuntime().addShutdownHook(new Thread(){
+    @Override public void run(){
+      ServiceContextManager.this.running.set(false);
+      ServiceContextManager.this.queue.clear();
+      if (ServiceContextManager.this.context != null) {
+        try {
+          ServiceContextManager.this.context.stop();
+          ServiceContextManager.this.context.dispose();
+        }
+ catch (        MuleException ex) {
+          LOG.error(ex,ex);
+        }
+      }
+    }
+  }
+);
+  this.executor.submit(new Runnable(){
     public void run(){
       while (ServiceContextManager.this.running.get()) {
         ServiceConfiguration event;
@@ -12,7 +28,8 @@
                 try {
                   ServiceContextManager.this.update();
                 }
- catch (                Throwable ex) {
+ catch (                Exception ex) {
+                  LOG.error(Exceptions.causeString(ex));
                   LOG.error(ex,ex);
                 }
  finally {

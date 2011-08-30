@@ -1,0 +1,38 @@
+{
+  final SshKeyPair keyPair=this.allocInfo.getSshKeyPair();
+  final VmKeyInfo vmKeyInfo=new VmKeyInfo(keyPair.getName(),keyPair.getPublicKey(),keyPair.getFingerPrint());
+  final String platform=this.allocInfo.getBootSet().getMachine().getPlatform().name() != null ? this.allocInfo.getBootSet().getMachine().getPlatform().name() : "linux";
+  ExtantNetwork exNet;
+  try {
+    exNet=this.allocInfo.getExtantNetwork();
+  }
+ catch (  Exception ex) {
+    Logs.extreme().error(ex,ex);
+    exNet=ExtantNetwork.bogus(this.allocInfo.getPrimaryNetwork());
+  }
+  final VmRunType run=VmRunType.builder().instanceId(childToken.getInstanceId()).naturalId(childToken.getInstanceUuid()).keyInfo(vmKeyInfo).launchIndex(childToken.getLaunchIndex()).networkIndex(childToken.getNetworkIndex().getIndex()).networkNames(this.allocInfo.getNetworkGroups()).platform(platform).reservationId(childToken.getAllocationInfo().getReservationId()).userData(this.allocInfo.getRequest().getUserData()).vlan(exNet.getTag()).vmTypeInfo(vmInfo).owner(this.allocInfo.getOwnerFullName()).create();
+  final Request<VmRunType,VmRunResponseType> req=AsyncRequests.newRequest(new VmRunCallback(run,childToken));
+  final Address addr=childToken.getAddress();
+  if (childToken.getAddress() != null) {
+    Success<VmRunResponseType> addrCallback=new Callback.Success<VmRunResponseType>(){
+      @SuppressWarnings("unchecked") @Override public void fire(      final VmRunResponseType response){
+        try {
+          final VmInstance vm=VmInstances.lookup(response.getVms().iterator().next().getInstanceId());
+          Success<BaseMessage> vmUpdateCallback=new Callback.Success<BaseMessage>(){
+            @Override public void fire(            final BaseMessage response){
+              vm.updateAddresses(addr.getInstanceAddress(),addr.getName());
+            }
+          }
+;
+          AsyncRequests.newRequest(addr.assign(vm).getCallback()).then(vmUpdateCallback).dispatch(addr.getPartition());
+        }
+ catch (        Exception ex) {
+          LOG.error(ex,ex);
+        }
+      }
+    }
+;
+    req.then(addrCallback);
+  }
+  return req;
+}
