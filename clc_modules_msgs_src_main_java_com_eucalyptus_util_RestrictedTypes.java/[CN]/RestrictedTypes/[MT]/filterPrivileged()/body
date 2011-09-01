@@ -1,3 +1,34 @@
 {
-  return filterPrivileged(true);
+  return new Predicate<T>(){
+    @Override public boolean apply(    T arg0){
+      Context ctx=Contexts.lookup();
+      Class<? extends BaseMessage> msgType=ctx.getRequest().getClass();
+      Class<?> rscType=arg0.getClass();
+      Ats ats=Ats.inClassHierarchy(rscType);
+      Ats msgAts=Ats.inClassHierarchy(msgType);
+      if (!ats.has(PolicyVendor.class) && !msgAts.has(PolicyVendor.class)) {
+        throw new IllegalArgumentException("Failed to determine policy for looking up type instance " + arg0.toString() + ": required @PolicyVendor missing in resource type hierarchy "+ rscType.getCanonicalName()+ " and request type hierarchy "+ msgType.getCanonicalName());
+      }
+ else       if (!ats.has(PolicyResourceType.class) && !msgAts.has(PolicyResourceType.class)) {
+        throw new IllegalArgumentException("Failed to determine policy for looking up type instance " + arg0.toString() + ": required @PolicyResourceType missing in resource type hierarchy "+ rscType.getCanonicalName()+ " and request type hierarchy "+ msgType.getCanonicalName());
+      }
+ else {
+        PolicyVendor vendor=ats.get(PolicyVendor.class);
+        PolicyResourceType type=ats.get(PolicyResourceType.class);
+        String action=PolicySpec.requestToAction(ctx.getRequest());
+        if (action == null) {
+          action=vendor.value() + ":" + ctx.getRequest().getClass().getSimpleName().replaceAll("(ResponseType|Type)$","").toLowerCase();
+        }
+        User requestUser=ctx.getUser();
+        try {
+          Account owningAccount=Accounts.lookupAccountById(arg0.getOwner().getAccountNumber());
+          return Permissions.isAuthorized(vendor.value(),type.value(),arg0.getDisplayName(),owningAccount,action,requestUser);
+        }
+ catch (        AuthException ex) {
+          return false;
+        }
+      }
+    }
+  }
+;
 }
