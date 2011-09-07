@@ -13,20 +13,25 @@
     LOG.error("Failed to parse port for storage configuration from UI input");
     return;
   }
+  i++;
   ArrayList<ComponentProperty> properties=Lists.newArrayList();
   deserializeComponentProperties(properties,input,i);
-  ServiceConfiguration scConfig=ServiceConfigurations.lookupByName(Storage.class,name);
-  final UpdateStorageConfigurationType updateStorageConfiguration=new UpdateStorageConfigurationType();
-  updateStorageConfiguration.setName(scConfig.getPartition());
-  updateStorageConfiguration.setStorageParams(properties);
-  Dispatcher scDispatch=ServiceDispatcher.lookup(scConfig);
-  try {
-    scDispatch.send(updateStorageConfiguration);
-  }
- catch (  Exception e) {
-    LOG.error("Error sending update configuration message to storage controller: " + updateStorageConfiguration);
-    LOG.error("The storage controller's configuration may be out of sync!");
-    LOG.debug(e,e);
-    throw new EucalyptusServiceException("Failed to update storage configuration",e);
+  NavigableSet<ServiceConfiguration> configs=Components.lookup(Storage.class).lookupServiceConfigurations();
+  for (  ServiceConfiguration c : configs) {
+    if (partition.equals(c.getPartition()) && Component.State.ENABLED.equals(c.lookupState())) {
+      final UpdateStorageConfigurationType updateStorageConfiguration=new UpdateStorageConfigurationType();
+      updateStorageConfiguration.setName(c.getPartition());
+      updateStorageConfiguration.setStorageParams(properties);
+      Dispatcher scDispatch=ServiceDispatcher.lookup(c);
+      try {
+        scDispatch.send(updateStorageConfiguration);
+      }
+ catch (      Exception e) {
+        LOG.error("Error sending update configuration message to storage controller: " + updateStorageConfiguration);
+        LOG.error("The storage controller's configuration may be out of sync!");
+        LOG.debug(e,e);
+        throw new EucalyptusServiceException("Failed to update storage configuration",e);
+      }
+    }
   }
 }
