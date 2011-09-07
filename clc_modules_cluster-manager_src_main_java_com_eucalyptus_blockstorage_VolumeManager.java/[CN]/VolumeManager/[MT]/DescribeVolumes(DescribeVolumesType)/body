@@ -4,7 +4,7 @@
   EntityWrapper<Volume> db=EntityWrapper.get(Volume.class);
   try {
     final Map<String,AttachedVolume> attachedVolumes=new HashMap<String,AttachedVolume>();
-    for (    VmInstance vm : VmInstances.getInstance().listValues()) {
+    for (    VmInstance vm : VmInstances.listValues()) {
       vm.eachVolumeAttachment(new Predicate<AttachedVolume>(){
         @Override public boolean apply(        AttachedVolume arg0){
           return attachedVolumes.put(arg0.getVolumeId(),arg0) == null;
@@ -14,16 +14,13 @@
     }
     List<Volume> volumes=db.query(Volume.ownedBy(ctx.getUserFullName()));
     List<Volume> describeVolumes=Lists.newArrayList();
-    for (    Volume v : volumes) {
-      if (!Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_VOLUME,v.getDisplayName(),v.getOwner())) {
-        continue;
-      }
+    for (    Volume v : Iterables.filter(volumes,RestrictedTypes.filterPrivileged())) {
       if (!State.ANNIHILATED.equals(v.getState())) {
         describeVolumes.add(v);
       }
  else {
         try {
-          ListenerRegistry.getInstance().fireEvent(new StorageEvent(StorageEvent.EventType.EbsVolume,false,v.getSize(),v.getOwnerUserId(),v.getOwnerUserName(),v.getOwnerAccountId(),null,v.getScName(),v.getPartition()));
+          ListenerRegistry.getInstance().fireEvent(new StorageEvent(StorageEvent.EventType.EbsVolume,false,v.getSize(),v.getOwnerUserId(),v.getOwnerUserName(),v.getOwnerAccountNumber(),v.getOwnerAccountName(),v.getScName(),v.getPartition()));
         }
  catch (        EventFailedException ex) {
           LOG.error(ex,ex);
@@ -41,7 +38,7 @@
     }
     db.commit();
   }
- catch (  Throwable t) {
+ catch (  Exception t) {
     db.commit();
   }
   return reply;

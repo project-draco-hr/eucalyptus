@@ -72,6 +72,9 @@ catch (        EucalyptusCloudException ex) {
           objectInfo.setSize(0L);
         }
       }
+      if (bucket.isVersioningEnabled()) {
+        reply.setVersionId(versionId);
+      }
       db.commit();
       WalrusDataQueue<WalrusDataMessage> putQueue=messenger.getQueue(key,randomKey);
       try {
@@ -92,7 +95,7 @@ synchronized (monitor) {
               lastModified=monitor.getLastModified();
               md5=monitor.getMd5();
               if (fileIO != null)               fileIO.finish();
-              ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,-1L,ctx);
+              ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,-1L,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
               objectDeleter.start();
               LOG.info("Transfer interrupted: " + key);
               messenger.removeQueue(key,randomKey);
@@ -184,33 +187,37 @@ synchronized (monitor) {
  catch (            EucalyptusCloudException ex) {
               LOG.trace("No delete marker found for: " + bucketName + "/"+ objectKey);
             }
-            if (bucket.isVersioningEnabled()) {
-              reply.setVersionId(versionId);
-            }
-            EntityWrapper<BucketInfo> dbBucket=dbObject.recast(BucketInfo.class);
-            try {
-              bucket=dbBucket.getUnique(new BucketInfo(bucketName));
-            }
- catch (            EucalyptusCloudException e) {
-              LOG.error(e);
-              dbObject.rollback();
-              throw new NoSuchBucketException(bucketName);
-            }
-            Long bucketSize=bucket.getBucketSize();
-            long newSize=bucketSize + oldBucketSize + size;
-            if (WalrusProperties.shouldEnforceUsageLimits && !Contexts.lookup().hasAdministrativePrivileges()) {
-              if (newSize > (WalrusInfo.getWalrusInfo().getStorageMaxBucketSizeInMB() * WalrusProperties.M)) {
+            boolean success=false;
+            int retryCount=0;
+            do {
+              try {
+                incrementBucketSize(bucketName,objectKey,oldBucketSize,size);
+                success=true;
+              }
+ catch (              EntityTooLargeException ex) {
                 messenger.removeQueue(key,randomKey);
                 dbObject.rollback();
-                throw new EntityTooLargeException("Key",objectKey);
+                throw ex;
+              }
+catch (              NoSuchBucketException ex) {
+                dbObject.rollback();
+                throw ex;
+              }
+catch (              RollbackException ex) {
+                retryCount++;
+                LOG.trace("retrying update: " + bucketName);
+              }
+catch (              EucalyptusCloudException ex) {
+                dbObject.rollback();
+                throw ex;
               }
             }
+ while (!success && (retryCount < 5));
             if (!Permissions.canAllocate(PolicySpec.S3_RESOURCE_BUCKET,PolicySpec.VENDOR_S3,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),size) && !ctx.hasAdministrativePrivileges()) {
               dbObject.rollback();
               LOG.error("Quota exceeded for Walrus putObject");
               throw new EntityTooLargeException("Key",objectKey);
             }
-            bucket.setBucketSize(newSize);
             if (WalrusProperties.trackUsageStatistics) {
               walrusStatistics.updateBytesIn(size);
               walrusStatistics.updateSpaceUsed(size);

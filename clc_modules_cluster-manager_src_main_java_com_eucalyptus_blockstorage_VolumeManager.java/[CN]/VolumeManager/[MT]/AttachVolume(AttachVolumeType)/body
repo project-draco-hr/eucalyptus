@@ -6,37 +6,32 @@
   }
   VmInstance vm=null;
   try {
-    vm=VmInstances.getInstance().lookup(request.getInstanceId());
+    vm=VmInstances.restrictedLookup(request.getInstanceId());
   }
  catch (  NoSuchElementException e) {
     LOG.debug(e,e);
     throw new EucalyptusCloudException("Instance does not exist: " + request.getInstanceId());
   }
-  if (!Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_INSTANCE,request.getInstanceId(),vm.getOwner())) {
+  if (!RestrictedTypes.filterPrivileged().apply(vm)) {
     throw new EucalyptusCloudException("Not authorized to attach volume to instance " + request.getInstanceId() + " by "+ ctx.getUser().getName());
   }
   Cluster cluster=null;
   try {
-    cluster=Clusters.getInstance().lookup(vm.getClusterName());
+    cluster=Clusters.lookup(vm.lookupPartition());
   }
  catch (  NoSuchElementException e) {
     LOG.debug(e,e);
-    throw new EucalyptusCloudException("Cluster does not exist: " + vm.getClusterName());
+    throw new EucalyptusCloudException("Cluster does not exist: " + vm.lookupClusterConfiguration());
   }
   final String deviceName=request.getDevice();
   final String volumeId=request.getVolumeId();
   try {
-    vm.lookupVolumeAttachment(new Predicate<AttachedVolume>(){
-      @Override public boolean apply(      AttachedVolume arg0){
-        return arg0.getDevice().replaceAll("unknown,requested:","").equals(deviceName);
-      }
-    }
-);
+    vm.lookupVolumeAttachmentByDevice(deviceName);
     throw new EucalyptusCloudException("Already have a device attached to: " + request.getDevice());
   }
  catch (  NoSuchElementException ex1) {
   }
-  for (  VmInstance iter : VmInstances.getInstance().listValues()) {
+  for (  VmInstance iter : VmInstances.listValues()) {
     try {
       iter.lookupVolumeAttachment(volumeId);
       throw new EucalyptusCloudException("Volume already attached: " + request.getVolumeId());
@@ -58,7 +53,7 @@
     db.rollback();
     throw new EucalyptusCloudException("Volume does not exist: " + request.getVolumeId());
   }
-  if (!Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_VOLUME,request.getVolumeId(),volume.getOwner())) {
+  if (!RestrictedTypes.filterPrivileged().apply(volume)) {
     throw new EucalyptusCloudException("Not authorized to attach volume " + request.getVolumeId() + " by "+ ctx.getUser().getName());
   }
   ServiceConfiguration sc=Partitions.lookupService(Storage.class,volume.getPartition());
@@ -82,7 +77,7 @@
   attachVol.setStatus("attaching");
   AsyncRequests.newRequest(new VolumeAttachCallback(request,attachVol)).dispatch(cluster.getConfiguration());
   vm.addVolumeAttachment(attachVol);
-  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getOwner().toString(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("cluster",vm.getClusterName()).info();
+  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getOwner().toString(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("partition",vm.lookupPartition().toString()).info();
   volume.setState(State.BUSY);
   reply.setAttachedVolume(attachVol);
   return reply;

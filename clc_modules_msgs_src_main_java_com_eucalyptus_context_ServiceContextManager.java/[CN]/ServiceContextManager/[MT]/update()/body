@@ -2,12 +2,17 @@
   this.canHasWrite.lock();
   try {
     List<ComponentId> reloadComponentIds=this.shouldReload();
-    if (!reloadComponentIds.isEmpty()) {
+    if (!Bootstrap.isShuttingDown() && !reloadComponentIds.isEmpty()) {
       if (this.context != null) {
-        this.shutdown();
+        shutdown();
       }
       this.context=this.createContext(reloadComponentIds);
-      Assertions.assertNotNull(this.context,"BUG: failed to build mule context for reasons unknown");
+      if (Bootstrap.isShuttingDown()) {
+        this.running.set(false);
+        shutdown();
+        return;
+      }
+      assertThat(this.context,notNullValue());
       try {
         this.context.start();
         this.client=new MuleClient(this.context);
@@ -22,7 +27,7 @@
           }
         }
       }
- catch (      Throwable e) {
+ catch (      Exception e) {
         LOG.error(e,e);
         throw new ServiceInitializationException("Failed to start service this.context.",e);
       }
@@ -30,5 +35,10 @@
   }
   finally {
     this.canHasWrite.unlock();
+  }
+  if (Bootstrap.isShuttingDown()) {
+    this.running.set(false);
+    shutdown();
+    return;
   }
 }
