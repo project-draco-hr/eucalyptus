@@ -3,35 +3,41 @@
     Helper.loadStoredAddresses(cluster);
     cluster.getState().setAddressingInitialized(true);
   }
-  for (  ClusterAddressInfo addrInfo : ccList) {
+  for (  final ClusterAddressInfo addrInfo : ccList) {
     try {
-      Address address=Helper.lookupOrCreate(cluster,addrInfo);
-      if (address.isAssigned() && !address.isPending()) {
-        if (FakePrincipals.NOBODY_USER_ERN.equals(address.getOwner())) {
+      final Address address=Helper.lookupOrCreate(cluster,addrInfo);
+      if (address.isAssigned() && !addrInfo.hasMapping() && !address.isPending()) {
+        if (Principals.nobodyFullName().equals(address.getOwner())) {
           Helper.markAsAllocated(cluster,addrInfo,address);
         }
         try {
-          VmInstance vm=VmInstances.getInstance().lookupByInstanceIp(addrInfo.getInstanceIp());
-          cluster.getState().clearOrphan(addrInfo);
+          final VmInstance vm=VmInstances.lookupByInstanceIp(addrInfo.getInstanceIp());
+          clearOrphan(addrInfo);
         }
- catch (        NoSuchElementException e) {
-          InetAddress addr=null;
+ catch (        final NoSuchElementException e) {
           try {
-            addr=Inet4Address.getByName(addrInfo.getInstanceIp());
+            final VmInstance vm=VmInstances.lookup(address.getInstanceId());
+            clearOrphan(addrInfo);
           }
- catch (          UnknownHostException e1) {
-            LOG.debug(e1,e1);
-          }
-          if (addr == null || !addr.isLoopbackAddress()) {
-            cluster.getState().handleOrphan(addrInfo);
+ catch (          final NoSuchElementException ex) {
+            InetAddress addr=null;
+            try {
+              addr=Inet4Address.getByName(addrInfo.getInstanceIp());
+            }
+ catch (            final UnknownHostException e1) {
+              LOG.debug(e1,e1);
+            }
+            if ((addr == null) || !addr.isLoopbackAddress()) {
+              handleOrphan(cluster.getName(),addrInfo);
+            }
           }
         }
       }
- else       if (address.isAllocated() && FakePrincipals.NOBODY_USER_ERN.equals(address.getOwner()) && !address.isPending()) {
+ else       if (address.isAllocated() && Principals.nobodyFullName().equals(address.getOwner()) && !address.isPending()) {
         Helper.markAsAllocated(cluster,addrInfo,address);
       }
     }
- catch (    Throwable e) {
+ catch (    final Exception e) {
       LOG.debug(e,e);
     }
   }

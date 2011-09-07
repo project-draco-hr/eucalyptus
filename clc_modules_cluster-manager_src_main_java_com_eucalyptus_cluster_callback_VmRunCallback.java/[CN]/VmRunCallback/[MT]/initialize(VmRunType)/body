@@ -1,19 +1,24 @@
 {
-  for (  String vmId : msg.getInstanceIds()) {
-    try {
-      VmInstance vm=VmInstances.getInstance().lookup(vmId);
-      if (!VmState.PENDING.equals(vm.getRuntimeState())) {
-        throw new EucalyptusClusterException("Intercepted a RunInstances request for an instance which has meanwhile been terminated.");
-      }
-    }
- catch (    Exception e) {
-      LOG.debug(e,e);
-    }
-  }
+  EntityTransaction db=Entities.get(VmInstance.class);
   try {
-    Clusters.getInstance().lookup(token.getCluster()).getNodeState().submitToken(token);
+    final VmInstance vm=VmInstances.lookup(msg.getInstanceId());
+    msg.setUserId(vm.getOwnerUserId());
+    msg.setOwnerId(vm.getOwnerUserId());
+    msg.setAccountId(vm.getOwnerAccountNumber());
+    if (!VmState.PENDING.equals(vm.getState())) {
+      throw new EucalyptusClusterException("Intercepted a RunInstances request for an instance which has meanwhile been terminated.");
+    }
+    try {
+      this.token.submit();
+    }
+ catch (    final NoSuchTokenException e2) {
+      LOG.debug(e2,e2);
+    }
+    db.commit();
   }
- catch (  NoSuchTokenException e2) {
-    LOG.debug(e2,e2);
+ catch (  final Exception e) {
+    db.rollback();
+    LOG.debug(e,e);
+    throw e;
   }
 }

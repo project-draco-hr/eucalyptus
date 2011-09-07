@@ -1,27 +1,24 @@
 {
-  Context ctx=Contexts.lookup();
-  NetworkGroups.makeDefault(ctx.getUserFullName());
-  AuthorizeSecurityGroupIngressResponseType reply=(AuthorizeSecurityGroupIngressResponseType)request.getReply();
-  EntityWrapper<NetworkRulesGroup> db=NetworkGroupUtil.getEntityWrapper();
-  NetworkRulesGroup ruleGroup=NetworkGroupUtil.getUserNetworkRulesGroup(ctx.getUserFullName(),request.getGroupName());
-  if (!ctx.hasAdministrativePrivileges() && !Permissions.isAuthorized(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_SECURITYGROUP,request.getGroupName(),ctx.getAccount(),PolicySpec.requestToAction(request),ctx.getUser())) {
+  final Context ctx=Contexts.lookup();
+  final AuthorizeSecurityGroupIngressResponseType reply=(AuthorizeSecurityGroupIngressResponseType)request.getReply();
+  final NetworkGroup ruleGroup=NetworkGroups.lookup(ctx.getUserFullName(),request.getGroupName());
+  if (!ctx.hasAdministrativePrivileges() && !RestrictedTypes.filterPrivileged().apply(ruleGroup)) {
     throw new EucalyptusCloudException("Not authorized to authorize network group " + request.getGroupName() + " for "+ ctx.getUser());
   }
   final List<NetworkRule> ruleList=Lists.newArrayList();
-  for (  IpPermissionType ipPerm : request.getIpPermissions()) {
+  for (  final IpPermissionType ipPerm : request.getIpPermissions()) {
     try {
       ruleList.addAll(NetworkGroupUtil.getNetworkRules(ipPerm));
     }
- catch (    IllegalArgumentException ex) {
+ catch (    final IllegalArgumentException ex) {
       LOG.error(ex.getMessage());
       reply.set_return(false);
-      db.rollback();
       return reply;
     }
   }
   if (Iterables.any(ruleGroup.getNetworkRules(),new Predicate<NetworkRule>(){
-    @Override public boolean apply(    NetworkRule rule){
-      for (      NetworkRule r : ruleList) {
+    @Override public boolean apply(    final NetworkRule rule){
+      for (      final NetworkRule r : ruleList) {
         if (r.equals(rule) && r.getNetworkPeers().equals(rule.getNetworkPeers()) && r.getIpRanges().equals(rule.getIpRanges())) {
           return true || !r.isValid();
         }
@@ -31,12 +28,12 @@
   }
 )) {
     reply.set_return(false);
-    db.rollback();
     return reply;
   }
-  ruleGroup.getNetworkRules().addAll(ruleList);
-  db.merge(ruleGroup);
-  db.commit();
-  reply.set_return(true);
+ else {
+    ruleGroup.getNetworkRules().addAll(ruleList);
+    EntityWrapper.get(ruleGroup).mergeAndCommit(ruleGroup);
+    reply.set_return(true);
+  }
   return reply;
 }

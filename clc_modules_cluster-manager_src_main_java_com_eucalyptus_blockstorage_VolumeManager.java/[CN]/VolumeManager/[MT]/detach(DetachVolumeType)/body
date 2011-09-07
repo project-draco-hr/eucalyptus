@@ -12,12 +12,12 @@
     throw new EucalyptusCloudException("Volume does not exist: " + request.getVolumeId());
   }
   db.commit();
-  if (!Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_VOLUME,request.getVolumeId(),vol.getOwner())) {
+  if (!RestrictedTypes.filterPrivileged().apply(vol)) {
     throw new EucalyptusCloudException("Not authorized to detach volume " + request.getVolumeId() + " by "+ ctx.getUser().getName());
   }
   VmInstance vm=null;
   AttachedVolume volume=null;
-  for (  VmInstance iter : VmInstances.getInstance().listValues()) {
+  for (  VmInstance iter : VmInstances.listValues()) {
     try {
       volume=iter.lookupVolumeAttachment(request.getVolumeId());
       vm=iter;
@@ -28,7 +28,7 @@
   if (volume == null) {
     throw new EucalyptusCloudException("Volume is not attached: " + request.getVolumeId());
   }
-  if (!Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_INSTANCE,vm.getInstanceId(),vm.getOwner())) {
+  if (!RestrictedTypes.filterPrivileged().apply(vm)) {
     throw new EucalyptusCloudException("Not authorized to detach volume from instance " + request.getInstanceId() + " by "+ ctx.getUser().getName());
   }
   if (!vm.getInstanceId().equals(request.getInstanceId()) && request.getInstanceId() != null && !request.getInstanceId().equals("")) {
@@ -39,11 +39,11 @@
   }
   Cluster cluster=null;
   try {
-    cluster=Clusters.getInstance().lookup(vm.getClusterName());
+    cluster=Clusters.getInstance().lookup(vm.lookupPartition());
   }
  catch (  NoSuchElementException e) {
     LOG.debug(e,e);
-    throw new EucalyptusCloudException("Cluster does not exist: " + vm.getClusterName());
+    throw new EucalyptusCloudException("Cluster does not exist: " + vm.lookupClusterConfiguration());
   }
   ServiceConfiguration scVm;
   try {
@@ -65,7 +65,7 @@
   request.setDevice(volume.getDevice().replaceAll("unknown,requested:",""));
   request.setInstanceId(vm.getInstanceId());
   AsyncRequests.newRequest(new VolumeDetachCallback(request)).dispatch(cluster.getConfiguration());
-  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_DETACH).withDetails(vm.getOwner().toString(),volume.getVolumeId(),"instance",vm.getInstanceId()).withDetails("cluster",vm.getClusterName()).info();
+  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_DETACH).withDetails(vm.getOwner().toString(),volume.getVolumeId(),"instance",vm.getInstanceId()).withDetails("cluster",vm.lookupClusterConfiguration().toString()).info();
   volume.setStatus("detaching");
   reply.setDetachedVolume(volume);
   return reply;
