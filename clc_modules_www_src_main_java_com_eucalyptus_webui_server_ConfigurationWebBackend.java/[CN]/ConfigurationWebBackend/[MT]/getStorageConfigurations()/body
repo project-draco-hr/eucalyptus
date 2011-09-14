@@ -1,0 +1,35 @@
+{
+  List<SearchResultRow> results=Lists.newArrayList();
+  HashMap<String,List<ComponentProperty>> configMap=new HashMap<String,List<ComponentProperty>>();
+  NavigableSet<ServiceConfiguration> configs=Components.lookup(Storage.class).lookupServiceConfigurations();
+  for (  ServiceConfiguration c : configs) {
+    if (Component.State.ENABLED.equals(c.lookupState())) {
+      List<ComponentProperty> properties=Lists.newArrayList();
+      try {
+        GetStorageConfigurationResponseType getStorageConfigResponse=sendForStorageInfo(c);
+        if (c.getPartition().equals(getStorageConfigResponse.getName())) {
+          properties.addAll(getStorageConfigResponse.getStorageParams());
+        }
+ else {
+          LOG.debug("Unexpected storage controller name: " + getStorageConfigResponse.getName(),new Exception());
+          LOG.debug("Expected configuration for SC related to CC: " + LogUtil.dumpObject(c));
+          LOG.debug("Received configuration for SC related to CC: " + LogUtil.dumpObject(getStorageConfigResponse));
+        }
+      }
+ catch (      Exception e) {
+        LOG.debug("Got an error while trying to communicate with remote storage controller",e);
+      }
+      configMap.put(c.getPartition(),properties);
+    }
+  }
+  for (  ServiceConfiguration c : configs) {
+    List<ComponentProperty> properties=configMap.get(c.getPartition());
+    if (properties != null) {
+      results.add(createStorageConfiguration(STORAGE_TYPE,c.getName(),c.getPartition(),c.getHostName(),c.getPort(),properties,c.lookupState().toString()));
+    }
+ else {
+      results.add(createStorageConfiguration(STORAGE_TYPE,SC_DEFAULT_NAME,SC_DEFAULT_NAME,SC_DEFAULT_HOST,SC_DEFAULT_PORT,new ArrayList<ComponentProperty>(),UNKNOWN_STATE));
+    }
+  }
+  return results;
+}

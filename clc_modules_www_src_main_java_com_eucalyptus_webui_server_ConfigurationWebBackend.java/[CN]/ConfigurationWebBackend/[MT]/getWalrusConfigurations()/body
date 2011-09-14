@@ -1,0 +1,27 @@
+{
+  List<SearchResultRow> results=new ArrayList<SearchResultRow>();
+  HashMap<String,List<ComponentProperty>> configMap=new HashMap<String,List<ComponentProperty>>();
+  NavigableSet<ServiceConfiguration> configs=Components.lookup(Walrus.class).lookupServiceConfigurations();
+  for (  ServiceConfiguration c : configs) {
+    if (Component.State.ENABLED.equals(c.lookupState())) {
+      List<ComponentProperty> properties=Lists.newArrayList();
+      try {
+        GetWalrusConfigurationType getWalrusConfiguration=new GetWalrusConfigurationType(WalrusProperties.NAME);
+        Dispatcher walrusDispatch=ServiceDispatcher.lookup(c);
+        GetWalrusConfigurationResponseType getWalrusConfigResponse=walrusDispatch.send(getWalrusConfiguration);
+        configMap.put(c.getPartition(),getWalrusConfigResponse.getProperties());
+      }
+ catch (      Exception ex) {
+        LOG.error("Failed to retrieve walrus configuration",ex);
+        LOG.debug(ex,ex);
+      }
+    }
+  }
+  for (  ServiceConfiguration c : configs) {
+    List<ComponentProperty> properties=configMap.get(c.getPartition());
+    if (properties != null) {
+      results.add(createStorageConfiguration(WALRUS_TYPE,c.getName(),c.getPartition(),c.getHostName(),c.getPort(),properties,c.lookupState().toString()));
+    }
+  }
+  return results;
+}

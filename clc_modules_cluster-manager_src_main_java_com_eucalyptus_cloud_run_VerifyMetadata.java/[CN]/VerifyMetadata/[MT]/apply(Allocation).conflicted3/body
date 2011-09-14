@@ -1,19 +1,20 @@
 {
-  RunInstancesType msg=allocInfo.getRequest();
-  String imageId=msg.getImageId();
-  VmType vmType=allocInfo.getVmType();
-  Partition partition=allocInfo.getPartition();
-  try {
-    BootableSet bootSet=Emis.newBootableSet(vmType,partition,imageId);
-    allocInfo.setBootableSet(bootSet);
+  if (allocInfo.getRequest().getKeyName() == null || "".equals(allocInfo.getRequest().getKeyName())) {
+    if (ImageMetadata.Platform.windows.name().equals(allocInfo.getBootSet().getMachine().getPlatform())) {
+      throw new InvalidMetadataException("You must specify a keypair when running a windows vm: " + allocInfo.getRequest().getImageId());
+    }
+ else {
+      allocInfo.setSshKeyPair(KeyPairs.noKey());
+      return true;
+    }
   }
- catch (  AuthException ex) {
-    LOG.error(ex);
-    throw new VerificationException(ex);
+  Context ctx=allocInfo.getContext();
+  RunInstancesType request=allocInfo.getRequest();
+  String keyName=request.getKeyName();
+  SshKeyPair key=KeyPairs.lookup(ctx.getUserFullName(),keyName);
+  if (!ctx.hasAdministrativePrivileges() && !RestrictedTypes.filterPrivileged().apply(key)) {
+    throw new IllegalMetadataAccessException("Not authorized to use keypair " + keyName + " by "+ ctx.getUser().getName());
   }
-catch (  MetadataException ex) {
-    LOG.error(ex);
-    throw new VerificationException(ex);
-  }
+  allocInfo.setSshKeyPair(KeyPairs.lookup(ctx.getUserFullName(),keyName));
   return true;
 }
