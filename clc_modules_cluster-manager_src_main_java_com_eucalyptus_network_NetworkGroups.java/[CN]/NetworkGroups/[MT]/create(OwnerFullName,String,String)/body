@@ -1,0 +1,30 @@
+{
+  final EntityTransaction db=Entities.get(NetworkGroup.class);
+  try {
+    NetworkGroup net=Entities.uniqueResult(new NetworkGroup(AccountFullName.getInstance(ownerFullName.getAccountNumber()),groupName));
+    if (net == null) {
+      final NetworkGroup entity=Entities.persist(new NetworkGroup(ownerFullName,groupName,groupDescription));
+      db.commit();
+      return entity;
+    }
+ else {
+      db.rollback();
+      throw new DuplicateMetadataException("Failed to create group: " + groupName + " for "+ ownerFullName.toString());
+    }
+  }
+ catch (  final NoSuchElementException ex) {
+    final NetworkGroup entity=Entities.persist(new NetworkGroup(ownerFullName,groupName,groupDescription));
+    db.commit();
+    return entity;
+  }
+catch (  final ConstraintViolationException ex) {
+    Logs.exhaust().error(ex);
+    db.rollback();
+    throw new DuplicateMetadataException("Failed to create group: " + groupName + " for "+ ownerFullName.toString(),ex);
+  }
+catch (  final Exception ex) {
+    Logs.exhaust().error(ex,ex);
+    db.rollback();
+    throw new MetadataException("Failed to create group: " + groupName + " for "+ ownerFullName.toString(),PersistenceExceptions.transform(ex));
+  }
+}

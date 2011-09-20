@@ -1,0 +1,47 @@
+{
+  if (!NetworkGroups.networkingConfiguration().hasNetworking()) {
+    try {
+      return PrivateNetworkIndex.bogus().allocate();
+    }
+ catch (    final ResourceAllocationException ex) {
+      throw new RuntimeException("BUG BUG BUG: failed to call PrivateNetworkIndex.allocate() on the .bogus() index.");
+    }
+  }
+ else   if (!Entities.isPersistent(this)) {
+    throw new TransientEntityException(this.toString());
+  }
+ else {
+    final EntityTransaction db=Entities.get(PrivateNetworkIndex.class);
+    try {
+      try {
+        final PrivateNetworkIndex netIdx=Entities.uniqueResult(PrivateNetworkIndex.named(this,idx));
+        if (Reference.State.FREE.equals(netIdx.getState())) {
+          final PrivateNetworkIndex ref=netIdx.allocate();
+          db.commit();
+          return ref;
+        }
+ else {
+          try {
+            netIdx.teardown();
+          }
+ catch (          final Exception ex) {
+            LOG.error(ex,ex);
+          }
+          final PrivateNetworkIndex ref=netIdx.allocate();
+          db.commit();
+          return ref;
+        }
+      }
+ catch (      final Exception ex) {
+        final PrivateNetworkIndex ref=Entities.persist(PrivateNetworkIndex.create(this,idx)).allocate();
+        db.commit();
+        return ref;
+      }
+    }
+ catch (    final Exception ex) {
+      Logs.exhaust().error(ex,ex);
+      db.rollback();
+      throw new TransactionExecutionException("Failed to allocate a private network index in network: " + this.displayName,ex);
+    }
+  }
+}

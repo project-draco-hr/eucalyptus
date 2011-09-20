@@ -3,12 +3,8 @@
   Context ctx=Contexts.lookup();
   EntityWrapper<Snapshot> db=EntityWrapper.get(Snapshot.class);
   try {
-    List<Snapshot> snapshots=db.query(Snapshot.ownedBy(ctx.getUserFullName()));
-    for (    Snapshot snap : snapshots) {
-      if (!Lookups.checkPrivilege(request,PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_SNAPSHOT,snap.getDisplayName(),snap.getOwner())) {
-        LOG.debug("Skip snapshot " + snap.getDisplayName() + " due to access right");
-        continue;
-      }
+    List<Snapshot> snapshots=db.query(Snapshot.named(AccountFullName.getInstance(ctx.getAccount()),null));
+    for (    Snapshot snap : Iterables.filter(snapshots,RestrictedTypes.filterPrivileged())) {
       DescribeStorageSnapshotsType scRequest=new DescribeStorageSnapshotsType(Lists.newArrayList(snap.getDisplayName()));
       if (request.getSnapshotSet().isEmpty() || request.getSnapshotSet().contains(snap.getDisplayName())) {
         try {
@@ -19,7 +15,7 @@
             edu.ucsb.eucalyptus.msgs.Snapshot snapReply=snap.morph(new edu.ucsb.eucalyptus.msgs.Snapshot());
             if (storageSnapshot.getProgress() != null)             snapReply.setProgress(storageSnapshot.getProgress());
             snapReply.setVolumeId(storageSnapshot.getVolumeId());
-            snapReply.setOwnerId(snap.getOwnerAccountId());
+            snapReply.setOwnerId(snap.getOwnerAccountNumber());
             reply.getSnapshotSet().add(snapReply);
           }
         }
@@ -35,7 +31,7 @@ catch (        EucalyptusCloudException e) {
     }
     db.commit();
   }
- catch (  Throwable e) {
+ catch (  Exception e) {
     db.rollback();
   }
   return reply;

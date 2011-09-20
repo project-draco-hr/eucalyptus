@@ -1,11 +1,11 @@
 {
   Context ctx=Contexts.lookup();
-  Image.Architecture imageArch=Image.Architecture.x86_64;
-  Image.Platform imagePlatform=Image.Platform.linux;
+  ImageMetadata.Architecture imageArch=ImageMetadata.Architecture.x86_64;
+  ImageMetadata.Platform imagePlatform=ImageMetadata.Platform.linux;
   BlockDeviceMappingItemType rootBlockDevice=Iterables.find(blockDeviceMappings,findEbsRoot(rootDeviceName));
   String snapshotId=rootBlockDevice.getEbs().getSnapshotId();
   try {
-    Snapshot snap=Snapshots.lookup(userFullName,snapshotId);
+    Snapshot snap=Transactions.find(Snapshot.named(userFullName,snapshotId));
     if (!userFullName.getUserId().equals(snap.getOwnerUserId())) {
       throw new EucalyptusCloudException("Failed to create image from specified block device mapping: " + rootBlockDevice + " because of: you must the owner of the source snapshot.");
     }
@@ -15,13 +15,13 @@
     Integer targetVolumeSizeGB=(snapVolumeSize <= suppliedVolumeSize) ? suppliedVolumeSize : snapVolumeSize;
     Long imageSizeBytes=targetVolumeSizeGB * 1024l * 1024l* 1024l;
     Boolean targetDeleteOnTermination=Boolean.TRUE.equals(rootBlockDevice.getEbs().getDeleteOnTermination());
-    String imageId=generateImageId(Image.Type.machine.getTypePrefix(),snapshotId);
+    String imageId=generateImageId(ImageMetadata.Type.machine.getTypePrefix(),snapshotId);
     BlockStorageImageInfo ret=new BlockStorageImageInfo(userFullName,imageId,imageName,imageDescription,imageSizeBytes,imageArch,imagePlatform,eki,eri,snap.getDisplayName(),targetDeleteOnTermination);
     EntityWrapper<BlockStorageImageInfo> db=EntityWrapper.get(BlockStorageImageInfo.class);
     try {
       ret=db.merge(ret);
       ret.getDeviceMappings().addAll(Lists.transform(blockDeviceMappings,Images.deviceMappingGenerator(ret)));
-      ret.setState(Image.State.available);
+      ret.setState(ImageMetadata.State.available);
       db.commit();
       LOG.info("Registering image pk=" + ret.getDisplayName() + " ownerId="+ userFullName);
     }
@@ -31,7 +31,7 @@
     }
     return ret;
   }
- catch (  TransactionFireException ex) {
+ catch (  TransactionExecutionException ex) {
     throw new EucalyptusCloudException("Failed to create image from specified block device mapping: " + rootBlockDevice + " because of: "+ ex.getMessage());
   }
 catch (  ExecutionException ex) {

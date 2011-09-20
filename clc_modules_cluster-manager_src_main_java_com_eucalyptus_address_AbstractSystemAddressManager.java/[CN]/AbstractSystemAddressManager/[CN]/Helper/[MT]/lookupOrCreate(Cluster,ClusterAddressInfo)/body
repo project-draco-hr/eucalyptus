@@ -5,50 +5,50 @@
     addr=Addresses.getInstance().lookupDisabled(addrInfo.getAddress());
     LOG.trace("Found address in the inactive set cache: " + addr);
   }
- catch (  NoSuchElementException e1) {
+ catch (  final NoSuchElementException e1) {
     try {
       addr=Addresses.getInstance().lookup(addrInfo.getAddress());
       LOG.trace("Found address in the active set cache: " + addr);
     }
- catch (    NoSuchElementException e) {
+ catch (    final NoSuchElementException e) {
     }
   }
   Helper.checkUniqueness(addrInfo);
   if (addrInfo.hasMapping()) {
-    vm=Helper.maybeFindVm(addrInfo.getAddress(),addrInfo.getInstanceIp());
-    if (addr != null && vm != null) {
+    vm=Helper.maybeFindVm(addr != null ? addr.getInstanceId() : null,addrInfo.getAddress(),addrInfo.getInstanceIp());
+    if ((addr != null) && (vm != null)) {
       Helper.ensureAllocated(addr,vm);
-      cluster.getState().clearOrphan(addrInfo);
+      clearOrphan(addrInfo);
     }
- else     if (addr != null && vm != null && vm.getState().ordinal() > VmState.RUNNING.ordinal()) {
-      cluster.getState().handleOrphan(addrInfo);
+ else     if (addr != null && !addr.isPending() && vm != null && VmStateSet.DONE.apply(vm)) {
+      handleOrphan(cluster.getName(),addrInfo);
     }
- else     if (addr != null && vm == null) {
-      cluster.getState().handleOrphan(addrInfo);
+ else     if ((addr != null && !addr.isPending()) && (vm == null)) {
+      handleOrphan(cluster.getName(),addrInfo);
     }
- else     if (addr == null && vm != null) {
-      addr=new Address(FakePrincipals.SYSTEM_USER_ERN,addrInfo.getAddress(),cluster.getPartition(),vm.getInstanceId(),vm.getPrivateAddress());
-      cluster.getState().clearOrphan(addrInfo);
+ else     if ((addr == null) && (vm != null)) {
+      addr=new Address(Principals.systemFullName(),addrInfo.getAddress(),cluster.getPartition(),vm.getInstanceId(),vm.getPrivateAddress());
+      clearOrphan(addrInfo);
     }
- else     if (addr == null && vm == null) {
+ else     if ((addr == null) && (vm == null)) {
       addr=new Address(addrInfo.getAddress(),cluster.getPartition());
-      cluster.getState().handleOrphan(addrInfo);
+      handleOrphan(cluster.getName(),addrInfo);
     }
   }
  else {
-    if (addr != null && addr.isAssigned() && !addr.isPending()) {
-      cluster.getState().handleOrphan(addrInfo);
+    if ((addr != null) && addr.isAssigned() && !addr.isPending()) {
+      handleOrphan(cluster.getName(),addrInfo);
     }
- else     if (addr != null && !addr.isAssigned() && !addr.isPending() && addr.isSystemOwned()) {
+ else     if ((addr != null) && !addr.isAssigned() && !addr.isPending()&& addr.isSystemOwned()) {
       try {
         addr.release();
       }
- catch (      Exception ex) {
+ catch (      final Exception ex) {
         LOG.error(ex);
       }
     }
- else     if (addr != null && Address.Transition.system.equals(addr.getTransition())) {
-      cluster.getState().handleOrphan(addrInfo);
+ else     if ((addr != null) && Address.Transition.system.equals(addr.getTransition())) {
+      handleOrphan(cluster.getName(),addrInfo);
     }
  else     if (addr == null) {
       addr=new Address(addrInfo.getAddress(),cluster.getPartition());

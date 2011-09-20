@@ -11,23 +11,44 @@
   if (groupByCriterion != null) {
     params.put("groupByCriterion",groupByCriterion.toString());
   }
-  final String filename=(groupByCriterion == null) ? reportType.getJrxmlFilename() : reportType.getNestedJrxmlFilename();
-  final File jrxmlFile=new File(SubDirectory.REPORTS.toString() + File.separator + filename);
-  JRDataSource dataSource=null;
+  final String jrxmlFilename=(groupByCriterion == null) ? reportType.getJrxmlFilename() : reportType.getNestedJrxmlFilename();
+  final File jrxmlFile=new File(SubDirectory.REPORTS.toString() + File.separator + jrxmlFilename);
+  @SuppressWarnings("rawtypes") ReportLineGenerator generator=null;
 switch (reportType) {
 case INSTANCE:
-    List<InstanceReportLine> irl=InstanceReportLineGenerator.getInstance().getReportLines(period,groupByCriterion,criterion,displayUnits);
-  dataSource=new JRBeanCollectionDataSource(irl);
-break;
+    generator=InstanceReportLineGenerator.getInstance();
+  break;
 case STORAGE:
-List<StorageReportLine> srl=StorageReportLineGenerator.getInstance().getReportLines(period,groupByCriterion,criterion,displayUnits);
-dataSource=new JRBeanCollectionDataSource(srl);
+generator=StorageReportLineGenerator.getInstance();
 break;
 case S3:
-List<S3ReportLine> s3rl=S3ReportLineGenerator.getInstance().getReportLines(period,groupByCriterion,criterion,displayUnits);
-dataSource=new JRBeanCollectionDataSource(s3rl);
+generator=S3ReportLineGenerator.getInstance();
 break;
 }
+List<ReportLine> reportLines=null;
+ReportKey key=new ReportKey(reportType,period,criterion,groupByCriterion,displayUnits,System.currentTimeMillis());
+if (lineListMap.containsKey(key)) {
+log.info("Gathered report data from cache:" + key);
+reportLines=lineListMap.get(key);
+}
+ else {
+while (lineListMap.size() >= DEFAULT_CACHE_SIZE) {
+ReportKey oldestKey=null;
+for (ReportKey oldKey : lineListMap.keySet()) {
+if (oldestKey == null || oldestKey.getTimestampMs() > oldKey.getTimestampMs()) {
+oldestKey=oldKey;
+}
+}
+if (oldestKey != null) {
+lineListMap.remove(oldestKey);
+log.info("Removed report data from cache:" + oldestKey);
+}
+}
+reportLines=generator.getReportLines(period,groupByCriterion,criterion,displayUnits);
+log.info("Generated report data from db:" + key);
+lineListMap.put(key,reportLines);
+}
+JRDataSource dataSource=new JRBeanCollectionDataSource(reportLines);
 try {
 JasperReport report=JasperCompileManager.compileReport(jrxmlFile.getAbsolutePath());
 JasperPrint jasperPrint=JasperFillManager.fillReport(report,params,dataSource);

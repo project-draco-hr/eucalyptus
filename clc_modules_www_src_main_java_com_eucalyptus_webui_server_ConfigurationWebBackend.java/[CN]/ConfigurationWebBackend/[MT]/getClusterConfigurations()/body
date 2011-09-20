@@ -1,15 +1,27 @@
 {
   List<SearchResultRow> results=Lists.newArrayList();
-  try {
-    for (    ServiceConfiguration c : ServiceConfigurations.list(ClusterController.class)) {
-      SearchResultRow row=new SearchResultRow();
-      row.setExtraFieldDescs(CLUSTER_CONFIG_EXTRA_FIELD_DESCS);
-      serializeClusterConfiguration(c,row);
-      results.add(row);
+  HashMap<String,List<String>> configProps=new HashMap<String,List<String>>();
+  NavigableSet<ServiceConfiguration> configs=Components.lookup(ClusterController.class).lookupServiceConfigurations();
+  for (  ServiceConfiguration c : configs) {
+    if (!configProps.containsKey(c.getPartition())) {
+      ClusterConfiguration config=(ClusterConfiguration)c;
+      List<String> props=new ArrayList<String>();
+      props.add(config.getMinNetworkTag() == null ? "0" : config.getMinNetworkTag().toString());
+      props.add(config.getMaxNetworkTag() == null ? "0" : config.getMaxNetworkTag().toString());
+      configProps.put(c.getPartition(),props);
     }
   }
- catch (  Throwable e) {
-    LOG.debug("Got an error while trying to retrieving storage controller configuration list",e);
+  for (  ServiceConfiguration c : configs) {
+    List<String> props=configProps.get(c.getPartition());
+    if (props != null) {
+      SearchResultRow row=new SearchResultRow();
+      row.setExtraFieldDescs(CLUSTER_CONFIG_EXTRA_FIELD_DESCS);
+      serializeClusterConfiguration(c,props.get(0),props.get(1),row);
+      results.add(row);
+    }
+ else {
+      LOG.debug("Got an error while trying to retrieving cluster configuration list");
+    }
   }
   return results;
 }
