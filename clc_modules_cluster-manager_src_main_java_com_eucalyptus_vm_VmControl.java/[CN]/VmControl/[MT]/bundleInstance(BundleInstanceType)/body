@@ -1,20 +1,14 @@
 {
-  final BundleInstanceResponseType reply=request.getReply();
-  reply.set_return(true);
-  Component walrus=Components.lookup(Walrus.class);
-  NavigableSet<ServiceConfiguration> configs=walrus.lookupServiceConfigurations();
-  if (configs.isEmpty() || !Component.State.ENABLED.equals(configs.first().lookupState())) {
-    throw new EucalyptusCloudException("Failed to bundle instance because there is no available walrus service at the moment.");
-  }
-  final String walrusUrl=configs.first().getUri().toASCIIString();
-  final String instanceId=request.getInstanceId();
   final Context ctx=Contexts.lookup();
-  final User user=ctx.getUser();
+  final BundleInstanceResponseType reply=request.getReply();
+  reply.set_return(false);
+  final String instanceId=request.getInstanceId();
   EntityTransaction db=Entities.get(VmInstance.class);
   try {
-    final VmInstance v=VmInstances.lookup(instanceId);
-    if (v.isBundling()) {
-      reply.setTask(v.getBundleTask());
+    final VmInstance v=RestrictedTypes.doPrivileged(instanceId,VmInstance.class);
+    if (v.getRuntimeState().isBundling()) {
+      reply.setTask(Bundles.transform(v.getRuntimeState().getBundleTask()));
+      reply.markWinning();
     }
  else     if (!ImageMetadata.Platform.windows.name().equals(v.getPlatform())) {
       throw new EucalyptusCloudException("Failed to bundle requested vm because the platform is not 'windows': " + request.getInstanceId());
@@ -23,23 +17,23 @@
       throw new EucalyptusCloudException("Failed to bundle requested vm because it is not currently 'running': " + request.getInstanceId());
     }
  else     if (RestrictedTypes.filterPrivileged().apply(v)) {
-      final BundleTask bundleTask=Bundles.create(v,request.getBucket(),request.getPrefix(),new String(Base64.decode(request.getUploadPolicy())));
-      if (v.startBundleTask(bundleTask)) {
-        reply.setTask(bundleTask);
+      final VmBundleTask bundleTask=Bundles.create(v,request.getBucket(),request.getPrefix(),new String(Base64.decode(request.getUploadPolicy())));
+      if (v.getRuntimeState().startBundleTask(bundleTask)) {
+        reply.setTask(Bundles.transform(bundleTask));
+        reply.markWinning();
       }
- else       if (v.getBundleTask() == null) {
+ else       if (v.getRuntimeState().getBundleTask() == null) {
         v.resetBundleTask();
-        v.startBundleTask(bundleTask);
-        reply.setTask(bundleTask);
+        if (v.getRuntimeState().startBundleTask(bundleTask)) {
+          reply.setTask(Bundles.transform(bundleTask));
+          reply.markWinning();
+        }
       }
  else {
-        throw new EucalyptusCloudException("Instance is already being bundled: " + v.getBundleTask().getBundleId());
+        throw new EucalyptusCloudException("Instance is already being bundled: " + v.getRuntimeState().getBundleTask().getBundleId());
       }
-      EventRecord.here(BundleCallback.class,EventType.BUNDLE_PENDING,ctx.getUserFullName().toString(),v.getBundleTask().getBundleId(),v.getInstanceId()).debug();
-      final BundleCallback callback=new BundleCallback(request);
-      request.setUrl(walrusUrl);
-      request.setAwsAccessKeyId(Accounts.getFirstActiveAccessKeyId(user));
-      AsyncRequests.newRequest(callback).dispatch(v.lookupClusterConfiguration());
+      EventRecord.here(VmControl.class,EventType.BUNDLE_PENDING,ctx.getUserFullName().toString(),v.getRuntimeState().getBundleTask().getBundleId(),v.getInstanceId()).debug();
+      AsyncRequests.newRequest(Bundles.createCallback(request)).dispatch(v.lookupClusterConfiguration());
     }
  else {
       throw new EucalyptusCloudException("Failed to find instance: " + request.getInstanceId());
@@ -53,7 +47,7 @@
 catch (  final Exception ex) {
     Logs.exhaust().error(ex,ex);
     db.rollback();
-    throw new EucalyptusCloudException("Failed to find instance: " + request.getInstanceId(),ex);
+    throw new EucalyptusCloudException("Failed to bundle instance: " + request.getInstanceId(),ex);
   }
   return reply;
 }

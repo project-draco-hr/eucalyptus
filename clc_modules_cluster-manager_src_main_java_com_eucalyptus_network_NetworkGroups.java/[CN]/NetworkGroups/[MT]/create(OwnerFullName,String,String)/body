@@ -1,30 +1,50 @@
 {
+  UserFullName userFullName=null;
+  if (ownerFullName instanceof UserFullName) {
+    userFullName=(UserFullName)ownerFullName;
+  }
+ else {
+    try {
+      Account account=Accounts.lookupAccountById(ownerFullName.getAccountNumber());
+      User admin=Iterables.find(account.getUsers(),new Predicate<User>(){
+        @Override public boolean apply(        User input){
+          return input.isAccountAdmin();
+        }
+      }
+);
+      userFullName=UserFullName.getInstance(admin);
+    }
+ catch (    Exception ex) {
+      LOG.error(ex,ex);
+      throw new NoSuchMetadataException("Failed to create group because owning user could not be identified.",ex);
+    }
+  }
   final EntityTransaction db=Entities.get(NetworkGroup.class);
   try {
-    NetworkGroup net=Entities.uniqueResult(new NetworkGroup(AccountFullName.getInstance(ownerFullName.getAccountNumber()),groupName));
+    NetworkGroup net=Entities.uniqueResult(new NetworkGroup(AccountFullName.getInstance(userFullName.getAccountNumber()),groupName));
     if (net == null) {
-      final NetworkGroup entity=Entities.persist(new NetworkGroup(ownerFullName,groupName,groupDescription));
+      final NetworkGroup entity=Entities.persist(new NetworkGroup(userFullName,groupName,groupDescription));
       db.commit();
       return entity;
     }
  else {
       db.rollback();
-      throw new DuplicateMetadataException("Failed to create group: " + groupName + " for "+ ownerFullName.toString());
+      throw new DuplicateMetadataException("Failed to create group: " + groupName + " for "+ userFullName.toString());
     }
   }
  catch (  final NoSuchElementException ex) {
-    final NetworkGroup entity=Entities.persist(new NetworkGroup(ownerFullName,groupName,groupDescription));
+    final NetworkGroup entity=Entities.persist(new NetworkGroup(userFullName,groupName,groupDescription));
     db.commit();
     return entity;
   }
 catch (  final ConstraintViolationException ex) {
     Logs.exhaust().error(ex);
     db.rollback();
-    throw new DuplicateMetadataException("Failed to create group: " + groupName + " for "+ ownerFullName.toString(),ex);
+    throw new DuplicateMetadataException("Failed to create group: " + groupName + " for "+ userFullName.toString(),ex);
   }
 catch (  final Exception ex) {
     Logs.exhaust().error(ex,ex);
     db.rollback();
-    throw new MetadataException("Failed to create group: " + groupName + " for "+ ownerFullName.toString(),PersistenceExceptions.transform(ex));
+    throw new MetadataException("Failed to create group: " + groupName + " for "+ userFullName.toString(),PersistenceExceptions.transform(ex));
   }
 }
