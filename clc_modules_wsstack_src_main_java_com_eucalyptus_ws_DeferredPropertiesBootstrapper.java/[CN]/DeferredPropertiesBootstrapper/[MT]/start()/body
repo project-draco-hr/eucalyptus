@@ -1,18 +1,36 @@
 {
-  for (  Component comp : Components.list()) {
-    for (    ServiceConfiguration s : comp.lookupServiceConfigurations()) {
-      List<ConfigurableProperty> props=PropertyDirectory.getPendingPropertyEntrySet(s.getComponentId().name());
-      for (      ConfigurableProperty prop : props) {
-        ConfigurableProperty addProp=null;
-        if (prop instanceof SingletonDatabasePropertyEntry) {
-          addProp=prop;
+  List<ConfigurableProperty> staticProps=Lists.newArrayList();
+  for (  Entry<String,ConfigurableProperty> entry : PropertyDirectory.getPendingPropertyEntries()) {
+    ConfigurableProperty prop=entry.getValue();
+    if (prop instanceof StaticPropertyEntry) {
+      staticProps.add(prop);
+    }
+ else {
+      try {
+        ComponentId compId=ComponentIds.lookup(prop.getEntrySetName());
+        for (        ServiceConfiguration s : ServiceConfigurations.list(compId.getClass())) {
+          if (compId.name().equals(prop.getEntrySetName())) {
+            if (prop instanceof SingletonDatabasePropertyEntry) {
+              PropertyDirectory.addProperty(prop);
+            }
+ else             if (prop instanceof MultiDatabasePropertyEntry) {
+              PropertyDirectory.addProperty(((MultiDatabasePropertyEntry)prop).getClone(s.getPartition()));
+            }
+          }
         }
- else         if (prop instanceof MultiDatabasePropertyEntry) {
-          addProp=((MultiDatabasePropertyEntry)prop).getClone(s.getPartition());
-        }
-        if (addProp != null) {
-          PropertyDirectory.addProperty(addProp);
-        }
+      }
+ catch (      Exception ex) {
+        LOG.error(ex,ex);
+      }
+    }
+  }
+  for (  ConfigurableProperty prop : staticProps) {
+    if (PropertyDirectory.addProperty(prop)) {
+      try {
+        prop.getValue();
+      }
+ catch (      Exception ex) {
+        Logs.extreme().error(ex,ex);
       }
     }
   }
