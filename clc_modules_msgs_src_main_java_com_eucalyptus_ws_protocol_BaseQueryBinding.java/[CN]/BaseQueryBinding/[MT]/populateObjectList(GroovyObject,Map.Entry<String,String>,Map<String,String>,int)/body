@@ -1,16 +1,16 @@
 {
-  final List<String> failedMappings=new ArrayList<String>();
+  List<String> failedMappings=new ArrayList<String>();
   try {
-    final Field declaredField=getRecursiveField(obj.getClass(),paramFieldPair.getValue());
-    final ArrayList theList=(ArrayList)obj.getProperty(paramFieldPair.getValue());
-    final Class genericType=(Class)((ParameterizedType)declaredField.getGenericType()).getActualTypeArguments()[0];
+    Field declaredField=getRecursiveField(obj.getClass(),paramFieldPair.getValue());
+    ArrayList theList=(ArrayList)obj.getProperty(paramFieldPair.getValue());
+    Class genericType=(Class)((ParameterizedType)declaredField.getGenericType()).getActualTypeArguments()[0];
     if (String.class.equals(genericType)) {
       if (params.containsKey(paramFieldPair.getKey())) {
         theList.add(params.remove(paramFieldPair.getKey()));
       }
  else {
-        final List<String> keys=Lists.newArrayList(params.keySet());
-        for (        final String k : keys) {
+        List<String> keys=Lists.newArrayList(params.keySet());
+        for (        String k : keys) {
           if (k.matches(paramFieldPair.getKey() + "\\.\\d*")) {
             theList.add(params.remove(k));
           }
@@ -18,21 +18,28 @@
       }
     }
  else     if (declaredField.isAnnotationPresent(HttpEmbedded.class)) {
-      final HttpEmbedded annoteEmbedded=(HttpEmbedded)declaredField.getAnnotation(HttpEmbedded.class);
+      HttpEmbedded annoteEmbedded=(HttpEmbedded)declaredField.getAnnotation(HttpEmbedded.class);
       if (annoteEmbedded.multiple()) {
-        final Map<String,String> subParams=Maps.newHashMap();
-        for (        final String k : Lists.newArrayList(params.keySet())) {
-          String keyPrefix=paramFieldPair.getKey() + ".1.";
-          if (!k.startsWith(keyPrefix)) {
-            subParams.put(k.replace(keyPrefix,""),params.remove(k));
+        List<String> keys=Lists.newArrayList(params.keySet());
+        for (        String k : keys) {
+          if (!k.contains(paramFieldPair.getKey() + ".1.")) {
+            params.remove(k);
           }
         }
-        failedMappings.addAll(this.populateEmbedded(genericType,subParams,theList));
+        List<String> keys2=Lists.newArrayList(params.keySet());
+        for (        String k2 : keys2) {
+          String currentValue=params.get(k2);
+          String currentKey=k2;
+          String newKey=k2.replaceAll(paramFieldPair.getKey() + ".1.","");
+          params.put(newKey,currentValue);
+          params.remove(k2);
+        }
+        failedMappings.addAll(populateEmbedded(genericType,params,theList));
       }
- else       failedMappings.addAll(this.populateEmbedded(genericType,params,theList));
+ else       failedMappings.addAll(populateEmbedded(genericType,params,theList));
     }
   }
- catch (  final Exception e1) {
+ catch (  Exception e1) {
     LOG.debug("FAILED HERE : ",e1);
     failedMappings.add(paramFieldPair.getKey());
   }
