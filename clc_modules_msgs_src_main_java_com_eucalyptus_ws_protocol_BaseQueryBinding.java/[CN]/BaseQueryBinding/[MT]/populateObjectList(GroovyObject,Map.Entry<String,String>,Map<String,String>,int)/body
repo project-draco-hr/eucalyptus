@@ -1,16 +1,16 @@
 {
-  List<String> failedMappings=new ArrayList<String>();
+  final List<String> failedMappings=new ArrayList<String>();
   try {
-    Field declaredField=getRecursiveField(obj.getClass(),paramFieldPair.getValue());
-    ArrayList theList=(ArrayList)obj.getProperty(paramFieldPair.getValue());
-    Class genericType=(Class)((ParameterizedType)declaredField.getGenericType()).getActualTypeArguments()[0];
+    final Field declaredField=getRecursiveField(obj.getClass(),paramFieldPair.getValue());
+    final ArrayList theList=(ArrayList)obj.getProperty(paramFieldPair.getValue());
+    final Class genericType=(Class)((ParameterizedType)declaredField.getGenericType()).getActualTypeArguments()[0];
     if (String.class.equals(genericType)) {
       if (params.containsKey(paramFieldPair.getKey())) {
         theList.add(params.remove(paramFieldPair.getKey()));
       }
  else {
-        List<String> keys=Lists.newArrayList(params.keySet());
-        for (        String k : keys) {
+        final List<String> keys=Lists.newArrayList(params.keySet());
+        for (        final String k : keys) {
           if (k.matches(paramFieldPair.getKey() + "\\.\\d*")) {
             theList.add(params.remove(k));
           }
@@ -18,30 +18,24 @@
       }
     }
  else     if (declaredField.isAnnotationPresent(HttpEmbedded.class)) {
-      HttpEmbedded annoteEmbedded=(HttpEmbedded)declaredField.getAnnotation(HttpEmbedded.class);
+      final HttpEmbedded annoteEmbedded=(HttpEmbedded)declaredField.getAnnotation(HttpEmbedded.class);
       if (annoteEmbedded.multiple()) {
-        String prefix=paramFieldPair.getKey();
-        List<String> embeddedListFieldNames=new ArrayList<String>();
-        for (        String actualParameterName : params.keySet())         if (actualParameterName.matches(prefix + ".1.*"))         embeddedListFieldNames.add(actualParameterName.replaceAll(prefix + ".1.",""));
-        for (int i=0; i < paramSize + 1; i++) {
-          boolean foundAll=true;
-          Map<String,String> embeddedParams=new HashMap<String,String>();
-          for (          String fieldName : embeddedListFieldNames) {
-            String paramName=prefix + "." + i+ "."+ fieldName;
-            if (!params.containsKey(paramName)) {
-              failedMappings.add("Mismatched embedded field: " + paramName);
-              foundAll=false;
-            }
- else             embeddedParams.put(fieldName,params.get(paramName));
+        final List<String> keys=Lists.newArrayList(params.keySet());
+        final Map<String,String> subParams=Maps.newConcurrentMap();
+        for (        final String k : keys) {
+          if (k.contains(paramFieldPair.getKey() + ".1.")) {
+            final String currentValue=params.remove(k);
+            final String newKey=k.replaceAll(paramFieldPair.getKey() + ".1.","");
+            subParams.put(newKey,currentValue);
           }
-          if (foundAll)           failedMappings.addAll(populateEmbedded(genericType,embeddedParams,theList));
- else           break;
         }
+        failedMappings.addAll(this.populateEmbedded(genericType,subParams,theList));
       }
- else       failedMappings.addAll(populateEmbedded(genericType,params,theList));
+ else       failedMappings.addAll(this.populateEmbedded(genericType,params,theList));
     }
   }
- catch (  Exception e1) {
+ catch (  final Exception e1) {
+    LOG.debug("FAILED HERE : ",e1);
     failedMappings.add(paramFieldPair.getKey());
   }
   return failedMappings;
