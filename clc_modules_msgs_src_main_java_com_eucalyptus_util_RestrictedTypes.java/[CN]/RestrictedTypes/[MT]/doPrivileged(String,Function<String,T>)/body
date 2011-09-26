@@ -1,14 +1,15 @@
 {
+  assertThat("Resolver function must be not null: " + identifier,resolverFunction,notNullValue());
   Context ctx=Contexts.lookup();
   if (ctx.hasAdministrativePrivileges()) {
-    return lookupFunction.apply(identifier);
+    return resolverFunction.apply(identifier);
   }
  else {
     Class<? extends BaseMessage> msgType=ctx.getRequest().getClass();
-    LOG.debug("Attempting to lookup " + identifier + " using lookup: "+ lookupFunction.getClass()+ " typed as "+ Classes.genericsToClasses(lookupFunction));
-    List<Class<?>> lookupTypes=Classes.genericsToClasses(lookupFunction);
+    LOG.debug("Attempting to lookup " + identifier + " using lookup: "+ resolverFunction.getClass()+ " typed as "+ Classes.genericsToClasses(resolverFunction));
+    List<Class<?>> lookupTypes=Classes.genericsToClasses(resolverFunction);
     if (lookupTypes.isEmpty()) {
-      throw new IllegalArgumentException("Failed to find required generic type for lookup " + lookupFunction.getClass() + " so the policy type for looking up "+ identifier+ " cannot be determined.");
+      throw new IllegalArgumentException("Failed to find required generic type for lookup " + resolverFunction.getClass() + " so the policy type for looking up "+ identifier+ " cannot be determined.");
     }
  else {
       Class<?> rscType;
@@ -42,9 +43,9 @@
         User requestUser=ctx.getUser();
         T requestedObject;
         try {
-          requestedObject=lookupFunction.apply(identifier);
+          requestedObject=resolverFunction.apply(identifier);
           if (requestedObject == null) {
-            throw new NoSuchElementException("Failed to lookup requested " + rscType.getCanonicalName() + " with id "+ identifier+ " using "+ lookupFunction.getClass());
+            throw new NoSuchElementException("Failed to lookup requested " + rscType.getCanonicalName() + " with id "+ identifier+ " using "+ resolverFunction.getClass());
           }
         }
  catch (        NoSuchElementException ex) {
@@ -58,9 +59,9 @@ catch (        PersistenceException ex) {
 catch (        Exception ex) {
           Logs.extreme().error(ex,ex);
           LOG.error(ex);
-          throw new PersistenceException("Error occurred while attempting to lookup " + identifier + " using lookup: "+ lookupFunction.getClass()+ " typed as "+ rscType,ex);
+          throw new PersistenceException("Error occurred while attempting to lookup " + identifier + " using lookup: "+ resolverFunction.getClass()+ " typed as "+ rscType,ex);
         }
-        Account owningAccount=Accounts.lookupUserById(requestedObject.getOwner().getUniqueId()).getAccount();
+        Account owningAccount=Principals.nobodyFullName().getAccountNumber().equals(requestedObject.getOwner().getAccountNumber()) ? null : Accounts.lookupAccountByName(requestedObject.getOwner().getAccountName());
         if (!Permissions.isAuthorized(vendor.value(),type.value(),identifier,owningAccount,action,requestUser)) {
           throw new AuthException("Not authorized to use " + type.value() + " identified by "+ identifier+ " as the user "+ requestUser.getName());
         }
