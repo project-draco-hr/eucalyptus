@@ -1,0 +1,33 @@
+{
+  final VmState runVmState=VmState.Mapper.get(runVm.getStateName());
+  EntityTransaction db=Entities.get(VmInstance.class);
+  try {
+    try {
+      VmInstance vm=VmInstances.lookup(runVm.getInstanceId());
+      try {
+        if (VmState.SHUTTING_DOWN.equals(runVmState)) {
+          VmStateCallback.handleReportedTeardown(vm,runVm);
+        }
+ else         if (VmStateSet.RUN.apply(vm)) {
+          vm.doUpdate().apply(runVm);
+        }
+ else {
+          return;
+        }
+      }
+ catch (      Exception ex) {
+        LOG.error(ex);
+      }
+    }
+ catch (    Exception ex1) {
+      if (VmStateSet.RUN.contains(runVmState)) {
+        VmInstance.RestoreAllocation.INSTANCE.apply(runVm);
+      }
+    }
+    db.commit();
+  }
+ catch (  Exception ex) {
+    Logs.exhaust().error(ex,ex);
+    db.rollback();
+  }
+}
