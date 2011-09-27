@@ -1,0 +1,44 @@
+{
+  List<NetworkRule> ruleList=new ArrayList<NetworkRule>();
+  if (!ipPerm.getGroups().isEmpty()) {
+    if (ipPerm.getFromPort() == 0 && ipPerm.getToPort() == 0) {
+      ipPerm.setToPort(65535);
+    }
+    List<String> empty=Lists.newArrayList();
+    if (ipPerm.getIpProtocol() == null) {
+      NetworkRule rule=NetworkRule.create(NetworkRule.Protocol.tcp,ipPerm.getFromPort(),ipPerm.getToPort(),IpPermissionTypeExtractNetworkPeers.INSTANCE.apply(ipPerm),empty);
+      ruleList.add(rule);
+      NetworkRule rule1=NetworkRule.create(NetworkRule.Protocol.udp,ipPerm.getFromPort(),ipPerm.getToPort(),IpPermissionTypeExtractNetworkPeers.INSTANCE.apply(ipPerm),empty);
+      ruleList.add(rule1);
+      NetworkRule rule2=NetworkRule.create(NetworkRule.Protocol.tcp,-1,-1,IpPermissionTypeExtractNetworkPeers.INSTANCE.apply(ipPerm),empty);
+      ruleList.add(rule2);
+    }
+ else {
+      NetworkRule rule=NetworkRule.create(ipPerm.getIpProtocol(),ipPerm.getFromPort(),ipPerm.getToPort(),IpPermissionTypeExtractNetworkPeers.INSTANCE.apply(ipPerm),empty);
+      ruleList.add(rule);
+    }
+  }
+ else   if (!ipPerm.getIpRanges().isEmpty()) {
+    List<String> ipRanges=Lists.newArrayList();
+    for (    String range : ipPerm.getIpRanges()) {
+      String[] rangeParts=range.split("/");
+      try {
+        if (Integer.parseInt(rangeParts[1]) > 32 || Integer.parseInt(rangeParts[1]) < 0)         continue;
+        if (rangeParts.length != 2)         continue;
+        if (InetAddress.getByName(rangeParts[0]) != null) {
+          ipRanges.add(range);
+        }
+      }
+ catch (      NumberFormatException e) {
+      }
+catch (      UnknownHostException e) {
+      }
+    }
+    NetworkRule rule=NetworkRule.create(ipPerm.getIpProtocol(),ipPerm.getFromPort(),ipPerm.getToPort(),IpPermissionTypeExtractNetworkPeers.INSTANCE.apply(ipPerm),ipRanges);
+    ruleList.add(rule);
+  }
+ else {
+    throw new IllegalArgumentException("Invalid Ip Permissions:  must specify either a source cidr or user");
+  }
+  return ruleList;
+}
