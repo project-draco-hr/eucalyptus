@@ -1,22 +1,27 @@
 {
-  Context ctx=Contexts.lookup();
+  final Context ctx=Contexts.lookup();
   EntityWrapper<Snapshot> db=EntityWrapper.get(Snapshot.class);
-  Volume vol;
-  try {
-    vol=Transactions.find(Volume.named(ctx.getUserFullName().asAccountFullName(),request.getVolumeId()));
+  Volume vol=Transactions.find(Volume.named(ctx.getUserFullName().asAccountFullName(),request.getVolumeId()));
+  final ServiceConfiguration sc=Partitions.lookupService(Storage.class,vol.getPartition());
+  final Volume volReady=Volumes.checkVolumeReady(vol);
+  Supplier<Snapshot> allocator=new Supplier<Snapshot>(){
+    @Override public Snapshot get(){
+      try {
+        return Snapshots.initializeSnapshot(ctx.getUserFullName(),volReady,sc);
+      }
+ catch (      EucalyptusCloudException ex) {
+        throw new RuntimeException(ex);
+      }
+    }
   }
- catch (  ExecutionException ex1) {
-    throw new EucalyptusCloudException(ex1);
-  }
-  ServiceConfiguration sc=Partitions.lookupService(Storage.class,vol.getPartition());
-  vol=Volumes.checkVolumeReady(vol);
-  Snapshot snap=Snapshots.initializeSnapshot(ctx.getUserFullName(),vol,sc);
-  snap=Snapshots.startCreateSnapshot(vol,snap);
+;
+  Snapshot snap=RestrictedTypes.allocate(allocator);
+  snap=Snapshots.startCreateSnapshot(volReady,snap);
   CreateSnapshotResponseType reply=(CreateSnapshotResponseType)request.getReply();
   edu.ucsb.eucalyptus.msgs.Snapshot snapMsg=snap.morph(new edu.ucsb.eucalyptus.msgs.Snapshot());
   snapMsg.setProgress("0%");
   snapMsg.setOwnerId(snap.getOwnerAccountNumber());
-  snapMsg.setVolumeSize(vol.getSize().toString());
+  snapMsg.setVolumeSize(volReady.getSize().toString());
   reply.setSnapshot(snapMsg);
   return reply;
 }
