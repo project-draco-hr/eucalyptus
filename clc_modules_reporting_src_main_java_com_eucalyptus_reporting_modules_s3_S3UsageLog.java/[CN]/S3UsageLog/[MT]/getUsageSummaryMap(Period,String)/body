@@ -1,0 +1,51 @@
+{
+  log.info("GetUsageSummaryMap period:" + period);
+  final Map<S3SummaryKey,S3UsageSummary> usageMap=new HashMap<S3SummaryKey,S3UsageSummary>();
+  EntityWrapper<S3UsageSnapshot> entityWrapper=EntityWrapper.get(S3UsageSnapshot.class);
+  try {
+    Map<S3SummaryKey,S3DataAccumulator> dataAccumulatorMap=new HashMap<S3SummaryKey,S3DataAccumulator>();
+    long latestSnapshotBeforeMs=findLatestAllSnapshotBefore(period.getBeginningMs());
+    @SuppressWarnings("rawtypes") List list=null;
+    if (accountId == null) {
+      list=entityWrapper.createQuery("from S3UsageSnapshot as sus" + " WHERE sus.key.timestampMs > ?" + " AND sus.key.timestampMs < ?").setLong(0,new Long(latestSnapshotBeforeMs)).setLong(1,new Long(period.getEndingMs())).list();
+    }
+ else {
+      list=entityWrapper.createQuery("from S3UsageSnapshot as sus" + " WHERE sus.key.timestampMs > ?" + " AND sus.key.timestampMs < ?"+ " AND sus.key.accountId = ?").setLong(0,new Long(latestSnapshotBeforeMs)).setLong(1,new Long(period.getEndingMs())).setString(2,accountId).list();
+    }
+    for (    Object obj : list) {
+      S3UsageSnapshot snapshot=(S3UsageSnapshot)obj;
+      S3SnapshotKey snapshotKey=snapshot.getSnapshotKey();
+      S3SummaryKey summaryKey=new S3SummaryKey(snapshotKey);
+      if (snapshotKey.getTimestampMs() < period.getBeginningMs() || !dataAccumulatorMap.containsKey(summaryKey)) {
+        S3DataAccumulator accumulator=new S3DataAccumulator(snapshotKey.getTimestampMs(),snapshot.getUsageData(),new S3UsageSummary());
+        dataAccumulatorMap.put(summaryKey,accumulator);
+      }
+ else {
+        S3DataAccumulator accumulator=dataAccumulatorMap.get(summaryKey);
+        long beginningMs=Math.max(period.getBeginningMs(),accumulator.getLastTimestamp());
+        long endingMs=snapshotKey.getTimestampMs() - 1;
+        long durationSecs=(endingMs - beginningMs) / 1000;
+        accumulator.accumulateUsage(durationSecs);
+        accumulator.setLastTimestamp(snapshotKey.getTimestampMs());
+        accumulator.setLastUsageData(snapshot.getUsageData());
+        log.info(String.format("Accumulate usage, %d-%d, key:%s",beginningMs,endingMs,summaryKey));
+      }
+    }
+    for (    S3SummaryKey key : dataAccumulatorMap.keySet()) {
+      S3DataAccumulator accumulator=dataAccumulatorMap.get(key);
+      long beginningMs=Math.max(period.getBeginningMs(),accumulator.getLastTimestamp());
+      long endingMs=period.getEndingMs() - 1;
+      long durationSecs=(endingMs - beginningMs) / 1000;
+      accumulator.accumulateUsage(durationSecs);
+      log.info(String.format("Accumulate endUsage, %d-%d, key:%s",beginningMs,endingMs,key));
+      usageMap.put(key,accumulator.getCurrentSummary());
+    }
+    entityWrapper.commit();
+  }
+ catch (  Exception ex) {
+    log.error(ex);
+    entityWrapper.rollback();
+    throw new RuntimeException(ex);
+  }
+  return usageMap;
+}
