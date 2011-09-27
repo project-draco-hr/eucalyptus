@@ -13,12 +13,28 @@
   }
   for (  final VmInfo runVm : reply.getVms()) {
     final VmState runVmState=VmState.Mapper.get(runVm.getStateName());
+    BundleState bundleState=BundleState.mapper.apply(runVm.getBundleTaskStateName());
     EntityTransaction db=Entities.get(VmInstance.class);
     try {
       try {
         VmInstance vm=VmInstances.lookup(runVm.getInstanceId());
         try {
-          if (VmStateSet.RUN.apply(vm) || VmStateSet.CHANGING.apply(vm)) {
+          if (VmState.SHUTTING_DOWN.equals(runVmState)) {
+            if (vm.getRuntimeState().isBundling()) {
+              vm.getRuntimeState().updateBundleTaskState(runVm.getBundleTaskStateName());
+              VmInstances.terminated(vm);
+            }
+ else             if (VmState.SHUTTING_DOWN.apply(vm)) {
+              VmInstances.terminated(vm);
+            }
+ else             if (VmState.STOPPING.apply(vm)) {
+              VmInstances.stopped(vm);
+            }
+ else             if (VmStateSet.RUN.apply(vm)) {
+              VmInstances.shutDown(vm);
+            }
+          }
+ else           if (VmStateSet.RUN.apply(vm) || VmStateSet.CHANGING.apply(vm)) {
             vm.doUpdate().apply(runVm);
           }
  else {
@@ -30,7 +46,6 @@
         }
       }
  catch (      Exception ex1) {
-        VmInstance vm=VmInstance.Lookup.INSTANCE.apply(runVm.getInstanceId());
         if (VmStateSet.RUN.contains(runVmState)) {
           VmInstance.RestoreAllocation.INSTANCE.apply(runVm);
         }
@@ -42,7 +57,7 @@
       db.rollback();
     }
   }
-  final List<String> unreportedVms=Lists.transform(VmInstances.listValues(),new Function<VmInstance,String>(){
+  final List<String> unreportedVms=Lists.transform(VmInstances.list(),new Function<VmInstance,String>(){
     @Override public String apply(    final VmInstance input){
       return input.getInstanceId();
     }
@@ -60,20 +75,20 @@
     EntityTransaction db1=Entities.get(VmInstance.class);
     try {
       VmInstance vm=VmInstances.lookup(vmId);
-      if (VmStateSet.RUN.apply(vm) && vm.getSplitTime() > VmInstances.SHUT_DOWN_TIME) {
-        VmInstances.terminate(vm);
+      if (VmInstances.Timeout.UNREPORTED.apply(vm)) {
+        VmInstances.terminated(vm);
+      }
+ else       if (VmInstances.Timeout.SHUTTING_DOWN.apply(vm)) {
+        VmInstances.terminated(vm);
+      }
+ else       if (VmInstances.Timeout.TERMINATED.apply(vm)) {
+        VmInstances.delete(vm);
       }
  else       if (VmState.SHUTTING_DOWN.apply(vm)) {
-        VmInstances.terminate(vm);
+        VmInstances.terminated(vm);
       }
- else       if (VmState.TERMINATED.apply(vm) && vm.getSplitTime() > VmInstances.BURY_TIME) {
-        VmInstances.delete(vm);
-      }
- else       if (VmState.BURIED.apply(vm)) {
-        VmInstances.delete(vm);
-      }
- else       if (VmStateSet.DONE.apply(vm) && vm.getSplitTime() > VmInstances.SHUT_DOWN_TIME) {
-        VmInstances.terminate(vm);
+ else       if (VmState.STOPPED.apply(vm)) {
+        VmInstances.stopped(vm);
       }
       db1.commit();
     }

@@ -1,16 +1,44 @@
 {
-  List<String> failedMappings=new ArrayList<String>();
-  for (  Map.Entry<String,String> e : paramFieldMap.entrySet()) {
+  final List<String> failedMappings=new ArrayList<String>();
+  for (  final Map.Entry<String,String> e : paramFieldMap.entrySet()) {
     try {
-      if (getRecursiveField(obj.getClass(),e.getValue()).getType().equals(ArrayList.class))       failedMappings.addAll(populateObjectList(obj,e,params,params.size()));
+      if (getRecursiveField(obj.getClass(),e.getValue()).getType().equals(ArrayList.class)) {
+        failedMappings.addAll(this.populateObjectList(obj,e,params,params.size()));
+      }
     }
- catch (    Exception e1) {
+ catch (    final Exception e1) {
+      LOG.debug("Failed mapping : ",e1);
       failedMappings.add(e.getKey());
     }
   }
-  for (  Map.Entry<String,String> e : paramFieldMap.entrySet()) {
-    if (params.containsKey(e.getKey()) && !populateObjectField(obj,e,params)) {
+  Class<?> declaredType=null;
+  for (  final Map.Entry<String,String> e : paramFieldMap.entrySet()) {
+    try {
+      declaredType=getRecursiveField(obj.getClass(),e.getValue()).getType();
+    }
+ catch (    final Exception e2) {
+      e2.printStackTrace();
+    }
+    if (params.containsKey(e.getKey()) && !this.populateObjectField(obj,e,params)) {
       failedMappings.add(e.getKey());
+    }
+ else     if ((declaredType != null) && EucalyptusData.class.isAssignableFrom(declaredType)) {
+      try {
+        final Map<String,String> fieldMap=this.buildFieldMap(declaredType);
+        final Object newInstance=declaredType.newInstance();
+        final Map<String,String> subParams=Maps.newHashMap();
+        for (        final String item : Sets.newHashSet(params.keySet())) {
+          if (item.startsWith(e.getKey())) {
+            params.get(item);
+            subParams.put(item.replace(e.getKey() + ".",""),params.remove(item));
+          }
+        }
+        this.populateObject((GroovyObject)newInstance,fieldMap,subParams);
+        obj.setProperty(e.getValue(),newInstance);
+      }
+ catch (      final Exception e1) {
+        e1.printStackTrace();
+      }
     }
  else {
       failedMappings.remove(e.getKey());

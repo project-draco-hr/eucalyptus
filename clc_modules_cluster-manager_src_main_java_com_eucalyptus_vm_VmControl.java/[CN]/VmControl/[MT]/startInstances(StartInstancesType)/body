@@ -1,40 +1,23 @@
 {
-  Context ctx=Contexts.lookup();
   final StartInstancesResponseType reply=request.getReply();
   for (  String instanceId : request.getInstancesSet()) {
-    VmInstance vm=null;
+    EntityTransaction db=Entities.get(VmInstance.class);
     try {
-      vm=VmInstances.lookup(instanceId);
-    }
- catch (    NoSuchElementException ex) {
+      final VmInstance vm=RestrictedTypes.doPrivileged(instanceId,VmInstance.class);
       try {
-        vm=Transactions.find(VmInstance.named(ctx.getUserFullName(),instanceId));
-      }
- catch (      Exception ex1) {
-        throw new EucalyptusCloudException("Failed to locate instance information for instance id: " + instanceId);
-      }
-      final VmInstance v=vm;
-      try {
-        RunInstancesType runRequest=new RunInstancesType(){
-{
-            this.setMinCount(1);
-            this.setMaxCount(1);
-            this.setImageId(v.getImageId());
-            this.setAvailabilityZone(v.getPartition());
-            this.getGroupSet().addAll(v.getNetworkNames());
-            this.setInstanceType(v.getVmType().getName());
-          }
-        }
-;
-        Allocation allocInfo=VerifyMetadata.handle(runRequest);
-        allocInfo=AdmissionControl.handle(allocInfo);
-        final int oldCode=v.getState().getCode(), newCode=VmState.SHUTTING_DOWN.getCode();
-        final String oldState=v.getState().getName(), newState=VmState.SHUTTING_DOWN.getName();
-        reply.getInstancesSet().add(new TerminateInstancesItemType(v.getInstanceId(),oldCode,oldState,newCode,newState));
+        VmInstances.start(vm);
+        final int oldCode=vm.getState().getCode(), newCode=VmState.PENDING.getCode();
+        final String oldState=vm.getState().getName(), newState=VmState.PENDING.getName();
+        reply.getInstancesSet().add(new TerminateInstancesItemType(vm.getInstanceId(),oldCode,oldState,newCode,newState));
       }
  catch (      MetadataException ex1) {
         LOG.error(ex1,ex1);
       }
+      db.commit();
+    }
+ catch (    Exception ex) {
+      Logs.exhaust().error(ex,ex);
+      db.rollback();
     }
   }
   return reply;
