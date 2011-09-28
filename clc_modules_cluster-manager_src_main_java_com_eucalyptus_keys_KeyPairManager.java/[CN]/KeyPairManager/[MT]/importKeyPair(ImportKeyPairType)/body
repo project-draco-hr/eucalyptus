@@ -1,17 +1,23 @@
 {
-  ImportKeyPairResponseType reply=request.getReply();
-  Context ctx=Contexts.lookup();
-  String action=PolicySpec.requestToAction(request);
+  final ImportKeyPairResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
   try {
     KeyPairs.lookup(ctx.getUserFullName(),request.getKeyName());
   }
  catch (  Exception e1) {
-    SshKeyPair newKey=new SshKeyPair(ctx.getUserFullName(),request.getKeyName());
-    newKey.setPublicKey(request.getPublicKeyMaterial());
-    byte[] digest=Digest.MD5.get().digest(request.getPublicKeyMaterial().getBytes());
-    String fingerprint=String.format("%032X",new BigInteger(digest));
-    newKey.setFingerPrint(fingerprint);
-    reply.setKeyName(request.getKeyName());
+    Supplier<SshKeyPair> allocator=new Supplier<SshKeyPair>(){
+      @Override public SshKeyPair get(){
+        SshKeyPair newKey=new SshKeyPair(ctx.getUserFullName(),request.getKeyName());
+        newKey.setPublicKey(request.getPublicKeyMaterial());
+        byte[] digest=Digest.MD5.get().digest(request.getPublicKeyMaterial().getBytes());
+        String fingerprint=String.format("%032X",new BigInteger(digest));
+        newKey.setFingerPrint(fingerprint);
+        reply.setKeyName(request.getKeyName());
+        return newKey;
+      }
+    }
+;
+    RestrictedTypes.allocate(allocator);
   }
   return reply;
 }

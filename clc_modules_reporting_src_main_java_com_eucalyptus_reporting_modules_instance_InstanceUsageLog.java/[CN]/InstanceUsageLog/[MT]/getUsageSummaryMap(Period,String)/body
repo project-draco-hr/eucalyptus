@@ -1,0 +1,56 @@
+{
+  log.info("GetUsageSummaryMap period:" + period);
+  final Map<InstanceSummaryKey,InstanceUsageSummary> usageMap=new HashMap<InstanceSummaryKey,InstanceUsageSummary>();
+  EntityWrapper<InstanceUsageSnapshot> entityWrapper=EntityWrapper.get(InstanceUsageSnapshot.class);
+  try {
+    long latestSnapshotBeforeMs=findLatestAllSnapshotBefore(period.getBeginningMs());
+    long afterEnd=period.getEndingMs() + ((period.getBeginningMs() - latestSnapshotBeforeMs) * 2);
+    @SuppressWarnings("rawtypes") List list=null;
+    if (accountId == null) {
+      list=entityWrapper.createQuery("from InstanceAttributes as ia, InstanceUsageSnapshot as ius" + " where ia.uuid = ius.uuid" + " and ius.timestampMs > ?"+ " and ius.timestampMs < ?").setLong(0,latestSnapshotBeforeMs).setLong(1,afterEnd).list();
+    }
+ else {
+      list=entityWrapper.createQuery("from InstanceAttributes as ia, InstanceUsageSnapshot as ius" + " where ia.uuid = ius.uuid" + " and ia.accountId = ?"+ " and ius.timestampMs > ?"+ " and ius.timestampMs < ?").setString(0,accountId).setLong(1,latestSnapshotBeforeMs).setLong(2,afterEnd).list();
+    }
+    Map<String,InstanceDataAccumulator> dataAccumulatorMap=new HashMap<String,InstanceDataAccumulator>();
+    for (    Object obj : list) {
+      Object[] row=(Object[])obj;
+      InstanceAttributes insAttrs=(InstanceAttributes)row[0];
+      InstanceUsageSnapshot snapshot=(InstanceUsageSnapshot)row[1];
+      log.debug("Found row attrs:" + insAttrs + " snapshot:"+ snapshot);
+      String uuid=insAttrs.getUuid();
+      if (!dataAccumulatorMap.containsKey(uuid)) {
+        InstanceDataAccumulator accumulator=new InstanceDataAccumulator(insAttrs,snapshot,period);
+        dataAccumulatorMap.put(uuid,accumulator);
+      }
+ else {
+        InstanceDataAccumulator accumulator=dataAccumulatorMap.get(uuid);
+        accumulator.update(snapshot);
+      }
+    }
+    for (    String uuid : dataAccumulatorMap.keySet()) {
+      InstanceDataAccumulator accumulator=dataAccumulatorMap.get(uuid);
+      InstanceSummaryKey key=new InstanceSummaryKey(accumulator.getInstanceAttributes());
+      if (!usageMap.containsKey(key)) {
+        usageMap.put(key,new InstanceUsageSummary());
+      }
+      InstanceUsageSummary ius=usageMap.get(key);
+      ius.addDiskIoMegs(accumulator.getDiskIoMegs());
+      ius.addNetworkIoMegs(accumulator.getNetIoMegs());
+      ius.sumFromPeriodType(accumulator.getDurationPeriod(),accumulator.getInstanceAttributes().getInstanceType());
+    }
+    entityWrapper.commit();
+  }
+ catch (  Exception ex) {
+    log.error(ex);
+    entityWrapper.rollback();
+    throw new RuntimeException(ex);
+  }
+  if (log.isDebugEnabled()) {
+    log.debug("Printing usageMap");
+    for (    InstanceSummaryKey key : usageMap.keySet()) {
+      log.debug("key:" + key + " summary:"+ usageMap.get(key));
+    }
+  }
+  return usageMap;
+}
