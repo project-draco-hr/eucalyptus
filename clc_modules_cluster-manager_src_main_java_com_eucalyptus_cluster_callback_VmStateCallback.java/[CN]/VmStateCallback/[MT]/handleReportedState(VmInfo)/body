@@ -1,0 +1,36 @@
+{
+  final VmState runVmState=VmState.Mapper.get(runVm.getStateName());
+  EntityTransaction db=Entities.get(VmInstance.class);
+  try {
+    try {
+      VmInstance vm=VmInstances.lookup(runVm.getInstanceId());
+      if (VmState.SHUTTING_DOWN.equals(runVmState)) {
+        VmStateCallback.handleReportedTeardown(vm,runVm);
+      }
+ else       if (VmStateSet.RUN.apply(vm)) {
+        vm.doUpdate().apply(runVm);
+      }
+    }
+ catch (    TerminatedInstanceException ex1) {
+      LOG.trace("Ignore state update to terminated instance: " + runVm.getInstanceId());
+    }
+catch (    NoSuchElementException ex1) {
+      try {
+        if (VmStateSet.RUN.contains(runVmState)) {
+          VmInstance.RestoreAllocation.INSTANCE.apply(runVm);
+        }
+      }
+ catch (      Exception ex) {
+        LOG.error(ex,ex);
+      }
+    }
+catch (    Exception ex1) {
+      LOG.error(ex1,ex1);
+    }
+    db.commit();
+  }
+ catch (  Exception ex) {
+    LOG.trace(ex,ex);
+    db.rollback();
+  }
+}
