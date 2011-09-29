@@ -1,102 +1,117 @@
 {
-  final EntityTransaction db=Entities.get(VmInstance.class);
-  try {
-    final VmType vmType=VmTypes.getVmType(input.getInstanceType().getName());
-    final UserFullName userFullName=UserFullName.getInstance(input.getOwnerId());
-    Partition partition;
-    try {
-      partition=Partitions.lookupByName(input.getPlacement());
-    }
- catch (    final Exception ex2) {
-      partition=Partitions.lookupByName(Clusters.getInstance().lookup(input.getPlacement()).getPartition());
-    }
-    String imageId=null;
-    String kernelId=null;
-    String ramdiskId=null;
-    try {
-      imageId=input.getInstanceType().lookupRoot().getId();
-      kernelId=input.getInstanceType().lookupKernel().getId();
-      ramdiskId=input.getInstanceType().lookupRamdisk().getId();
-    }
- catch (    final Exception ex2) {
-      LOG.error(ex2,ex2);
-    }
-    BootableSet bootSet=null;
-    if (imageId != null) {
-      bootSet=Emis.newBootableSet(vmType,partition,imageId,kernelId,ramdiskId);
-    }
- else {
-    }
-    int launchIndex;
-    try {
-      launchIndex=Integer.parseInt(input.getLaunchIndex());
-    }
- catch (    final Exception ex1) {
-      launchIndex=1;
-    }
-    SshKeyPair keyPair=null;
-    try {
-      keyPair=KeyPairs.lookup(userFullName,input.getKeyValue());
-    }
- catch (    final Exception ex) {
-      keyPair=KeyPairs.noKey();
-    }
-    byte[] userData=null;
-    try {
-      userData=Base64.decode(input.getUserData());
-    }
- catch (    final Exception ex) {
-      userData=new byte[0];
-    }
-    final List<NetworkGroup> networks=Lists.newArrayList();
-    try {
-      networks.addAll(Lists.transform(input.getGroupNames(),transformNetworkNames(userFullName)));
-    }
- catch (    final Exception ex) {
-      LOG.error(ex,ex);
-    }
-    PrivateNetworkIndex index=null;
-    ExtantNetwork exNet;
-    final NetworkGroup network=(!networks.isEmpty() ? networks.get(0) : null);
-    if (network != null) {
-      if (!network.hasExtantNetwork()) {
-        exNet=network.reclaim(input.getNetParams().getVlan());
-      }
- else {
-        exNet=network.extantNetwork();
-        if (!exNet.getTag().equals(input.getNetParams().getVlan())) {
-          exNet=null;
-        }
- else {
-          index=exNet.reclaimNetworkIndex(input.getNetParams().getNetworkIndex());
-        }
-      }
-    }
-    final VmInstance vmInst=new VmInstance.Builder().owner(userFullName).withIds(input.getInstanceId(),input.getReservationId()).bootRecord(bootSet,userData,keyPair,vmType).placement(partition,partition.getName()).networking(networks,index).build(launchIndex);
-    vmInst.setNaturalId(input.getUuid());
-    Address addr;
-    try {
-      addr=Addresses.getInstance().lookup(input.getNetParams().getIgnoredPublicIp());
-      if (addr.isAssigned() && addr.getInstanceAddress().equals(input.getNetParams().getIpAddress()) && addr.getInstanceId().equals(input.getInstanceId())) {
-        vmInst.updateAddresses(input.getNetParams().getIpAddress(),input.getNetParams().getIgnoredPublicIp());
-      }
- else       if (!addr.isAssigned() && addr.isAllocated() && (addr.isSystemOwned() || addr.getOwner().equals(userFullName))) {
-        vmInst.updateAddresses(input.getNetParams().getIpAddress(),input.getNetParams().getIgnoredPublicIp());
-      }
- else {
-        vmInst.updateAddresses(input.getNetParams().getIpAddress(),input.getNetParams().getIpAddress());
-      }
-    }
- catch (    final Exception ex) {
-      LOG.error(ex);
-    }
-    Entities.persist(vmInst);
-    db.commit();
-    return true;
-  }
- catch (  final Exception ex) {
-    Logs.extreme().error(ex,ex);
-    db.rollback();
+  VmState inputState=VmState.Mapper.get(input.getStateName());
+  if (!VmStateSet.RUN.contains(inputState)) {
     return false;
+  }
+ else {
+    final EntityTransaction db=Entities.get(VmInstance.class);
+    try {
+      final VmType vmType=VmTypes.getVmType(input.getInstanceType().getName());
+      final UserFullName userFullName=UserFullName.getInstance(input.getOwnerId());
+      Partition partition;
+      try {
+        partition=Partitions.lookupByName(input.getPlacement());
+      }
+ catch (      final Exception ex2) {
+        partition=Partitions.lookupByName(Clusters.getInstance().lookup(input.getPlacement()).getPartition());
+      }
+      String imageId=null;
+      String kernelId=null;
+      String ramdiskId=null;
+      try {
+        imageId=input.getInstanceType().lookupRoot().getId();
+        try {
+          kernelId=input.getInstanceType().lookupKernel().getId();
+        }
+ catch (        Exception ex) {
+          LOG.error(ex,ex);
+        }
+        try {
+          ramdiskId=input.getInstanceType().lookupRamdisk().getId();
+        }
+ catch (        Exception ex) {
+          LOG.error(ex,ex);
+        }
+      }
+ catch (      final Exception ex2) {
+        LOG.error(ex2,ex2);
+      }
+      BootableSet bootSet=null;
+      if (imageId != null) {
+        bootSet=Emis.newBootableSet(vmType,partition,imageId,kernelId,ramdiskId);
+      }
+ else {
+      }
+      int launchIndex;
+      try {
+        launchIndex=Integer.parseInt(input.getLaunchIndex());
+      }
+ catch (      final Exception ex1) {
+        launchIndex=1;
+      }
+      SshKeyPair keyPair=null;
+      try {
+        keyPair=KeyPairs.lookup(userFullName,input.getKeyValue());
+      }
+ catch (      final Exception ex) {
+        keyPair=KeyPairs.noKey();
+      }
+      byte[] userData=null;
+      try {
+        userData=Base64.decode(input.getUserData());
+      }
+ catch (      final Exception ex) {
+        userData=new byte[0];
+      }
+      final List<NetworkGroup> networks=Lists.newArrayList();
+      try {
+        networks.addAll(Lists.transform(input.getGroupNames(),transformNetworkNames(userFullName)));
+      }
+ catch (      final Exception ex) {
+        LOG.error(ex,ex);
+      }
+      PrivateNetworkIndex index=null;
+      ExtantNetwork exNet;
+      final NetworkGroup network=(!networks.isEmpty() ? networks.get(0) : null);
+      if (network != null) {
+        if (!network.hasExtantNetwork()) {
+          exNet=network.reclaim(input.getNetParams().getVlan());
+        }
+ else {
+          exNet=network.extantNetwork();
+          if (!exNet.getTag().equals(input.getNetParams().getVlan())) {
+            exNet=null;
+          }
+ else {
+            index=exNet.reclaimNetworkIndex(input.getNetParams().getNetworkIndex());
+          }
+        }
+      }
+      final VmInstance vmInst=new VmInstance.Builder().owner(userFullName).withIds(input.getInstanceId(),input.getReservationId()).bootRecord(bootSet,userData,keyPair,vmType).placement(partition,partition.getName()).networking(networks,index).build(launchIndex);
+      vmInst.setNaturalId(input.getUuid());
+      try {
+        Address addr=Addresses.getInstance().lookup(input.getNetParams().getIgnoredPublicIp());
+        if (addr.isAssigned() && addr.getInstanceAddress().equals(input.getNetParams().getIpAddress()) && addr.getInstanceId().equals(input.getInstanceId())) {
+          vmInst.updateAddresses(input.getNetParams().getIpAddress(),input.getNetParams().getIgnoredPublicIp());
+        }
+ else         if (!addr.isAssigned() && addr.isAllocated() && (addr.isSystemOwned() || addr.getOwner().equals(userFullName))) {
+          vmInst.updateAddresses(input.getNetParams().getIpAddress(),input.getNetParams().getIgnoredPublicIp());
+        }
+ else {
+          vmInst.updateAddresses(input.getNetParams().getIpAddress(),input.getNetParams().getIpAddress());
+        }
+      }
+ catch (      final Exception ex) {
+        LOG.error(ex);
+      }
+      Entities.persist(vmInst);
+      db.commit();
+      return true;
+    }
+ catch (    final Exception ex) {
+      Logs.extreme().error(ex,ex);
+      db.rollback();
+      return false;
+    }
   }
 }
