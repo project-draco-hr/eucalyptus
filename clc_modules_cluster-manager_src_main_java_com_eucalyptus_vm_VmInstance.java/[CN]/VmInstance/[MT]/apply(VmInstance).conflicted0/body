@@ -1,8 +1,24 @@
 {
-  return super.apply(arg0) || !arg0.eachVolumeAttachment(new Predicate<AttachedVolume>(){
-    @Override public boolean apply(    final AttachedVolume arg0){
-      return !arg0.getStatus().endsWith("ing");
+  if (!Entities.isPersistent(v)) {
+    throw new TransientEntityException(v.toString());
+  }
+ else {
+    final EntityTransaction db=Entities.get(VmInstance.class);
+    try {
+      final VmInstance vm=Entities.merge(v);
+      if (VmStateSet.RUN.apply(vm)) {
+        vm.setState(VmState.STOPPING,Reason.USER_STOPPED);
+      }
+ else       if (VmState.STOPPING.equals(vm.getState())) {
+        vm.setState(VmState.STOPPED,Reason.USER_STOPPED);
+      }
+      db.commit();
+      return vm;
+    }
+ catch (    final Exception ex) {
+      Logs.exhaust().trace(ex,ex);
+      db.rollback();
+      throw new NoSuchElementException("Failed to lookup instance: " + v);
     }
   }
-);
 }
