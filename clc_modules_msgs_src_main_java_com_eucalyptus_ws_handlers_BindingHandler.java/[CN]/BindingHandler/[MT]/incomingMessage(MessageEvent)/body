@@ -11,7 +11,19 @@
       this.binding=BindingManager.getBinding(BindingManager.sanitizeNamespace(namespace));
       msgType=this.binding.getElementClass(httpMessage.getOmMessage().getLocalName());
     }
- catch (    Exception e1) {
+ catch (    BindingException ex) {
+      if (this.defaultBinding != null) {
+        this.namespace=namespace;
+        this.binding=this.defaultBinding;
+        try {
+          msgType=this.binding.getElementClass(httpMessage.getOmMessage().getLocalName());
+        }
+ catch (        Exception ex1) {
+          throw new WebServicesException("Failed to find binding for namespace: " + namespace + " due to: "+ ex.getMessage(),ex);
+        }
+      }
+    }
+catch (    Exception e1) {
       LOG.error(httpMessage.getSoapEnvelope().toString(),e1);
       if (this.binding == null) {
         throw new WebServicesException(e1);
@@ -34,8 +46,13 @@
       }
     }
  catch (    Exception e1) {
-      LOG.fatal("FAILED TO PARSE:\n" + httpMessage.getMessageString());
-      throw new WebServicesException(e1);
+      try {
+        msg=(BaseMessage)this.binding.fromOM(httpMessage.getOmMessage(),this.namespace);
+      }
+ catch (      Exception ex) {
+        LOG.warn("FAILED TO PARSE:\n" + httpMessage.getMessageString());
+        throw new WebServicesException(e1);
+      }
     }
     msg.setCorrelationId(httpMessage.getCorrelationId());
     httpMessage.setMessage(msg);
