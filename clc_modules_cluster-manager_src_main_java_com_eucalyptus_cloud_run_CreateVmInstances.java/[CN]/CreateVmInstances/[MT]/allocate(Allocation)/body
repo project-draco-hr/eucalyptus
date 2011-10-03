@@ -1,25 +1,22 @@
 {
-  final long quantity=allocInfo.getAllocationTokens().size();
-  final Context ctx=allocInfo.getContext();
-  final User requestUser=ctx.getUser();
-  final UserFullName userFullName=ctx.getUserFullName();
-  final String action=PolicySpec.requestToAction(allocInfo.getRequest());
   final String vmType=allocInfo.getVmType().getName();
-  if (!Permissions.canAllocate(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_VMTYPE,vmType,action,requestUser,1L)) {
-    throw new EucalyptusCloudException("Quota exceeded in allocating vm type " + vmType + " for "+ requestUser.getName());
-  }
-  if (!Permissions.canAllocate(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_INSTANCE,"",action,requestUser,quantity)) {
-    throw new EucalyptusCloudException("Quota exceeded in allocating " + quantity + " vm instances for "+ requestUser.getName());
-  }
+  RestrictedTypes.allocate(vmType,Long.valueOf(allocInfo.getAllocationTokens().size()),allocInfo.getVmType().allocator());
+  List<VmInstance> vms=Lists.newArrayList();
   for (  final ResourceToken token : allocInfo.getAllocationTokens()) {
-    try {
-      VmInstance vmInst=VmInstance.Create.INSTANCE.apply(token);
-      token.setVmInstance(vmInst);
+    Supplier<VmInstance> allocator=new Supplier<VmInstance>(){
+      @Override public VmInstance get(){
+        try {
+          return VmInstance.Create.INSTANCE.apply(token);
+        }
+ catch (        Exception ex) {
+          LOG.error(ex,ex);
+          throw new RuntimeException(ex);
+        }
+      }
     }
- catch (    Exception ex) {
-      LOG.error(ex,ex);
-      throw new RuntimeException(ex);
-    }
+;
+    VmInstance vmInst=RestrictedTypes.allocate(allocator);
+    token.setVmInstance(vmInst);
   }
   return allocInfo;
 }
