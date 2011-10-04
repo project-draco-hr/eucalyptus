@@ -8,26 +8,42 @@
   }
   if (snapId != null) {
     try {
-      Snapshots.lookup(snapId);
+      Transactions.find(Snapshot.named(null,snapId));
     }
  catch (    ExecutionException ex) {
       throw new EucalyptusCloudException("Failed to create volume because the referenced snapshot id is invalid: " + snapId);
     }
   }
-  Integer newSize=new Integer(request.getSize() != null ? request.getSize() : "-1");
+  final Integer newSize=new Integer(request.getSize() != null ? request.getSize() : "-1");
   Exception lastEx=null;
   for (int i=0; i < VOL_CREATE_RETRIES; i++) {
     try {
       final ServiceConfiguration sc=Partitions.lookupService(Storage.class,partition);
-      UserFullName owner=ctx.getUserFullName();
-      Volume newVol=Volumes.createStorageVolume(sc,owner,snapId,newSize,request);
+      final UserFullName owner=ctx.getUserFullName();
+      Supplier<Volume> allocator=new Supplier<Volume>(){
+        @Override public Volume get(){
+          try {
+            return Volumes.createStorageVolume(sc,owner,snapId,newSize,request);
+          }
+ catch (          ExecutionException ex) {
+            throw new RuntimeException(ex);
+          }
+        }
+      }
+;
+      Volume newVol=RestrictedTypes.allocate(Long.valueOf(newSize),allocator);
       CreateVolumeResponseType reply=request.getReply();
       reply.setVolume(newVol.morph(new edu.ucsb.eucalyptus.msgs.Volume()));
       return reply;
     }
- catch (    ExecutionException ex) {
+ catch (    RuntimeException ex) {
       LOG.error(ex,ex);
-      lastEx=ex;
+      if (!(ex.getCause() instanceof ExecutionException)) {
+        throw ex;
+      }
+ else {
+        lastEx=ex;
+      }
     }
   }
   throw new EucalyptusCloudException("Failed to create volume after " + VOL_CREATE_RETRIES + " because of: "+ lastEx,lastEx);

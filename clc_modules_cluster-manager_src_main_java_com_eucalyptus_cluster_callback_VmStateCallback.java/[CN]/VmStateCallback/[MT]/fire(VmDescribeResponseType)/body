@@ -12,74 +12,8 @@
     }
   }
   for (  final VmInfo runVm : reply.getVms()) {
-    final VmState state=VmState.Mapper.get(runVm.getStateName());
-    EntityTransaction db=Entities.get(VmInstance.class);
-    try {
-      try {
-        VmInstance vm=VmInstances.lookup(runVm.getInstanceId());
-        try {
-          if (VmStateSet.RUN.apply(vm) || VmStateSet.CHANGING.apply(vm)) {
-            vm.doUpdate().apply(runVm);
-          }
- else {
-            continue;
-          }
-        }
- catch (        Exception ex) {
-          LOG.error(ex);
-        }
-      }
- catch (      Exception ex1) {
-        VmInstance vm=VmInstance.Lookup.INSTANCE.apply(runVm.getInstanceId());
-        if (VmStateSet.RUN.contains(state)) {
-          VmInstance.RestoreAllocation.INSTANCE.apply(runVm);
-        }
-      }
-      db.commit();
-    }
- catch (    Exception ex) {
-      Logs.exhaust().error(ex,ex);
-      db.rollback();
-    }
+    VmStateCallback.handleReportedState(runVm);
   }
-  final List<String> unreportedVms=Lists.transform(VmInstances.listValues(),new Function<VmInstance,String>(){
-    @Override public String apply(    final VmInstance input){
-      return input.getInstanceId();
-    }
-  }
-);
-  final List<String> runningVmIds=Lists.transform(reply.getVms(),new Function<VmInfo,String>(){
-    @Override public String apply(    final VmInfo arg0){
-      final String vmId=arg0.getImageId();
-      unreportedVms.remove(vmId);
-      return vmId;
-    }
-  }
-);
-  for (  final String vmId : unreportedVms) {
-    EntityTransaction db1=Entities.get(VmInstance.class);
-    try {
-      VmInstance vm=VmInstances.lookup(vmId);
-      if (VmStateSet.RUN.apply(vm)) {
-      }
- else       if (VmState.SHUTTING_DOWN.apply(vm)) {
-        vm.setState(VmState.TERMINATED,Reason.EXPIRED);
-        vm=VmInstances.delete(vm);
-      }
- else       if (VmState.TERMINATED.apply(vm) && vm.getSplitTime() > VmInstances.BURY_TIME) {
-        VmInstances.delete(vm);
-      }
- else       if (VmState.BURIED.apply(vm)) {
-        VmInstances.delete(vm);
-      }
- else       if (VmStateSet.DONE.apply(vm) && vm.getSplitTime() > VmInstances.SHUT_DOWN_TIME) {
-        VmInstances.terminate(vm);
-      }
-      db1.commit();
-    }
- catch (    final Exception ex) {
-      Logs.exhaust().error(ex,ex);
-      db1.rollback();
-    }
-  }
+  final List<String> unreportedVms=VmStateCallback.findUnreported(reply);
+  VmStateCallback.handleUnreported(unreportedVms);
 }

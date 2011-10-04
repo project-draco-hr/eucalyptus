@@ -1,0 +1,45 @@
+{
+  if (message instanceof MappingHttpRequest) {
+    final MappingHttpRequest httpRequest=(MappingHttpRequest)message;
+    if (httpRequest.getMethod().equals(HttpMethod.POST)) {
+      final Map<String,String> parameters=new HashMap<String,String>(httpRequest.getParameters());
+      final ChannelBuffer buffer=httpRequest.getContent();
+      buffer.markReaderIndex();
+      final byte[] read=new byte[buffer.readableBytes()];
+      buffer.readBytes(read);
+      final String query=new String(read);
+      buffer.resetReaderIndex();
+      for (      final String p : query.split("&")) {
+        final String[] splitParam=p.split("=");
+        String lhs=splitParam[0];
+        String rhs=splitParam.length == 2 ? splitParam[1] : null;
+        try {
+          if (lhs != null)           lhs=new URLCodec().decode(lhs);
+        }
+ catch (        final DecoderException e) {
+        }
+        try {
+          if (rhs != null)           rhs=new URLCodec().decode(rhs);
+        }
+ catch (        final DecoderException e) {
+        }
+        parameters.put(lhs,rhs);
+      }
+      for (      final RequiredQueryParams p : RequiredQueryParams.values()) {
+        if (!parameters.containsKey(p.toString())) {
+          return false;
+        }
+      }
+      httpRequest.getParameters().putAll(parameters);
+    }
+ else {
+      for (      final RequiredQueryParams p : RequiredQueryParams.values()) {
+        if (!httpRequest.getParameters().containsKey(p.toString())) {
+          return false;
+        }
+      }
+    }
+    return (message.getUri().startsWith(this.servicePath) || message.getUri().startsWith(this.internalServicePath));
+  }
+  return false;
+}

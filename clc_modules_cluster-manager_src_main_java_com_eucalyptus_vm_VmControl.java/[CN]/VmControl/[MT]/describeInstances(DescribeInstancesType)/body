@@ -1,31 +1,22 @@
 {
   final DescribeInstancesResponseType reply=(DescribeInstancesResponseType)msg.getReply();
-  final boolean isVerbose=msg.getInstancesSet().remove("verbose");
   final ArrayList<String> instancesSet=msg.getInstancesSet();
-  final Map<String,ReservationInfoType> rsvMap=new HashMap<String,ReservationInfoType>();
-  Predicate<VmInstance> privileged=RestrictedTypes.filterPrivileged();
+  final Multimap<String,RunningInstancesItemType> instanceMap=TreeMultimap.create();
+  final Map<String,ReservationInfoType> reservations=Maps.newHashMap();
+  Predicate<VmInstance> filter=CloudMetadatas.filterPrivilegesById(msg.getInstancesSet());
+  Context ctx=Contexts.lookup();
+  OwnerFullName ownerFullName=ctx.hasAdministrativePrivileges() ? null : ctx.getUserFullName().asAccountFullName();
   try {
-    for (    final VmInstance vm : Iterables.filter(VmInstances.listValues(),privileged)) {
+    for (    final VmInstance vm : VmInstances.list(ownerFullName,filter)) {
+      if (!instancesSet.isEmpty() && !instancesSet.contains(vm.getInstanceId())) {
+        continue;
+      }
       EntityTransaction db=Entities.get(VmInstance.class);
       try {
         VmInstance v=Entities.merge(vm);
-        if (VmState.TERMINATED.apply(v) && v.getSplitTime() > VmInstances.SHUT_DOWN_TIME) {
-          VmInstances.terminate(v);
+        if (instanceMap.put(v.getReservationId(),VmInstances.transform(v)) && !reservations.containsKey(v.getReservationId())) {
+          reservations.put(v.getReservationId(),new ReservationInfoType(v.getReservationId(),v.getOwner().getAccountNumber(),v.getNetworkNames()));
         }
- else         if (VmState.BURIED.apply(v) && v.getSplitTime() > VmInstances.BURY_TIME) {
-          VmInstances.delete(v);
-        }
-        if (VmState.BURIED.apply(v) && !isVerbose) {
-          continue;
-        }
-        if (!instancesSet.isEmpty() && !instancesSet.contains(v.getInstanceId())) {
-          continue;
-        }
-        if (rsvMap.get(v.getReservationId()) == null) {
-          final ReservationInfoType reservation=new ReservationInfoType(v.getReservationId(),v.getOwner().getNamespace(),v.getNetworkNames());
-          rsvMap.put(reservation.getReservationId(),reservation);
-        }
-        rsvMap.get(v.getReservationId()).getInstancesSet().add(VmInstances.transform(v));
         db.commit();
       }
  catch (      Exception ex) {
@@ -33,9 +24,16 @@
         db.rollback();
         try {
           if (vm != null) {
-            RunningInstancesItemType ret=VmInstances.transform(vm);
-            if (ret != null && vm.getReservationId() != null) {
-              rsvMap.get(vm.getReservationId()).getInstancesSet().add(ret);
+            try {
+              RunningInstancesItemType ret=VmInstances.transform(vm);
+              if (ret != null && vm.getReservationId() != null) {
+                if (instanceMap.put(vm.getReservationId(),VmInstances.transform(vm)) && !reservations.containsKey(vm.getReservationId())) {
+                  reservations.put(vm.getReservationId(),new ReservationInfoType(vm.getReservationId(),vm.getOwner().getAccountNumber(),vm.getNetworkNames()));
+                }
+              }
+            }
+ catch (            Exception ex1) {
+              LOG.error(ex1,ex1);
             }
           }
         }
@@ -44,8 +42,14 @@
         }
       }
     }
-    ArrayList<ReservationInfoType> vms=new ArrayList<ReservationInfoType>(rsvMap.values());
-    reply.setReservationSet(vms);
+    List<ReservationInfoType> replyReservations=reply.getReservationSet();
+    for (    ReservationInfoType r : reservations.values()) {
+      Collection<RunningInstancesItemType> instanceSet=instanceMap.get(r.getReservationId());
+      if (!instanceSet.isEmpty()) {
+        r.getInstancesSet().addAll(instanceSet);
+        replyReservations.add(r);
+      }
+    }
   }
  catch (  final Exception e) {
     LOG.error(e);
