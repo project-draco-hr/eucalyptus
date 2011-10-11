@@ -187,6 +187,11 @@ synchronized (monitor) {
  catch (            EucalyptusCloudException ex) {
               LOG.trace("No delete marker found for: " + bucketName + "/"+ objectKey);
             }
+            if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
+              dbObject.rollback();
+              LOG.error("Quota exceeded for Walrus putObject");
+              throw new EntityTooLargeException("Key",objectKey);
+            }
             boolean success=false;
             int retryCount=0;
             do {
@@ -213,11 +218,6 @@ catch (              EucalyptusCloudException ex) {
               }
             }
  while (!success && (retryCount < 5));
-            if (!Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),size) && !ctx.hasAdministrativePrivileges()) {
-              dbObject.rollback();
-              LOG.error("Quota exceeded for Walrus putObject");
-              throw new EntityTooLargeException("Key",objectKey);
-            }
             if (WalrusProperties.trackUsageStatistics) {
               walrusStatistics.updateBytesIn(size);
               walrusStatistics.updateSpaceUsed(size);
