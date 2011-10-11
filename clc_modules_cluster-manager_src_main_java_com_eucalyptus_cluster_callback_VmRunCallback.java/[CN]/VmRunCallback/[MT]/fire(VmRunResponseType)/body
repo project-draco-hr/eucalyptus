@@ -7,7 +7,12 @@
     @Override public boolean apply(    final VmRunResponseType reply){
       EntityTransaction db=Entities.get(VmInstance.class);
       try {
-        VmRunCallback.this.token.redeem();
+        try {
+          VmRunCallback.this.token.redeem();
+        }
+ catch (        Exception ex) {
+          Logs.extreme().error(ex,ex);
+        }
         for (        final VmInfo vmInfo : reply.getVms()) {
           final VmInstance vm=VmInstances.lookup(vmInfo.getInstanceId());
           vm.updateAddresses(vmInfo.getNetParams().getIpAddress(),vmInfo.getNetParams().getIgnoredPublicIp());
@@ -15,7 +20,12 @@
         db.commit();
         return true;
       }
- catch (      Exception ex) {
+ catch (      RuntimeException ex) {
+        Logs.exhaust().error(ex,ex);
+        db.rollback();
+        throw ex;
+      }
+catch (      Exception ex) {
         Logs.exhaust().error(ex,ex);
         db.rollback();
         throw new EucalyptusClusterException("Failed to run instance: " + VmRunCallback.this.getRequest().getInstanceId() + " because of: "+ ex.getMessage(),ex);
