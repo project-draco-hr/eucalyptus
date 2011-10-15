@@ -3,25 +3,31 @@
     return false;
   }
  else {
-    final Context ctx=Contexts.lookup(request.getCorrelationId());
-    final Function<I,O> op=(Function<I,O>)serviceOperations.get(request.getClass());
-    workQueue.submit(new Runnable(){
-      @Override public void run(){
-        Contexts.threadLocal(ctx);
-        try {
-          O reply=op.apply(request);
-          ServiceContext.response(request);
-        }
- catch (        Exception ex) {
-          Logs.extreme().error(ex,ex);
-          ServiceContext.responseError(request.getCorrelationId(),ex);
-        }
+    try {
+      final Context ctx=Contexts.lookup(request.getCorrelationId());
+      final Function<I,O> op=(Function<I,O>)serviceOperations.get(request.getClass());
+      workQueue.submit(new Runnable(){
+        @Override public void run(){
+          Contexts.threadLocal(ctx);
+          try {
+            final O reply=op.apply(request);
+            ServiceContext.response(request);
+          }
+ catch (          final Exception ex) {
+            Logs.extreme().error(ex,ex);
+            ServiceContext.responseError(request.getCorrelationId(),ex);
+          }
  finally {
-          Contexts.removeThreadLocal();
+            Contexts.removeThreadLocal();
+          }
         }
       }
-    }
 );
-    return true;
+      return true;
+    }
+ catch (    Exception ex) {
+      Logs.extreme().error(ex,ex);
+      return false;
+    }
   }
 }
