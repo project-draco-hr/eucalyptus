@@ -1,4 +1,56 @@
 {
-  final String vmType=allocInfo.getVmType().getName();
-  RestrictedTypes.doAllocations(vmType,Long.valueOf(allocInfo.getAllocationTokens().size()),allocInfo.getVmType().allocator());
+  RunInstancesType request=allocInfo.getRequest();
+  String clusterName=allocInfo.getPartition().getName();
+  String vmTypeName=allocInfo.getVmType().getName();
+  final int minAmount=allocInfo.getMinCount();
+  final int maxAmount=allocInfo.getMaxCount();
+  Context ctx=Contexts.lookup();
+  String zoneName=(clusterName != null) ? clusterName : "default";
+  List<Cluster> authorizedClusters=this.doPrivilegedLookup(zoneName,vmTypeName);
+  int remaining=maxAmount;
+  int available=0;
+  LOG.info("Found authorized clusters: " + Iterables.transform(authorizedClusters,new Function<Cluster,String>(){
+    @Override public String apply(    Cluster arg0){
+      return arg0.getName();
+    }
+  }
+));
+  if ((available=checkAvailability(vmTypeName,authorizedClusters)) < minAmount) {
+    throw new NotEnoughResourcesException("Not enough resources (" + available + " in "+ zoneName+ " < "+ minAmount+ "): vm instances.");
+  }
+ else {
+    for (    Cluster cluster : authorizedClusters) {
+      if (remaining <= 0) {
+        break;
+      }
+ else {
+        ResourceState state=cluster.getNodeState();
+        Partition partition=cluster.getConfiguration().lookupPartition();
+        if (allocInfo.getBootSet().getMachine() instanceof BlockStorageImageInfo) {
+          try {
+            ServiceConfiguration sc=Partitions.lookupService(Storage.class,partition);
+          }
+ catch (          Exception ex) {
+            throw new NotEnoughResourcesException("Not enough resources: " + ex.getMessage(),ex);
+          }
+        }
+        try {
+          int tryAmount=(remaining > state.getAvailability(vmTypeName).getAvailable()) ? state.getAvailability(vmTypeName).getAvailable() : remaining;
+          List<ResourceToken> tokens=this.requestResourceToken(allocInfo,tryAmount,maxAmount);
+          remaining-=tokens.size();
+          allocInfo.setPartition(partition);
+        }
+ catch (        Exception t) {
+          if (((available=checkAvailability(vmTypeName,authorizedClusters)) < remaining) || remaining > 0) {
+            allocInfo.abort();
+            throw new NotEnoughResourcesException("Not enough resources (" + available + " in "+ zoneName+ " < "+ minAmount+ "): vm instances.");
+          }
+ else {
+            LOG.error(t,t);
+            throw new NotEnoughResourcesException("Not enough resources (" + available + " in "+ zoneName+ " < "+ minAmount+ "): vm instances.");
+          }
+        }
+      }
+    }
+  }
 }
