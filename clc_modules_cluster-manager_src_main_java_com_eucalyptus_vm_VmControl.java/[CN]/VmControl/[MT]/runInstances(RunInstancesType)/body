@@ -1,22 +1,12 @@
 {
+  RunInstancesResponseType reply=request.getReply();
   Allocation allocInfo=Allocations.begin(request);
-  try {
-    Predicates.and(VerifyMetadata.get(),AdmissionControl.get()).apply(allocInfo);
-  }
- catch (  Exception ex1) {
-    LOG.trace(ex1,ex1);
-  }
-  RunInstancesResponseType reply=allocInfo.getRequest().getReply();
-  List<String> networkNames=Lists.transform(allocInfo.getNetworkGroups(),new Function<NetworkGroup,String>(){
-    @Override public String apply(    NetworkGroup arg0){
-      return arg0.getDisplayName();
-    }
-  }
-);
-  ReservationInfoType reservation=new ReservationInfoType(allocInfo.getReservationId(),allocInfo.getOwnerFullName().getAccountNumber(),Lists.newArrayList(networkNames));
   EntityTransaction db=Entities.get(VmInstance.class);
   try {
+    Predicates.and(VerifyMetadata.get(),AdmissionControl.get()).apply(allocInfo);
     allocInfo.commit();
+    ReservationInfoType reservation=new ReservationInfoType(allocInfo.getReservationId(),allocInfo.getOwnerFullName().getAccountNumber(),Lists.transform(allocInfo.getNetworkGroups(),CloudMetadatas.toDisplayName()));
+    reply.setRsvInfo(reservation);
     for (    ResourceToken allocToken : allocInfo.getAllocationTokens()) {
       VmInstance entity=Entities.merge(allocToken.getVmInstance());
       reservation.getInstancesSet().add(VmInstances.transform(entity));
@@ -24,12 +14,11 @@
     db.commit();
   }
  catch (  Exception ex) {
-    Logs.exhaust().error(ex,ex);
+    LOG.trace(ex,ex);
     db.rollback();
     allocInfo.abort();
-    throw Exceptions.toUndeclared(ex);
+    throw ex;
   }
   ClusterAllocator.get().apply(allocInfo);
-  reply.setRsvInfo(reservation);
   return reply;
 }
