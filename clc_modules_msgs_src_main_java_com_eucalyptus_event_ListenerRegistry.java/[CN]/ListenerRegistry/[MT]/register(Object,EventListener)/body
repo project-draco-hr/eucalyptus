@@ -1,11 +1,26 @@
 {
-  if (type instanceof Class && Event.class.isAssignableFrom((Class)type)) {
-    this.eventMap.register((Class)type,listener);
+  final List<Class<?>> lookupTypes=Classes.genericsToClasses(listener);
+  lookupTypes.remove(Event.class);
+  boolean illegal=(type == null && lookupTypes.isEmpty());
+  for (  Class<?> c : lookupTypes) {
+    if (type != null && c.isAssignableFrom((type instanceof Class) ? (Class)type : type.getClass())) {
+      illegal=false;
+      break;
+    }
+  }
+  if (illegal) {
+    throw Exceptions.fatal(new IllegalArgumentException("Failed to register listener " + listener.getClass().getCanonicalName() + " because the declared generic type "+ lookupTypes+ " is not assignable from the provided event type: "+ (type != null ? type.getClass().getCanonicalName() : "null")));
   }
  else {
-    if (!this.registryMap.containsKey(type.getClass())) {
-      this.registryMap.put(type.getClass(),new ReentrantListenerRegistry());
+    Class key=(type == null ? lookupTypes.get(0) : (type instanceof Class ? (Class)type : type.getClass()));
+    if (Event.class.isAssignableFrom(key)) {
+      this.eventMap.register(key,listener);
     }
-    this.registryMap.get(type.getClass()).register(type,listener);
+ else {
+      if (!this.registryMap.containsKey(key)) {
+        this.registryMap.put(key,new ReentrantListenerRegistry());
+      }
+      this.registryMap.get(key).register(type,listener);
+    }
   }
 }

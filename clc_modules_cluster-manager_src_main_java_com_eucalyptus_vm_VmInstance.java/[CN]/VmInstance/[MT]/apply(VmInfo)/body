@@ -4,10 +4,42 @@
     return false;
   }
  else {
+    final UserFullName userFullName=UserFullName.getInstance(input.getOwnerId());
+    final List<NetworkGroup> networks=Lists.newArrayList();
+    PrivateNetworkIndex index=null;
+    ExtantNetwork exNet;
+    EntityTransaction tx1=Entities.get(NetworkGroup.class);
+    try {
+      networks.addAll(Lists.transform(input.getGroupNames(),transformNetworkNames(userFullName)));
+      final NetworkGroup network=(!networks.isEmpty() ? networks.get(0) : null);
+      try {
+        if (network != null) {
+          if (!network.hasExtantNetwork()) {
+            exNet=network.reclaim(input.getNetParams().getVlan());
+          }
+ else {
+            exNet=network.extantNetwork();
+            if (!exNet.getTag().equals(input.getNetParams().getVlan())) {
+              exNet=null;
+            }
+ else {
+              index=exNet.reclaimNetworkIndex(input.getNetParams().getNetworkIndex());
+            }
+          }
+        }
+      }
+ catch (      Exception ex) {
+        throw Exceptions.toUndeclared(ex);
+      }
+      tx1.commit();
+    }
+ catch (    Exception ex) {
+      tx1.rollback();
+      throw Exceptions.toUndeclared(ex);
+    }
     final EntityTransaction db=Entities.get(VmInstance.class);
     try {
       final VmType vmType=VmTypes.getVmType(input.getInstanceType().getName());
-      final UserFullName userFullName=UserFullName.getInstance(input.getOwnerId());
       Partition partition;
       try {
         partition=Partitions.lookupByName(input.getPlacement());
@@ -62,30 +94,6 @@
       }
  catch (      final Exception ex) {
         userData=new byte[0];
-      }
-      final List<NetworkGroup> networks=Lists.newArrayList();
-      try {
-        networks.addAll(Lists.transform(input.getGroupNames(),transformNetworkNames(userFullName)));
-      }
- catch (      final Exception ex) {
-        LOG.error(ex,ex);
-      }
-      PrivateNetworkIndex index=null;
-      ExtantNetwork exNet;
-      final NetworkGroup network=(!networks.isEmpty() ? networks.get(0) : null);
-      if (network != null) {
-        if (!network.hasExtantNetwork()) {
-          exNet=network.reclaim(input.getNetParams().getVlan());
-        }
- else {
-          exNet=network.extantNetwork();
-          if (!exNet.getTag().equals(input.getNetParams().getVlan())) {
-            exNet=null;
-          }
- else {
-            index=exNet.reclaimNetworkIndex(input.getNetParams().getNetworkIndex());
-          }
-        }
       }
       final VmInstance vmInst=new VmInstance.Builder().owner(userFullName).withIds(input.getInstanceId(),input.getReservationId()).bootRecord(bootSet,userData,keyPair,vmType).placement(partition,partition.getName()).networking(networks,index).build(launchIndex);
       vmInst.setNaturalId(input.getUuid());

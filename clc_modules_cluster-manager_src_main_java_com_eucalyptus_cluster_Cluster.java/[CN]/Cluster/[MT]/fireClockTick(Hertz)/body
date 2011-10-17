@@ -15,25 +15,25 @@ switch (this.stateMachine.getState()) {
 case PENDING:
 case AUTHENTICATING:
 case STARTING:
-        if (tick.isAsserted(Cluster.STATE_INTERVAL_PENDING)) {
+        if (tick.isAsserted(Clusters.getConfiguration().getPendingInterval())) {
           transition=Automata.sequenceTransitions(this,State.STOPPED,State.PENDING,State.AUTHENTICATING,State.STARTING,State.STARTING_NOTREADY,State.NOTREADY,State.DISABLED);
         }
       break;
 case NOTREADY:
-    if (initialized && tick.isAsserted(Cluster.STATE_INTERVAL_NOTREADY)) {
+    if (initialized && tick.isAsserted(Clusters.getConfiguration().getNotreadyInterval())) {
       transition=Automata.sequenceTransitions(this,State.NOTREADY,State.DISABLED);
     }
   break;
 case DISABLED:
-if (initialized && tick.isAsserted(Cluster.STATE_INTERVAL_DISABLED) && (Component.State.DISABLED.equals(systemState) || Component.State.NOTREADY.equals(systemState))) {
+if (initialized && tick.isAsserted(Clusters.getConfiguration().getDisabledInterval()) && (Component.State.DISABLED.equals(systemState) || Component.State.NOTREADY.equals(systemState))) {
   transition=Automata.sequenceTransitions(this,State.DISABLED,State.DISABLED);
 }
- else if (initialized && tick.isAsserted(Cluster.STATE_INTERVAL_DISABLED) && Component.State.ENABLED.equals(systemState)) {
+ else if (initialized && tick.isAsserted(Clusters.getConfiguration().getDisabledInterval()) && Component.State.ENABLED.equals(systemState)) {
   transition=Automata.sequenceTransitions(this,State.ENABLING,State.ENABLING_RESOURCES,State.ENABLING_NET,State.ENABLING_VMS,State.ENABLING_ADDRS,State.ENABLING_VMS_PASS_TWO,State.ENABLING_ADDRS_PASS_TWO,State.ENABLED);
 }
 break;
 case ENABLED:
-if (initialized && tick.isAsserted(Cluster.STATE_INTERVAL_ENABLED) && Component.State.ENABLED.equals(this.configuration.lookupState())) {
+if (initialized && tick.isAsserted(Clusters.getConfiguration().getEnabledInterval()) && Component.State.ENABLED.equals(this.configuration.lookupState())) {
 transition=Automata.sequenceTransitions(this,State.ENABLED,State.ENABLED_SERVICE_CHECK,State.ENABLED_ADDRS,State.ENABLED_RSC,State.ENABLED_NET,State.ENABLED_VMS,State.ENABLED);
 }
  else if (initialized && tick.isAsserted(VmInstances.VOLATILE_STATE_INTERVAL_SEC) && Component.State.ENABLED.equals(this.configuration.lookupState())) {
@@ -48,7 +48,7 @@ break;
 }
 if (transition != null) {
 try {
-Threads.lookup(ClusterController.class,Cluster.class).submit(transition).get();
+Threads.enqueue(this.configuration,transition);
 this.clearExceptions();
 }
  catch (Exception ex) {
