@@ -1,0 +1,33 @@
+{
+  if (!serviceOperations.containsKey(request.getClass())) {
+    return false;
+  }
+ else {
+    try {
+      final Context ctx=Contexts.lookup(request.getCorrelationId());
+      final Function<I,O> op=(Function<I,O>)serviceOperations.get(request.getClass());
+      Threads.enqueue(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE),new Runnable(){
+        @Override public void run(){
+          Contexts.threadLocal(ctx);
+          try {
+            final O reply=op.apply(request);
+            ServiceContext.response(request);
+          }
+ catch (          final Exception ex) {
+            Logs.extreme().error(ex,ex);
+            ServiceContext.responseError(request.getCorrelationId(),ex);
+          }
+ finally {
+            Contexts.removeThreadLocal();
+          }
+        }
+      }
+);
+      return true;
+    }
+ catch (    Exception ex) {
+      Logs.extreme().error(ex,ex);
+      return false;
+    }
+  }
+}
