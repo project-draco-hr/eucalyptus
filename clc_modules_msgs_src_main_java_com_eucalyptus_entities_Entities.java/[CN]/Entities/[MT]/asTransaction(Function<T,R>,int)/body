@@ -1,0 +1,44 @@
+{
+  if (function instanceof TransactionalFunction) {
+    return function;
+  }
+ else {
+    List<Class<?>> generics=Classes.genericsToClasses(function);
+    if (generics.isEmpty()) {
+      throw new IllegalArgumentException("Failed to find generics for provided function, cannot make into transaction: " + Threads.currentStackString());
+    }
+    final Class<?> type=generics.get(0);
+    return new TransactionalFunction<T,R>(){
+      @Override public R apply(      T input){
+        if (Entities.hasTransaction()) {
+          throw new RuntimeException("Failed to execute retryable transaction because of a nested transaction: " + Entities.getTransaction(input.getClass()).getRecord().stack);
+        }
+ else {
+          RuntimeException rootCause=null;
+          for (int i=0; i < retries; i++) {
+            EntityTransaction db=Entities.get(type);
+            try {
+              R ret=function.apply(input);
+              db.commit();
+              return ret;
+            }
+ catch (            RuntimeException ex) {
+              db.rollback();
+              if (Exceptions.isCausedBy(ex,OptimisticLockException.class)) {
+                rootCause=Exceptions.causedBy(ex,OptimisticLockException.class);
+                continue;
+              }
+ else {
+                rootCause=ex;
+                Logs.extreme().error(ex,ex);
+                throw ex;
+              }
+            }
+          }
+          throw (rootCause != null ? rootCause : new NullPointerException("BUG: Transaction retry failed but root cause exception is unknown!"));
+        }
+      }
+    }
+;
+  }
+}
