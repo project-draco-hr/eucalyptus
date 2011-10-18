@@ -1,19 +1,18 @@
 {
-  EventRecord.here(Topology.class,EventType.ENQUEUE,Topology.this.toString(),function.toString(),config.toString()).info();
   final Long queueStart=System.currentTimeMillis();
-  return this.getWorker().submit(new Callable<ServiceConfiguration>(){
+  final String functionName=function.getClass().toString().replaceAll("^.*\\.","");
+  return Threads.enqueue(this.externalQueue,1,new Callable<ServiceConfiguration>(){
     @Override public ServiceConfiguration call() throws Exception {
       if (Bootstrap.isShuttingDown()) {
-        return null;
+        return config;
       }
  else {
         Bootstrap.awaitFinished();
         Long serviceStart=System.currentTimeMillis();
-        EventRecord.here(Topology.class,EventType.DEQUEUE,Topology.this.toString(),function.toString(),config.toString()).append(EventType.QUEUE_TIME.name(),Long.toString(serviceStart - queueStart)).info();
+        LOG.trace(EventRecord.here(Topology.class,EventType.DEQUEUE,functionName,config.getFullName().toString(),Long.toString(serviceStart - queueStart),"ms"));
         try {
           ServiceConfiguration result=function.apply(config);
-          Long finish=System.currentTimeMillis();
-          EventRecord.here(Topology.class,EventType.QUEUE,Topology.this.toString(),function.toString(),config.toString()).append(EventType.SERVICE_TIME.name(),Long.toString(finish - serviceStart)).info();
+          LOG.trace(EventRecord.here(Topology.class,EventType.QUEUE,functionName,config.getFullName().toString(),Long.toString(System.currentTimeMillis() - serviceStart),"ms"));
           return result;
         }
  catch (        Exception ex) {
