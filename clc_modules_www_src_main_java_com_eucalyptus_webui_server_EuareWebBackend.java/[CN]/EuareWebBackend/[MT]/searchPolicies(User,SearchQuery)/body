@@ -7,54 +7,76 @@
     if (query.hasOnlySingle(USERID)) {
       User user=Accounts.lookupUserById(query.getSingle(USERID).getValue());
       Account account=user.getAccount();
-      for (      Policy policy : user.getPolicies()) {
-        if (EuarePermission.allowReadUserPolicy(requestUser,account,user)) {
-          results.add(serializePolicy(policy,account,null,user));
+      for (      Policy policy : Privileged.listUserPolicies(requestUser,account,user)) {
+        try {
+          if (Privileged.allowReadUserPolicy(requestUser,account,user)) {
+            results.add(serializePolicy(policy,account,null,user));
+          }
+        }
+ catch (        Exception e) {
+          LOG.error(e,e);
         }
       }
     }
  else     if (query.hasOnlySingle(GROUPID)) {
       Group group=Accounts.lookupGroupById(query.getSingle(GROUPID).getValue());
       Account account=group.getAccount();
-      for (      Policy policy : group.getPolicies()) {
-        if (EuarePermission.allowReadGroupPolicy(requestUser,account,group)) {
-          results.add(serializePolicy(policy,account,group,null));
+      for (      Policy policy : Privileged.listGroupPolicies(requestUser,account,group)) {
+        try {
+          if (Privileged.allowReadGroupPolicy(requestUser,account,group)) {
+            results.add(serializePolicy(policy,account,group,null));
+          }
+        }
+ catch (        Exception e) {
+          LOG.error(e,e);
         }
       }
     }
  else     if (query.hasOnlySingle(ACCOUNTID)) {
       Account account=Accounts.lookupAccountById(query.getSingle(ACCOUNTID).getValue());
-      User admin=account.lookupUserByName(User.ACCOUNT_ADMIN);
-      for (      Policy policy : admin.getPolicies()) {
-        if (EuarePermission.allowReadAccountPolicy(requestUser,account)) {
-          results.add(serializePolicy(policy,account,null,null));
-        }
+      for (      Policy policy : Privileged.listAccountPolicies(requestUser.isSystemAdmin(),account)) {
+        results.add(serializePolicy(policy,account,null,null));
       }
     }
  else {
       for (      Account account : getAccounts(query)) {
-        for (        User user : getUsers(account,query)) {
-          for (          Policy policy : user.getPolicies()) {
-            if (policyMatchQuery(policy,query)) {
-              if (EuarePermission.allowReadUserPolicy(requestUser,account,user)) {
-                if (user.isAccountAdmin()) {
-                  results.add(serializePolicy(policy,account,null,null));
-                }
- else {
-                  results.add(serializePolicy(policy,account,null,user));
+        try {
+          for (          User user : getUsers(account,query)) {
+            try {
+              for (              Policy policy : Privileged.listUserPolicies(requestUser,account,user)) {
+                if (policyMatchQuery(policy,query)) {
+                  if (Privileged.allowReadUserPolicy(requestUser,account,user)) {
+                    results.add(serializePolicy(policy,account,null,user));
+                  }
                 }
               }
+            }
+ catch (            Exception e) {
+              LOG.error(e,e);
             }
           }
         }
-        for (        Group group : getGroups(account,query)) {
-          for (          Policy policy : group.getPolicies()) {
-            if (policyMatchQuery(policy,query)) {
-              if (EuarePermission.allowReadGroupPolicy(requestUser,account,group)) {
-                results.add(serializePolicy(policy,account,group,null));
+ catch (        Exception e) {
+          LOG.error(e,e);
+        }
+        try {
+          for (          Group group : getGroups(account,query)) {
+            try {
+              for (              Policy policy : Privileged.listGroupPolicies(requestUser,account,group)) {
+                if (policyMatchQuery(policy,query)) {
+                  if (Privileged.allowReadGroupPolicy(requestUser,account,group)) {
+                    results.add(serializePolicy(policy,account,group,null));
+                  }
+                }
               }
             }
+ catch (            Exception e) {
+              LOG.error(e,e);
+            }
           }
+        }
+ catch (        Exception e) {
+          LOG.error(e,e);
         }
       }
     }

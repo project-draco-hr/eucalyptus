@@ -1,36 +1,29 @@
 {
   CreateAccountAliasResponseType reply=request.getReply();
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
-  String action=PolicySpec.requestToAction(request);
   Context ctx=Contexts.lookup();
   User requestUser=ctx.getUser();
   Account account=getRealAccount(ctx,request.getDelegateAccount());
-  if (Account.SYSTEM_ACCOUNT.equals(account.getName())) {
-    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Can not modify system account alias or name");
-  }
   try {
-    Accounts.lookupAccountByName(request.getAccountAlias());
+    Privileged.modifyAccount(requestUser,account,request.getAccountAlias());
+    return reply;
   }
- catch (  AuthException ae) {
-    if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.ALL_RESOURCE,PolicySpec.ALL_RESOURCE,account,action,requestUser)) {
-      throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to create account alias by " + requestUser.getName());
-    }
-    try {
-      account.setName(request.getAccountAlias());
-      return reply;
-    }
- catch (    Exception e) {
-      LOG.debug(e,e);
-      if (e instanceof AuthException) {
-        if (AuthException.ACCOUNT_ALREADY_EXISTS.equals(e.getMessage())) {
-          throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.ENTITY_ALREADY_EXISTS,"Account alias " + request.getAccountAlias() + " already exists.");
-        }
-        if (AuthException.INVALID_NAME.equals(e.getMessage())) {
-          throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_NAME,"Invalid account alias " + request.getAccountAlias());
-        }
+ catch (  Exception e) {
+    LOG.error(e,e);
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to create account alias by " + requestUser.getName());
       }
-      throw new EucalyptusCloudException(e);
+ else       if (AuthException.CONFLICT.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.ENTITY_ALREADY_EXISTS,"Can not change to a name already in use: " + request.getAccountAlias());
+      }
+ else       if (AuthException.ACCOUNT_ALREADY_EXISTS.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.ENTITY_ALREADY_EXISTS,"Account alias " + request.getAccountAlias() + " already exists.");
+      }
+ else       if (AuthException.INVALID_NAME.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_NAME,"Invalid account alias " + request.getAccountAlias());
+      }
     }
+    throw new EucalyptusCloudException(e);
   }
-  throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.ENTITY_ALREADY_EXISTS,"Can not change to a name already in use: " + request.getAccountAlias());
 }
