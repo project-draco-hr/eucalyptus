@@ -1,7 +1,6 @@
 {
   AddUserToGroupResponseType reply=request.getReply();
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
-  String action=PolicySpec.requestToAction(request);
   Context ctx=Contexts.lookup();
   User requestUser=ctx.getUser();
   Account account=getRealAccount(ctx,request.getDelegateAccount());
@@ -10,7 +9,7 @@
     userFound=account.lookupUserByName(request.getUserName());
   }
  catch (  Exception e) {
-    LOG.debug(e,e);
+    LOG.error(e,e);
     if (e instanceof AuthException && AuthException.NO_SUCH_USER.equals(e.getMessage())) {
       throw new EuareException(HttpResponseStatus.NOT_FOUND,EuareException.NO_SUCH_ENTITY,"Can not find user " + request.getUserName());
     }
@@ -23,7 +22,7 @@
     groupFound=account.lookupGroupByName(request.getGroupName());
   }
  catch (  Exception e) {
-    LOG.debug(e,e);
+    LOG.error(e,e);
     if (e instanceof AuthException && AuthException.NO_SUCH_GROUP.equals(e.getMessage())) {
       throw new EuareException(HttpResponseStatus.NOT_FOUND,EuareException.NO_SUCH_ENTITY,"Can not find group " + request.getGroupName());
     }
@@ -31,17 +30,16 @@
       throw new EucalyptusCloudException(e);
     }
   }
-  if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_GROUP,Accounts.getGroupFullName(groupFound),account,action,requestUser)) {
-    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to access user by " + requestUser.getName());
-  }
-  if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_USER,Accounts.getUserFullName(userFound),account,action,requestUser)) {
-    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to access group by " + requestUser.getName());
-  }
   try {
-    groupFound.addUserByName(userFound.getName());
+    Privileged.addUserToGroup(requestUser,account,userFound,groupFound);
   }
  catch (  Exception e) {
-    LOG.debug(e,e);
+    LOG.error(e,e);
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to add user to group by " + requestUser.getName());
+      }
+    }
     throw new EucalyptusCloudException(e);
   }
   return reply;
