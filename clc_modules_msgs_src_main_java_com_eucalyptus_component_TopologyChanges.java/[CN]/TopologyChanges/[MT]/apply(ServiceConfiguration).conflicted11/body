@@ -1,0 +1,34 @@
+{
+  if (!Bootstrap.isFinished()) {
+    LOG.debug(this.toString() + " aborted because bootstrap is not complete for service: " + config);
+    return config;
+  }
+ else {
+    State initialState=config.lookupState();
+    State nextState=config.lookupState();
+    if (State.NOTREADY.equals(initialState) || State.BROKEN.equals(initialState)) {
+      nextState=State.DISABLED;
+    }
+ else     if (initialState.ordinal() < State.NOTREADY.ordinal()) {
+      return config;
+    }
+    try {
+      Future<ServiceConfiguration> result=ServiceTransitions.pathTo(config,nextState);
+      ServiceConfiguration endConfig=result.get();
+      State endState=endConfig.lookupState();
+      Logs.exhaust().debug(this.toString() + " completed for: " + endConfig.getFullName()+ " trying "+ initialState+ "->"+ nextState+ " ended in: "+ endState);
+      return endConfig;
+    }
+ catch (    InterruptedException ex) {
+      Thread.currentThread().interrupt();
+      throw Exceptions.toUndeclared(ex);
+    }
+catch (    UndeclaredThrowableException ex) {
+      throw ex;
+    }
+catch (    Exception ex) {
+      Logs.extreme().warn(this.toString() + " failed for: " + config.getFullName()+ " trying "+ initialState+ "->"+ nextState+ " because of: "+ Exceptions.causeString(ex));
+      throw Exceptions.toUndeclared(ex);
+    }
+  }
+}

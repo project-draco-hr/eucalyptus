@@ -1,0 +1,11 @@
+{
+  Collection<ServiceConfiguration> checkServices=Collections2.filter(ServiceConfigurations.list(),CheckServiceFilter.INSTANCE);
+  Collection<Callable<ServiceConfiguration>> submitChecks=Collections2.transform(checkServices,SubmitCheck.INSTANCE);
+  Collection<ServiceConfiguration> goodServices=WaitForResults.invokeAll(submitChecks);
+  LOG.trace(LogUtil.subheader("CHECKED: " + Joiner.on("\nCHECKED: ").join(goodServices)));
+  Predicate<ServiceConfiguration> canPromote=Predicates.and(FailoverPredicate.INSTANCE,Predicates.not(Predicates.in(goodServices)));
+  Collection<ServiceConfiguration> promoteServices=Collections2.filter(ServiceConfigurations.list(),canPromote);
+  Collection<Callable<ServiceConfiguration>> enableCallables=Collections2.transform(promoteServices,functionalCallable(TopologyChanges.enableFunction()));
+  List<ServiceConfiguration> enabledServices=WaitForResults.invokeAll(enableCallables);
+  LOG.trace(LogUtil.subheader("ENABLED: " + Joiner.on("\nENABLED: ").join(enabledServices)));
+}
