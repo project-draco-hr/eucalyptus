@@ -1,25 +1,34 @@
 {
-  try {
-    ServiceKey serviceKey=ServiceKey.create(config);
-    if (Topology.guard().tryEnable(config)) {
-      try {
-        return ServiceTransitions.pathTo(config,Component.State.ENABLED).get();
-      }
- catch (      Exception ex) {
-        Topology.guard().tryDisable(config);
-        throw ex;
-      }
+  if (!Bootstrap.isFinished()) {
+    LOG.debug(this.toString() + " aborted because bootstrap is not complete for service: " + config);
+    return config;
+  }
+ else   if (config.isVmLocal() && !config.getStateMachine().isBusy()) {
+    State initialState=config.lookupState();
+    State nextState=config.lookupState();
+    if (State.NOTREADY.equals(initialState) || State.BROKEN.equals(initialState)) {
+      nextState=State.DISABLED;
     }
+ else     if (initialState.ordinal() < State.NOTREADY.ordinal()) {
+      return config;
+    }
+    try {
+      Future<ServiceConfiguration> result=ServiceTransitions.pathTo(config,nextState);
+      ServiceConfiguration endConfig=result.get();
+      State endState=endConfig.lookupState();
+      Logs.exhaust().debug(this.toString() + " completed for: " + endConfig+ " trying "+ initialState+ "->"+ nextState+ " ended in: "+ endState);
+      return endConfig;
+    }
+ catch (    InterruptedException ex) {
+      Thread.currentThread().interrupt();
+      return config;
+    }
+catch (    Exception ex) {
+      LOG.error(ex,ex);
+      throw Exceptions.toUndeclared(ex);
+    }
+  }
  else {
-      return ServiceTransitions.pathTo(config,Component.State.DISABLED).get();
-    }
-  }
- catch (  InterruptedException ex) {
-    Thread.currentThread().interrupt();
-    throw Exceptions.toUndeclared(ex);
-  }
-catch (  Exception ex) {
-    LOG.error(ex,ex);
-    throw Exceptions.toUndeclared(ex);
+    return config;
   }
 }
