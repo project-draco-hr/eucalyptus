@@ -1,31 +1,30 @@
 {
   CreateUserResponseType reply=request.getReply();
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
-  String action=PolicySpec.requestToAction(request);
   Context ctx=Contexts.lookup();
   User requestUser=ctx.getUser();
   Account account=getRealAccount(ctx,request.getDelegateAccount());
-  if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_USER,"",account,action,requestUser)) {
-    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to create user by " + requestUser.getName());
-  }
-  if (!Permissions.canAllocate(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_USER,"",action,requestUser,1L)) {
-    throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.LIMIT_EXCEEDED,"User quota exceeded");
-  }
   try {
-    User newUser=account.addUser(request.getUserName(),sanitizePath(request.getPath()),true,true,null);
+    User newUser=Privileged.createUser(requestUser,account,request.getUserName(),sanitizePath(request.getPath()));
     UserType u=reply.getCreateUserResult().getUser();
     fillUserResult(u,newUser,account);
   }
  catch (  Exception e) {
-    LOG.debug(e,e);
+    LOG.error(e,e);
     if (e instanceof AuthException) {
-      if (AuthException.GROUP_ALREADY_EXISTS.equals(e.getMessage())) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to create user by " + requestUser.getName());
+      }
+ else       if (AuthException.QUOTA_EXCEEDED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.LIMIT_EXCEEDED,"User quota exceeded");
+      }
+ else       if (AuthException.USER_ALREADY_EXISTS.equals(e.getMessage())) {
         throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.ENTITY_ALREADY_EXISTS,"User " + request.getUserName() + " already exists.");
       }
-      if (AuthException.INVALID_NAME.equals(e.getMessage())) {
+ else       if (AuthException.INVALID_NAME.equals(e.getMessage())) {
         throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_NAME,"Invalid user name " + request.getUserName());
       }
-      if (AuthException.INVALID_PATH.equals(e.getMessage())) {
+ else       if (AuthException.INVALID_PATH.equals(e.getMessage())) {
         throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_PATH,"Invalid user path " + request.getPath());
       }
     }
