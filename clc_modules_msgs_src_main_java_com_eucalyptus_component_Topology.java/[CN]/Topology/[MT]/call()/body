@@ -1,0 +1,13 @@
+{
+  final Collection<ServiceConfiguration> checkServices=Collections2.filter(ServiceConfigurations.list(),CheckServiceFilter.INSTANCE);
+  final Collection<Future<ServiceConfiguration>> submittedChecks=Collections2.transform(checkServices,SubmitCheck.INSTANCE);
+  final Collection<Future<ServiceConfiguration>> checkedServices=Collections2.filter(submittedChecks,WaitForResults.INSTANCE);
+  LOG.trace(LogUtil.subheader("CHECKED: " + Joiner.on("\nCHECKED: ").join(checkedServices)));
+  Collection<ServiceConfiguration> excludeForPromotion=Collections2.transform(checkedServices,ExtractFuture.INSTANCE);
+  final Predicate<ServiceConfiguration> canPromote=Predicates.and(Predicates.not(Predicates.in(excludeForPromotion)),FailoverPredicate.INSTANCE);
+  final Collection<ServiceConfiguration> promoteServices=Collections2.filter(ServiceConfigurations.list(),canPromote);
+  final Collection<Future<ServiceConfiguration>> enableCallables=Collections2.transform(promoteServices,SubmitEnable.INSTANCE);
+  final Collection<Future<ServiceConfiguration>> enabledServices=Collections2.filter(enableCallables,WaitForResults.INSTANCE);
+  LOG.trace(LogUtil.subheader("ENABLED: " + Joiner.on("\nENABLED: ").join(enabledServices)));
+  return Lists.transform(Lists.newArrayList(enabledServices),ExtractFuture.INSTANCE);
+}

@@ -1,7 +1,7 @@
 {
   this.canHasRead=this.canHas.readLock();
   this.canHasWrite=this.canHas.writeLock();
-  Runtime.getRuntime().addShutdownHook(new Thread(){
+  OrderedShutdown.register(Empyrean.class,new Runnable(){
     @Override public void run(){
       ServiceContextManager.this.running.set(false);
       ServiceContextManager.this.queue.clear();
@@ -10,42 +10,8 @@
           ServiceContextManager.this.context.stop();
           ServiceContextManager.this.context.dispose();
         }
- catch (        MuleException ex) {
+ catch (        final MuleException ex) {
           LOG.error(ex,ex);
-        }
-      }
-    }
-  }
-);
-  this.executor.submit(new Runnable(){
-    public void run(){
-      while (ServiceContextManager.this.running.get()) {
-        ServiceConfiguration event;
-        try {
-          if ((event=ServiceContextManager.this.queue.poll(500,TimeUnit.MILLISECONDS)) != null) {
-            if (event.isVmLocal()) {
-              if (ServiceContextManager.this.canHasWrite.tryLock()) {
-                try {
-                  ServiceContextManager.this.update();
-                }
- catch (                Exception ex) {
-                  LOG.error(Exceptions.causeString(ex));
-                  LOG.error(ex,ex);
-                }
- finally {
-                  ServiceContextManager.this.canHasWrite.unlock();
-                }
-              }
-            }
-          }
-        }
- catch (        InterruptedException e1) {
-          Thread.currentThread().interrupt();
-          ServiceContextManager.this.running.set(false);
-          return;
-        }
-catch (        final Throwable e) {
-          LOG.error(e,e);
         }
       }
     }

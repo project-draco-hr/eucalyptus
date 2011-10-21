@@ -1,0 +1,30 @@
+{
+  List<ComponentId> currentComponentIds=ComponentIds.list();
+  LOG.error("Restarting service context with these enabled services: " + currentComponentIds);
+  final Set<ConfigResource> configs=Sets.newHashSet();
+  MuleContext muleCtx=null;
+  for (  final ComponentId componentId : currentComponentIds) {
+    final Component component=Components.lookup(componentId);
+    final String errMsg="Failed to render model for: " + componentId + " because of: ";
+    LOG.info("-> Rendering configuration for " + componentId.name());
+    try {
+      final String serviceModel=this.loadModel(componentId);
+      final String outString=Templates.prepare(componentId.getServiceModelFileName()).withProperty("components",currentComponentIds).withProperty("thisComponent",componentId).evaluate(serviceModel);
+      final ConfigResource configRsc=createConfigResource(componentId,outString);
+      configs.add(configRsc);
+    }
+ catch (    final Exception ex) {
+      LOG.error(errMsg + ex.getMessage(),ex);
+    }
+  }
+  try {
+    final SpringXmlConfigurationBuilder builder=new SpringXmlConfigurationBuilder(configs.toArray(new ConfigResource[]{}));
+    muleCtx=contextFactory.createMuleContext(builder);
+    this.enabledCompIds.clear();
+    this.enabledCompIds.addAll(currentComponentIds);
+  }
+ catch (  final Exception ex) {
+    LOG.error(ex,ex);
+  }
+  return muleCtx;
+}
