@@ -1,2 +1,67 @@
 {
+  DeleteBucketResponseType reply=(DeleteBucketResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
+  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
+  BucketInfo searchBucket=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.query(searchBucket);
+  if (bucketList.size() > 0) {
+    BucketInfo bucketFound=bucketList.get(0);
+    BucketLogData logData=bucketFound.getLoggingEnabled() ? request.getLogData() : null;
+    if (ctx.hasAdministrativePrivileges() || (bucketFound.canWrite(account.getAccountNumber()) && Lookups.checkPrivilege(PolicySpec.S3_DELETEBUCKET,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,bucketFound.getOwnerId()))) {
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      ObjectInfo searchObject=new ObjectInfo();
+      searchObject.setBucketName(bucketName);
+      searchObject.setDeleted(false);
+      List<ObjectInfo> objectInfos=dbObject.query(searchObject);
+      if (objectInfos.size() == 0) {
+        EntityWrapper<ImageCacheInfo> dbIC=db.recast(ImageCacheInfo.class);
+        ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo();
+        searchImageCacheInfo.setBucketName(bucketName);
+        List<ImageCacheInfo> foundImageCacheInfos=dbIC.query(searchImageCacheInfo);
+        if (foundImageCacheInfos.size() > 0) {
+          db.rollback();
+          throw new BucketNotEmptyException(bucketName,logData);
+        }
+        ObjectInfo searchDeleteMarker=new ObjectInfo();
+        searchDeleteMarker.setBucketName(bucketName);
+        searchDeleteMarker.setDeleted(true);
+        List<ObjectInfo> deleteMarkers=dbObject.query(searchDeleteMarker);
+        for (        ObjectInfo deleteMarker : deleteMarkers) {
+          dbObject.delete(deleteMarker);
+        }
+        db.delete(bucketFound);
+        try {
+          storageManager.deleteBucket(bucketName);
+          if (WalrusProperties.trackUsageStatistics)           walrusStatistics.decrementBucketCount();
+        }
+ catch (        IOException ex) {
+          LOG.error(ex);
+        }
+        Status status=new Status();
+        status.setCode(204);
+        status.setDescription("No Content");
+        reply.setStatus(status);
+        if (logData != null) {
+          updateLogData(bucketFound,logData);
+          reply.setLogData(logData);
+        }
+      }
+ else {
+        db.rollback();
+        throw new BucketNotEmptyException(bucketName,logData);
+      }
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException("Bucket",bucketName,logData);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  return reply;
 }
