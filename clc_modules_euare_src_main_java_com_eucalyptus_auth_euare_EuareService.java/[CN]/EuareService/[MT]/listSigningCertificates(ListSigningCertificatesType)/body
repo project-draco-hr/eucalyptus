@@ -1,7 +1,6 @@
 {
   ListSigningCertificatesResponseType reply=request.getReply();
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
-  String action=PolicySpec.requestToAction(request);
   Context ctx=Contexts.lookup();
   User requestUser=ctx.getUser();
   Account account=getRealAccount(ctx,request.getDelegateAccount());
@@ -11,7 +10,7 @@
       userFound=account.lookupUserByName(request.getUserName());
     }
  catch (    Exception e) {
-      LOG.debug(e,e);
+      LOG.error(e,e);
       if (e instanceof AuthException && AuthException.NO_SUCH_USER.equals(e.getMessage())) {
         throw new EuareException(HttpResponseStatus.NOT_FOUND,EuareException.NO_SUCH_ENTITY,"Can not find user " + request.getUserName());
       }
@@ -20,29 +19,27 @@
       }
     }
   }
-  if (!userFound.getName().equals(requestUser.getName())) {
-    if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_USER,Accounts.getUserFullName(userFound),account,action,requestUser)) {
-      throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to list signing certificates for " + request.getUserName() + " by "+ requestUser.getName());
-    }
-  }
   ListSigningCertificatesResultType result=reply.getListSigningCertificatesResult();
   result.setIsTruncated(false);
   ArrayList<SigningCertificateType> certs=result.getCertificates().getMemberList();
   try {
-    for (    Certificate cert : userFound.getCertificates()) {
-      if (!cert.isRevoked()) {
-        SigningCertificateType c=new SigningCertificateType();
-        c.setUserName(userFound.getName());
-        c.setCertificateId(cert.getCertificateId());
-        c.setCertificateBody(B64.url.decString(cert.getPem()));
-        c.setStatus(cert.isActive() ? "Active" : "Inactive");
-        c.setUploadDate(cert.getCreateDate());
-        certs.add(c);
-      }
+    for (    Certificate cert : Privileged.listSigningCertificates(requestUser,account,userFound)) {
+      SigningCertificateType c=new SigningCertificateType();
+      c.setUserName(userFound.getName());
+      c.setCertificateId(cert.getCertificateId());
+      c.setCertificateBody(B64.url.decString(cert.getPem()));
+      c.setStatus(cert.isActive() ? "Active" : "Inactive");
+      c.setUploadDate(cert.getCreateDate());
+      certs.add(c);
     }
   }
  catch (  Exception e) {
-    LOG.debug(e,e);
+    LOG.error(e,e);
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to list signing certificates for " + request.getUserName() + " by "+ requestUser.getName());
+      }
+    }
     throw new EucalyptusCloudException(e);
   }
   return reply;
