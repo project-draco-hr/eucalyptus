@@ -1,26 +1,23 @@
 {
-  State initialState=input.lookupState();
-  State nextState=null;
-  ServiceConfiguration endResult=input;
-  if (this.get() == null) {
-    if (State.NOTREADY.equals(initialState) || State.BROKEN.equals(initialState)) {
-      nextState=State.DISABLED;
+  if (Topology.guard().tryEnable(config)) {
+    try {
+      return super.apply(config);
     }
- else     if (initialState.ordinal() < State.NOTREADY.ordinal()) {
-      return input;
+ catch (    RuntimeException ex) {
+      Topology.guard().tryDisable(config);
+      throw ex;
     }
   }
  else {
-    nextState=this.get();
-  }
-  try {
-    endResult=ServiceTransitions.pathTo(input,nextState).get();
-    LOG.trace(this.toString(endResult,initialState,nextState));
-    return endResult;
-  }
- catch (  Exception ex) {
-    Exceptions.maybeInterrupted(ex);
-    LOG.trace(this.toString(endResult,initialState,nextState,ex));
-    throw Exceptions.toUndeclared(ex);
+    try {
+      return ServiceTransitions.pathTo(config,Component.State.DISABLED).get();
+    }
+ catch (    InterruptedException ex) {
+      Thread.currentThread().interrupt();
+      throw Exceptions.toUndeclared(ex);
+    }
+catch (    ExecutionException ex) {
+      throw Exceptions.toUndeclared(ex);
+    }
   }
 }

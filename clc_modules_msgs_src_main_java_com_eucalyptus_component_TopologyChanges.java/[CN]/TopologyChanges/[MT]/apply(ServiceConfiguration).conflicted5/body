@@ -1,12 +1,26 @@
 {
-  ServiceKey serviceKey=null;
-  try {
-    serviceKey=ServiceKey.create(config);
-    return super.apply(config);
-  }
-  finally {
-    if (serviceKey != null) {
-      Topology.guard().tryDisable(config);
+  State initialState=input.lookupState();
+  State nextState=null;
+  ServiceConfiguration endResult=input;
+  if (this.get() == null) {
+    if (State.NOTREADY.equals(initialState) || State.BROKEN.equals(initialState)) {
+      nextState=State.DISABLED;
     }
+ else     if (initialState.ordinal() < State.NOTREADY.ordinal()) {
+      return input;
+    }
+  }
+ else {
+    nextState=this.get();
+  }
+  try {
+    endResult=ServiceTransitions.pathTo(input,nextState).get();
+    LOG.trace(this.toString(endResult,initialState,nextState));
+    return endResult;
+  }
+ catch (  Exception ex) {
+    Exceptions.maybeInterrupted(ex);
+    LOG.trace(this.toString(endResult,initialState,nextState,ex));
+    throw Exceptions.toUndeclared(ex);
   }
 }
