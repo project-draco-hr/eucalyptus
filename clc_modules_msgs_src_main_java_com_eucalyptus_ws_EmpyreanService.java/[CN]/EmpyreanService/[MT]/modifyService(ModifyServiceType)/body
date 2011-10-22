@@ -1,103 +1,12 @@
 {
   final ModifyServiceResponseType reply=request.getReply();
-  temporaryDebug(request);
-  final TransitionName transition=TransitionName.valueOf(request.getState().toUpperCase());
-  for (  final Component comp : Components.list()) {
-    ServiceConfiguration a;
-    try {
-      a=comp.lookupServiceConfiguration(request.getName());
-    }
- catch (    final Exception ex1) {
-      continue;
-    }
-    final Component.State serviceState=a.lookupState();
-    reply.set_return(true);
-    try {
-switch (transition) {
-case DISABLE:
-switch (a.lookupState()) {
-case ENABLED:
-          Topology.disable(a).get();
-        break;
-default :
-      return reply;
+  if (NamedTransition.INSTANCE.apply(request)) {
+    reply.markWinning();
   }
-break;
-case ENABLE:
-switch (a.lookupState()) {
-case INITIALIZED:
-case PRIMORDIAL:
-case BROKEN:
-case LOADED:
-case STOPPED:
-case DISABLED:
-case NOTREADY:
-Topology.enable(a).get();
-break;
-case ENABLED:
-default :
-return reply;
-}
-break;
-case STOP:
-switch (a.lookupState()) {
-case ENABLED:
-Topology.disable(a).get();
-case INITIALIZED:
-case PRIMORDIAL:
-case BROKEN:
-case STOPPED:
-case LOADED:
-case DISABLED:
-case NOTREADY:
-Topology.stop(a).get();
-break;
-default :
-return reply;
-}
-break;
-case START:
-switch (a.lookupState()) {
-case INITIALIZED:
-case PRIMORDIAL:
-case BROKEN:
-case STOPPED:
-case LOADED:
-case DISABLED:
-case NOTREADY:
-Topology.start(a).get();
-break;
-case ENABLED:
-default :
-return reply;
-}
-break;
-case RESTART:
-switch (a.lookupState()) {
-case ENABLED:
-Topology.disable(a).get();
-case DISABLED:
-case NOTREADY:
-Topology.stop(a).get();
-case INITIALIZED:
-case PRIMORDIAL:
-case BROKEN:
-case LOADED:
-default :
-Topology.start(a).get();
-break;
-}
-break;
-}
-}
- catch (final InterruptedException ex) {
-Thread.currentThread().interrupt();
-throw ex;
-}
-catch (final Exception ex) {
-LOG.error(ex,ex);
-throw ex;
-}
-}
-return reply;
+ else {
+    Component.State nextState=Component.State.valueOf(request.getState());
+    ServiceConfiguration config=findService(request.getName());
+    Topology.transition(nextState).apply(config).get();
+  }
+  return reply;
 }
