@@ -1,10 +1,18 @@
 {
-  String dest=endpoint;
-  if ((endpoint.startsWith("vm://") && !singleton.endpointToService.containsKey(endpoint)) || (endpoint == null)) {
-    throw new ServiceDispatchException("No such endpoint: " + endpoint + " in endpoints="+ singleton.endpointToService.entrySet());
+  if (singleton.canHasRead.tryLock(120,TimeUnit.SECONDS)) {
+    try {
+      String dest=endpoint;
+      if ((endpoint.startsWith("vm://") && !singleton.endpointToService.containsKey(endpoint)) || (endpoint == null)) {
+        throw new ServiceDispatchException("No such endpoint: " + endpoint + " in endpoints="+ singleton.endpointToService.entrySet());
+      }
+      if (endpoint.startsWith("vm://")) {
+        dest=singleton.endpointToService.get(endpoint);
+      }
+      return dest;
+    }
+  finally {
+      singleton.canHasRead.unlock();
+    }
   }
-  if (endpoint.startsWith("vm://")) {
-    dest=singleton.endpointToService.get(endpoint);
-  }
-  return dest;
+  throw Exceptions.notFound("Failed to dispatch: " + endpoint);
 }
