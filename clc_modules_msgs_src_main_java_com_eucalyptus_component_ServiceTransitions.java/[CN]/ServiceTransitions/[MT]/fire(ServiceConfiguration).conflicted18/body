@@ -1,18 +1,22 @@
 {
-  try {
-    List<ConfigurableProperty> props=PropertyDirectory.getPendingPropertyEntrySet(config.getComponentId().name());
-    for (    ConfigurableProperty prop : props) {
-      ConfigurableProperty addProp=null;
-      if (prop instanceof SingletonDatabasePropertyEntry) {
-        addProp=prop;
-      }
- else       if (prop instanceof MultiDatabasePropertyEntry) {
-        addProp=((MultiDatabasePropertyEntry)prop).getClone(config.getPartition());
-      }
-      PropertyDirectory.addProperty(addProp);
+  DescribeServicesResponseType response=ServiceTransitions.sendEmpyreanRequest(parent,new DescribeServicesType());
+  ServiceStatusType status=Iterables.find(response.getServiceStatuses(),new Predicate<ServiceStatusType>(){
+    @Override public boolean apply(    final ServiceStatusType arg0){
+      return parent.getName().equals(arg0.getServiceId().getName());
     }
   }
- catch (  Exception ex) {
-    LOG.error(ex,ex);
+);
+  String corrId=response.getCorrelationId();
+  List<CheckException> errors=ServiceChecks.Functions.statusToCheckExceptions(corrId).apply(status);
+  if (!errors.isEmpty()) {
+    if (Component.State.ENABLED.equals(parent.lookupState())) {
+      try {
+        DISABLE.fire(parent);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex,ex);
+      }
+    }
+    throw Faults.failure(parent,errors);
   }
 }
