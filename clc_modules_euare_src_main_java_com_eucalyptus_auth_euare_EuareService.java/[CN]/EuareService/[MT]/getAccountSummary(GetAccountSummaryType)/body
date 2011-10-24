@@ -1,14 +1,11 @@
 {
   GetAccountSummaryResponseType reply=request.getReply();
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
-  String action=PolicySpec.requestToAction(request);
   Context ctx=Contexts.lookup();
   User requestUser=ctx.getUser();
   Account account=getRealAccount(ctx,request.getDelegateAccount());
-  if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.ALL_RESOURCE,PolicySpec.ALL_RESOURCE,account,action,requestUser)) {
-    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to get account summary by " + requestUser.getName());
-  }
   try {
+    account=Privileged.getAccountSummary(requestUser,account);
     List<SummaryMapTypeEntryType> map=reply.getGetAccountSummaryResult().getSummaryMap().getEntryList();
     SummaryMapTypeEntryType entry;
     entry=new SummaryMapTypeEntryType();
@@ -22,7 +19,12 @@
     return reply;
   }
  catch (  Exception e) {
-    LOG.debug(e,e);
+    LOG.error(e,e);
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to get account summary by " + requestUser.getName());
+      }
+    }
     throw new EucalyptusCloudException(e);
   }
 }

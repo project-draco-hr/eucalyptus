@@ -1,7 +1,6 @@
 {
   PutUserPolicyResponseType reply=request.getReply();
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
-  String action=PolicySpec.requestToAction(request);
   Context ctx=Contexts.lookup();
   User requestUser=ctx.getUser();
   Account account=getRealAccount(ctx,request.getDelegateAccount());
@@ -10,7 +9,7 @@
     userFound=account.lookupUserByName(request.getUserName());
   }
  catch (  Exception e) {
-    LOG.debug(e,e);
+    LOG.error(e,e);
     if (e instanceof AuthException && AuthException.NO_SUCH_USER.equals(e.getMessage())) {
       throw new EuareException(HttpResponseStatus.NOT_FOUND,EuareException.NO_SUCH_ENTITY,"Can not find user " + request.getUserName());
     }
@@ -18,21 +17,23 @@
       throw new EucalyptusCloudException(e);
     }
   }
-  if (userFound.isAccountAdmin() && !requestUser.isSystemAdmin()) {
-    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Only system admin can put policy on an account");
-  }
-  if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_USER,Accounts.getUserFullName(userFound),account,action,requestUser)) {
-    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to put user policy for " + request.getUserName() + " by "+ requestUser.getName());
-  }
   try {
-    userFound.addPolicy(request.getPolicyName(),request.getPolicyDocument());
+    Privileged.putUserPolicy(requestUser,account,userFound,request.getPolicyName(),request.getPolicyDocument());
   }
  catch (  PolicyParseException e) {
-    LOG.debug(e,e);
+    LOG.error(e,e);
     throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.MALFORMED_POLICY_DOCUMENT,"Error in uploaded policy: " + request.getPolicyDocument(),e);
   }
 catch (  Exception e) {
-    LOG.debug(e,e);
+    LOG.error(e,e);
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to put user policy for " + request.getUserName() + " by "+ requestUser.getName());
+      }
+ else       if (AuthException.INVALID_NAME.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_NAME,"Invalid policy name " + request.getPolicyName());
+      }
+    }
     throw new EucalyptusCloudException(e);
   }
   return reply;
