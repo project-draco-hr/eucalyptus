@@ -1,0 +1,41 @@
+{
+  for (  String ctx : PersistenceContexts.list()) {
+    try {
+      DriverDatabaseClusterMBean cluster=Mbeans.lookup(jdbcJmxDomain,ImmutableMap.builder().put("cluster",ctx).build(),DriverDatabaseClusterMBean.class);
+      for (      Host h : Hosts.listDatabases()) {
+        try {
+          net.sf.hajdbc.Database<Driver> db=cluster.getDatabase(h.getBindAddress().getHostAddress());
+          if (!cluster.isAlive(db.getId())) {
+            cluster.deactivate(db.getId());
+          }
+        }
+ catch (        IllegalArgumentException ex) {
+          LOG.trace(ex.getMessage());
+        }
+      }
+      for (      String dbId : cluster.getActiveDatabases()) {
+        cluster.getDatabase(dbId);
+        if (!cluster.isAlive(dbId)) {
+          cluster.deactivate(dbId);
+        }
+      }
+      for (      final String dbId : cluster.getInactiveDatabases()) {
+        net.sf.hajdbc.Database<Driver> db=cluster.getDatabase(dbId);
+        Predicate<Host> filter=new Predicate<Host>(){
+          @Override public boolean apply(          Host input){
+            return input.getHostAddresses().contains(Internets.toAddress(dbId));
+          }
+        }
+;
+        if (!Hosts.list(filter).isEmpty()) {
+          if (cluster.isAlive(dbId)) {
+            cluster.activate(dbId);
+          }
+        }
+      }
+    }
+ catch (    Exception ex) {
+      LOG.error(ex,ex);
+    }
+  }
+}
