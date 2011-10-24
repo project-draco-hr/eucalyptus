@@ -1,36 +1,27 @@
 {
   for (  String ctx : PersistenceContexts.list()) {
     try {
-      DriverDatabaseClusterMBean cluster=Mbeans.lookup(jdbcJmxDomain,ImmutableMap.builder().put("cluster",ctx).build(),DriverDatabaseClusterMBean.class);
-      for (      Host h : Hosts.listDatabases()) {
+      DriverDatabaseClusterMBean cluster=findDbClusterMBean(ctx);
+      for (      String dbId : cluster.getActiveDatabases()) {
         try {
-          net.sf.hajdbc.Database<Driver> db=cluster.getDatabase(h.getBindAddress().getHostAddress());
-          if (!cluster.isAlive(db.getId())) {
-            cluster.deactivate(db.getId());
+          Iterables.find(Hosts.list(),filterDbHost(dbId));
+          if (!cluster.isAlive(dbId)) {
+            cluster.deactivate(dbId);
           }
         }
- catch (        IllegalArgumentException ex) {
-          LOG.trace(ex.getMessage());
-        }
-      }
-      for (      String dbId : cluster.getActiveDatabases()) {
-        cluster.getDatabase(dbId);
-        if (!cluster.isAlive(dbId)) {
+ catch (        NoSuchElementException ex) {
           cluster.deactivate(dbId);
         }
       }
       for (      final String dbId : cluster.getInactiveDatabases()) {
-        net.sf.hajdbc.Database<Driver> db=cluster.getDatabase(dbId);
-        Predicate<Host> filter=new Predicate<Host>(){
-          @Override public boolean apply(          Host input){
-            return input.getHostAddresses().contains(Internets.toAddress(dbId));
-          }
-        }
-;
-        if (!Hosts.list(filter).isEmpty()) {
+        try {
+          Iterables.find(Hosts.list(),filterDbHost(dbId));
           if (cluster.isAlive(dbId)) {
             cluster.activate(dbId);
           }
+        }
+ catch (        NoSuchElementException ex) {
+          cluster.remove(dbId);
         }
       }
     }
