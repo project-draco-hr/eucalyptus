@@ -1,37 +1,14 @@
 {
   ThreadPool exec=Threads.lookup(Empyrean.class);
-  CompletionService<ServiceConfiguration> workPool=new ExecutorCompletionService<ServiceConfiguration>(exec);
-  int submitted=0;
   for (  final Component component : components) {
-    submitted++;
-    workPool.submit(new Callable<ServiceConfiguration>(){
-      @Override public ServiceConfiguration call() throws Exception {
-        ServiceConfiguration config=component.getLocalServiceConfiguration();
-        Exception lastEx=null;
-        for (int i=0; i < INIT_RETRIES; i++) {
-          try {
-            return ServiceTransitions.pathTo(config,state).get();
-          }
- catch (          Exception ex) {
-            lastEx=ex;
-            Logs.extreme().error(ex);
-          }
-        }
-        throw lastEx;
-      }
+    ServiceConfiguration config=component.getLocalServiceConfiguration();
+    try {
+      Topology.transition(state).apply(config).get();
     }
-);
-  }
-  for (int i=0; i < submitted; i++) {
-    Future<ServiceConfiguration> future=null;
-    do {
-      try {
-        future=workPool.poll(50,TimeUnit.MILLISECONDS);
-      }
- catch (      final InterruptedException e) {
-        Thread.currentThread().interrupt();
-      }
+ catch (    Exception ex) {
+      Exceptions.maybeInterrupted(ex);
+      LOG.error(ex);
+      Logs.extreme().error(ex,ex);
     }
- while (future == null);
   }
 }

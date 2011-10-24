@@ -1,23 +1,27 @@
 {
+  WebServices.restart();
   ServiceBootstrapper.execute(new Predicate<ServiceConfiguration>(){
     @Override public boolean apply(    final ServiceConfiguration config){
-      final Component comp=config.lookupComponent();
-      LOG.debug("load(): " + config);
-      try {
-        comp.loadService(config).get();
-        return true;
+      ServiceBootstrapWorker.submit(new Runnable(){
+        @Override public void run(){
+          LOG.debug("load(): " + config);
+          try {
+            Components.lookup(config.getComponentId()).setup(config);
+            Topology.start(config).get();
+          }
+ catch (          final Exception ex) {
+            Faults.failure(config,ex);
+          }
+        }
+        @Override public String toString(){
+          return "ServiceBootstrap.load(): " + config.getFullName();
+        }
       }
- catch (      ServiceRegistrationException ex) {
-        LifecycleEvents.fireExceptionEvent(config,ServiceChecks.Severity.ERROR,ex);
-        return false;
-      }
-catch (      Exception ex) {
-        Exceptions.trace("load(): Building service failed: " + Components.describe(comp),ex);
-        LifecycleEvents.fireExceptionEvent(config,ServiceChecks.Severity.ERROR,ex);
-        return false;
-      }
+);
+      return true;
     }
   }
 );
+  ServiceBootstrapWorker.waitAll();
   return true;
 }
