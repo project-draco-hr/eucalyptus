@@ -1,37 +1,37 @@
 {
-  ServiceConfiguration empyreanConfig=ServiceConfigurations.createEphemeral(Empyrean.INSTANCE);
   if (!serviceOperations.containsKey(request.getClass())) {
     try {
       ServiceContext.dispatch(RequestQueue.ENDPOINT,request);
     }
- catch (    ServiceDispatchException ex) {
-      throw Exceptions.toUndeclared(ex);
+ catch (    Exception ex) {
+      Contexts.responseError(request.getCorrelationId(),ex);
     }
   }
  else {
     try {
       final Context ctx=Contexts.lookup(request.getCorrelationId());
       final Function<I,O> op=(Function<I,O>)serviceOperations.get(request.getClass());
-      Threads.enqueue(empyreanConfig,new Runnable(){
-        @Override public void run(){
-          Contexts.threadLocal(ctx);
-          try {
-            final O reply=op.apply(request);
-            Contexts.response(request);
+      Timers.loggingWrapper(new Callable(){
+        @Override public Object call() throws Exception {
+          if (ASYNCHRONOUS) {
+            Threads.enqueue(queueConfig.get(),new Runnable(){
+              @Override public void run(){
+                executeOperation(request,ctx,op);
+              }
+            }
+);
           }
- catch (          final Exception ex) {
-            Logs.extreme().error(ex,ex);
-            Contexts.responseError(request.getCorrelationId(),ex);
+ else {
+            executeOperation(request,ctx,op);
           }
- finally {
-            Contexts.removeThreadLocal();
-          }
+          return null;
         }
       }
-);
+).call();
     }
  catch (    final Exception ex) {
       Logs.extreme().error(ex,ex);
+      Contexts.responseError(request.getCorrelationId(),ex);
     }
   }
 }

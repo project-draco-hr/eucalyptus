@@ -1,19 +1,27 @@
 {
-  ChannelUtil.getServerChannel();
+  WebServices.restart();
   ServiceBootstrapper.execute(new Predicate<ServiceConfiguration>(){
     @Override public boolean apply(    final ServiceConfiguration config){
-      LOG.debug("load(): " + config);
-      try {
-        Components.lookup(config).loadService(config);
-        ServiceTransitions.pathTo(config,Component.State.LOADED).get();
-        return true;
+      ServiceBootstrapWorker.submit(new Runnable(){
+        @Override public void run(){
+          LOG.debug("load(): " + config);
+          try {
+            Components.lookup(config.getComponentId()).setup(config);
+            Topology.start(config).get();
+          }
+ catch (          final Exception ex) {
+            Faults.failure(config,ex);
+          }
+        }
+        @Override public String toString(){
+          return "ServiceBootstrap.load(): " + config.getFullName();
+        }
       }
- catch (      Exception ex) {
-        Faults.failure(config,ex);
-        return false;
-      }
+);
+      return true;
     }
   }
 );
+  ServiceBootstrapWorker.waitAll();
   return true;
 }
