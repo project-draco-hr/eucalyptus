@@ -1,33 +1,37 @@
 {
   if (!serviceOperations.containsKey(request.getClass())) {
-    return false;
+    try {
+      ServiceContext.dispatch(RequestQueue.ENDPOINT,request);
+    }
+ catch (    Exception ex) {
+      Contexts.responseError(request.getCorrelationId(),ex);
+    }
   }
  else {
     try {
       final Context ctx=Contexts.lookup(request.getCorrelationId());
       final Function<I,O> op=(Function<I,O>)serviceOperations.get(request.getClass());
-      Threads.enqueue(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE),new Runnable(){
-        @Override public void run(){
-          Contexts.threadLocal(ctx);
-          try {
-            final O reply=op.apply(request);
-            ServiceContext.response(request);
+      Timers.loggingWrapper(new Callable(){
+        @Override public Object call() throws Exception {
+          if (ASYNCHRONOUS) {
+            Threads.enqueue(queueConfig.get(),new Runnable(){
+              @Override public void run(){
+                executeOperation(request,ctx,op);
+              }
+            }
+);
           }
- catch (          final Exception ex) {
-            Logs.extreme().error(ex,ex);
-            ServiceContext.responseError(request.getCorrelationId(),ex);
+ else {
+            executeOperation(request,ctx,op);
           }
- finally {
-            Contexts.removeThreadLocal();
-          }
+          return null;
         }
       }
-);
-      return true;
+).call();
     }
- catch (    Exception ex) {
+ catch (    final Exception ex) {
       Logs.extreme().error(ex,ex);
-      return false;
+      Contexts.responseError(request.getCorrelationId(),ex);
     }
   }
 }

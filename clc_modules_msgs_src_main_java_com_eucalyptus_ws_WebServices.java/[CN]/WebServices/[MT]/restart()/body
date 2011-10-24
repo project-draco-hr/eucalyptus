@@ -1,0 +1,48 @@
+{
+  if (serverShutdown != null) {
+    serverShutdown.run();
+    serverShutdown=null;
+  }
+  final Executor workerPool=workerPool();
+  final ChannelFactory serverChannelFactory=channelFactory(workerPool);
+  final ChannelPipelineFactory serverPipelineFactory=Handlers.serverPipelineFactory();
+  final ChannelGroup serverChannelGroup=channelGroup();
+  final ChannelHandler channelGroupHandler=new SimpleChannelHandler(){
+    @Override public void channelOpen(    ChannelHandlerContext ctx,    ChannelStateEvent e) throws Exception {
+      serverChannelGroup.add(ctx.getChannel());
+      super.channelOpen(ctx,e);
+    }
+  }
+;
+  final ChannelPipelineFactory pipelineFactory=new ChannelPipelineFactory(){
+    @Override public ChannelPipeline getPipeline() throws Exception {
+      ChannelPipeline pipeline=serverPipelineFactory.getPipeline();
+      pipeline.addLast("channel-group-handler",channelGroupHandler);
+      return pipeline;
+    }
+  }
+;
+  final ServerBootstrap bootstrap=serverBootstrap(serverChannelFactory,pipelineFactory);
+  if (!StackConfiguration.INTERNAL_PORT.equals(StackConfiguration.PORT)) {
+    final Channel serverChannel=bootstrap.bind(new InetSocketAddress(StackConfiguration.PORT));
+    serverChannelGroup.add(serverChannel);
+  }
+  try {
+    final Channel serverChannel=bootstrap.bind(new InetSocketAddress(StackConfiguration.INTERNAL_PORT));
+    serverChannelGroup.add(serverChannel);
+    serverShutdown=new Runnable(){
+      AtomicBoolean ranned=new AtomicBoolean(false);
+      @Override public void run(){
+        if (this.ranned.compareAndSet(false,true)) {
+          serverChannelGroup.close().awaitUninterruptibly();
+          serverChannelFactory.releaseExternalResources();
+        }
+      }
+    }
+;
+    OrderedShutdown.register(Empyrean.class,serverShutdown);
+  }
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+  }
+}

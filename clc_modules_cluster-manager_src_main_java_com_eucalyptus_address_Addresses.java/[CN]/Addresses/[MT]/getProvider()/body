@@ -1,24 +1,28 @@
 {
-  String provider="" + AddressingConfiguration.getInstance().getDoDynamicPublicAddresses() + Iterables.all(Clusters.getInstance().listValues(),new Predicate<Cluster>(){
+  final boolean hasAddressing=Iterables.all(Clusters.getInstance().listValues(),new Predicate<Cluster>(){
     @Override public boolean apply(    Cluster arg0){
-      return arg0.getState().isAddressingInitialized() ? arg0.getState().hasPublicAddressing() : true;
+      return arg0.getState().isAddressingInitialized() && arg0.getState().hasPublicAddressing();
     }
   }
 );
-  try {
-    if (Addresses.systemAddressManager == null) {
-      Addresses.systemAddressManager=(AbstractSystemAddressManager)managerMap.get(provider).newInstance();
-      LOG.info("Setting the address manager to be: " + systemAddressManager.getClass().getSimpleName());
-    }
- else     if (!Addresses.systemAddressManager.getClass().equals(managerMap.get(provider))) {
-      AbstractSystemAddressManager oldMgr=Addresses.systemAddressManager;
-      Addresses.systemAddressManager=(AbstractSystemAddressManager)managerMap.get(provider).newInstance();
-      Addresses.systemAddressManager.inheritReservedAddresses(oldMgr.getReservedAddresses());
-      LOG.info("Setting the address manager to be: " + systemAddressManager.getClass().getSimpleName());
-    }
+  Class<? extends AbstractSystemAddressManager> newManager=null;
+  if (AddressingConfiguration.getInstance().getDoDynamicPublicAddresses()) {
+    newManager=DynamicSystemAddressManager.class;
   }
- catch (  Exception e) {
-    LOG.debug(e,e);
+ else {
+    newManager=StaticSystemAddressManager.class;
   }
-  return Addresses.systemAddressManager;
+  if (Addresses.systemAddressManager == null) {
+    systemAddressManager=Classes.newInstance(newManager);
+  }
+ else   if (!newManager.equals(systemAddressManager.getClass())) {
+    final AbstractSystemAddressManager oldMgr=systemAddressManager;
+    systemAddressManager=Classes.newInstance(newManager);
+    systemAddressManager.inheritReservedAddresses(oldMgr.getReservedAddresses());
+  }
+ else {
+    return systemAddressManager;
+  }
+  LOG.info("Setting the address manager to be: " + newManager.getSimpleName());
+  return systemAddressManager;
 }

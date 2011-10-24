@@ -1,0 +1,30 @@
+{
+  final Long queueStart=System.currentTimeMillis();
+  final Callable<ServiceConfiguration> call=new Callable<ServiceConfiguration>(){
+    @Override public ServiceConfiguration call() throws Exception {
+      if (Bootstrap.isShuttingDown()) {
+        throw Exceptions.toUndeclared("System is shutting down.");
+      }
+ else {
+        final Long serviceStart=System.currentTimeMillis();
+        LOG.debug(EventRecord.here(Topology.class,EventType.DEQUEUE,function.toString(),config.getFullName().toString(),Long.toString(serviceStart - queueStart),"ms"));
+        try {
+          final ServiceConfiguration result=function.apply(config);
+          LOG.debug(EventRecord.here(Topology.class,EventType.QUEUE,function.toString(),config.getFullName().toString(),Long.toString(System.currentTimeMillis() - serviceStart),"ms"));
+          return result;
+        }
+ catch (        Exception ex) {
+          Throwable t=Exceptions.unwrapCause(ex);
+          Logs.extreme().error(t,t);
+          LOG.error(config.getFullName() + " failed to transition because of: " + t);
+          throw ex;
+        }
+      }
+    }
+    @Override public String toString(){
+      return Topology.class.getSimpleName() + ":" + config.getFullName()+ " "+ function.toString();
+    }
+  }
+;
+  return call;
+}
