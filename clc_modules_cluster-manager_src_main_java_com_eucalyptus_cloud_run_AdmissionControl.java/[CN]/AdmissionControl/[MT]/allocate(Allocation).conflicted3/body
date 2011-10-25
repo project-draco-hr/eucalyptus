@@ -1,19 +1,24 @@
 {
   if (NetworkGroups.networkingConfiguration().hasNetworking()) {
-    for (    ResourceToken rscToken : allocInfo.getAllocationTokens()) {
-      EntityTransaction db=Entities.get(ExtantNetwork.class);
-      try {
-        ExtantNetwork exNet=Entities.merge(rscToken.getExtantNetwork());
-        assertThat(exNet,notNullValue());
-        PrivateNetworkIndex addrIndex=exNet.allocateNetworkIndex();
-        rscToken.setNetworkIndex(addrIndex);
-        rscToken.setExtantNetwork(Entities.merge(exNet));
-        db.commit();
+    EntityTransaction db=Entities.get(NetworkGroup.class);
+    try {
+      NetworkGroup net=Entities.merge(allocInfo.getPrimaryNetwork());
+      ExtantNetwork exNet=net.extantNetwork();
+      for (      ResourceToken rscToken : allocInfo.getAllocationTokens()) {
+        rscToken.setExtantNetwork(exNet);
       }
- catch (      Exception ex) {
-        db.rollback();
-        throw new NotEnoughResourcesException("Not enough addresses left in the network subnet assigned to requested group: " + rscToken,ex);
-      }
+      Entities.merge(net);
+      db.commit();
+    }
+ catch (    TransientEntityException ex) {
+      LOG.error(ex,ex);
+      db.rollback();
+      throw ex;
+    }
+catch (    Exception ex) {
+      LOG.error(ex,ex);
+      db.rollback();
+      throw ex;
     }
   }
 }

@@ -1,14 +1,22 @@
 {
-  DisableServiceResponseType msg=ServiceTransitions.sendEmpyreanRequest(parent,new DisableServiceType(){
-{
-      this.getServices().add(TypeMappers.transform(parent,ServiceId.class));
+  DescribeServicesResponseType response=ServiceTransitions.sendEmpyreanRequest(parent,new DescribeServicesType());
+  ServiceStatusType status=Iterables.find(response.getServiceStatuses(),new Predicate<ServiceStatusType>(){
+    @Override public boolean apply(    final ServiceStatusType arg0){
+      return parent.getName().equals(arg0.getServiceId().getName());
     }
   }
 );
-  try {
-    parent.lookupComponent().getBuilder().fireDisable(parent);
-  }
- catch (  Exception ex) {
-    LOG.error(ex,ex);
+  String corrId=response.getCorrelationId();
+  List<CheckException> errors=ServiceChecks.Functions.statusToCheckExceptions(corrId).apply(status);
+  if (!errors.isEmpty()) {
+    if (Component.State.ENABLED.equals(parent.lookupState())) {
+      try {
+        DISABLE.fire(parent);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex,ex);
+      }
+    }
+    throw Faults.failure(parent,errors);
   }
 }

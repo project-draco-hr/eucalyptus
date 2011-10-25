@@ -1,0 +1,20 @@
+{
+  if (responseMessage instanceof ExceptionResponseType) {
+    Logs.exhaust().trace(responseMessage);
+  }
+  String corrId=responseMessage.getCorrelationId();
+  try {
+    Context ctx=lookup(corrId);
+    EventRecord.here(ServiceContext.class,EventType.MSG_REPLY,responseMessage.getCorrelationId(),responseMessage.getClass().getSimpleName(),String.format("%.3f ms",(System.nanoTime() - ctx.getCreationTime()) / 1000000.0)).debug();
+    Channel channel=ctx.getChannel();
+    Channels.write(channel,responseMessage);
+    clear(ctx);
+  }
+ catch (  NoSuchContextException e) {
+    LOG.warn("Received a reply for absent client:  No channel to write response message.",e);
+    LOG.debug(responseMessage);
+  }
+catch (  Exception e) {
+    LOG.warn("Error occurred while handling reply: " + responseMessage,e);
+  }
+}
