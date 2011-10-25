@@ -1,0 +1,53 @@
+{
+  String code=request.getParameter(PARAMETER_CODE);
+  String userName=request.getParameter(PARAMETER_USERNAME);
+  String accountName=request.getParameter(PARAMETER_ACCOUNTNAME);
+  String mimetype="application/zip";
+  if (accountName == null || "".equals(accountName)) {
+    hasError("No account name provided",response);
+    return;
+  }
+  if (userName == null || "".equals(userName)) {
+    hasError("No user name provided",response);
+    return;
+  }
+  if (code == null || "".equals(code)) {
+    hasError("Wrong user security code",response);
+    return;
+  }
+  User user=null;
+  try {
+    Account account=Accounts.lookupAccountByName(accountName);
+    user=account.lookupUserByName(userName);
+    if (!user.isEnabled() || !RegistrationStatus.CONFIRMED.equals(user.getRegistrationStatus())) {
+      throw new AuthException("User is not enabled or confirmed");
+    }
+  }
+ catch (  Exception e) {
+    hasError("User does not exist",response);
+    return;
+  }
+  try {
+    if (!code.equals(user.resetToken())) {
+      hasError("Token is invalid",response);
+      return;
+    }
+  }
+ catch (  Exception e) {
+    hasError("Can not reset user security code",response);
+    return;
+  }
+  response.setContentType(mimetype);
+  response.setHeader("Content-Disposition","attachment; filename=\"" + X509Download.NAME_SHORT + "-"+ userName+ "-x509.zip\"");
+  LOG.info("pushing out the X509 certificate for user " + userName);
+  try {
+    byte[] x509zip=getX509Zip(user);
+    ServletOutputStream op=response.getOutputStream();
+    response.setContentLength(x509zip.length);
+    op.write(x509zip);
+    op.flush();
+  }
+ catch (  Exception e) {
+    LOG.error(e,e);
+  }
+}
