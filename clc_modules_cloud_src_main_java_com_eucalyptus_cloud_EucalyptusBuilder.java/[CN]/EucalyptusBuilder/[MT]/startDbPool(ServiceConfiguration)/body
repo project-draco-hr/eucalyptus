@@ -1,12 +1,30 @@
 {
-  String dbPass=SystemIds.databasePassword();
-  final String hostName=config.getHostName();
-  String realJdbcDriver=Databases.getDriverName();
+  if (Hosts.Coordinator.INSTANCE.isLocalhost() || config.isHostLocal()) {
+    return;
+  }
+  while (!Hosts.Coordinator.INSTANCE.isLocalhost() && !Hosts.Coordinator.INSTANCE.get().hasBootstrapped()) {
+    LOG.info("Waiting for primary cloud controller to bootstrap: " + Hosts.Coordinator.INSTANCE.get());
+    try {
+      TimeUnit.SECONDS.sleep(1);
+    }
+ catch (    InterruptedException ex) {
+      Thread.currentThread().interrupt();
+    }
+  }
+  try {
+    Iterables.find(Hosts.list(),filterDbHost(config.getHostName()));
+  }
+ catch (  NoSuchElementException ex) {
+    return;
+  }
   for (  String ctx : PersistenceContexts.list()) {
     final String contextName=ctx.startsWith("eucalyptus_") ? ctx : "eucalyptus_" + ctx;
     String dbUrl="jdbc:" + ServiceUris.remote(Database.class,config.getInetAddress(),contextName);
     try {
-      DriverDatabaseClusterMBean cluster=Mbeans.lookup(jdbcJmxDomain,ImmutableMap.builder().put("cluster",contextName).build(),DriverDatabaseClusterMBean.class);
+      DriverDatabaseClusterMBean cluster=findDbClusterMBean(contextName);
+      String dbPass=SystemIds.databasePassword();
+      final String hostName=config.getHostName();
+      String realJdbcDriver=Databases.getDriverName();
       if (!cluster.getActiveDatabases().contains(hostName) && !cluster.getInactiveDatabases().contains(hostName)) {
         cluster.add(hostName,realJdbcDriver,dbUrl);
       }
@@ -16,7 +34,7 @@
       InactiveDatabaseMBean database=Mbeans.lookup(jdbcJmxDomain,ImmutableMap.builder().put("cluster",contextName).put("database",hostName).build(),InactiveDatabaseMBean.class);
       database.setUser("eucalyptus");
       database.setPassword(dbPass);
-      if (Hosts.isCoordinator()) {
+      if (Hosts.Coordinator.INSTANCE.isLocalhost()) {
         cluster.activate(hostName,"full");
       }
  else {
