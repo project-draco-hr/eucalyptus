@@ -1,28 +1,21 @@
 {
   ServiceBootstrapper.execute(new Predicate<ServiceConfiguration>(){
     @Override public boolean apply(    final ServiceConfiguration config){
-      final Component comp=config.lookupComponent();
       ServiceBootstrapWorker.submit(new Runnable(){
         @Override public void run(){
-          Bootstrap.awaitFinished();
           try {
-            ServiceTransitions.transitionChain(config,Component.State.NOTREADY).get();
-            try {
-              ServiceTransitions.transitionChain(config,Component.State.ENABLED).get();
-            }
- catch (            IllegalStateException ex) {
-              LOG.error(ex,ex);
-            }
-catch (            InterruptedException ex) {
-              LOG.error(ex,ex);
-            }
-catch (            ExecutionException ex) {
-              LOG.error(ex,ex);
+            Topology.disable(config).get();
+            if (Hosts.Coordinator.INSTANCE.isLocalhost()) {
+              Topology.enable(config);
             }
           }
- catch (          Exception ex) {
-            LOG.error(ex,ex);
+ catch (          final Exception ex) {
+            Exceptions.maybeInterrupted(ex);
+            Faults.failure(config,ex);
           }
+        }
+        @Override public String toString(){
+          return "ServiceBootstrap.start(): " + config.getFullName();
         }
       }
 );

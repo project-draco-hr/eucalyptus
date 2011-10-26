@@ -1,12 +1,11 @@
 {
   ListUsersResponseType reply=request.getReply();
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
-  String action=PolicySpec.requestToAction(request);
   Context ctx=Contexts.lookup();
   User requestUser=ctx.getUser();
   Account account=getRealAccount(ctx,request.getDelegateAccount());
   String path="/";
-  if (request.getPathPrefix() != null && !"".equals(request.getPathPrefix())) {
+  if (!Strings.isNullOrEmpty(request.getPathPrefix())) {
     path=request.getPathPrefix();
   }
   ListUsersResultType result=reply.getListUsersResult();
@@ -14,8 +13,8 @@
   ArrayList<UserType> users=reply.getListUsersResult().getUsers().getMemberList();
   try {
     for (    User user : account.getUsers()) {
-      if (Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_USER,Accounts.getUserFullName(user),account,action,requestUser)) {
-        if (user.getPath().startsWith(path)) {
+      if (user.getPath().startsWith(path)) {
+        if (Privileged.allowListUser(requestUser,account,user)) {
           UserType u=new UserType();
           fillUserResult(u,user,account);
           users.add(u);
@@ -24,7 +23,7 @@
     }
   }
  catch (  Exception e) {
-    LOG.debug(e,e);
+    LOG.error(e,e);
     throw new EucalyptusCloudException(e);
   }
   return reply;
