@@ -1,0 +1,45 @@
+{
+  Context ctx=Contexts.lookup();
+  Class<?> rscType=findResourceClass(allocator);
+  if (ctx.hasAdministrativePrivileges()) {
+    return runAllocator(quantity,allocator,rollback);
+  }
+ else {
+    Class<? extends BaseMessage> msgType=ctx.getRequest().getClass();
+    Ats ats=findPolicyAnnotations(rscType,msgType);
+    PolicyVendor vendor=ats.get(PolicyVendor.class);
+    PolicyResourceType type=ats.get(PolicyResourceType.class);
+    String action=getIamActionByMessageType();
+    User requestUser=ctx.getUser();
+    List<T> res=Lists.newArrayList();
+    for (int i=0; i < quantity; i++) {
+      T rsc=null;
+      try {
+        rsc=allocator.get();
+      }
+ catch (      RuntimeException ex1) {
+        if (rsc != null) {
+          rollback.apply(rsc);
+        }
+        throw ex1;
+      }
+      if (rsc == null) {
+        throw new NoSuchElementException("Attempt to allocate " + quantity + " "+ type+ " failed.");
+      }
+      try {
+        String identifier=rsc.getDisplayName();
+        if (!Permissions.isAuthorized(vendor.value(),type.value(),identifier,null,action,requestUser)) {
+          throw new AuthException("Not authorized to create: " + type + " by user: "+ ctx.getUserFullName());
+        }
+ else         if (!Permissions.canAllocate(vendor.value(),type.value(),identifier,action,ctx.getUser(),(long)quantity)) {
+          throw new AuthException("Quota exceeded while trying to create: " + type + " by user: "+ ctx.getUserFullName());
+        }
+      }
+ catch (      AuthException ex) {
+        throw ex;
+      }
+      res.add(rsc);
+    }
+    return res;
+  }
+}

@@ -1,0 +1,31 @@
+{
+  try {
+    HostManager.getInstance();
+    LOG.info("Started membership channel " + SystemIds.membershipGroupName());
+    hostMap=new ReplicatedHashMap<String,Host>(HostManager.getInstance().getMembershipChannel());
+    hostMap.setDeadlockDetection(true);
+    hostMap.setBlockingUpdates(true);
+    hostMap.addNotifier(HostMapStateListener.INSTANCE);
+    hostMap.start(STATE_TRANSFER_TIMEOUT);
+    LOG.info("Added localhost to system state: " + localHost());
+    final Host local=Coordinator.INSTANCE.createLocalHost();
+    hostMap.put(local.getDisplayName(),local);
+    Listeners.register(HostBootstrapEventListener.INSTANCE);
+    LOG.info("System view:\n" + HostMapStateListener.INSTANCE.printMap());
+    if (!BootstrapArgs.isCloudController()) {
+      while (Hosts.listDatabases().isEmpty()) {
+        TimeUnit.SECONDS.sleep(5);
+        LOG.info("Waiting for system view with database...");
+      }
+    }
+ else {
+    }
+    LOG.info("Membership address for localhost: " + Hosts.localHost());
+    return true;
+  }
+ catch (  final Exception ex) {
+    LOG.fatal(ex,ex);
+    BootstrapException.throwFatal("Failed to connect membership channel because of " + ex.getMessage(),ex);
+    return false;
+  }
+}

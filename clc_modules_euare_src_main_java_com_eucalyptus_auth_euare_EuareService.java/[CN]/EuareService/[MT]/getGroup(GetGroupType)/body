@@ -1,7 +1,6 @@
 {
   GetGroupResponseType reply=request.getReply();
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
-  String action=PolicySpec.requestToAction(request);
   Context ctx=Contexts.lookup();
   User requestUser=ctx.getUser();
   Account account=getRealAccount(ctx,request.getDelegateAccount());
@@ -10,7 +9,7 @@
     groupFound=account.lookupGroupByName(request.getGroupName());
   }
  catch (  Exception e) {
-    LOG.debug(e,e);
+    LOG.error(e,e);
     if (e instanceof AuthException && AuthException.NO_SUCH_GROUP.equals(e.getMessage())) {
       throw new EuareException(HttpResponseStatus.NOT_FOUND,EuareException.NO_SUCH_ENTITY,"Can not find group " + request.getGroupName());
     }
@@ -18,22 +17,25 @@
       throw new EucalyptusCloudException(e);
     }
   }
-  if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_GROUP,Accounts.getGroupFullName(groupFound),account,action,requestUser)) {
-    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to get group " + request.getGroupName() + " by "+ requestUser.getName());
-  }
-  reply.getGetGroupResult().setIsTruncated(false);
-  GroupType g=reply.getGetGroupResult().getGroup();
-  fillGroupResult(g,groupFound,account);
-  ArrayList<UserType> users=reply.getGetGroupResult().getUsers().getMemberList();
   try {
+    if (!Privileged.allowReadGroup(requestUser,account,groupFound)) {
+      throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to get group " + request.getGroupName() + " by "+ requestUser.getName());
+    }
+    reply.getGetGroupResult().setIsTruncated(false);
+    GroupType g=reply.getGetGroupResult().getGroup();
+    fillGroupResult(g,groupFound,account);
+    ArrayList<UserType> users=reply.getGetGroupResult().getUsers().getMemberList();
     for (    User user : groupFound.getUsers()) {
       UserType u=new UserType();
       fillUserResult(u,user,account);
       users.add(u);
     }
   }
- catch (  Exception e) {
-    LOG.debug(e,e);
+ catch (  EuareException e) {
+    throw e;
+  }
+catch (  Exception e) {
+    LOG.error(e,e);
     throw new EucalyptusCloudException(e);
   }
   return reply;

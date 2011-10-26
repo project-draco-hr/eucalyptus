@@ -1,8 +1,16 @@
 {
   ServiceConfiguration config=Partitions.lookupService(ClusterController.class,allocInfo.getPartition());
   Cluster cluster=Clusters.lookup(config);
-  ClusterNodeState state=cluster.getNodeState();
-  List<ResourceToken> rscToken=state.requestResourceAllocation(allocInfo,tryAmount,maxAmount);
-  allocInfo.getAllocationTokens().addAll(rscToken);
-  return rscToken;
+  final ResourceState state=cluster.getNodeState();
+  final List<ResourceToken> tokens=state.requestResourceAllocation(allocInfo,tryAmount,maxAmount);
+  final Supplier<ResourceToken> allocator=new Supplier<ResourceToken>(){
+    Iterator<ResourceToken> iter=tokens.iterator();
+    @Override public ResourceToken get(){
+      return this.iter.next();
+    }
+  }
+;
+  List<ResourceToken> pendingTokens=RestrictedTypes.allocateUnitlessResources(tokens.size(),allocator);
+  allocInfo.getAllocationTokens().addAll(pendingTokens);
+  return pendingTokens;
 }
