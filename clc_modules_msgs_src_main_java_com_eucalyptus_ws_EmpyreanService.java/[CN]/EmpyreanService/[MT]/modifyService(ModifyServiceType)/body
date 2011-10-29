@@ -1,102 +1,19 @@
 {
-  ModifyServiceResponseType reply=request.getReply();
-  TransitionName transition=TransitionName.valueOf(request.getState().toUpperCase());
-  for (  Component comp : Components.list()) {
-    ServiceConfiguration a;
-    try {
-      a=comp.lookupServiceConfiguration(request.getName());
+  final ModifyServiceResponseType reply=request.getReply();
+  try {
+    if (NamedTransition.INSTANCE.apply(request)) {
+      reply.markWinning();
     }
- catch (    Exception ex1) {
-      continue;
+ else {
+      Component.State nextState=Component.State.valueOf(request.getState().toUpperCase());
+      ServiceConfiguration config=findService(request.getName());
+      Topology.transition(nextState).apply(config).get();
+      reply.markWinning();
     }
-    Component.State serviceState=a.lookupState();
-    reply.set_return(true);
-    try {
-switch (transition) {
-case DISABLE:
-switch (a.lookupState()) {
-case ENABLED:
-          Topology.getInstance().disable(a).get();
-        break;
-default :
-      return reply;
   }
-break;
-case ENABLE:
-switch (a.lookupState()) {
-case INITIALIZED:
-case PRIMORDIAL:
-case BROKEN:
-case LOADED:
-case STOPPED:
-case DISABLED:
-case NOTREADY:
-Topology.getInstance().enable(a).get();
-break;
-case ENABLED:
-default :
-return reply;
-}
-break;
-case STOP:
-switch (a.lookupState()) {
-case ENABLED:
-Topology.getInstance().disable(a).get();
-case INITIALIZED:
-case PRIMORDIAL:
-case BROKEN:
-case STOPPED:
-case LOADED:
-case DISABLED:
-case NOTREADY:
-Topology.getInstance().stop(a).get();
-break;
-default :
-return reply;
-}
-break;
-case START:
-switch (a.lookupState()) {
-case INITIALIZED:
-case PRIMORDIAL:
-case BROKEN:
-case STOPPED:
-case LOADED:
-case DISABLED:
-case NOTREADY:
-Topology.getInstance().start(a).get();
-break;
-case ENABLED:
-default :
-return reply;
-}
-break;
-case RESTART:
-switch (a.lookupState()) {
-case ENABLED:
-Topology.getInstance().disable(a).get();
-case DISABLED:
-case NOTREADY:
-Topology.getInstance().stop(a).get();
-case INITIALIZED:
-case PRIMORDIAL:
-case BROKEN:
-case LOADED:
-default :
-Topology.getInstance().start(a).get();
-break;
-}
-break;
-}
-}
- catch (InterruptedException ex) {
-Thread.currentThread().interrupt();
-throw ex;
-}
-catch (Exception ex) {
-LOG.error(ex,ex);
-throw ex;
-}
-}
-return reply;
+ catch (  Exception ex) {
+    Exceptions.maybeInterrupted(ex);
+    throw Exceptions.toUndeclared("Failed to execute request transition: " + request.getState() + "\nPossible arguments are: \n"+ "TRANSITIONS\n\t"+ Joiner.on("\n\t").join(Topology.Transitions.values())+ "STATES\n\t"+ Joiner.on("\n\t").join(Component.State.values()),ex);
+  }
+  return reply;
 }

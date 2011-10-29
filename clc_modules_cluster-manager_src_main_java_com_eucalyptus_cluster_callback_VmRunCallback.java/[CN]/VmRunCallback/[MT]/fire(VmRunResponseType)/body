@@ -3,38 +3,24 @@
     throw new EucalyptusClusterException("Failed to run instance: " + this.getRequest().getInstanceId());
   }
   Logs.extreme().error(reply);
-  Predicate<VmRunResponseType> redeemToken=new Predicate<VmRunResponseType>(){
-    @Override public boolean apply(    final VmRunResponseType reply){
-      EntityTransaction db=Entities.get(VmInstance.class);
+  Function<VmRunResponseType,Boolean> redeemToken=new Function<VmRunResponseType,Boolean>(){
+    @Override public Boolean apply(    final VmRunResponseType reply){
       try {
-        try {
-          VmRunCallback.this.token.redeem();
-        }
- catch (        Exception ex) {
-          Logs.extreme().error(ex,ex);
-        }
-        for (        final VmInfo vmInfo : reply.getVms()) {
-          final VmInstance vm=VmInstances.lookup(vmInfo.getInstanceId());
-          vm.updateAddresses(vmInfo.getNetParams().getIpAddress(),vmInfo.getNetParams().getIgnoredPublicIp());
-        }
-        db.commit();
-        return true;
+        VmRunCallback.this.token.redeem();
       }
- catch (      RuntimeException ex) {
-        Logs.exhaust().error(ex,ex);
-        db.rollback();
-        throw ex;
+ catch (      Exception ex) {
+        Logs.extreme().error(ex,ex);
       }
-catch (      Exception ex) {
-        Logs.exhaust().error(ex,ex);
-        db.rollback();
-        throw new EucalyptusClusterException("Failed to run instance: " + VmRunCallback.this.getRequest().getInstanceId() + " because of: "+ ex.getMessage(),ex);
+      for (      final VmInfo vmInfo : reply.getVms()) {
+        final VmInstance vm=VmInstances.lookup(vmInfo.getInstanceId());
+        vm.updateAddresses(vmInfo.getNetParams().getIpAddress(),vmInfo.getNetParams().getIgnoredPublicIp());
       }
+      return true;
     }
   }
 ;
   try {
-    Entities.retry(reply,redeemToken);
+    Entities.asTransaction(VmInstance.class,redeemToken).apply(reply);
   }
  catch (  RuntimeException ex) {
     LOG.error(ex,ex);
