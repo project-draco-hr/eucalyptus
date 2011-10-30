@@ -1,20 +1,40 @@
 {
-  if (!Bootstrap.isFinished() || !BootstrapArgs.isCloudController() || arg1.isLocalHost()|| arg1.hasDatabase()) {
-    return false;
-  }
+  if (input == null) {
+    Host newHost=Coordinator.INSTANCE.createLocalHost();
+    Host oldHost=hostMap.putIfAbsent(newHost.getDisplayName(),newHost);
+    if (oldHost != null) {
+      LOG.info("Inserted local host information:   " + localHost());
+      return true;
+    }
  else {
-    try {
-      if (!Iterables.isEmpty(ServiceConfigurations.filter(Eucalyptus.class,nonLocalAddressMatch(arg1.getBindAddress())))) {
-        arg1.markDatabase();
-        hostMap.replace(arg1.getDisplayName(),arg1);
+      return false;
+    }
+  }
+ else   if (input.isLocalHost()) {
+    if (CheckStale.INSTANCE.apply(input)) {
+      Host newHost=new Host(input.getStartedTime());
+      Host oldHost=hostMap.replace(newHost.getDisplayName(),newHost);
+      if (oldHost != null) {
+        LOG.info("Updated local host information:   " + localHost());
         return true;
       }
-    }
- catch (    final Exception ex) {
-      if (Exceptions.findCause(ex,NoSuchElementException.class) == null) {
-        Logs.extreme().error(ex,ex);
+ else {
+        return false;
       }
     }
-    return false;
+ else {
+      if (!hostMap.containsKey(input.getDisplayName())) {
+        Host newHost=Coordinator.INSTANCE.createLocalHost();
+        Host oldHost=hostMap.putIfAbsent(newHost.getDisplayName(),newHost);
+        if (oldHost == null) {
+          LOG.info("Updated local host information:   " + localHost());
+          return true;
+        }
+ else {
+          return false;
+        }
+      }
+    }
   }
+  return true;
 }
