@@ -1,10 +1,15 @@
 {
   return new Function<ServiceStatusType,List<CheckException>>(){
-    @Override public List<CheckException> apply(    ServiceStatusType input){
-      List<CheckException> exs=Lists.newArrayList();
-      for (      String detail : input.getDetails()) {
-        ServiceConfiguration config=TypeMappers.transform(input.getServiceId(),ServiceConfiguration.class);
-        CheckException ex=newServiceCheckException(correlationId,Severity.ERROR,config,new ServiceStateException(detail));
+    @Override public List<CheckException> apply(    final ServiceStatusType input){
+      final List<CheckException> exs=Lists.newArrayList();
+      final ServiceConfiguration config=TypeMappers.transform(input.getServiceId(),ServiceConfiguration.class);
+      final Component.State serviceState=Component.State.valueOf(input.getLocalState());
+      final Component.State localState=config.lookupState();
+      if (Component.State.ENABLED.equals(localState) && !localState.equals(serviceState)) {
+        exs.add(newServiceCheckException(Severity.ERROR,config,new IllegalStateException("State mismatch: local state is " + localState + " and remote state is: "+ serviceState)));
+      }
+      for (      final String detail : input.getDetails()) {
+        final CheckException ex=newServiceCheckException(correlationId,Severity.ERROR,config,new ServiceStateException(detail));
         exs.add(ex);
       }
       return exs;
