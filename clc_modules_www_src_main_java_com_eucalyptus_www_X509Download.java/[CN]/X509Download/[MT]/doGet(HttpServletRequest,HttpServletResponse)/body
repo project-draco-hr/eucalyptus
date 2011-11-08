@@ -4,15 +4,15 @@
   String accountName=request.getParameter(PARAMETER_ACCOUNTNAME);
   String mimetype="application/zip";
   if (accountName == null || "".equals(accountName)) {
-    hasError("No account name provided",response);
+    hasError(HttpServletResponse.SC_BAD_REQUEST,"No account name provided",response);
     return;
   }
   if (userName == null || "".equals(userName)) {
-    hasError("No user name provided",response);
+    hasError(HttpServletResponse.SC_BAD_REQUEST,"No user name provided",response);
     return;
   }
   if (code == null || "".equals(code)) {
-    hasError("Wrong user security code",response);
+    hasError(HttpServletResponse.SC_BAD_REQUEST,"Wrong user security code",response);
     return;
   }
   User user=null;
@@ -20,28 +20,40 @@
     Account account=Accounts.lookupAccountByName(accountName);
     user=account.lookupUserByName(userName);
     if (!user.isEnabled() || !RegistrationStatus.CONFIRMED.equals(user.getRegistrationStatus())) {
-      throw new AuthException("User is not enabled or confirmed");
+      hasError(HttpServletResponse.SC_FORBIDDEN,"Access is not authorized",response);
+      return;
     }
   }
- catch (  Exception e) {
-    hasError("User does not exist",response);
+ catch (  AuthException e) {
+    hasError(HttpServletResponse.SC_BAD_REQUEST,"User does not exist",response);
+    return;
+  }
+catch (  Exception e) {
+    hasError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,"Fail to retrieve user data",response);
     return;
   }
   try {
     if (!code.equals(user.resetToken())) {
-      hasError("Token is invalid",response);
+      hasError(HttpServletResponse.SC_FORBIDDEN,"Access is not authorized",response);
       return;
     }
   }
  catch (  Exception e) {
-    hasError("Can not reset user security code",response);
+    hasError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,"Can not reset user security code",response);
     return;
   }
   response.setContentType(mimetype);
   response.setHeader("Content-Disposition","attachment; filename=\"" + X509Download.NAME_SHORT + "-"+ userName+ "-x509.zip\"");
   LOG.info("pushing out the X509 certificate for user " + userName);
+  byte[] x509zip=null;
   try {
-    byte[] x509zip=getX509Zip(user);
+    x509zip=getX509Zip(user);
+  }
+ catch (  Exception e) {
+    hasError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,"Fail to return user credentials",response);
+    return;
+  }
+  try {
     ServletOutputStream op=response.getOutputStream();
     response.setContentLength(x509zip.length);
     op.write(x509zip);
