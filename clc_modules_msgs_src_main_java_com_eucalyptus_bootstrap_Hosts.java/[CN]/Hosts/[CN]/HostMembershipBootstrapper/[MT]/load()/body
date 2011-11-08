@@ -7,8 +7,25 @@
     hostMap.setBlockingUpdates(true);
     hostMap.addNotifier(HostMapStateListener.INSTANCE);
     hostMap.start(STATE_TRANSFER_TIMEOUT);
+    OrderedShutdown.register(Empyrean.class,new Runnable(){
+      @Override public void run(){
+        try {
+          try {
+            hostMap.remove(Internets.localHostIdentifier());
+          }
+ catch (          Exception ex) {
+            LOG.error(ex,ex);
+          }
+          hostMap.stop();
+        }
+ catch (        Exception ex) {
+          LOG.error(ex,ex);
+        }
+      }
+    }
+);
     LOG.info("Added localhost to system state: " + localHost());
-    Coordinator.INSTANCE.update(hostMap.values());
+    Coordinator.INSTANCE.initialize(hostMap.values());
     final Host local=Coordinator.INSTANCE.createLocalHost();
     hostMap.putIfAbsent(local.getDisplayName(),local);
     Listeners.register(HostBootstrapEventListener.INSTANCE);
@@ -17,6 +34,9 @@
       while (Hosts.listDatabases().isEmpty()) {
         TimeUnit.SECONDS.sleep(5);
         LOG.info("Waiting for system view with database...");
+      }
+      if (shouldInitialize()) {
+        doInitialize();
       }
     }
  else {
