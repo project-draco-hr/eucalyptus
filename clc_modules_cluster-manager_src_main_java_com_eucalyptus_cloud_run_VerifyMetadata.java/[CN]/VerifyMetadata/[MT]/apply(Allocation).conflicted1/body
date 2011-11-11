@@ -1,11 +1,25 @@
 {
-  Context ctx=allocInfo.getContext();
-  User user=ctx.getUser();
-  String instanceType=allocInfo.getRequest().getInstanceType();
-  VmType vmType=VmTypes.getVmType(instanceType);
-  if (!ctx.hasAdministrativePrivileges() && !RestrictedTypes.filterPrivileged().apply(vmType)) {
-    throw new IllegalMetadataAccessException("Not authorized to allocate vm type " + instanceType + " for "+ ctx.getUserFullName());
+  RunInstancesType msg=allocInfo.getRequest();
+  String imageId=msg.getImageId();
+  VmType vmType=allocInfo.getVmType();
+  Partition partition=allocInfo.getPartition();
+  try {
+    BootableSet bootSet=Emis.newBootableSet(vmType,partition,imageId);
+    allocInfo.setBootableSet(bootSet);
+    if (!bootSet.hasRamdisk() && bootSet.getMachine().getImageSizeBytes() > ((1024L * 1024L * 1024L* vmType.getDisk()) + (1024L * 1024L * 10))) {
+      throw new VerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
+    }
+ else     if (bootSet.getMachine().getImageSizeBytes() >= ((1024L * 1024L * 1024L* vmType.getDisk()))) {
+      throw new VerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
+    }
   }
-  allocInfo.setVmType(vmType);
+ catch (  AuthException ex) {
+    LOG.error(ex);
+    throw new VerificationException(ex);
+  }
+catch (  MetadataException ex) {
+    LOG.error(ex);
+    throw new VerificationException(ex);
+  }
   return true;
 }
