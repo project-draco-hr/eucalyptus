@@ -8,9 +8,26 @@
   try {
     String newPath=request.getNewPath() != null ? sanitizePath(request.getNewPath()) : null;
     Boolean enabled=request.getEnabled() != null ? "true".equalsIgnoreCase(request.getEnabled()) : null;
-    Privileged.modifyUser(requestUser,account,userFound,request.getNewUserName(),newPath,enabled,null,null);
+    Date passwordExpiration=request.getPasswordExpiration() != null ? Iso8601DateParser.parse(request.getPasswordExpiration()) : null;
+    Privileged.modifyUser(requestUser,account,userFound,request.getNewUserName(),newPath,enabled,passwordExpiration.getTime(),null);
+    if (request.getRegStatus() != null) {
+      for (      RegistrationStatus stat : RegistrationStatus.values()) {
+        if (stat.name().equalsIgnoreCase(request.getRegStatus())) {
+          userFound.setRegistrationStatus(stat);
+        }
+      }
+      throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_VALUE,"Invalid registration status " + request.getRegStatus());
+    }
   }
- catch (  Exception e) {
+ catch (  EuareException e) {
+    LOG.error(e,e);
+    throw e;
+  }
+catch (  ParseException e) {
+    LOG.error(e,e);
+    throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_VALUE,"Invalid password expiration " + request.getPasswordExpiration());
+  }
+catch (  Exception e) {
     LOG.error(e,e);
     if (e instanceof AuthException) {
       if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
