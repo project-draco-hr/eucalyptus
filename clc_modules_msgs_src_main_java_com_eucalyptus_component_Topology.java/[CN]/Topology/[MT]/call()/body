@@ -1,33 +1,28 @@
 {
-  final List<ServiceConfiguration> checkServices=Lists.newArrayList();
-  for (  Component c : Components.list()) {
-    checkServices.addAll(Collections2.filter(c.services(),CheckServiceFilter.INSTANCE));
+  final List<ServiceConfiguration> allServices=Lists.newArrayList();
+  for (  final Component c : Components.list()) {
+    allServices.addAll(c.services());
   }
+  final Collection<ServiceConfiguration> checkServices=Collections2.filter(allServices,CheckServiceFilter.INSTANCE);
   final Collection<Future<ServiceConfiguration>> submittedChecks=Collections2.transform(checkServices,SubmitCheck.INSTANCE);
   final Collection<Future<ServiceConfiguration>> checkedServiceFutures=Collections2.filter(submittedChecks,WaitForResults.INSTANCE);
   final List<ServiceConfiguration> checkedServices=Lists.newArrayList(Collections2.transform(checkedServiceFutures,ExtractFuture.INSTANCE));
-  LOG.trace(LogUtil.subheader("CHECKED: " + Joiner.on("\nCHECKED: ").join(checkedServices)));
+  printCheckInfo("CHECKED",checkedServices);
   if (!Hosts.isCoordinator()) {
     return Lists.newArrayList(Collections2.transform(checkedServiceFutures,ExtractFuture.INSTANCE));
   }
  else {
     final Predicate<ServiceConfiguration> canPromote=Predicates.and(Predicates.in(checkedServices),FailoverPredicate.INSTANCE);
-    final List<ServiceConfiguration> promoteServices=Lists.newArrayList();
-    for (    Component c : Components.list()) {
-      promoteServices.addAll(Collections2.filter(c.services(),canPromote));
-    }
+    final Collection<ServiceConfiguration> promoteServices=Collections2.filter(allServices,canPromote);
     final Collection<Future<ServiceConfiguration>> enableCallables=Collections2.transform(promoteServices,SubmitEnable.INSTANCE);
     final Collection<Future<ServiceConfiguration>> enabledServices=Collections2.filter(enableCallables,WaitForResults.INSTANCE);
-    LOG.trace(LogUtil.subheader("ENABLED: " + Joiner.on("\nENABLED: ").join(enabledServices)));
-    List<ServiceConfiguration> result=Lists.transform(Lists.newArrayList(enabledServices),ExtractFuture.INSTANCE);
-    final Predicate<ServiceConfiguration> progressToDisabled=Predicates.not(canPromote);
-    final List<ServiceConfiguration> disableServices=Lists.newArrayList();
-    for (    Component c : Components.list()) {
-      disableServices.addAll(Collections2.filter(c.services(),progressToDisabled));
-    }
+    final List<ServiceConfiguration> result=Lists.transform(Lists.newArrayList(enabledServices),ExtractFuture.INSTANCE);
+    printCheckInfo("ENABLED",result);
+    final Predicate<ServiceConfiguration> proceedToDisableFilter=Predicates.and(Predicates.not(Predicates.in(promoteServices)),ProceedToDisabledServiceFilter.INSTANCE);
+    final Collection<ServiceConfiguration> disableServices=Collections2.filter(allServices,proceedToDisableFilter);
     final Collection<Future<ServiceConfiguration>> disableCallables=Collections2.transform(disableServices,SubmitDisable.INSTANCE);
     final Collection<Future<ServiceConfiguration>> disabledServices=Collections2.filter(disableCallables,WaitForResults.INSTANCE);
-    LOG.trace(LogUtil.subheader("DISABLED: " + Joiner.on("\nDISABLED: ").join(disabledServices)));
+    printCheckInfo("DISABLED",Collections2.transform(disabledServices,ExtractFuture.INSTANCE));
     return result;
   }
 }
