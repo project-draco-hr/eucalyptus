@@ -1,23 +1,23 @@
 {
-  if (Topology.guard().tryEnable(config)) {
-    try {
-      return super.apply(config);
-    }
- catch (    RuntimeException ex) {
-      Topology.guard().tryDisable(config);
-      throw ex;
-    }
+  final ServiceKey key=ServiceKey.create(arg0);
+  if (!Hosts.isCoordinator()) {
+    Logs.extreme().debug("FAILOVER-REJECT: " + Internets.localHostInetAddress() + ": not cloud controller, ignoring promotion for: "+ arg0.getFullName());
+    return false;
+  }
+ else   if (Topology.getInstance().getServices().containsKey(key) && arg0.equals(Topology.getInstance().getServices().get(key))) {
+    Logs.extreme().debug("FAILOVER-REJECT: " + arg0.getFullName() + ": service is already ENABLED.");
+    return false;
+  }
+ else   if (!Component.State.DISABLED.equals(arg0.lookupState())) {
+    Logs.extreme().debug("FAILOVER-REJECT: " + arg0.getFullName() + ": service is in an invalid state: "+ arg0.lookupState());
+    return false;
+  }
+ else   if (!Topology.getInstance().getServices().containsKey(key)) {
+    Logs.extreme().debug("FAILOVER-ACCEPT: " + arg0.getFullName() + ": service for partition: "+ key);
+    return true;
   }
  else {
-    try {
-      return ServiceTransitions.pathTo(config,Component.State.DISABLED).get();
-    }
- catch (    InterruptedException ex) {
-      Thread.currentThread().interrupt();
-      throw Exceptions.toUndeclared(ex);
-    }
-catch (    ExecutionException ex) {
-      throw Exceptions.toUndeclared(ex);
-    }
+    Logs.extreme().debug("FAILOVER-ACCEPT: " + arg0);
+    return true;
   }
 }
