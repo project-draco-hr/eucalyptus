@@ -1,5 +1,5 @@
 {
-  if (name.toString().matches("euca-.+{3}-.+{3}-.+{3}-.+{3}\\..*")) {
+  if (StackConfiguration.USE_INSTANCE_DNS && name.toString().matches("euca-.+{3}-.+{3}-.+{3}-.+{3}\\..*")) {
     try {
       String[] tryIp=name.toString().replaceAll("euca-","").replaceAll("\\.eucalyptus.*","").split("-");
       if (tryIp.length < 4)       return super.findRecords(name,type);
@@ -27,17 +27,17 @@
  else   if (name.toString().startsWith("eucalyptus.")) {
     SetResponse resp=new SetResponse(SetResponse.SUCCESSFUL);
     try {
-      InetAddress cloudIp=SystemConfiguration.getCloudAddress();
+      InetAddress cloudIp=Topology.lookup(Eucalyptus.class).getInetAddress();
       if (cloudIp != null) {
         resp.addRRset(new RRset(new ARecord(name,1,ttl,cloudIp)));
       }
       return resp;
     }
- catch (    EucalyptusCloudException e) {
+ catch (    Exception e) {
       return super.findRecords(name,type);
     }
   }
- else   if (name.toString().endsWith(".in-addr.arpa.")) {
+ else   if (StackConfiguration.USE_INSTANCE_DNS && name.toString().endsWith(".in-addr.arpa.")) {
     int index=name.toString().indexOf(".in-addr.arpa.");
     Name target;
     if (index > 0) {
@@ -78,6 +78,7 @@
       ip=WalrusManager.getBucketIp(bucket);
     }
  catch (    EucalyptusCloudException e1) {
+      LOG.error(e1);
       return super.findRecords(name,type);
     }
     SetResponse resp=new SetResponse(SetResponse.SUCCESSFUL);
@@ -86,16 +87,16 @@
   }
  else   if (name.toString().startsWith("walrus.")) {
     SetResponse resp=new SetResponse(SetResponse.SUCCESSFUL);
+    InetAddress walrusIp=null;
     try {
-      InetAddress walrusIp=WalrusProperties.getWalrusAddress();
-      if (walrusIp != null) {
-        resp.addRRset(new RRset(new ARecord(name,1,ttl,WalrusProperties.getWalrusAddress())));
-      }
-      return resp;
+      walrusIp=WalrusProperties.getWalrusAddress();
     }
  catch (    EucalyptusCloudException e) {
+      LOG.error(e);
       return super.findRecords(name,type);
     }
+    resp.addRRset(new RRset(new ARecord(name,1,ttl,walrusIp)));
+    return resp;
   }
  else {
     return super.findRecords(name,type);

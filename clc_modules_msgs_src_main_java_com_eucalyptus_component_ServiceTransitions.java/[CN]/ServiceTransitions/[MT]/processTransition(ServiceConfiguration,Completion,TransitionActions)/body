@@ -1,7 +1,7 @@
 {
   ServiceTransitionCallback trans=null;
   try {
-    if (parent.isVmLocal() || (parent.isHostLocal() && BootstrapArgs.isCloudController())) {
+    if (parent.isVmLocal() || (parent.isHostLocal() && Hosts.isCoordinator())) {
       try {
         trans=ServiceLocalTransitionCallbacks.valueOf(transitionAction.name());
       }
@@ -10,16 +10,7 @@
         throw ex;
       }
     }
- else     if (!BootstrapArgs.isCloudController()) {
-      try {
-        trans=ServiceRemoteTransitionNotification.valueOf(transitionAction.name());
-      }
- catch (      Exception ex) {
-        LOG.error(ex,ex);
-        throw ex;
-      }
-    }
- else     if (BootstrapArgs.isCloudController()) {
+ else     if (Hosts.isCoordinator()) {
       try {
         trans=CloudRemoteTransitionCallbacks.valueOf(transitionAction.name());
       }
@@ -29,7 +20,13 @@
       }
     }
  else {
-      LOG.debug("Silentlty accepting remotely inferred state transition for " + parent);
+      try {
+        trans=ServiceRemoteTransitionNotification.valueOf(transitionAction.name());
+      }
+ catch (      Exception ex) {
+        LOG.error(ex,ex);
+        throw ex;
+      }
     }
     if (trans != null) {
       Logs.exhaust().debug("Executing transition: " + trans.getClass() + "."+ transitionAction.name()+ " for "+ parent);
@@ -38,9 +35,9 @@
     transitionCallback.fire();
   }
  catch (  Exception ex) {
-    if (ServiceExceptions.filterExceptions(parent,ex)) {
+    if (Faults.filter(parent,ex)) {
       transitionCallback.fireException(ex);
-      throw new UndeclaredThrowableException(ex);
+      throw Exceptions.toUndeclared(ex);
     }
  else {
       transitionCallback.fire();

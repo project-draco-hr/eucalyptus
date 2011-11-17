@@ -1,0 +1,103 @@
+{
+  X509Certificate cloudCert=null;
+  final X509Certificate x509;
+  String userAccessKey=null;
+  String userSecretKey=null;
+  KeyPair keyPair=null;
+  try {
+    for (    AccessKey k : u.getKeys()) {
+      if (k.isActive()) {
+        userAccessKey=k.getAccessKey();
+        userSecretKey=k.getSecretKey();
+      }
+    }
+    if (userAccessKey == null) {
+      AccessKey k=u.createKey();
+      userAccessKey=k.getAccessKey();
+      userSecretKey=k.getSecretKey();
+    }
+    keyPair=Certs.generateKeyPair();
+    x509=Certs.generateCertificate(keyPair,u.getName());
+    x509.checkValidity();
+    u.addCertificate(x509);
+    cloudCert=SystemCredentials.lookup(Eucalyptus.class).getCertificate();
+  }
+ catch (  Exception e) {
+    LOG.fatal(e,e);
+    throw e;
+  }
+  ByteArrayOutputStream byteOut=new ByteArrayOutputStream();
+  ZipArchiveOutputStream zipOut=new ZipArchiveOutputStream(byteOut);
+  ZipArchiveEntry entry=null;
+  String fingerPrint=Certs.getFingerPrint(keyPair.getPublic());
+  if (fingerPrint != null) {
+    String baseName=X509Download.NAME_SHORT + "-" + u.getName()+ "-"+ fingerPrint.replaceAll(":","").toLowerCase().substring(0,8);
+    zipOut.setComment("To setup the environment run: source /path/to/eucarc");
+    StringBuilder sb=new StringBuilder();
+    String userNumber=u.getAccount().getAccountNumber();
+    sb.append("EUCA_KEY_DIR=$(dirname $(readlink -f ${BASH_SOURCE}))");
+    sb.append("\nexport EC2_URL=" + ServiceUris.remotePublicify(Topology.lookup(Eucalyptus.class)));
+    if (Topology.isEnabled(Walrus.class)) {
+      ServiceConfiguration walrusConfig=Topology.lookup(Walrus.class);
+      try {
+        String uri=ServiceUris.remotePublicify(walrusConfig).toASCIIString();
+        LOG.debug("Found walrus uri/configuration: uri=" + uri + " config="+ walrusConfig);
+        sb.append("\nexport S3_URL=" + uri);
+      }
+ catch (      Exception e) {
+        LOG.error("Failed to set Walrus URL: " + walrusConfig,e);
+      }
+    }
+ else {
+      sb.append("\necho WARN:  Walrus URL is not configured. >&2");
+    }
+    sb.append("\nexport AWS_SNS_URL=" + ServiceUris.remote(Notifications.class));
+    sb.append("\nexport EUARE_URL=" + ServiceUris.remote(Euare.class));
+    sb.append("\nexport EC2_PRIVATE_KEY=${EUCA_KEY_DIR}/" + baseName + "-pk.pem");
+    sb.append("\nexport EC2_CERT=${EUCA_KEY_DIR}/" + baseName + "-cert.pem");
+    sb.append("\nexport EC2_JVM_ARGS=-Djavax.net.ssl.trustStore=${EUCA_KEY_DIR}/jssecacerts");
+    sb.append("\nexport EUCALYPTUS_CERT=${EUCA_KEY_DIR}/cloud-cert.pem");
+    sb.append("\nexport EC2_ACCOUNT_NUMBER='" + u.getAccount().getAccountNumber() + "'");
+    sb.append("\nexport EC2_ACCESS_KEY='" + userAccessKey + "'");
+    sb.append("\nexport EC2_SECRET_KEY='" + userSecretKey + "'");
+    sb.append("\nexport AWS_CREDENTIAL_FILE=${EUCA_KEY_DIR}/iamrc");
+    sb.append("\nexport EC2_USER_ID='" + userNumber + "'");
+    sb.append("\nalias ec2-bundle-image=\"ec2-bundle-image --cert ${EC2_CERT} --privatekey ${EC2_PRIVATE_KEY} --user ${EC2_ACCOUNT_NUMBER} --ec2cert ${EUCALYPTUS_CERT}\"");
+    sb.append("\nalias ec2-upload-bundle=\"ec2-upload-bundle -a ${EC2_ACCESS_KEY} -s ${EC2_SECRET_KEY} --url ${S3_URL}\"");
+    sb.append("\n");
+    zipOut.putArchiveEntry(entry=new ZipArchiveEntry("eucarc"));
+    entry.setUnixMode(0600);
+    zipOut.write(sb.toString().getBytes("UTF-8"));
+    zipOut.closeArchiveEntry();
+    sb=new StringBuilder();
+    sb.append("AWSAccessKeyId=").append(userAccessKey).append('\n');
+    sb.append("AWSSecretKey=").append(userSecretKey);
+    zipOut.putArchiveEntry(entry=new ZipArchiveEntry("iamrc"));
+    entry.setUnixMode(0600);
+    zipOut.write(sb.toString().getBytes("UTF-8"));
+    zipOut.closeArchiveEntry();
+    zipOut.putArchiveEntry(entry=new ZipArchiveEntry("cloud-cert.pem"));
+    entry.setUnixMode(0600);
+    zipOut.write(PEMFiles.getBytes(cloudCert));
+    zipOut.closeArchiveEntry();
+    zipOut.putArchiveEntry(entry=new ZipArchiveEntry("jssecacerts"));
+    entry.setUnixMode(0600);
+    KeyStore tempKs=KeyStore.getInstance("jks");
+    tempKs.load(null);
+    tempKs.setCertificateEntry("eucalyptus",cloudCert);
+    ByteArrayOutputStream bos=new ByteArrayOutputStream();
+    tempKs.store(bos,"changeit".toCharArray());
+    zipOut.write(bos.toByteArray());
+    zipOut.closeArchiveEntry();
+    zipOut.putArchiveEntry(entry=new ZipArchiveEntry(baseName + "-pk.pem"));
+    entry.setUnixMode(0600);
+    zipOut.write(PEMFiles.getBytes(keyPair.getPrivate()));
+    zipOut.closeArchiveEntry();
+    zipOut.putArchiveEntry(entry=new ZipArchiveEntry(baseName + "-cert.pem"));
+    entry.setUnixMode(0600);
+    zipOut.write(PEMFiles.getBytes(x509));
+    zipOut.closeArchiveEntry();
+  }
+  zipOut.close();
+  return byteOut.toByteArray();
+}

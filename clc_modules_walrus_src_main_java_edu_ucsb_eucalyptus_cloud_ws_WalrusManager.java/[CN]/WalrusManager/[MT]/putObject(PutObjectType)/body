@@ -28,7 +28,7 @@
       LOG.error("Invalid content length " + request.getContentLength());
       objSize=1L;
     }
-    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,bucket.getOwnerId()))) {
+    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && (bucket.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
       if (logData != null)       reply.setLogData(logData);
       String objectName;
       String versionId;
@@ -115,6 +115,18 @@ synchronized (monitor) {
             }
           }
  else           if (WalrusDataMessage.isEOF(dataMessage)) {
+            if (digest != null)             md5=Hashes.bytesToHex(digest.digest());
+            String contentMD5=request.getContentMD5();
+            if (contentMD5 != null) {
+              String contentMD5AsHex=Hashes.bytesToHex(Base64.decode(contentMD5));
+              if (!contentMD5AsHex.equals(md5)) {
+                if (fileIO != null)                 fileIO.finish();
+                ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,-1L,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
+                Threads.lookup(Walrus.class,WalrusManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
+                messenger.removeQueue(key,randomKey);
+                throw new ContentMismatchException(bucketName + "/" + objectKey);
+              }
+            }
             try {
               if (fileIO != null)               fileIO.finish();
               storageManager.renameObject(bucketName,tempObjectName,objectName);
@@ -124,7 +136,6 @@ synchronized (monitor) {
               messenger.removeQueue(key,randomKey);
               throw new EucalyptusCloudException(objectKey);
             }
-            if (digest != null)             md5=Hashes.bytesToHex(digest.digest());
             lastModified=new Date();
             ObjectInfo searchObject=new ObjectInfo(bucketName,objectKey);
             searchObject.setVersionId(versionId);

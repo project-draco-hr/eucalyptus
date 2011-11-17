@@ -1,0 +1,51 @@
+{
+  try {
+    HostManager.getInstance();
+    LOG.info("Started membership channel " + SystemIds.membershipGroupName());
+    hostMap=new ReplicatedHashMap<String,Host>(HostManager.getMembershipChannel());
+    hostMap.setDeadlockDetection(true);
+    hostMap.setBlockingUpdates(true);
+    hostMap.addNotifier(HostMapStateListener.INSTANCE);
+    hostMap.start(STATE_TRANSFER_TIMEOUT);
+    OrderedShutdown.register(Eucalyptus.class,new Runnable(){
+      @Override public void run(){
+        try {
+          try {
+            hostMap.remove(Internets.localHostIdentifier());
+          }
+ catch (          final Exception ex) {
+            LOG.error(ex,ex);
+          }
+          hostMap.stop();
+        }
+ catch (        final Exception ex) {
+          LOG.error(ex,ex);
+        }
+      }
+    }
+);
+    LOG.info("Added localhost to system state: " + localHost());
+    Coordinator.INSTANCE.initialize(hostMap.values());
+    final Host local=Host.create();
+    LOG.info("Created local host entry: " + local);
+    hostMap.putIfAbsent(local.getDisplayName(),local);
+    Listeners.register(HostBootstrapEventListener.INSTANCE);
+    LOG.info("System view:\n" + HostMapStateListener.INSTANCE.printMap());
+    if (!BootstrapArgs.isCloudController()) {
+      while (Hosts.listActiveDatabases().isEmpty()) {
+        TimeUnit.SECONDS.sleep(5);
+        LOG.info("Waiting for system view with database...");
+      }
+      if (Databases.shouldInitialize()) {
+        doInitialize();
+      }
+    }
+    LOG.info("Membership address for localhost: " + Hosts.localHost());
+    return true;
+  }
+ catch (  final Exception ex) {
+    LOG.fatal(ex,ex);
+    BootstrapException.throwFatal("Failed to connect membership channel because of " + ex.getMessage(),ex);
+    return false;
+  }
+}
