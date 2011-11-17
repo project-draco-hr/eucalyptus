@@ -1,37 +1,44 @@
 {
+  boolean inputIsLocal=Internets.testLocal(input.getHostName());
+  State goalState;
+  if (!Bootstrap.isFinished()) {
+    goalState=(State.LOADED.ordinal() < input.lookupState().ordinal() ? State.DISABLED : State.LOADED);
+  }
+ else   if (input.getComponentId().isAlwaysLocal()) {
+    goalState=State.ENABLED;
+  }
+ else   if (BootstrapArgs.isCloudController()) {
+    if (inputIsLocal && Hosts.isCoordinator()) {
+      goalState=State.ENABLED;
+    }
+ else     if (!inputIsLocal && !Hosts.isCoordinator()) {
+      goalState=State.ENABLED;
+    }
+ else {
+      goalState=State.DISABLED;
+    }
+  }
+ else   if (Hosts.isCoordinator(input.getInetAddress())) {
+    goalState=State.ENABLED;
+  }
+ else {
+    goalState=State.DISABLED;
+  }
+  LOG.info("SetupRemoteServiceConfigurations: " + (State.ENABLED.equals(goalState) ? "Enabling" : "Disabling") + " "+ (inputIsLocal ? "local" : "remote")+ " "+ (input.getComponentId().isAlwaysLocal() ? "bootstrap" : "cloud")+ " services"+ (Hosts.isCoordinator(input.getInetAddress()) ? " (coordinator)" : "")+ ": "+ input.getFullName());
   try {
-    ServiceConfiguration conf=null;
-    if (Internets.testLocal(input.getHostName()) && Hosts.isCoordinator()) {
-      conf=ServiceTransitions.pathTo(input,State.ENABLED).get();
-      LOG.info("Enabled local coordinator service: " + conf.getFullName());
-    }
- else     if (!Internets.testLocal(input.getHostName()) && !Hosts.isCoordinator() && BootstrapArgs.isCloudController()) {
-      conf=ServiceTransitions.pathTo(input,State.ENABLED).get();
-      LOG.info("Enabled remote coordinator service: " + conf.getFullName());
-    }
- else     if (!Internets.testLocal(input.getHostName()) && !BootstrapArgs.isCloudController()) {
-      Host coordinator=Hosts.getCoordinator();
-      if (coordinator != null && coordinator.getBindAddress().equals(input.getInetAddress())) {
-        conf=ServiceTransitions.pathTo(input,State.ENABLED).get();
-        LOG.info("Enabled remote coordinator service: " + conf.getFullName());
-      }
- else {
-        conf=ServiceTransitions.pathTo(input,State.DISABLED).get();
-        LOG.info("Disabled remote service: " + conf.getFullName());
-      }
-    }
- else {
-      conf=ServiceTransitions.pathTo(input,State.DISABLED).get();
-      LOG.info("Disabled remote service: " + conf.getFullName());
-    }
-    return conf;
+    return ServiceTransitions.pathTo(input,goalState).get(SERVICE_INITIALIZE_TIMEOUT,TimeUnit.MILLISECONDS);
   }
  catch (  final ExecutionException ex) {
-    Exceptions.trace(ex.getCause());
+    LOG.error(ex);
+    Logs.extreme().error(ex,ex);
   }
 catch (  final InterruptedException ex) {
     Thread.currentThread().interrupt();
     Exceptions.trace(ex.getCause());
+  }
+catch (  TimeoutException ex) {
+    LOG.error(ex);
+    Logs.extreme().error(ex,ex);
   }
   return input;
 }
