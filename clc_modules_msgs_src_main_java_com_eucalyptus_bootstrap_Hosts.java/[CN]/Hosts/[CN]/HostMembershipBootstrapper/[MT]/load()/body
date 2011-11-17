@@ -5,32 +5,47 @@
     hostMap=new ReplicatedHashMap<String,Host>(HostManager.getMembershipChannel());
     hostMap.setDeadlockDetection(true);
     hostMap.setBlockingUpdates(true);
-    hostMap.addNotifier(HostMapStateListener.INSTANCE);
-    hostMap.start(STATE_TRANSFER_TIMEOUT);
-    OrderedShutdown.register(Eucalyptus.class,new Runnable(){
-      @Override public void run(){
+    Runnable runMap=new Runnable(){
+      public void run(){
         try {
-          try {
-            hostMap.remove(Internets.localHostIdentifier());
+          hostMap.start(STATE_INITIALIZE_TIMEOUT);
+          OrderedShutdown.register(Eucalyptus.class,new Runnable(){
+            @Override public void run(){
+              try {
+                try {
+                  Hosts.remove(Internets.localHostIdentifier());
+                }
+ catch (                final Exception ex) {
+                  LOG.error(ex,ex);
+                }
+                hostMap.stop();
+              }
+ catch (              final Exception ex) {
+                LOG.error(ex,ex);
+              }
+            }
           }
- catch (          final Exception ex) {
-            LOG.error(ex,ex);
-          }
-          hostMap.stop();
+);
         }
- catch (        final Exception ex) {
+ catch (        Exception ex) {
           LOG.error(ex,ex);
+          Exceptions.maybeInterrupted(ex);
+          System.exit(123);
         }
       }
     }
-);
-    LOG.info("Added localhost to system state: " + localHost());
-    Coordinator.INSTANCE.initialize(hostMap.values());
-    final Host local=Host.create();
-    LOG.info("Created local host entry: " + local);
-    hostMap.putIfAbsent(local.getDisplayName(),local);
+;
+    Timers.loggingWrapper(runMap,hostMap).call();
+    LOG.info("Initial view:\n" + HostMapStateListener.INSTANCE.printMap());
+    LOG.info("Initial coordinator:\n" + Hosts.getCoordinator());
     Listeners.register(HostBootstrapEventListener.INSTANCE);
+    Coordinator.INSTANCE.initialize(hostMap.values());
+    hostMap.addNotifier(HostMapStateListener.INSTANCE);
+    final Host local=Hosts.localHost();
+    LOG.info("Created local host entry: " + local);
+    UpdateEntry.INSTANCE.apply(local);
     LOG.info("System view:\n" + HostMapStateListener.INSTANCE.printMap());
+    LOG.info("System coordinator:\n" + Hosts.getCoordinator());
     if (!BootstrapArgs.isCloudController()) {
       while (Hosts.listActiveDatabases().isEmpty()) {
         TimeUnit.SECONDS.sleep(5);
@@ -41,6 +56,9 @@
       }
     }
     LOG.info("Membership address for localhost: " + Hosts.localHost());
+    for (    final Host h : hostMap.values()) {
+      BootstrapComponent.REMOTESETUP.apply(h);
+    }
     return true;
   }
  catch (  final Exception ex) {
