@@ -1,22 +1,26 @@
 {
-  if (!BootstrapArgs.isCloudController() && input.isLocalHost() && input.hasDatabase()) {
-    try {
-      hostMap.stop();
-    }
- catch (    final Exception ex1) {
-      LOG.error(ex1,ex1);
-    }
-    try {
-      Bootstrap.initializeSystem();
-      System.exit(123);
-    }
- catch (    final Exception ex) {
-      LOG.error(ex,ex);
-      System.exit(123);
-    }
-    return true;
+  if (Bootstrap.isShuttingDown()) {
+    return false;
   }
  else {
-    return false;
+    try {
+      Hosts.remove(input.getDisplayName());
+      teardown(Empyrean.class,input.getBindAddress());
+      if (input.hasDatabase()) {
+        teardown(Eucalyptus.class,input.getBindAddress());
+      }
+      if (!input.isLocalHost() && input.hasDatabase()) {
+        Databases.disable(input);
+        if (BootstrapArgs.isCloudController()) {
+          BootstrapComponent.SETUP.apply(Hosts.localHost());
+          UpdateEntry.INSTANCE.apply(Hosts.localHost());
+        }
+      }
+      return true;
+    }
+ catch (    Exception ex) {
+      LOG.error(ex,ex);
+      return false;
+    }
   }
 }
