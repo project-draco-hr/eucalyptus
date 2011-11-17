@@ -13,7 +13,9 @@
             @Override public void run(){
               try {
                 try {
-                  Hosts.remove(Internets.localHostIdentifier());
+                  if (Hosts.contains(Internets.localHostIdentifier())) {
+                    Hosts.remove(Internets.localHostIdentifier());
+                  }
                 }
  catch (                final Exception ex) {
                   LOG.error(ex,ex);
@@ -36,29 +38,22 @@
     }
 ;
     Timers.loggingWrapper(runMap,hostMap).call();
-    LOG.info("Initial view:\n" + HostMapStateListener.INSTANCE.printMap());
-    LOG.info("Initial coordinator:\n" + Hosts.getCoordinator());
-    Listeners.register(HostBootstrapEventListener.INSTANCE);
+    LOG.info("Initial view: " + HostMapStateListener.INSTANCE.printMap());
+    LOG.info("Searching for potential coordinator: " + Hosts.getCoordinator());
+    Hosts.Coordinator.INSTANCE.await();
     Coordinator.INSTANCE.initialize(hostMap.values());
+    LOG.info("Initial coordinator:\n" + Hosts.getCoordinator());
+    LOG.info("Created local host entry: " + Hosts.localHost());
     hostMap.addNotifier(HostMapStateListener.INSTANCE);
-    final Host local=Hosts.localHost();
-    LOG.info("Created local host entry: " + local);
-    UpdateEntry.INSTANCE.apply(local);
-    LOG.info("System view:\n" + HostMapStateListener.INSTANCE.printMap());
-    LOG.info("System coordinator:\n" + Hosts.getCoordinator());
-    if (!BootstrapArgs.isCloudController()) {
-      while (Hosts.listActiveDatabases().isEmpty()) {
-        TimeUnit.SECONDS.sleep(5);
-        LOG.info("Waiting for system view with database...");
-      }
-      if (Databases.shouldInitialize()) {
-        doInitialize();
-      }
-    }
+    LOG.info("System view: " + HostMapStateListener.INSTANCE.printMap());
+    UpdateEntry.INSTANCE.apply(Hosts.localHost());
+    LOG.info("System coordinator: " + Hosts.getCoordinator());
+    Hosts.awaitDatabases();
     LOG.info("Membership address for localhost: " + Hosts.localHost());
-    for (    final Host h : hostMap.values()) {
+    for (    Host h : hostMap.values()) {
       BootstrapComponent.REMOTESETUP.apply(h);
     }
+    Listeners.register(HostBootstrapEventListener.INSTANCE);
     return true;
   }
  catch (  final Exception ex) {
