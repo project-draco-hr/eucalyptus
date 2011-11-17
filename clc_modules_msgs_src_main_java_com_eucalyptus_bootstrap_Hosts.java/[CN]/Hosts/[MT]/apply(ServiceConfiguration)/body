@@ -25,20 +25,24 @@
     goalState=State.DISABLED;
   }
   LOG.info("SetupRemoteServiceConfigurations: " + (State.ENABLED.equals(goalState) ? "Enabling" : "Disabling") + " "+ (inputIsLocal ? "local" : "remote")+ " "+ (input.getComponentId().isAlwaysLocal() ? "bootstrap" : "cloud")+ " services"+ (Hosts.isCoordinator(input.getInetAddress()) ? " (coordinator)" : "")+ ": "+ input.getFullName());
-  try {
-    return ServiceTransitions.pathTo(input,goalState).get(SERVICE_INITIALIZE_TIMEOUT,TimeUnit.MILLISECONDS);
+  if (State.ENABLED.apply(input) && !State.ENABLED.equals(goalState)) {
+    return input;
   }
- catch (  final ExecutionException ex) {
-    LOG.error(ex);
-    Logs.extreme().error(ex,ex);
+ else   if (State.DISABLED.equals(goalState) && input.lookupState().ordinal() >= State.DISABLED.ordinal()) {
+    return input;
   }
-catch (  final InterruptedException ex) {
-    Thread.currentThread().interrupt();
-    Exceptions.trace(ex.getCause());
+ else {
+    try {
+      return ServiceTransitions.pathTo(input,goalState).get();
+    }
+ catch (    final ExecutionException ex) {
+      LOG.error(ex);
+      Logs.extreme().error(ex,ex);
+    }
+catch (    final InterruptedException ex) {
+      Thread.currentThread().interrupt();
+      Exceptions.trace(ex.getCause());
+    }
+    return input;
   }
-catch (  TimeoutException ex) {
-    LOG.error(ex);
-    Logs.extreme().error(ex,ex);
-  }
-  return input;
 }
