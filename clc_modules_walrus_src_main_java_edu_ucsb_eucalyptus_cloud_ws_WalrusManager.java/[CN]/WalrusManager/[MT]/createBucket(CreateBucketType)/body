@@ -32,27 +32,34 @@
     db.rollback();
     throw new BucketAlreadyExistsException(bucketName);
   }
- else   if (ctx.hasAdministrativePrivileges() || (Permissions.isAuthorized(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,"",ctx.getAccount(),PolicySpec.S3_CREATEBUCKET,ctx.getUser()) && Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,"",PolicySpec.S3_CREATEBUCKET,ctx.getUser(),1L))) {
-    BucketInfo bucket=new BucketInfo(account.getAccountNumber(),ctx.getUser().getUserId(),bucketName,new Date());
-    ArrayList<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-    bucket.addGrants(account.getAccountNumber(),grantInfos,accessControlList);
-    bucket.setGrants(grantInfos);
-    bucket.setBucketSize(0L);
-    bucket.setLoggingEnabled(false);
-    bucket.setVersioning(WalrusProperties.VersioningStatus.Disabled.toString());
-    bucket.setHidden(false);
-    if (locationConstraint != null)     bucket.setLocation(locationConstraint);
- else     bucket.setLocation("US");
-    db.add(bucket);
-    try {
-      storageManager.createBucket(bucketName);
-      if (WalrusProperties.trackUsageStatistics)       walrusStatistics.incrementBucketCount();
-      db.commit();
+ else {
+    if (ctx.hasAdministrativePrivileges() || (Permissions.isAuthorized(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,"",ctx.getAccount(),PolicySpec.S3_CREATEBUCKET,ctx.getUser()) && Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,"",PolicySpec.S3_CREATEBUCKET,ctx.getUser(),1L))) {
+      BucketInfo bucket=new BucketInfo(account.getAccountNumber(),ctx.getUser().getUserId(),bucketName,new Date());
+      ArrayList<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+      bucket.addGrants(account.getAccountNumber(),grantInfos,accessControlList);
+      bucket.setGrants(grantInfos);
+      bucket.setBucketSize(0L);
+      bucket.setLoggingEnabled(false);
+      bucket.setVersioning(WalrusProperties.VersioningStatus.Disabled.toString());
+      bucket.setHidden(false);
+      if (locationConstraint != null)       bucket.setLocation(locationConstraint);
+ else       bucket.setLocation("US");
+      db.add(bucket);
+      try {
+        storageManager.createBucket(bucketName);
+        if (WalrusProperties.trackUsageStatistics)         walrusStatistics.incrementBucketCount();
+        db.commit();
+      }
+ catch (      IOException ex) {
+        LOG.error(ex);
+        db.rollback();
+        throw new EucalyptusCloudException("Unable to create bucket: " + bucketName);
+      }
     }
- catch (    IOException ex) {
-      LOG.error(ex);
+ else {
+      LOG.error("Not authorized to create bucket by " + ctx.getUserFullName());
       db.rollback();
-      throw new EucalyptusCloudException("Unable to create bucket: " + bucketName);
+      throw new AccessDeniedException("Bucket",bucketName);
     }
   }
   reply.setBucket(bucketName);
