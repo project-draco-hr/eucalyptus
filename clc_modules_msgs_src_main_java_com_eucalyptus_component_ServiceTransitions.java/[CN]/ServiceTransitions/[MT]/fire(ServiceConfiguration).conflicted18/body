@@ -1,29 +1,19 @@
 {
-  DescribeServicesResponseType response=ServiceTransitions.sendEmpyreanRequest(parent,new DescribeServicesType());
-  ServiceStatusType status=Iterables.find(response.getServiceStatuses(),new Predicate<ServiceStatusType>(){
-    @Override public boolean apply(    final ServiceStatusType arg0){
-      return parent.getName().equals(arg0.getServiceId().getName());
-    }
-  }
-);
-  CheckException errors=Faults.transformToExceptions().apply(status);
-  Faults.persist(errors);
-  if (errors != null) {
-    if (Faults.Severity.FATAL.equals(errors.getSeverity())) {
-    }
- else     if (errors.getSeverity().ordinal() < Faults.Severity.ERROR.ordinal()) {
-      Logs.extreme().error(errors,errors);
-    }
- else {
-      if (Component.State.ENABLED.equals(parent.lookupState())) {
+  if (Bootstrap.isFinished()) {
+    for (    Entry<String,ConfigurableProperty> entry : Iterables.filter(PropertyDirectory.getPendingPropertyEntries(),Predicates.instanceOf(StaticPropertyEntry.class))) {
+      try {
+        ConfigurableProperty prop=entry.getValue();
+        PropertyDirectory.addProperty(prop);
         try {
-          DISABLE.fire(parent);
+          prop.getValue();
         }
  catch (        Exception ex) {
-          LOG.error(ex,ex);
+          Logs.extreme().error(ex);
         }
       }
+ catch (      Exception ex) {
+        Logs.extreme().error(ex,ex);
+      }
     }
-    throw errors;
   }
 }
