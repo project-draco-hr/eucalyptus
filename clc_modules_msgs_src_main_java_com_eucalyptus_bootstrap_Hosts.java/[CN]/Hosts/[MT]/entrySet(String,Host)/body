@@ -6,9 +6,18 @@
     LOG.info("Hosts.entrySet(): " + hostKey + " => "+ host);
     try {
       if (host.isLocalHost() && Bootstrap.isFinished()) {
-        SyncDatabases.INSTANCE.apply(host);
+        final boolean wasSynched=Databases.isSynchronized();
+        Threads.enqueue(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE),new Runnable(){
+          @Override public void run(){
+            SyncDatabases.INSTANCE.apply(host);
+            if (!wasSynched && Databases.isSynchronized()) {
+              UpdateEntry.INSTANCE.apply(host);
+            }
+          }
+        }
+);
       }
- else       if (BootstrapComponent.REMOTESETUP.apply(host)) {
+ else       if (BootstrapComponent.REMOTESETUP.apply(host) && host.hasSynced()) {
         SyncDatabases.INSTANCE.apply(host);
       }
  else       if (InitializeAsCloudController.INSTANCE.apply(host)) {
