@@ -1,2 +1,38 @@
 {
+  if (Bootstrap.isShuttingDown()) {
+    return;
+  }
+ else {
+    LOG.info("Hosts.entrySet(): " + hostKey + " => "+ host);
+    try {
+      if (host.isLocalHost() && Bootstrap.isFinished()) {
+        final boolean wasSynched=Databases.isSynchronized();
+        Threads.enqueue(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE),new Runnable(){
+          @Override public void run(){
+            Host currentHost=Hosts.lookup(hostKey);
+            if (currentHost != null) {
+              BootstrapComponent.SETUP.apply(currentHost);
+              if (!wasSynched && Databases.isSynchronized()) {
+                UpdateEntry.INSTANCE.apply(currentHost);
+              }
+            }
+          }
+        }
+);
+      }
+ else       if (!host.isLocalHost() && host.hasSynced()) {
+        BootstrapComponent.REMOTESETUP.apply(host);
+      }
+ else       if (InitializeAsCloudController.INSTANCE.apply(host)) {
+        LOG.info("Hosts.entrySet(): INITIALIZED CLC => " + host);
+      }
+ else {
+        LOG.debug("Hosts.entrySet(): UPDATED HOST => " + host);
+      }
+    }
+ catch (    Exception ex) {
+      LOG.error(ex,ex);
+    }
+    LOG.info("Hosts.entrySet(): " + hostKey + " finished.");
+  }
 }
