@@ -1,25 +1,22 @@
 {
-  RunInstancesType msg=allocInfo.getRequest();
-  String imageId=msg.getImageId();
-  VmType vmType=allocInfo.getVmType();
-  Partition partition=allocInfo.getPartition();
-  try {
-    BootableSet bootSet=Emis.newBootableSet(vmType,partition,imageId);
-    allocInfo.setBootableSet(bootSet);
-    if (Platform.windows.equals(bootSet.getMachine().getPlatform()) && bootSet.getMachine().getImageSizeBytes() > ((1024L * 1024L * 1024L* vmType.getDisk()) + (1024L * 1024L * 10))) {
-      throw new VerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
-    }
- else     if (bootSet.getMachine().getImageSizeBytes() >= ((1024L * 1024L * 1024L* vmType.getDisk()))) {
-      throw new VerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
-    }
+  RunInstancesType request=allocInfo.getRequest();
+  String zoneName=request.getAvailabilityZone();
+  if (Clusters.getInstance().listValues().isEmpty()) {
+    LOG.debug("enabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
+    LOG.debug("disabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
+    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
   }
- catch (  AuthException ex) {
-    LOG.error(ex);
-    throw new VerificationException(ex);
+ else   if (Partitions.exists(zoneName)) {
+    Partition partition=Partitions.lookupByName(zoneName);
+    allocInfo.setPartition(partition);
   }
-catch (  MetadataException ex) {
-    LOG.error(ex);
-    throw new VerificationException(ex);
+ else   if ("default".equals(zoneName)) {
+    String defaultZone=Clusters.getInstance().listValues().get(0).getPartition();
+    Partition partition=Partitions.lookupByName(defaultZone);
+    allocInfo.setPartition(partition);
+  }
+ else {
+    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
   }
   return true;
 }
