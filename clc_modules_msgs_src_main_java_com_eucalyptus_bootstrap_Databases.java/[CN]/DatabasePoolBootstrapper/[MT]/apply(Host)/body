@@ -17,36 +17,42 @@
               final String dbPass=SystemIds.databasePassword();
               final String realJdbcDriver=Databases.getDriverName();
               try {
-                if (cluster.getActiveDatabases().contains(hostName)) {
-                  LOG.info("Deactivating existing database connections to: " + host);
-                  cluster.deactivate(hostName);
-                }
-                if (cluster.getInactiveDatabases().contains(hostName)) {
-                  LOG.info("Deactivating existing database connections to: " + host);
-                  cluster.remove(hostName);
-                }
-                LOG.info("Creating database connections for: " + host);
-                cluster.add(hostName,realJdbcDriver,dbUrl);
-                final InactiveDatabaseMBean database=Databases.lookupInactiveDatabase(contextName,hostName);
-                database.setUser("eucalyptus");
-                database.setPassword(dbPass);
-                database.setWeight(Hosts.isCoordinator(host) ? 100 : 1);
-                database.setLocal(host.isLocalHost());
                 if (fullSync) {
+                  if (cluster.getActiveDatabases().contains(hostName)) {
+                    LOG.info("Deactivating existing database connections to: " + host);
+                    cluster.deactivate(hostName);
+                  }
+                  if (cluster.getInactiveDatabases().contains(hostName)) {
+                    LOG.info("Deactivating existing database connections to: " + host);
+                    cluster.remove(hostName);
+                  }
+                  LOG.info("Creating database connections for: " + host);
+                  cluster.add(hostName,realJdbcDriver,dbUrl);
+                  ActivateHostFunction.prepareInactiveConnections(host,hostName,contextName,dbPass);
                   LOG.info("Full sync of database on: " + host + " using "+ cluster.getActiveDatabases());
                   cluster.activate(hostName,"full");
+                  return;
                 }
  else                 if (passiveSync) {
-                  if (!cluster.getActiveDatabases().contains(hostName)) {
+                  if (cluster.getActiveDatabases().contains(hostName)) {
+                    return;
+                  }
+ else                   if (cluster.getInactiveDatabases().contains(hostName)) {
                     LOG.info("Passive activation of database connections to: " + host);
+                    ActivateHostFunction.prepareInactiveConnections(host,hostName,contextName,dbPass);
                     cluster.activate(hostName,"passive");
+                    return;
                   }
  else {
-                    LOG.trace("Skipping passive activation of extant database: " + host);
+                    LOG.info("Creating database connections for: " + host);
+                    cluster.add(hostName,realJdbcDriver,dbUrl);
+                    ActivateHostFunction.prepareInactiveConnections(host,hostName,contextName,dbPass);
+                    cluster.activate(hostName,"passive");
                   }
                 }
-                net.sf.hajdbc.Database<Driver> activeDatabase=cluster.getDatabase(hostName);
-                activeDatabase.setWeight(Hosts.isCoordinator(host) ? 100 : 1);
+ else {
+                  Logs.extreme().info("Skipping activation of already present database for: " + contextName + " on "+ hostName);
+                }
               }
  catch (              Exception ex) {
                 try {
