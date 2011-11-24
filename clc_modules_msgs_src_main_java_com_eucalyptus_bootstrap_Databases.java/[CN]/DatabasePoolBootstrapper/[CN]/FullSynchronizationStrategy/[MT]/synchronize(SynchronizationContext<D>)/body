@@ -1,0 +1,83 @@
+{
+  Connection sourceConnection=context.getConnection(context.getSourceDatabase());
+  Connection targetConnection=context.getConnection(context.getTargetDatabase());
+  Dialect dialect=context.getDialect();
+  ExecutorService executor=context.getExecutor();
+  boolean autoCommit=targetConnection.getAutoCommit();
+  targetConnection.setAutoCommit(true);
+  SynchronizationSupport.dropForeignKeys(context);
+  targetConnection.setAutoCommit(false);
+  try {
+    for (    TableProperties table : context.getSourceDatabaseProperties().getTables()) {
+      String tableName=table.getName();
+      Collection<String> columns=table.getColumns();
+      String commaDelimitedColumns=Strings.join(columns,Strings.PADDED_COMMA);
+      final String selectSQL="SELECT " + commaDelimitedColumns + " FROM "+ tableName;
+      final Statement selectStatement=sourceConnection.createStatement();
+      selectStatement.setFetchSize(this.fetchSize);
+      Callable<ResultSet> callable=new Callable<ResultSet>(){
+        public ResultSet call() throws SQLException {
+          return selectStatement.executeQuery(selectSQL);
+        }
+      }
+;
+      Future<ResultSet> future=executor.submit(callable);
+      String deleteSQL=dialect.getTruncateTableSQL(table);
+      LOG.debug(deleteSQL);
+      Statement deleteStatement=targetConnection.createStatement();
+      int deletedRows=deleteStatement.executeUpdate(deleteSQL);
+      LOG.info(Messages.getMessage(Messages.DELETE_COUNT,deletedRows,tableName));
+      deleteStatement.close();
+      ResultSet resultSet=future.get();
+      String insertSQL="INSERT INTO " + tableName + " ("+ commaDelimitedColumns+ ") VALUES ("+ Strings.join(Collections.nCopies(columns.size(),Strings.QUESTION),Strings.PADDED_COMMA)+ ")";
+      LOG.debug(insertSQL);
+      PreparedStatement insertStatement=targetConnection.prepareStatement(insertSQL);
+      int statementCount=0;
+      while (resultSet.next()) {
+        int index=0;
+        for (        String column : columns) {
+          index+=1;
+          int type=dialect.getColumnType(table.getColumnProperties(column));
+          Object object=SynchronizationSupport.getObject(resultSet,index,type);
+          if (resultSet.wasNull()) {
+            insertStatement.setNull(index,type);
+          }
+ else {
+            insertStatement.setObject(index,object,type);
+          }
+        }
+        insertStatement.addBatch();
+        statementCount+=1;
+        if ((statementCount % this.maxBatchSize) == 0) {
+          insertStatement.executeBatch();
+          insertStatement.clearBatch();
+        }
+        insertStatement.clearParameters();
+      }
+      if ((statementCount % this.maxBatchSize) > 0) {
+        insertStatement.executeBatch();
+      }
+      LOG.info(Messages.getMessage(Messages.INSERT_COUNT,statementCount,tableName));
+      insertStatement.close();
+      selectStatement.close();
+      targetConnection.commit();
+    }
+  }
+ catch (  InterruptedException e) {
+    SynchronizationSupport.rollback(targetConnection);
+    throw SQLExceptionFactory.createSQLException(e);
+  }
+catch (  ExecutionException e) {
+    SynchronizationSupport.rollback(targetConnection);
+    throw SQLExceptionFactory.createSQLException(e.getCause());
+  }
+catch (  SQLException e) {
+    SynchronizationSupport.rollback(targetConnection);
+    throw e;
+  }
+  targetConnection.setAutoCommit(true);
+  SynchronizationSupport.restoreForeignKeys(context);
+  SynchronizationSupport.synchronizeIdentityColumns(context);
+  SynchronizationSupport.synchronizeSequences(context);
+  targetConnection.setAutoCommit(autoCommit);
+}
