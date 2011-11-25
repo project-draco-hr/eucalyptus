@@ -6,10 +6,22 @@
     LOG.info("Hosts.entrySet(): " + hostKey + " => "+ host);
     try {
       if (host.isLocalHost() && Bootstrap.isFinished()) {
-        SyncDatabases.INSTANCE.apply(host);
+        final boolean wasSynched=Databases.isSynchronized();
+        Threads.enqueue(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE),new Runnable(){
+          @Override public void run(){
+            Host currentHost=Hosts.lookup(hostKey);
+            if (currentHost != null) {
+              BootstrapComponent.SETUP.apply(currentHost);
+              if (!wasSynched && Databases.isSynchronized()) {
+                UpdateEntry.INSTANCE.apply(currentHost);
+              }
+            }
+          }
+        }
+);
       }
- else       if (BootstrapComponent.REMOTESETUP.apply(host)) {
-        SyncDatabases.INSTANCE.apply(host);
+ else       if (Bootstrap.isFinished() && !host.isLocalHost() && host.hasSynced()) {
+        BootstrapComponent.REMOTESETUP.apply(host);
       }
  else       if (InitializeAsCloudController.INSTANCE.apply(host)) {
         LOG.info("Hosts.entrySet(): INITIALIZED CLC => " + host);
