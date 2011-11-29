@@ -1,32 +1,14 @@
 {
   ServiceTransitionCallback trans=null;
   try {
-    if (parent.isVmLocal() || (parent.isHostLocal() && Hosts.isCoordinator())) {
-      try {
-        trans=ServiceLocalTransitionCallbacks.valueOf(transitionAction.name());
-      }
- catch (      Exception ex) {
-        LOG.error(ex,ex);
-        throw ex;
-      }
+    if (Hosts.isServiceLocal(parent)) {
+      trans=ServiceLocalTransitionCallbacks.valueOf(transitionAction.name());
     }
  else     if (Hosts.isCoordinator()) {
-      try {
-        trans=CloudRemoteTransitionCallbacks.valueOf(transitionAction.name());
-      }
- catch (      Exception ex) {
-        LOG.error(ex,ex);
-        throw ex;
-      }
+      trans=CloudRemoteTransitionCallbacks.valueOf(transitionAction.name());
     }
  else {
-      try {
-        trans=ServiceRemoteTransitionNotification.valueOf(transitionAction.name());
-      }
- catch (      Exception ex) {
-        LOG.error(ex,ex);
-        throw ex;
-      }
+      trans=ServiceRemoteTransitionNotification.valueOf(transitionAction.name());
     }
     if (trans != null) {
       Logs.exhaust().debug("Executing transition: " + trans.getClass() + "."+ transitionAction.name()+ " for "+ parent);
@@ -35,11 +17,14 @@
     transitionCallback.fire();
   }
  catch (  Exception ex) {
+    LOG.error(parent.getFullName() + " failed transition " + transitionAction.name()+ " because of "+ ex.getMessage());
     if (Faults.filter(parent,ex)) {
       transitionCallback.fireException(ex);
+      Faults.persist(Faults.failure(parent,ex));
       throw Exceptions.toUndeclared(ex);
     }
  else {
+      Faults.persist(Faults.advisory(parent,ex));
       transitionCallback.fire();
     }
   }

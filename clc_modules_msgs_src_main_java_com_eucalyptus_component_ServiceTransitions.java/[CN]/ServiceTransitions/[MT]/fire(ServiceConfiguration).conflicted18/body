@@ -1,22 +1,42 @@
 {
-  DescribeServicesResponseType response=ServiceTransitions.sendEmpyreanRequest(parent,new DescribeServicesType());
-  ServiceStatusType status=Iterables.find(response.getServiceStatuses(),new Predicate<ServiceStatusType>(){
-    @Override public boolean apply(    final ServiceStatusType arg0){
-      return parent.getName().equals(arg0.getServiceId().getName());
-    }
+  if (!parent.getComponentId().isDistributedService()) {
+    return;
   }
-);
-  String corrId=response.getCorrelationId();
-  List<CheckException> errors=ServiceChecks.Functions.statusToCheckExceptions(corrId).apply(status);
-  if (!errors.isEmpty()) {
-    if (Component.State.ENABLED.equals(parent.lookupState())) {
-      try {
-        DISABLE.fire(parent);
-      }
- catch (      Exception ex) {
-        LOG.error(ex,ex);
-      }
+ else {
+    CheckException errors=null;
+    Host h=Hosts.lookup(parent.getHostName());
+    if (h == null) {
+      UnknownHostException ex=new UnknownHostException("Failed to lookup host " + parent.getHostName() + " for service "+ parent.getFullName()+ ".  Current hosts are: "+ Hosts.list());
+      errors=Faults.failure(parent,ex);
     }
-    throw Faults.failure(parent,errors);
+ else     if (!h.hasBootstrapped()) {
+      UnknownHostException ex=new UnknownHostException("Host " + parent.getHostName() + " not yet bootstrapped for service "+ parent.getFullName()+ ".");
+      errors=Faults.failure(parent,ex);
+    }
+ else {
+      DescribeServicesResponseType response=ServiceTransitions.sendEmpyreanRequest(parent,new DescribeServicesType(){
+{
+          this.getServices().add(TypeMappers.transform(parent,ServiceId.class));
+        }
+      }
+);
+      ServiceStatusType status=Iterables.find(response.getServiceStatuses(),new Predicate<ServiceStatusType>(){
+        @Override public boolean apply(        final ServiceStatusType arg0){
+          return parent.getName().equals(arg0.getServiceId().getName());
+        }
+      }
+);
+      errors=Faults.transformToExceptions().apply(status);
+    }
+    Faults.persist(errors);
+    if (Faults.Severity.FATAL.equals(errors.getSeverity())) {
+      throw errors;
+    }
+ else     if (errors.getSeverity().ordinal() < Faults.Severity.ERROR.ordinal()) {
+      Logs.extreme().error(errors,errors);
+    }
+ else {
+      throw errors;
+    }
   }
 }

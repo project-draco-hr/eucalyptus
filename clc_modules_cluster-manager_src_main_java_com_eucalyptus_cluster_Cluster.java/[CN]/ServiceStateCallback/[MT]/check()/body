@@ -1,0 +1,22 @@
+{
+  final Cluster.State currentState=this.stateMachine.getState();
+  final Component.State externalState=this.configuration.lookupState();
+  final List<Throwable> currentErrors=Lists.newArrayList();
+  try {
+    Refresh.SERVICEREADY.apply(this);
+  }
+ catch (  Exception ex) {
+    CheckException fail=Faults.failure(this.configuration,ex);
+    currentErrors.add(fail);
+    throw fail;
+  }
+  currentErrors.addAll(this.pendingErrors);
+  if (!currentErrors.isEmpty()) {
+    throw Faults.failure(this.configuration,currentErrors);
+  }
+ else   if ((currentState.ordinal() < State.DISABLED.ordinal()) || (Component.State.ENABLED.equals(externalState) && (Cluster.State.ENABLING.ordinal() >= currentState.ordinal()))) {
+    final IllegalStateException ex=new IllegalStateException("Cluster is currently reported as " + externalState + " but is really "+ currentState+ ":  please see logs for additional information.");
+    this.pendingErrors.add(ex);
+    throw Faults.failure(this.configuration,currentErrors);
+  }
+}

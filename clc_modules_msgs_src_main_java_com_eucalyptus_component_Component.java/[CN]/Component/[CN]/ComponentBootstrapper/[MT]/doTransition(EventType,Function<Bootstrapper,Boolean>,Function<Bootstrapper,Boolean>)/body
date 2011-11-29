@@ -1,0 +1,37 @@
+{
+  String name=transition.name().replaceAll(".*_","").toLowerCase();
+  List<Bootstrapper> rollbackBootstrappers=Lists.newArrayList();
+  this.updateBootstrapDependencies();
+  for (  Stage s : Bootstrap.Stage.values()) {
+    for (    Bootstrapper b : Lists.newArrayList(this.bootstrappers.get(s))) {
+      EventRecord.here(this.component.getClass(),transition,this.component.getComponentId().name(),"stage",s.name(),b.getClass().getCanonicalName()).extreme();
+      TransitionException ex=null;
+      try {
+        if (checkedFunction.apply(b)) {
+          rollbackBootstrappers.add(b);
+        }
+ else {
+          ex=new TransitionException(b.getClass().getSimpleName() + "." + name+ "( ): returned false, terminating bootstrap for component: "+ this.component.getName());
+        }
+      }
+ catch (      Exception e) {
+        LOG.error(e);
+        Logs.extreme().error(e,e);
+        ex=new TransitionException(b.getClass().getSimpleName() + "." + name+ "( ): failed because of: "+ e.getMessage()+ ", terminating bootstrap for component: "+ this.component.getName(),e);
+      }
+      if (ex != null) {
+        for (        Bootstrapper rollback : Lists.reverse(rollbackBootstrappers)) {
+          try {
+            rollbackFunction.apply(rollback);
+          }
+ catch (          Exception ex1) {
+            LOG.error(ex1);
+            Logs.extreme().error(ex1,ex1);
+          }
+        }
+        throw ex;
+      }
+    }
+  }
+  return true;
+}
