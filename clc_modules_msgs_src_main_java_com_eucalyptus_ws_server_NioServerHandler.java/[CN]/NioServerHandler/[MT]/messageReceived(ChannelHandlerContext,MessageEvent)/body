@@ -1,0 +1,32 @@
+{
+  Callable<Long> stat=Statistics.startUpstream(ctx.getChannel(),this);
+  try {
+    if (this.pipeline.get() == null) {
+      lookupPipeline(ctx,e);
+    }
+ else     if (e.getMessage() instanceof MappingHttpRequest) {
+      MappingHttpRequest httpRequest=(MappingHttpRequest)e.getMessage();
+      if (doKeepAlive(httpRequest)) {
+        this.pipeline.set(null);
+        ChannelHandler p;
+        while ((p=ctx.getPipeline().getLast()) != this) {
+          ctx.getPipeline().remove(p);
+        }
+        lookupPipeline(ctx,e);
+      }
+ else {
+        LOG.warn("Hard close the socket on an attempt to do a second request.");
+        ctx.getChannel().close();
+        return;
+      }
+    }
+    stat.call();
+    ctx.sendUpstream(e);
+  }
+ catch (  Exception ex) {
+    LOG.trace(ex);
+    Logs.extreme().error(ex,ex);
+    stat.call();
+    this.sendError(ctx,HttpResponseStatus.NOT_FOUND,ex);
+  }
+}

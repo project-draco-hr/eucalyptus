@@ -1,0 +1,48 @@
+{
+  boolean inputIsLocal=Internets.testLocal(input.getHostName());
+  State goalState;
+  if (!Bootstrap.isFinished()) {
+    return input;
+  }
+ else   if (input.getComponentId().isAlwaysLocal()) {
+    goalState=State.ENABLED;
+  }
+ else   if (BootstrapArgs.isCloudController()) {
+    if (inputIsLocal && Hosts.isCoordinator()) {
+      goalState=State.ENABLED;
+    }
+ else     if (!inputIsLocal && !Hosts.isCoordinator()) {
+      goalState=State.ENABLED;
+    }
+ else {
+      goalState=State.DISABLED;
+    }
+  }
+ else   if (Hosts.isCoordinator(input.getInetAddress())) {
+    goalState=State.ENABLED;
+  }
+ else {
+    goalState=State.DISABLED;
+  }
+  if (State.ENABLED.apply(input) && State.ENABLED.equals(goalState)) {
+    return input;
+  }
+ else   if (State.DISABLED.apply(input) && State.DISABLED.equals(goalState)) {
+    return input;
+  }
+ else {
+    LOG.info("SetupRemoteServiceConfigurations: " + goalState + " "+ (inputIsLocal ? "local" : "remote")+ " "+ (input.getComponentId().isAlwaysLocal() ? "bootstrap" : "cloud")+ " services"+ (Hosts.isCoordinator(input.getInetAddress()) ? " (coordinator)" : "")+ ": "+ input.getFullName());
+    try {
+      return Topology.transition(goalState).apply(input).get();
+    }
+ catch (    final ExecutionException ex) {
+      LOG.error(ex);
+      Logs.extreme().error(ex,ex);
+    }
+catch (    final InterruptedException ex) {
+      Thread.currentThread().interrupt();
+      Exceptions.trace(ex.getCause());
+    }
+    return input;
+  }
+}

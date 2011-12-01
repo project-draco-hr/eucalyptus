@@ -1,29 +1,39 @@
 {
-  EntityTransaction db=Entities.get(VmInstance.class);
+  LOG.debug(LogUtil.header("Failing run instances because of: " + e.getMessage()),e);
+  LOG.debug(LogUtil.subheader(VmRunCallback.this.getRequest().toString()));
+  Predicate<Throwable> rollbackToken=new Predicate<Throwable>(){
+    @Override public boolean apply(    Throwable input){
+      LOG.debug("-> Release resource tokens for unused resources.");
+      try {
+        VmRunCallback.this.token.release();
+      }
+ catch (      final Exception ex) {
+        LOG.error(ex.getMessage());
+        Logs.extreme().error(ex,ex);
+      }
+      return true;
+    }
+  }
+;
+  Predicate<Throwable> rollbackAddr=new Predicate<Throwable>(){
+    @Override public boolean apply(    Throwable input){
+      final Address addr=VmRunCallback.this.token.getAddress();
+      LOG.debug("-> Release addresses from failed vm run allocation: " + addr);
+      try {
+        addr.release();
+      }
+ catch (      final Exception ex) {
+        LOG.error(ex.getMessage());
+        Logs.extreme().error(ex,ex);
+      }
+      return true;
+    }
+  }
+;
   try {
-    LOG.debug("-> Release resource tokens for unused resources.");
-    try {
-      this.token.release();
-    }
- catch (    final Exception ex) {
-      LOG.error(ex.getMessage());
-      Logs.extreme().error(ex,ex);
-    }
-    final Address addr=this.token.getAddress();
-    LOG.debug("-> Release addresses from failed vm run allocation: " + addr);
-    try {
-      addr.release();
-    }
- catch (    final Exception ex) {
-      LOG.error(ex.getMessage());
-      Logs.extreme().error(ex,ex);
-    }
-    LOG.debug(LogUtil.header("Failing run instances because of: " + e.getMessage()),e);
-    LOG.debug(LogUtil.subheader(this.getRequest().toString()));
-    db.commit();
+    Entities.asTransaction(VmInstance.class,Functions.forPredicate(Predicates.and(rollbackToken,rollbackAddr))).apply(e);
   }
  catch (  Exception ex) {
-    Logs.exhaust().error(ex,ex);
-    db.commit();
+    Logs.extreme().error(ex,ex);
   }
 }

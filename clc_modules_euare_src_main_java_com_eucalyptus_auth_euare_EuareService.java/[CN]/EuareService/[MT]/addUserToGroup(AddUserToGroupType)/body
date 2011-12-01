@@ -1,47 +1,24 @@
 {
   AddUserToGroupResponseType reply=request.getReply();
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
-  String action=PolicySpec.requestToAction(request);
   Context ctx=Contexts.lookup();
   User requestUser=ctx.getUser();
   Account account=getRealAccount(ctx,request.getDelegateAccount());
-  User userFound=null;
+  User userFound=lookupUserByName(account,request.getUserName());
+  Group groupFound=lookupGroupByName(account,request.getGroupName());
   try {
-    userFound=account.lookupUserByName(request.getUserName());
+    Privileged.addUserToGroup(requestUser,account,userFound,groupFound);
   }
  catch (  Exception e) {
-    LOG.debug(e,e);
-    if (e instanceof AuthException && AuthException.NO_SUCH_USER.equals(e.getMessage())) {
-      throw new EuareException(HttpResponseStatus.NOT_FOUND,EuareException.NO_SUCH_ENTITY,"Can not find user " + request.getUserName());
+    LOG.error(e,e);
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to add user to group by " + requestUser.getName());
+      }
+ else       if (AuthException.CONFLICT.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.ENTITY_ALREADY_EXISTS,"User " + request.getUserName() + " is already in the group "+ request.getGroupName());
+      }
     }
- else {
-      throw new EucalyptusCloudException(e);
-    }
-  }
-  Group groupFound=null;
-  try {
-    groupFound=account.lookupGroupByName(request.getGroupName());
-  }
- catch (  Exception e) {
-    LOG.debug(e,e);
-    if (e instanceof AuthException && AuthException.NO_SUCH_GROUP.equals(e.getMessage())) {
-      throw new EuareException(HttpResponseStatus.NOT_FOUND,EuareException.NO_SUCH_ENTITY,"Can not find group " + request.getGroupName());
-    }
- else {
-      throw new EucalyptusCloudException(e);
-    }
-  }
-  if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_GROUP,Accounts.getGroupFullName(groupFound),account,action,requestUser)) {
-    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to access user by " + requestUser.getName());
-  }
-  if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_USER,Accounts.getUserFullName(userFound),account,action,requestUser)) {
-    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to access group by " + requestUser.getName());
-  }
-  try {
-    groupFound.addUserByName(userFound.getName());
-  }
- catch (  Exception e) {
-    LOG.debug(e,e);
     throw new EucalyptusCloudException(e);
   }
   return reply;

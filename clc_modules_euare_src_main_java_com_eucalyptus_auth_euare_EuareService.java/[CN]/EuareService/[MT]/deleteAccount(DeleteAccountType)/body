@@ -3,21 +3,24 @@
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
   Context ctx=Contexts.lookup();
   User requestUser=ctx.getUser();
-  if (!ctx.hasAdministrativePrivileges()) {
-    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to delete account by " + requestUser.getName());
-  }
   try {
     boolean recursive=(request.getRecursive() != null && request.getRecursive());
-    Accounts.deleteAccount(request.getAccountName(),false,recursive);
+    Privileged.deleteAccount(ctx.hasAdministrativePrivileges(),request.getAccountName(),recursive);
   }
  catch (  Exception e) {
-    LOG.debug(e,e);
+    LOG.error(e,e);
     if (e instanceof AuthException) {
-      if (AuthException.ACCOUNT_DELETE_CONFLICT.equals(e.getMessage())) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to delete account by " + requestUser.getName());
+      }
+ else       if (AuthException.ACCOUNT_DELETE_CONFLICT.equals(e.getMessage())) {
         throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.DELETE_CONFLICT,"Account " + request.getAccountName() + " can not be deleted.");
       }
  else       if (AuthException.DELETE_SYSTEM_ACCOUNT.equals(e.getMessage())) {
         throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.DELETE_CONFLICT,"System account can not be deleted.");
+      }
+ else       if (AuthException.EMPTY_ACCOUNT_NAME.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_NAME,"Empty account name");
       }
     }
     throw new EucalyptusCloudException(e);

@@ -1,33 +1,41 @@
 {
   final DescribeServicesResponseType reply=request.getReply();
-  ComponentId compId=(request.getByServiceType() != null) ? ComponentIds.lookup(request.getByServiceType().toLowerCase()) : Empyrean.INSTANCE;
-  final boolean showEventStacks=Boolean.TRUE.equals(request.getShowEventStacks());
-  final boolean showEvents=Boolean.TRUE.equals(request.getShowEvents()) || showEventStacks;
-  Function<ServiceConfiguration,ServiceStatusType> transformToStatus=ServiceConfigurations.asServiceStatus(showEvents,showEventStacks);
-  List<Predicate<ServiceConfiguration>> filters=new ArrayList<Predicate<ServiceConfiguration>>(){
+  Topology.touch(request);
+  if (request.getServices().isEmpty()) {
+    final ComponentId compId=(request.getByServiceType() != null) ? ComponentIds.lookup(request.getByServiceType().toLowerCase()) : Empyrean.INSTANCE;
+    final boolean showEventStacks=Boolean.TRUE.equals(request.getShowEventStacks());
+    final boolean showEvents=Boolean.TRUE.equals(request.getShowEvents()) || showEventStacks;
+    final Function<ServiceConfiguration,ServiceStatusType> transformToStatus=ServiceConfigurations.asServiceStatus(showEvents,showEventStacks);
+    final List<Predicate<ServiceConfiguration>> filters=new ArrayList<Predicate<ServiceConfiguration>>(){
 {
-      if (request.getByPartition() != null) {
-        Partitions.exists(request.getByPartition());
-        this.add(Filters.host(request.getByPartition()));
+        if (request.getByPartition() != null) {
+          Partitions.exists(request.getByPartition());
+          this.add(Filters.host(request.getByPartition()));
+        }
+        if (request.getByState() != null) {
+          final Component.State stateFilter=Component.State.valueOf(request.getByState().toUpperCase());
+          this.add(Filters.state(stateFilter));
+        }
+        this.add(Filters.host(request.getByHost()));
+        this.add(Filters.listAllOrInternal(request.getListAll(),request.getListUserServices(),request.getListInternal()));
       }
-      if (request.getByState() != null) {
-        Component.State stateFilter=Component.State.valueOf(request.getByState().toUpperCase());
-        this.add(Filters.state(stateFilter));
-      }
-      this.add(Filters.host(request.getByHost()));
-      this.add(Filters.listAllOrInternal(request.getListAll(),request.getListInternal()));
     }
-  }
 ;
-  Predicate<Component> componentFilter=Filters.componentType(compId);
-  Predicate<ServiceConfiguration> configPredicate=Predicates.and(filters);
-  for (  Component comp : Components.list()) {
-    if (componentFilter.apply(comp)) {
-      for (      final ServiceConfiguration config : comp.lookupServiceConfigurations()) {
-        if (configPredicate.apply(config)) {
-          reply.getServiceStatuses().add(transformToStatus.apply(config));
+    final Predicate<Component> componentFilter=Filters.componentType(compId);
+    final Predicate<ServiceConfiguration> configPredicate=Predicates.and(filters);
+    for (    final Component comp : Components.list()) {
+      if (componentFilter.apply(comp)) {
+        for (        final ServiceConfiguration config : comp.services()) {
+          if (configPredicate.apply(config)) {
+            reply.getServiceStatuses().add(transformToStatus.apply(config));
+          }
         }
       }
+    }
+  }
+ else {
+    for (    ServiceId s : request.getServices()) {
+      reply.getServiceStatuses().add(TypeMappers.transform(s,ServiceStatusType.class));
     }
   }
   return reply;

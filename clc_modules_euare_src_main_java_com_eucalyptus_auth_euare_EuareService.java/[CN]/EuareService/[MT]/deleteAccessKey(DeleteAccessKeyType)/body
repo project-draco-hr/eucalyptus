@@ -1,33 +1,26 @@
 {
   DeleteAccessKeyResponseType reply=request.getReply();
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
-  String action=PolicySpec.requestToAction(request);
   Context ctx=Contexts.lookup();
   User requestUser=ctx.getUser();
   Account account=getRealAccount(ctx,request.getDelegateAccount());
-  User userFound=null;
-  try {
-    userFound=account.lookupUserByName(request.getUserName());
-  }
- catch (  Exception e) {
-    LOG.debug(e,e);
-    if (e instanceof AuthException && AuthException.NO_SUCH_USER.equals(e.getMessage())) {
-      throw new EuareException(HttpResponseStatus.NOT_FOUND,EuareException.NO_SUCH_ENTITY,"Can not find user " + request.getUserName());
-    }
- else {
-      throw new EucalyptusCloudException(e);
-    }
-  }
-  if (!userFound.getName().equals(requestUser.getName())) {
-    if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_USER,Accounts.getUserFullName(userFound),account,action,requestUser)) {
-      throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to delete access key of " + request.getUserName() + "by "+ requestUser.getName());
-    }
+  User userFound=requestUser;
+  if (!Strings.isNullOrEmpty(request.getUserName())) {
+    userFound=lookupUserByName(account,request.getUserName());
   }
   try {
-    userFound.removeKey(request.getAccessKeyId());
+    Privileged.deleteAccessKey(requestUser,account,userFound,request.getAccessKeyId());
   }
  catch (  Exception e) {
-    LOG.debug(e,e);
+    LOG.error(e,e);
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to delete access key of " + request.getUserName() + "by "+ requestUser.getName());
+      }
+ else       if (AuthException.EMPTY_KEY_ID.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_ID,"Empty key id");
+      }
+    }
     throw new EucalyptusCloudException(e);
   }
   return reply;

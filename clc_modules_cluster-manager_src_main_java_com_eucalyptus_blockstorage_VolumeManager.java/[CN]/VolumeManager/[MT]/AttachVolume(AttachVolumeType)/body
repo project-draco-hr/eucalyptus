@@ -18,11 +18,12 @@ catch (  Exception ex) {
   }
   Cluster cluster=null;
   try {
-    cluster=Clusters.lookup(vm.lookupPartition());
+    ServiceConfiguration ccConfig=Topology.lookup(ClusterController.class,vm.lookupPartition());
+    cluster=Clusters.lookup(ccConfig);
   }
  catch (  NoSuchElementException e) {
     LOG.debug(e,e);
-    throw new EucalyptusCloudException("Cluster does not exist: " + vm.lookupClusterConfiguration());
+    throw new EucalyptusCloudException("Cluster does not exist in partition: " + vm.getPartition());
   }
   final String deviceName=request.getDevice();
   final String volumeId=request.getVolumeId();
@@ -43,7 +44,7 @@ catch (  Exception ex) {
   EntityWrapper<Volume> db=EntityWrapper.get(Volume.class);
   Volume volume=null;
   try {
-    volume=db.getUnique(Volume.named(ctx.getUserFullName(),request.getVolumeId()));
+    volume=db.getUnique(Volume.named(ctx.getUserFullName().asAccountFullName(),request.getVolumeId()));
     if (volume.getRemoteDevice() == null) {
       StorageUtil.getVolumeReply(new HashMap<String,AttachedVolume>(),Lists.newArrayList(volume));
     }
@@ -57,8 +58,9 @@ catch (  Exception ex) {
   if (!RestrictedTypes.filterPrivileged().apply(volume)) {
     throw new EucalyptusCloudException("Not authorized to attach volume " + request.getVolumeId() + " by "+ ctx.getUser().getName());
   }
-  ServiceConfiguration sc=Partitions.lookupService(Storage.class,volume.getPartition());
-  ServiceConfiguration scVm=Partitions.lookupService(Storage.class,cluster.getConfiguration().getPartition());
+  Partition volPartition=Partitions.lookupByName(volume.getPartition());
+  ServiceConfiguration sc=Topology.lookup(Storage.class,volPartition);
+  ServiceConfiguration scVm=Topology.lookup(Storage.class,cluster.getConfiguration().lookupPartition());
   if (!sc.equals(scVm)) {
     throw new EucalyptusCloudException("Can only attach volumes in the same cluster: " + request.getVolumeId());
   }
@@ -75,11 +77,11 @@ catch (  Exception ex) {
   }
   request.setRemoteDevice(scAttachResponse.getRemoteDeviceString());
   AttachedVolume attachVol=new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice(),request.getRemoteDevice());
-  attachVol.setStatus("attaching");
-  AsyncRequests.newRequest(new VolumeAttachCallback(request,attachVol)).dispatch(cluster.getConfiguration());
-  vm.addVolumeAttachment(attachVol);
-  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getOwner().toString(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("partition",vm.lookupPartition().toString()).info();
   volume.setState(State.BUSY);
+  attachVol.setStatus("attaching");
+  vm.addVolumeAttachment(attachVol);
+  AsyncRequests.newRequest(new VolumeAttachCallback(request,attachVol)).dispatch(cluster.getConfiguration());
+  EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getOwner().toString(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("partition",vm.getPartition().toString()).info();
   reply.setAttachedVolume(attachVol);
   return reply;
 }

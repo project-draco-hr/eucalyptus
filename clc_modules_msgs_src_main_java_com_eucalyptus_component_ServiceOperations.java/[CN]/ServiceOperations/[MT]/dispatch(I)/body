@@ -1,0 +1,40 @@
+{
+  if (!serviceOperations.containsKey(request.getClass()) || !StackConfiguration.OOB_INTERNAL_OPERATIONS) {
+    try {
+      ServiceContext.dispatch(RequestQueue.ENDPOINT,request);
+    }
+ catch (    Exception ex) {
+      Contexts.responseError(request.getCorrelationId(),ex);
+    }
+  }
+ else {
+    try {
+      final Context ctx=Contexts.lookup(request.getCorrelationId());
+      final Function<I,O> op=(Function<I,O>)serviceOperations.get(request.getClass());
+      Timers.loggingWrapper(new Callable(){
+        @Override public Object call() throws Exception {
+          if (StackConfiguration.ASYNC_INTERNAL_OPERATIONS) {
+            Threads.enqueue(queueConfig.get(),new Runnable(){
+              @Override public void run(){
+                executeOperation(request,ctx,op);
+              }
+            }
+);
+          }
+ else {
+            executeOperation(request,ctx,op);
+          }
+          return null;
+        }
+        @Override public String toString(){
+          return super.toString();
+        }
+      }
+).call();
+    }
+ catch (    final Exception ex) {
+      Logs.extreme().error(ex,ex);
+      Contexts.responseError(request.getCorrelationId(),ex);
+    }
+  }
+}

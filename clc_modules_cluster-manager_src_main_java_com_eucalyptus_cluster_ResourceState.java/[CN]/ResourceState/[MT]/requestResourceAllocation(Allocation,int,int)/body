@@ -1,0 +1,32 @@
+{
+  VmTypeAvailability vmTypeStatus=this.typeMap.get(allocInfo.getVmType().getName());
+  Integer available=vmTypeStatus.getAvailable();
+  NavigableSet<VmTypeAvailability> sorted=this.sorted();
+  LOG.debug(LogUtil.header("BEFORE ALLOCATE"));
+  LOG.debug(sorted);
+  Integer quantity=minAmount;
+  if (vmTypeStatus.getAvailable() < minAmount) {
+    throw new NotEnoughResourcesException("Not enough resources (" + available + " < "+ minAmount+ ": vm instances.");
+  }
+ else {
+    quantity=(maxAmount < available ? maxAmount : available);
+  }
+  Set<VmTypeAvailability> tailSet=sorted.tailSet(vmTypeStatus);
+  Set<VmTypeAvailability> headSet=sorted.headSet(vmTypeStatus);
+  LOG.debug(LogUtil.header("DURING ALLOCATE"));
+  LOG.debug(LogUtil.subheader("TAILSET: \n" + tailSet));
+  LOG.debug(LogUtil.subheader("HEADSET: \n" + headSet));
+  for (  VmTypeAvailability v : tailSet)   v.decrement(quantity);
+  for (  VmTypeAvailability v : headSet)   v.setAvailable(vmTypeStatus.getAvailable());
+  LOG.debug(LogUtil.header("AFTER ALLOCATE"));
+  LOG.debug(sorted);
+  int seqNumber=this.virtualTimer++;
+  List<ResourceToken> tokenList=Lists.newArrayList();
+  for (int i=0; i < quantity; i++) {
+    ResourceToken token=new ResourceToken(allocInfo,seqNumber,i);
+    EventRecord.caller(ResourceToken.class,EventType.TOKEN_RESERVED,token.toString()).info();
+    this.pendingTokens.add(token);
+    tokenList.add(token);
+  }
+  return tokenList;
+}

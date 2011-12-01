@@ -17,7 +17,7 @@
     BucketInfo searchBucket=new BucketInfo();
     searchBucket.setOwnerId(account.getAccountNumber());
     List<BucketInfo> bucketList=db.query(searchBucket);
-    if (bucketList.size() >= WalrusInfo.getWalrusInfo().getStorageMaxBucketsPerUser()) {
+    if (bucketList.size() >= WalrusInfo.getWalrusInfo().getStorageMaxBucketsPerAccount()) {
       db.rollback();
       throw new TooManyBucketsException(bucketName);
     }
@@ -32,57 +32,34 @@
     db.rollback();
     throw new BucketAlreadyExistsException(bucketName);
   }
- else   if (ctx.hasAdministrativePrivileges() || (Permissions.isAuthorized(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,"",ctx.getAccount(),PolicySpec.S3_CREATEBUCKET,ctx.getUser()) && Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,"",PolicySpec.S3_CREATEBUCKET,ctx.getUser(),1L))) {
-    BucketInfo bucket=new BucketInfo(account.getAccountNumber(),ctx.getUser().getUserId(),bucketName,new Date());
-    ArrayList<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-    bucket.addGrants(account.getAccountNumber(),grantInfos,accessControlList);
-    bucket.setGrants(grantInfos);
-    bucket.setBucketSize(0L);
-    bucket.setLoggingEnabled(false);
-    bucket.setVersioning(WalrusProperties.VersioningStatus.Disabled.toString());
-    bucket.setHidden(false);
-    if (locationConstraint != null)     bucket.setLocation(locationConstraint);
- else     bucket.setLocation("US");
-    db.add(bucket);
-    try {
-      storageManager.createBucket(bucketName);
-      if (WalrusProperties.trackUsageStatistics)       walrusStatistics.incrementBucketCount();
-      db.commit();
-    }
- catch (    IOException ex) {
-      LOG.error(ex);
-      db.rollback();
-      throw new EucalyptusCloudException("Unable to create bucket: " + bucketName);
-    }
-  }
-  if (WalrusProperties.enableVirtualHosting) {
-    if (checkDNSNaming(bucketName)) {
-      UpdateARecordType updateARecord=new UpdateARecordType();
-      updateARecord.setUserId(account.getAccountNumber());
-      URI walrusUri;
-      String address=null;
+ else {
+    if (ctx.hasAdministrativePrivileges() || (Permissions.isAuthorized(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,"",ctx.getAccount(),PolicySpec.S3_CREATEBUCKET,ctx.getUser()) && Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,"",PolicySpec.S3_CREATEBUCKET,ctx.getUser(),1L))) {
+      BucketInfo bucket=new BucketInfo(account.getAccountNumber(),ctx.getUser().getUserId(),bucketName,new Date());
+      ArrayList<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+      bucket.addGrants(account.getAccountNumber(),grantInfos,accessControlList);
+      bucket.setGrants(grantInfos);
+      bucket.setBucketSize(0L);
+      bucket.setLoggingEnabled(false);
+      bucket.setVersioning(WalrusProperties.VersioningStatus.Disabled.toString());
+      bucket.setHidden(false);
+      if (locationConstraint != null)       bucket.setLocation(locationConstraint);
+ else       bucket.setLocation("US");
+      db.add(bucket);
       try {
-        walrusUri=new URI(SystemConfiguration.getWalrusUrl());
-        address=walrusUri.getHost();
+        storageManager.createBucket(bucketName);
+        if (WalrusProperties.trackUsageStatistics)         walrusStatistics.incrementBucketCount();
+        db.commit();
       }
- catch (      URISyntaxException e) {
-        throw new EucalyptusCloudException("Could not get Walrus URL");
-      }
-      String zone=WalrusProperties.WALRUS_SUBDOMAIN + ".";
-      updateARecord.setAddress(address);
-      updateARecord.setName(bucketName + "." + zone);
-      updateARecord.setTtl(604800);
-      updateARecord.setZone(zone);
-      try {
-        ServiceDispatcher.lookupSingle(Components.lookup("dns")).send(updateARecord);
-        LOG.info("Mapping " + updateARecord.getName() + " to "+ address);
-      }
- catch (      Exception ex) {
-        LOG.error("Could not update DNS record",ex);
+ catch (      IOException ex) {
+        LOG.error(ex);
+        db.rollback();
+        throw new EucalyptusCloudException("Unable to create bucket: " + bucketName);
       }
     }
  else {
-      LOG.error("Bucket: " + bucketName + " fails to meet DNS requirements. Unable to create DNS mapping.");
+      LOG.error("Not authorized to create bucket by " + ctx.getUserFullName());
+      db.rollback();
+      throw new AccessDeniedException("Bucket",bucketName);
     }
   }
   reply.setBucket(bucketName);

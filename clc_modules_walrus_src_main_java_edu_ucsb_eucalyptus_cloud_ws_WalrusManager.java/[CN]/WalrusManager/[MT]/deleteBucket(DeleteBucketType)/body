@@ -9,7 +9,7 @@
   if (bucketList.size() > 0) {
     BucketInfo bucketFound=bucketList.get(0);
     BucketLogData logData=bucketFound.getLoggingEnabled() ? request.getLogData() : null;
-    if (ctx.hasAdministrativePrivileges() || (bucketFound.canWrite(account.getAccountNumber()) && Lookups.checkPrivilege(PolicySpec.S3_DELETEBUCKET,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,bucketFound.getOwnerId()))) {
+    if (ctx.hasAdministrativePrivileges() || (Lookups.checkPrivilege(PolicySpec.S3_DELETEBUCKET,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,bucketFound.getOwnerId()))) {
       EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
       ObjectInfo searchObject=new ObjectInfo();
       searchObject.setBucketName(bucketName);
@@ -38,31 +38,6 @@
         }
  catch (        IOException ex) {
           LOG.error(ex);
-        }
-        if (WalrusProperties.enableVirtualHosting) {
-          URI walrusUri;
-          String address;
-          RemoveARecordType removeARecordType=new RemoveARecordType();
-          removeARecordType.setUserId(account.getAccountNumber());
-          String zone=WalrusProperties.WALRUS_SUBDOMAIN + ".";
-          removeARecordType.setName(bucketName + "." + zone);
-          removeARecordType.setZone(zone);
-          try {
-            walrusUri=new URI(SystemConfiguration.getWalrusUrl());
-            address=walrusUri.getHost();
-          }
- catch (          URISyntaxException e) {
-            db.rollback();
-            throw new EucalyptusCloudException("Could not get Walrus URL");
-          }
-          removeARecordType.setAddress(address);
-          try {
-            ServiceDispatcher.lookupSingle(Components.lookup("dns")).send(removeARecordType);
-            LOG.info("Removing mapping for " + removeARecordType.getName());
-          }
- catch (          Exception ex) {
-            LOG.error("Could not update DNS record",ex);
-          }
         }
         Status status=new Status();
         status.setCode(204);
