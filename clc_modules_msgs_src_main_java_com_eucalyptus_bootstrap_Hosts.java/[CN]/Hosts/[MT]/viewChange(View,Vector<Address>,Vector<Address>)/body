@@ -1,40 +1,15 @@
 {
-  LOG.trace("Hosts.viewChange(): new view => " + Joiner.on(", ").join(currentView.getMembers()));
+  LOG.info("Hosts.viewChange(): " + printMap());
+  LOG.info("Hosts.viewChange(): new view => " + Joiner.on(", ").join(currentView.getMembers()));
   if (!joinMembers.isEmpty())   LOG.info("Hosts.viewChange(): joined   => " + Joiner.on(", ").join(joinMembers));
   if (!partMembers.isEmpty())   LOG.info("Hosts.viewChange(): parted   => " + Joiner.on(", ").join(partMembers));
-  for (  final Host h : Hosts.list()) {
-    if (Iterables.contains(partMembers,h.getGroupsId())) {
-      try {
-        teardown(Empyrean.class,h.getBindAddress());
-        if (h.hasDatabase()) {
-          try {
-            Hosts.stopDbPool(h);
-          }
- catch (          Exception ex) {
-            LOG.error(ex,ex);
-          }
-          teardown(Eucalyptus.class,h.getBindAddress());
-        }
-      }
- catch (      Exception ex) {
-        LOG.error(ex,ex);
-      }
-      if (Hosts.Coordinator.INSTANCE.isLocalhost()) {
-        hostMap.remove(h.getDisplayName());
-        LOG.info("Hosts.viewChange(): -> removed  => " + h);
-      }
- else       if (h.hasDatabase() && BootstrapArgs.isCloudController()) {
-        hostMap.remove(h.getDisplayName());
-        LOG.info("Hosts.viewChange(): -> removed  => " + h);
-        Hosts.doBootstrap(Empyrean.class,Hosts.localHost().getBindAddress());
-        if (Hosts.localHost().hasDatabase()) {
-          Hosts.doBootstrap(Eucalyptus.class,Hosts.localHost().getBindAddress());
-        }
-      }
- else       if (h.hasDatabase() && Hosts.listDatabases().size() <= 1) {
-        hostMap.remove(h.getDisplayName());
-        LOG.info("Hosts.viewChange(): -> removed  => " + h);
-      }
-    }
+  List<Address> allHostAddresses=Lists.transform(Hosts.list(),GroupAddressTransform.INSTANCE);
+  Collection<Address> partedHosts=Collections2.filter(allHostAddresses,Predicates.in(partMembers));
+  for (  final Address hostAddress : partedHosts) {
+    LOG.info("Hosts.viewChange(): -> removed  => " + hostAddress);
   }
+  if (!partedHosts.isEmpty()) {
+    PeriodicMembershipChecks.PRUNING.submit();
+  }
+  LOG.info("Hosts.viewChange(): new view finished.");
 }

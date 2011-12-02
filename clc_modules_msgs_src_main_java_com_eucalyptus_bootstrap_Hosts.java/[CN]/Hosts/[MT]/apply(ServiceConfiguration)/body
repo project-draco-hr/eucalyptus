@@ -1,29 +1,48 @@
 {
-  try {
-    ServiceConfiguration conf=null;
-    if (Internets.testLocal(input.getHostName()) && Hosts.Coordinator.INSTANCE.isLocalhost()) {
-      conf=ServiceTransitions.pathTo(input,State.ENABLED).get();
-      LOG.info("Initialized enabled service: " + conf.getFullName());
+  boolean inputIsLocal=Internets.testLocal(input.getHostName());
+  State goalState;
+  if (!Bootstrap.isFinished()) {
+    return input;
+  }
+ else   if (input.getComponentId().isAlwaysLocal()) {
+    goalState=State.ENABLED;
+  }
+ else   if (BootstrapArgs.isCloudController()) {
+    if (inputIsLocal && Hosts.isCoordinator()) {
+      goalState=State.ENABLED;
     }
- else     if (!Internets.testLocal(input.getHostName()) && !Hosts.Coordinator.INSTANCE.isLocalhost() && BootstrapArgs.isCloudController()) {
-      conf=ServiceTransitions.pathTo(input,State.ENABLED).get();
-      LOG.info("Initialized enabled service: " + conf.getFullName());
-    }
- else     if (false) {
-      conf=input;
+ else     if (!inputIsLocal && !Hosts.isCoordinator()) {
+      goalState=State.ENABLED;
     }
  else {
-      conf=ServiceTransitions.pathTo(input,State.DISABLED).get();
-      LOG.info("Initialized disabled service: " + conf.getFullName());
+      goalState=State.DISABLED;
     }
-    return conf;
   }
- catch (  final ExecutionException ex) {
-    Exceptions.trace(ex.getCause());
+ else   if (Hosts.isCoordinator(input.getInetAddress())) {
+    goalState=State.ENABLED;
   }
-catch (  final InterruptedException ex) {
-    Thread.currentThread().interrupt();
-    Exceptions.trace(ex.getCause());
+ else {
+    goalState=State.DISABLED;
   }
-  return input;
+  if (State.ENABLED.apply(input) && State.ENABLED.equals(goalState)) {
+    return input;
+  }
+ else   if (State.DISABLED.apply(input) && State.DISABLED.equals(goalState)) {
+    return input;
+  }
+ else {
+    LOG.info("SetupRemoteServiceConfigurations: " + goalState + " "+ (inputIsLocal ? "local" : "remote")+ " "+ (input.getComponentId().isAlwaysLocal() ? "bootstrap" : "cloud")+ " services"+ (Hosts.isCoordinator(input.getInetAddress()) ? " (coordinator)" : "")+ ": "+ input.getFullName());
+    try {
+      return Topology.transition(goalState).apply(input).get();
+    }
+ catch (    final ExecutionException ex) {
+      LOG.error(ex);
+      Logs.extreme().error(ex,ex);
+    }
+catch (    final InterruptedException ex) {
+      Thread.currentThread().interrupt();
+      Exceptions.trace(ex.getCause());
+    }
+    return input;
+  }
 }

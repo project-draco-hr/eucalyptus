@@ -1,0 +1,34 @@
+{
+  LOG.info("DB STATE CHANGE: " + runnableFunction);
+  try {
+    if (canHas.writeLock().tryLock()) {
+      try {
+        Map<Runnable,Future<Runnable>> runnables=Maps.newHashMap();
+        for (        final String ctx : PersistenceContexts.list()) {
+          Runnable run=runnableFunction.apply(ctx);
+          runnables.put(run,ExecuteRunnable.INSTANCE.apply(run));
+        }
+        Map<Runnable,Future<Runnable>> succeeded=Futures.waitAll(runnables);
+        MapDifference<Runnable,Future<Runnable>> failed=Maps.difference(runnables,succeeded);
+        StringBuilder builder=new StringBuilder();
+        builder.append(Joiner.on("\nSUCCESS: ").join(succeeded.keySet()));
+        builder.append(Joiner.on("\nFAILED:  ").join(failed.entriesOnlyOnLeft().keySet()));
+        Logs.extreme().debug(builder.toString());
+        if (!failed.entriesOnlyOnLeft().isEmpty()) {
+          throw Exceptions.toUndeclared(builder.toString());
+        }
+      }
+  finally {
+        canHas.writeLock().unlock();
+      }
+    }
+ else {
+      throw Exceptions.toUndeclared("DB STATE CHANGE ABORTED (failed to get lock): " + runnableFunction);
+    }
+  }
+ catch (  RuntimeException ex) {
+    LOG.error(ex);
+    Logs.extreme().error(ex,ex);
+    throw ex;
+  }
+}

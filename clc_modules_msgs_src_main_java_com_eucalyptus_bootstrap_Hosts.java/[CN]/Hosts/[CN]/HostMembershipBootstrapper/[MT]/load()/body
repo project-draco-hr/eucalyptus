@@ -5,43 +5,64 @@
     hostMap=new ReplicatedHashMap<String,Host>(HostManager.getMembershipChannel());
     hostMap.setDeadlockDetection(true);
     hostMap.setBlockingUpdates(true);
-    hostMap.addNotifier(HostMapStateListener.INSTANCE);
-    hostMap.start(STATE_TRANSFER_TIMEOUT);
-    OrderedShutdown.register(Empyrean.class,new Runnable(){
-      @Override public void run(){
+    Runnable runMap=new Runnable(){
+      public void run(){
         try {
-          try {
-            hostMap.remove(Internets.localHostIdentifier());
+          hostMap.start(STATE_INITIALIZE_TIMEOUT);
+          OrderedShutdown.registerPreShutdownHook(new Runnable(){
+            @Override public void run(){
+              try {
+                for (                Runnable r : PeriodicMembershipChecks.shutdownNow()) {
+                  LOG.info("SHUTDOWN: Pending host pruning task: " + r);
+                }
+              }
+ catch (              Exception ex1) {
+                LOG.error(ex1,ex1);
+              }
+              try {
+                hostMap.removeNotifier(HostMapStateListener.INSTANCE);
+                try {
+                  if (Hosts.contains(Internets.localHostIdentifier())) {
+                    Hosts.remove(Internets.localHostIdentifier());
+                  }
+                }
+ catch (                final Exception ex) {
+                  LOG.error(ex,ex);
+                }
+                hostMap.stop();
+              }
+ catch (              final Exception ex) {
+                LOG.error(ex,ex);
+              }
+            }
           }
- catch (          Exception ex) {
-            LOG.error(ex,ex);
-          }
-          hostMap.stop();
+);
         }
  catch (        Exception ex) {
           LOG.error(ex,ex);
+          Exceptions.maybeInterrupted(ex);
+          System.exit(123);
         }
       }
     }
-);
-    LOG.info("Added localhost to system state: " + localHost());
+;
+    Timers.loggingWrapper(runMap,hostMap).call();
+    LOG.info("Initial view: " + HostMapStateListener.INSTANCE.printMap());
+    LOG.info("Searching for potential coordinator: " + Hosts.getCoordinator());
+    Hosts.Coordinator.INSTANCE.await();
     Coordinator.INSTANCE.initialize(hostMap.values());
-    final Host local=Coordinator.INSTANCE.createLocalHost();
-    hostMap.putIfAbsent(local.getDisplayName(),local);
-    Listeners.register(HostBootstrapEventListener.INSTANCE);
-    LOG.info("System view:\n" + HostMapStateListener.INSTANCE.printMap());
-    if (!BootstrapArgs.isCloudController()) {
-      while (Hosts.listDatabases().isEmpty()) {
-        TimeUnit.SECONDS.sleep(5);
-        LOG.info("Waiting for system view with database...");
-      }
-      if (shouldInitialize()) {
-        doInitialize();
-      }
-    }
- else {
-    }
+    LOG.info("Initial coordinator:\n" + Hosts.getCoordinator());
+    LOG.info("Created local host entry: " + Hosts.localHost());
+    hostMap.addNotifier(HostMapStateListener.INSTANCE);
+    LOG.info("System view: " + HostMapStateListener.INSTANCE.printMap());
+    UpdateEntry.INSTANCE.apply(Hosts.localHost());
+    LOG.info("System coordinator: " + Hosts.getCoordinator());
+    Hosts.awaitDatabases();
     LOG.info("Membership address for localhost: " + Hosts.localHost());
+    for (    Host h : hostMap.values()) {
+      BootstrapComponent.REMOTESETUP.apply(h);
+    }
+    PeriodicMembershipChecks.setup();
     return true;
   }
  catch (  final Exception ex) {
