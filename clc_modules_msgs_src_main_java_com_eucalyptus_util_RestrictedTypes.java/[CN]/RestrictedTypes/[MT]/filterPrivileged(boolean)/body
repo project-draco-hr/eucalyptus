@@ -1,0 +1,28 @@
+{
+  return new Predicate<T>(){
+    @Override public boolean apply(    T arg0){
+      Context ctx=Contexts.lookup();
+      if (!ctx.hasAdministrativePrivileges()) {
+        Class<? extends BaseMessage> msgType=ctx.getRequest().getClass();
+        Class<?> rscType=arg0.getClass();
+        Ats ats=findPolicyAnnotations(rscType,msgType);
+        PolicyVendor vendor=ats.get(PolicyVendor.class);
+        PolicyResourceType type=ats.get(PolicyResourceType.class);
+        String action=getIamActionByMessageType();
+        User requestUser=ctx.getUser();
+        try {
+          Account owningAccount=null;
+          if (!ignoreOwningAccount) {
+            owningAccount=Principals.nobodyFullName().getAccountNumber().equals(arg0.getOwner().getAccountNumber()) ? null : Accounts.lookupAccountByName(arg0.getOwner().getAccountName());
+          }
+          return Permissions.isAuthorized(vendor.value(),type.value(),arg0.getDisplayName(),owningAccount,action,requestUser);
+        }
+ catch (        AuthException ex) {
+          return false;
+        }
+      }
+      return true;
+    }
+  }
+;
+}

@@ -1,0 +1,36 @@
+{
+  try {
+    Clusters.getInstance().registerDisabled(this);
+    if (!State.DISABLED.equals(this.stateMachine.getState())) {
+      final Callable<CheckedListenableFuture<Cluster>> trans=Automata.sequenceTransitions(this,State.PENDING,State.AUTHENTICATING,State.STARTING,State.STARTING_NOTREADY,State.NOTREADY,State.DISABLED);
+      Exception lastEx=null;
+      for (int i=0; i < Clusters.getConfiguration().getStartupSyncRetries(); i++) {
+        try {
+          trans.call().get();
+          lastEx=null;
+          break;
+        }
+ catch (        final InterruptedException ex) {
+          Thread.currentThread().interrupt();
+        }
+catch (        final ServiceRegistrationException ex) {
+          lastEx=ex;
+          Logs.exhaust().debug(ex,ex);
+        }
+catch (        final Exception ex) {
+          lastEx=ex;
+          Logs.exhaust().debug(ex,ex);
+        }
+      }
+      Listeners.register(Hertz.class,this);
+    }
+  }
+ catch (  final NoSuchElementException ex) {
+    Logs.exhaust().debug(ex,ex);
+    throw ex;
+  }
+catch (  final Exception ex) {
+    Logs.exhaust().debug(ex,ex);
+    throw new ServiceRegistrationException("Failed to call start() on cluster " + this.configuration + " because of: "+ ex.getMessage(),ex);
+  }
+}

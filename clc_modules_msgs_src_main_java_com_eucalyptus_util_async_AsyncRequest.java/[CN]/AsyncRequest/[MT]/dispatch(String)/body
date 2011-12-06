@@ -1,10 +1,24 @@
 {
-  ServiceConfiguration serviceConfig;
-  try {
-    serviceConfig=Components.lookup(ClusterController.class).lookupServiceConfiguration(clusterOrPartition);
+  ServiceConfiguration serviceConfig=null;
+  if (Partitions.exists(clusterOrPartition)) {
+    Partition partition=Partitions.lookupByName(clusterOrPartition);
+    try {
+      serviceConfig=Topology.lookup(ClusterController.class,partition);
+    }
+ catch (    Exception ex) {
+      Iterable<ServiceConfiguration> serviceInPartition=Iterables.filter(Components.lookup(ClusterController.class).services(),ServiceConfigurations.filterByPartition(partition));
+      if (serviceInPartition.iterator().hasNext()) {
+        serviceConfig=serviceInPartition.iterator().next();
+      }
+    }
   }
- catch (  NoSuchElementException ex) {
-    serviceConfig=Partitions.lookupService(ClusterController.class,clusterOrPartition);
+  if (serviceConfig == null) {
+    serviceConfig=ServiceConfigurations.lookupByName(ClusterController.class,clusterOrPartition);
   }
-  return this.dispatch(serviceConfig);
+  if (serviceConfig != null) {
+    return this.dispatch(serviceConfig);
+  }
+ else {
+    throw new NoSuchElementException("Failed to lookup service configuration named: " + clusterOrPartition);
+  }
 }

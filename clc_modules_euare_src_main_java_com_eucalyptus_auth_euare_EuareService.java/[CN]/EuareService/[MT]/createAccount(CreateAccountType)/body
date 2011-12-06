@@ -3,26 +3,26 @@
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
   Context ctx=Contexts.lookup();
   User requestUser=ctx.getUser();
-  if (!ctx.hasAdministrativePrivileges()) {
-    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to create account by " + requestUser.getName());
-  }
   try {
-    Account newAccount=Accounts.addAccount(request.getAccountName());
-    User admin=newAccount.addUser(User.ACCOUNT_ADMIN,"/",true,true,null);
-    admin.resetToken();
-    admin.createConfirmationCode();
+    Account newAccount=Privileged.createAccount(ctx.hasAdministrativePrivileges(),request.getAccountName(),null,null,true);
     AccountType account=reply.getCreateAccountResult().getAccount();
     account.setAccountName(newAccount.getName());
     account.setAccountId(newAccount.getAccountNumber());
   }
  catch (  Exception e) {
-    LOG.debug(e,e);
-    if (e instanceof AuthException && AuthException.ACCOUNT_ALREADY_EXISTS.equals(e.getMessage())) {
-      throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.ENTITY_ALREADY_EXISTS,"Account " + request.getAccountName() + " already exists.");
+    LOG.error(e,e);
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to create account by " + requestUser.getName());
+      }
+ else       if (AuthException.ACCOUNT_ALREADY_EXISTS.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.ENTITY_ALREADY_EXISTS,"Account " + request.getAccountName() + " already exists.");
+      }
+ else       if (AuthException.INVALID_NAME.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_NAME,"Invalid account name " + request.getAccountName());
+      }
     }
- else {
-      throw new EucalyptusCloudException(e);
-    }
+    throw new EucalyptusCloudException(e);
   }
   return reply;
 }

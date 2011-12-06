@@ -25,7 +25,7 @@
       LOG.error("Invalid content length " + request.getContentLength());
       objSize=1L;
     }
-    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,bucket.getOwnerId()))) {
+    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && (bucket.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
       EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
       ObjectInfo searchObjectInfo=new ObjectInfo();
       searchObjectInfo.setBucketName(bucketName);
@@ -83,6 +83,11 @@
         foundObject.setEtag(md5);
         Long size=(long)base64Data.length;
         foundObject.setSize(size);
+        if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
+          db.rollback();
+          LOG.error("Quota exceeded in Walrus putObject");
+          throw new EntityTooLargeException("Key",objectKey,logData);
+        }
         boolean success=false;
         int retryCount=0;
         do {
@@ -108,11 +113,6 @@ catch (          EucalyptusCloudException ex) {
           }
         }
  while (!success && (retryCount < 5));
-        if (Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),size) && !ctx.hasAdministrativePrivileges()) {
-          db.rollback();
-          LOG.error("Quota exceeded in Walrus putObject");
-          throw new EntityTooLargeException("Key",objectKey,logData);
-        }
         if (WalrusProperties.trackUsageStatistics) {
           walrusStatistics.updateBytesIn(size);
           walrusStatistics.updateSpaceUsed(size);

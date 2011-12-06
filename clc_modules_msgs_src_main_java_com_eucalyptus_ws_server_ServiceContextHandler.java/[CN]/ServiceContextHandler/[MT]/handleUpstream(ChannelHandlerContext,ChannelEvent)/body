@@ -3,23 +3,37 @@
   final BaseMessage msg=BaseMessage.extractMessage(e);
   if (Logs.isExtrrreeeme())   LOG.trace(this.getClass().getSimpleName() + "[incoming]:" + (msg != null ? msg.getClass().getSimpleName() : "")+ " "+ e);
   if (e instanceof ChannelStateEvent) {
-    this.channelOpened(ctx,(ChannelStateEvent)e);
-    ctx.sendUpstream(e);
-  }
- else   if (e instanceof IdleStateEvent) {
-    LOG.warn("Closing idle connection: " + e);
-    e.getFuture().addListener(ChannelFutureListener.CLOSE);
-    ctx.sendUpstream(e);
-  }
- else   if (request != null && msg != null) {
-    this.messageReceived(ctx,msg);
-    ctx.sendUpstream(e);
-  }
- else   if (e instanceof ExceptionEvent) {
-    this.exceptionCaught(ctx,(ExceptionEvent)e);
-    ctx.sendUpstream(e);
-  }
+    ChannelStateEvent evt=(ChannelStateEvent)e;
+switch (evt.getState()) {
+case OPEN:
+      if (Boolean.TRUE.equals(evt.getValue())) {
+        this.channelOpened(ctx,evt);
+      }
  else {
-    ctx.sendUpstream(e);
-  }
+        this.channelClosed(ctx,evt);
+      }
+case BOUND:
+case CONNECTED:
+case INTEREST_OPS:
+default :
+    Logs.extreme().trace("Channel event: " + evt);
+  ctx.sendUpstream(e);
+}
+}
+ else if (e instanceof IdleStateEvent) {
+Logs.extreme().warn("Closing idle connection: " + e);
+e.getFuture().addListener(ChannelFutureListener.CLOSE);
+ctx.sendUpstream(e);
+}
+ else if (request != null && msg != null) {
+this.messageReceived(ctx,msg);
+ctx.sendUpstream(e);
+}
+ else if (e instanceof ExceptionEvent) {
+this.exceptionCaught(ctx,(ExceptionEvent)e);
+ctx.sendUpstream(e);
+}
+ else {
+ctx.sendUpstream(e);
+}
 }
