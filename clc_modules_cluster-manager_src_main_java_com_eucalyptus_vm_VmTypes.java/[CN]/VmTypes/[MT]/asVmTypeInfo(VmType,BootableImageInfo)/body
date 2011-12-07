@@ -1,24 +1,29 @@
 {
   Long imgSize=img.getImageSizeBytes();
-  if (imgSize > 1024l * 1024l * 1024l* vmType.getDisk()) {
+  Long diskSize=vmType.getDisk() * 1024l * 1024l* 1024l;
+  if (imgSize > diskSize) {
     throw new InvalidMetadataException("image too large [size=" + imgSize / (1024l * 1024l) + "MB] for instance type " + vmType.getName() + " [disk=" + vmType.getDisk() * 1024l + "MB]");
   }
   VmTypeInfo vmTypeInfo=null;
   if (img instanceof StaticDiskImage) {
     if (ImageMetadata.Platform.windows.equals(img.getPlatform())) {
       vmTypeInfo=VmTypes.InstanceStoreWindowsVmTypeInfoMapper.INSTANCE.apply(vmType);
-      vmTypeInfo.setEphemeral(0,"sdb",vmType.getDisk() * 1024l * 1024l* 1024l - imgSize,"none");
+      vmTypeInfo.setEphemeral(0,"sdb",diskSize - imgSize,"none");
     }
  else {
       vmTypeInfo=VmTypes.InstanceStoreVmTypeInfoMapper.INSTANCE.apply(vmType);
-      vmTypeInfo.setEphemeral(0,"sda2",vmType.getDisk() * 1024l * 1024l* 1024l - imgSize,"ext3");
+      long ephemeralSize=diskSize - imgSize - SWAP_SIZE_BYTES;
+      if (ephemeralSize < MIN_EPHEMERAL_SIZE_BYTES) {
+        throw new InvalidMetadataException("image too large to accommodate swap and ephemeral [size=" + imgSize / (1024l * 1024l) + "MB] for instance type " + vmType.getName() + " [disk=" + vmType.getDisk() * 1024l + "MB]");
+      }
+      vmTypeInfo.setEphemeral(0,"sda2",ephemeralSize,"ext3");
     }
     vmTypeInfo.setRoot(img.getDisplayName(),((StaticDiskImage)img).getManifestLocation(),imgSize);
   }
  else   if (img instanceof BlockStorageImageInfo) {
     vmTypeInfo=VmTypes.BlockStorageVmTypeInfoMapper.INSTANCE.apply(vmType);
     vmTypeInfo.setEbsRoot(img.getDisplayName(),null,imgSize);
-    vmTypeInfo.setEphemeral(0,"sdb",vmType.getDisk() * 1024l * 1024l* 1024l,"none");
+    vmTypeInfo.setEphemeral(0,"sdb",diskSize,"none");
   }
  else {
     throw new InvalidMetadataException("Failed to identify the root machine image type: " + img);
