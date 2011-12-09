@@ -1,6 +1,8 @@
 {
   reply.setOriginCluster(this.getSubject().getConfiguration().getName());
+  final Set<String> reportedInstances=Sets.newHashSet();
   for (  VmInfo vmInfo : reply.getVms()) {
+    reportedInstances.add(vmInfo.getInstanceId());
     vmInfo.setPlacement(this.getSubject().getConfiguration().getName());
     VmTypeInfo typeInfo=vmInfo.getInstanceType();
     if (typeInfo.getName() == null || "".equals(typeInfo.getName())) {
@@ -11,14 +13,18 @@
       }
     }
   }
+  final Set<String> unreportedInstances=Sets.newHashSet(Sets.difference(this.initialInstances,reportedInstances));
+  final Set<String> restoreInstances=Sets.newHashSet(Sets.difference(reportedInstances,this.initialInstances));
   for (  final VmInfo runVm : reply.getVms()) {
     if (this.initialInstances.contains(runVm.getInstanceId())) {
       VmStateCallback.handleReportedState(runVm);
       this.initialInstances.remove(runVm.getInstanceId());
     }
+ else     if (restoreInstances.contains(runVm.getInstanceId())) {
+      VmStateCallback.handleRestore(runVm);
+    }
   }
-  final Set<String> unreportedVms=Sets.newHashSet(this.initialInstances);
-  for (  final String vmId : unreportedVms) {
+  for (  final String vmId : unreportedInstances) {
     VmStateCallback.handleUnreported(vmId);
   }
 }
