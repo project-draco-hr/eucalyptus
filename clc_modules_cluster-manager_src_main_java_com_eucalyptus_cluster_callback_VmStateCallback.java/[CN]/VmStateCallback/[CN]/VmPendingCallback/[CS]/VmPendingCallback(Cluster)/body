@@ -1,23 +1,13 @@
 {
   super(cluster);
-  Predicate<VmInstance> partitionFilter=new Predicate<VmInstance>(){
-    @Override public boolean apply(    VmInstance input){
-      return input.getPartition().equals(VmPendingCallback.this.getSubject().getPartition()) || "default".equals(input.getPartition());
-    }
-  }
-;
-  Collection<VmInstance> clusterInstances=Collections2.filter(VmInstances.list(),partitionFilter);
-  Collection<String> instanceNames=Collections2.transform(clusterInstances,CloudMetadatas.toDisplayName());
-  this.initialInstances=Sets.newHashSet(instanceNames);
-  super.setRequest(new VmDescribeType(){
+  this.initialInstances=createInstanceSupplier(this,this.filter);
+  this.setRequest(new VmDescribeType(){
 {
       regarding();
       EntityTransaction db=Entities.get(VmInstance.class);
       try {
         for (        VmInstance vm : Iterables.filter(VmInstances.list(),VmPendingCallback.this.filter)) {
-          if (vm.getCreationSplitTime() > VM_STATE_SETTLE_TIME) {
-            this.getInstancesSet().add(vm.getInstanceId());
-          }
+          this.getInstancesSet().add(vm.getInstanceId());
         }
         Entities.commit(db);
       }
