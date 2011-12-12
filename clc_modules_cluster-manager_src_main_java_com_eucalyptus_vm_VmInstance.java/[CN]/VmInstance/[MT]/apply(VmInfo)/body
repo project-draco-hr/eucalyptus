@@ -1,55 +1,23 @@
 {
-  VmState inputState=VmState.Mapper.get(input.getStateName());
+  final VmState inputState=VmState.Mapper.get(input.getStateName());
   if (!VmStateSet.RUN.contains(inputState)) {
     return false;
   }
  else {
     final UserFullName userFullName=UserFullName.getInstance(input.getOwnerId());
-    final List<NetworkGroup> networks=Lists.newArrayList();
-    PrivateNetworkIndex index=null;
-    ExtantNetwork exNet;
-    EntityTransaction tx1=Entities.get(NetworkGroup.class);
-    try {
-      networks.addAll(Lists.transform(input.getGroupNames(),transformNetworkNames(userFullName)));
-      final NetworkGroup network=(!networks.isEmpty() ? networks.get(0) : null);
-      try {
-        if (network != null) {
-          if (!network.hasExtantNetwork()) {
-            exNet=network.reclaim(input.getNetParams().getVlan());
-          }
- else {
-            exNet=network.extantNetwork();
-            if (!exNet.getTag().equals(input.getNetParams().getVlan())) {
-              exNet=null;
-            }
- else {
-              index=exNet.reclaimNetworkIndex(input.getNetParams().getNetworkIndex());
-            }
-          }
-        }
-      }
- catch (      Exception ex) {
-        throw Exceptions.toUndeclared(ex);
-      }
-      tx1.commit();
-    }
- catch (    Exception ex) {
-      LOG.error(ex);
-      Logs.extreme().error(ex,ex);
-      tx1.rollback();
-      throw Exceptions.toUndeclared(ex);
-    }
+    final List<NetworkGroup> networks=RestoreAllocation.restoreNetworks(input,userFullName);
+    final PrivateNetworkIndex index=RestoreAllocation.restoreNetworkIndex(input,networks);
     final EntityTransaction db=Entities.get(VmInstance.class);
     try {
-      VmType vmType=RestoreAllocation.restoreVmType(input);
-      Partition partition=RestoreAllocation.restorePartition(input);
-      String imageId=RestoreAllocation.restoreImage(input);
-      String kernelId=RestoreAllocation.restoreKernel(input);
-      String ramdiskId=RestoreAllocation.restoreRamdisk(input);
-      BootableSet bootSet=RestoreAllocation.restoreBootSet(input,imageId,kernelId,ramdiskId);
-      int launchIndex=RestoreAllocation.restoreLaunchIndex(input);
-      SshKeyPair keyPair=RestoreAllocation.restoreSshKeyPair(input,userFullName);
-      byte[] userData=RestoreAllocation.restoreUserData(input);
+      final VmType vmType=RestoreAllocation.restoreVmType(input);
+      final Partition partition=RestoreAllocation.restorePartition(input);
+      final String imageId=RestoreAllocation.restoreImage(input);
+      final String kernelId=RestoreAllocation.restoreKernel(input);
+      final String ramdiskId=RestoreAllocation.restoreRamdisk(input);
+      final BootableSet bootSet=RestoreAllocation.restoreBootSet(input,imageId,kernelId,ramdiskId);
+      final int launchIndex=RestoreAllocation.restoreLaunchIndex(input);
+      final SshKeyPair keyPair=RestoreAllocation.restoreSshKeyPair(input,userFullName);
+      final byte[] userData=RestoreAllocation.restoreUserData(input);
       VmInstance vmInst;
       try {
         vmInst=new VmInstance.Builder().owner(userFullName).withIds(input.getInstanceId(),input.getReservationId()).bootRecord(bootSet,userData,keyPair,vmType).placement(partition,partition.getName()).networking(networks,index).build(launchIndex);
@@ -57,7 +25,7 @@
         RestoreAllocation.restoreAddress(input,vmInst);
         Entities.persist(vmInst);
       }
- catch (      Exception ex1) {
+ catch (      final Exception ex1) {
         LOG.error("Failed to restore instance " + input.getInstanceId() + " because of: "+ ex1.getMessage());
         Logs.extreme().error(ex1,ex1);
       }
