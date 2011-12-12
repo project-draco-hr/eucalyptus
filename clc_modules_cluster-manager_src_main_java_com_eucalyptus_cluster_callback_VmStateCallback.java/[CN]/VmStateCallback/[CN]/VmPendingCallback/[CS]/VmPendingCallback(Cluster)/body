@@ -1,5 +1,14 @@
 {
   super(cluster);
+  Predicate<VmInstance> partitionFilter=new Predicate<VmInstance>(){
+    @Override public boolean apply(    VmInstance input){
+      return input.getPartition().equals(VmPendingCallback.this.getSubject().getPartition()) || "default".equals(input.getPartition());
+    }
+  }
+;
+  Collection<VmInstance> clusterInstances=Collections2.filter(VmInstances.list(),partitionFilter);
+  Collection<String> instanceNames=Collections2.transform(clusterInstances,CloudMetadatas.toDisplayName());
+  this.initialInstances=Sets.newHashSet(instanceNames);
   super.setRequest(new VmDescribeType(){
 {
       regarding();
@@ -10,12 +19,7 @@
             this.getInstancesSet().add(vm.getInstanceId());
           }
         }
-        if (Databases.isSynchronizing()) {
-          db.rollback();
-        }
- else {
-          db.commit();
-        }
+        Entities.commit(db);
       }
  catch (      Exception ex) {
         Logs.exhaust().error(ex,ex);
