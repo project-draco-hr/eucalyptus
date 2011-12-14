@@ -4,44 +4,36 @@
   }
  else {
     if (host.isLocalHost()) {
-      if (syncState.compareAndSet(SyncState.NOTSYNCED,SyncState.SYNCING)) {
+      if (SyncState.SYNCING.set()) {
         try {
           runDbStateChange(ActivateHostFunction.INSTANCE.apply(host));
-          syncState.set(SyncState.SYNCED);
+          SyncState.SYNCED.set();
           return true;
         }
  catch (        Exception ex) {
-          try {
-            runDbStateChange(DeactivateHostFunction.INSTANCE.apply(host.getDisplayName()));
-          }
- catch (          Exception ex1) {
-            LOG.error("Databases.enable(): failed because of: " + ex.getMessage());
-            Logs.extreme().error(ex,ex);
-          }
- finally {
-            syncState.set(SyncState.NOTSYNCED);
-          }
+          SyncState.NOTSYNCED.set();
+          Logs.extreme().debug(ex);
+          ActivateHostFunction.rollback(host,ex);
           return false;
         }
       }
  else {
-        try {
-          runDbStateChange(ActivateHostFunction.INSTANCE.apply(host));
-          return true;
-        }
- catch (        Exception ex) {
-          return false;
-        }
+        return false;
       }
     }
- else {
+ else     if (!ActiveHostSet.ACTIVATED.get().contains(host.getDisplayName())) {
       try {
         runDbStateChange(ActivateHostFunction.INSTANCE.apply(host));
         return true;
       }
  catch (      Exception ex) {
+        Logs.extreme().debug(ex);
+        ActivateHostFunction.rollback(host,ex);
         return false;
       }
+    }
+ else {
+      return ActiveHostSet.ACTIVATED.get().contains(host.getDisplayName());
     }
   }
 }
