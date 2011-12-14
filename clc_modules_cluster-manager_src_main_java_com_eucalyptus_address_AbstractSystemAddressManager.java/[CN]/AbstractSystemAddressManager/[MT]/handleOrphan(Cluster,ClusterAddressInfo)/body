@@ -8,15 +8,27 @@
     EventRecord.caller(ClusterState.class,EventType.ADDRESS_STATE,"Unassigning orphaned public ip address: " + LogUtil.dumpObject(address) + " count="+ orphanCount).warn();
     try {
       final Address addr=Addresses.getInstance().lookup(address.getAddress());
-      if (addr.isAssigned()) {
-        AsyncRequests.newRequest(new UnassignAddressCallback(address)).dispatch(cluster.getConfiguration());
+      try {
+        if (addr.isAssigned()) {
+          AsyncRequests.newRequest(new UnassignAddressCallback(address)).sendSync(cluster.getConfiguration());
+        }
+ else         if (!addr.isAssigned() && addr.isAllocated() && addr.isSystemOwned()) {
+          addr.release();
+        }
       }
- else       if (!addr.isAssigned() && addr.isAllocated() && addr.isSystemOwned()) {
-        addr.release();
+ catch (      ExecutionException ex) {
+        if (!addr.isAssigned() && addr.isAllocated() && addr.isSystemOwned()) {
+          addr.release();
+        }
       }
     }
- catch (    NoSuchElementException e) {
+ catch (    InterruptedException ex) {
+      Exceptions.maybeInterrupted(ex);
     }
-    orphans.remove(address);
+catch (    NoSuchElementException ex) {
+    }
+ finally {
+      orphans.remove(address);
+    }
   }
 }
