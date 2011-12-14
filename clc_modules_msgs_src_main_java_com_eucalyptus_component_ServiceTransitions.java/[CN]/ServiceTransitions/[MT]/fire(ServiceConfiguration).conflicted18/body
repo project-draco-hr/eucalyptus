@@ -1,8 +1,46 @@
 {
-  try {
-    ServiceBuilders.lookup(parent.getComponentId()).fireCheck(parent);
+  if (!parent.getComponentId().isDistributedService()) {
+    return;
   }
- catch (  Exception ex) {
-    Logs.extreme().error(ex,ex);
+ else {
+    CheckException errors=null;
+    Host h=Hosts.lookup(parent.getHostName());
+    if (h == null) {
+      UnknownHostException ex=new UnknownHostException("Failed to lookup host " + parent.getHostName() + " for service "+ parent.getFullName()+ ".  Current hosts are: "+ Hosts.list());
+      errors=Faults.failure(parent,ex);
+    }
+ else     if (!h.hasBootstrapped()) {
+      UnknownHostException ex=new UnknownHostException("Host " + parent.getHostName() + " not yet bootstrapped for service "+ parent.getFullName()+ ".");
+      errors=Faults.failure(parent,ex);
+    }
+ else {
+      DescribeServicesResponseType response=ServiceTransitions.sendEmpyreanRequest(parent,new DescribeServicesType(){
+{
+          this.getServices().add(TypeMappers.transform(parent,ServiceId.class));
+        }
+      }
+);
+      ServiceStatusType status=Iterables.find(response.getServiceStatuses(),new Predicate<ServiceStatusType>(){
+        @Override public boolean apply(        final ServiceStatusType arg0){
+          return parent.getName().equals(arg0.getServiceId().getName());
+        }
+      }
+);
+      errors=Faults.transformToExceptions().apply(status);
+    }
+    if (Faults.Severity.FATAL.equals(errors.getSeverity())) {
+      throw errors;
+    }
+ else     if (Faults.Severity.TRACE.equals(errors.getSeverity())) {
+      Logs.extreme().error(errors,errors);
+      return;
+    }
+ else     if (errors.getSeverity().ordinal() < Faults.Severity.ERROR.ordinal()) {
+      Logs.extreme().error(errors,errors);
+      Faults.persist(errors);
+    }
+ else {
+      throw errors;
+    }
   }
 }
