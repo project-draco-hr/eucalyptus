@@ -4,13 +4,36 @@
       try {
         if (subject != null) {
           try {
-            T callback=callbackClass.getConstructor(subject.getClass()).newInstance(subject);
+            T callback=Classes.builder(callbackClass).arg(subject).newInstance();
             return callback;
           }
- catch (          NoSuchMethodException nsmex) {
-            T callback=callbackClass.newInstance();
-            callback.setSubject(subject);
-            return callback;
+ catch (          UndeclaredThrowableException ex) {
+            if (ex.getCause() instanceof CancellationException) {
+              throw (CancellationException)ex.getCause();
+            }
+ else             if (ex.getCause() instanceof NoSuchMethodException) {
+              try {
+                T callback=Classes.builder(callbackClass).newInstance();
+                callback.setSubject(subject);
+                return callback;
+              }
+ catch (              Exception ex1) {
+                if (ex.getCause() instanceof CancellationException) {
+                  throw (CancellationException)ex.getCause();
+                }
+ else                 if (ex.getCause() instanceof NoSuchMethodException) {
+                  throw ex;
+                }
+ else {
+                  throw Exceptions.toUndeclared(ex1);
+                }
+              }
+            }
+ else {
+              T callback=callbackClass.newInstance();
+              LOG.error("Creating uninitialized callback (subject=" + subject + ") for type: "+ callbackClass.getCanonicalName());
+              return callback;
+            }
           }
         }
  else {
@@ -19,10 +42,14 @@
           return callback;
         }
       }
- catch (      final Exception ex) {
+ catch (      final CancellationException ex) {
+        LOG.debug(ex);
+        throw ex;
+      }
+catch (      final Exception ex) {
         LOG.error(ex);
         Logs.exhaust().error(ex,ex);
-        throw new RuntimeException(ex);
+        throw Exceptions.toUndeclared(ex);
       }
     }
     @Override public P getSubject(){
