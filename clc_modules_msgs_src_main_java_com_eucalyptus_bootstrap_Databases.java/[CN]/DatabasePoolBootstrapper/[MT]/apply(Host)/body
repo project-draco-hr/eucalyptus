@@ -15,34 +15,49 @@
               DriverDatabaseClusterMBean cluster=LookupPersistenceContextDatabaseCluster.INSTANCE.apply(contextName);
               final String dbUrl="jdbc:" + ServiceUris.remote(Database.class,host.getBindAddress(),contextName);
               final String realJdbcDriver=Databases.getDriverName();
+              boolean activated=cluster.getActiveDatabases().contains(hostName);
+              boolean deactivated=cluster.getInactiveDatabases().contains(hostName);
               try {
                 if (fullSync) {
-                  if (cluster.getActiveDatabases().contains(hostName)) {
+                  LOG.info("Full sync of database on: " + host);
+                  if (activated) {
                     LOG.info("Deactivating existing database connections to: " + host);
                     cluster.deactivate(hostName);
+                    ActivateHostFunction.prepareConnections(host,contextName);
+                    cluster.activate(hostName,"full");
                   }
-                  if (cluster.getInactiveDatabases().contains(hostName)) {
-                    LOG.info("Deactivating existing database connections to: " + host);
-                    cluster.remove(hostName);
+ else                   if (deactivated) {
+                    ActivateHostFunction.prepareConnections(host,contextName);
+                    cluster.activate(hostName,"full");
                   }
-                  LOG.info("Creating database connections for: " + host);
-                  cluster.add(hostName,realJdbcDriver,dbUrl);
-                  ActivateHostFunction.prepareConnections(host,contextName);
+ else {
+                    LOG.info("Creating database connections for: " + host);
+                    cluster.add(hostName,realJdbcDriver,dbUrl);
+                    ActivateHostFunction.prepareConnections(host,contextName);
+                    cluster.activate(hostName,"full");
+                  }
                   LOG.info("Full sync of database on: " + host + " using "+ cluster.getActiveDatabases());
-                  cluster.activate(hostName,"full");
                   return;
                 }
  else                 if (passiveSync) {
-                  if (!cluster.getActiveDatabases().contains(hostName)) {
-                    LOG.info("Passive activation of database connections to: " + host);
-                    try {
-                      cluster.add(hostName,realJdbcDriver,dbUrl);
-                    }
- catch (                    Exception ex1) {
-                    }
+                  LOG.info("Passive activation of database connections to: " + host);
+                  if (activated) {
+                    cluster.deactivate(hostName);
                     ActivateHostFunction.prepareConnections(host,contextName);
                     cluster.activate(hostName,"passive");
                   }
+ else                   if (deactivated) {
+                    ActivateHostFunction.prepareConnections(host,contextName);
+                    cluster.activate(hostName,"passive");
+                  }
+ else {
+                    LOG.info("Creating database connections for: " + host);
+                    cluster.add(hostName,realJdbcDriver,dbUrl);
+                    ActivateHostFunction.prepareConnections(host,contextName);
+                    cluster.activate(hostName,"full");
+                  }
+                  LOG.info("Passive activation of database on: " + host + " using "+ cluster.getActiveDatabases());
+                  return;
                 }
  else {
                   Logs.extreme().info("Skipping activation of already present database for: " + contextName + " on "+ hostName);
