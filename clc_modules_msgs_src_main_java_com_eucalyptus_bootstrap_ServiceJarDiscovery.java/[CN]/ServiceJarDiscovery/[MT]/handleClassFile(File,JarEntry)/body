@@ -3,9 +3,41 @@
   try {
     final Class candidate=ClassLoader.getSystemClassLoader().loadClass(classGuess);
     classList.put(candidate,f.getAbsolutePath());
-    if (ServiceJarDiscovery.class.isAssignableFrom(candidate) && !ServiceJarDiscovery.class.equals(candidate)) {
+    if (ServiceJarDiscovery.class.isAssignableFrom(candidate) && !ServiceJarDiscovery.class.equals(candidate) && !candidate.isAnonymousClass()) {
       try {
         final ServiceJarDiscovery discover=(ServiceJarDiscovery)candidate.newInstance();
+        discovery.add(discover);
+      }
+ catch (      final Exception e) {
+        LOG.fatal(e,e);
+        throw new RuntimeException(e);
+      }
+    }
+ else     if (Ats.from(candidate).has(Bootstrap.Discovery.class) && Predicate.class.isAssignableFrom(candidate)) {
+      try {
+        @SuppressWarnings({"rawtypes","unchecked"}) final ServiceJarDiscovery discover=new ServiceJarDiscovery(){
+          final Bootstrap.Discovery annote=Ats.from(candidate).get(Bootstrap.Discovery.class);
+          final Predicate<Class> instance=(Predicate<Class>)Classes.builder(candidate).newInstance();
+          @Override public boolean processClass(          Class discoveryCandidate) throws Exception {
+            boolean classFiltered=this.annote.value().length != 0 ? Iterables.any(Arrays.asList(this.annote.value()),Classes.assignableTo(discoveryCandidate)) : true;
+            if (classFiltered) {
+              boolean annotationFiltered=this.annote.annotations().length != 0 ? Iterables.any(Arrays.asList(this.annote.annotations()),Ats.from(discoveryCandidate)) : true;
+              if (annotationFiltered) {
+                return this.instance.apply(discoveryCandidate);
+              }
+ else {
+                return false;
+              }
+            }
+ else {
+              return false;
+            }
+          }
+          @Override public Double getPriority(){
+            return this.annote.priority();
+          }
+        }
+;
         discovery.add(discover);
       }
  catch (      final Exception e) {
