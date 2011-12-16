@@ -5,22 +5,26 @@
  else {
     LOG.info("Hosts.entrySet(): " + hostKey + " => "+ host);
     try {
-      if (host.isLocalHost() && Bootstrap.isFinished()) {
+      if (host.isLocalHost() && host.hasDatabase() && Bootstrap.isLoaded()) {
         final boolean wasSynched=Databases.isSynchronized();
+        final boolean wasVolatile=Databases.isVolatile();
         dbActivation.submit(new Runnable(){
           @Override public void run(){
-            if (!Databases.isSynchronized() && host.hasDatabase() && Databases.enable(host)) {
+            if (!wasSynched && !Databases.SyncState.SYNCING.isCurrent() && !Databases.isSynchronized()) {
+              if (Databases.enable(host) && Databases.isSynchronized()) {
+                UpdateEntry.INSTANCE.apply(Hosts.lookup(hostKey));
+              }
+            }
+ else             if (wasVolatile && Bootstrap.isLoaded() && !Databases.ActiveHostSet.ACTIVATED.get().contains(hostKey)) {
+              if (Databases.enable(host) && !Databases.isVolatile()) {
+                UpdateEntry.INSTANCE.apply(Hosts.lookup(hostKey));
+              }
+            }
+ else             if (wasVolatile && Bootstrap.isLoaded() && !Databases.isVolatile()) {
               UpdateEntry.INSTANCE.apply(Hosts.lookup(hostKey));
             }
- else {
-              Host currentHost=Hosts.lookup(hostKey);
-              if (!wasSynched && currentHost != null && !currentHost.hasSynced() && Databases.enable(host)) {
-                UpdateEntry.INSTANCE.apply(currentHost);
-              }
- else               if (currentHost != null && currentHost.hasSynced()) {
-                BootstrapComponent.SETUP.apply(currentHost);
-                UpdateEntry.INSTANCE.apply(currentHost);
-              }
+ else             if (Bootstrap.isFinished() && !Databases.isVolatile()) {
+              BootstrapComponent.SETUP.apply(Hosts.lookup(hostKey));
             }
           }
         }
