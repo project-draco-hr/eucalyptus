@@ -28,14 +28,24 @@
  else {
                 LOG.info("Creating database connections for: " + host);
                 try {
-                  cluster.add(hostName,realJdbcDriver,dbUrl);
+                  cluster.getDatabase(hostName);
                 }
- catch (                IllegalStateException ex) {
-                  if (!Exceptions.isCausedBy(ex,InstanceAlreadyExistsException.class)) {
-                    throw ex;
+ catch (                IllegalArgumentException ex2) {
+                  try {
+                    cluster.add(hostName,realJdbcDriver,dbUrl);
+                    Logs.extreme().debug("Added db connections for host: " + hostName);
                   }
- else {
+ catch (                  IllegalArgumentException ex) {
                     Logs.extreme().debug("Skipping addition of db connections for host which already exists: " + hostName);
+                  }
+catch (                  IllegalStateException ex) {
+                    if (Exceptions.isCausedBy(ex,InstanceAlreadyExistsException.class)) {
+                      ManagementFactory.getPlatformMBeanServer().unregisterMBean(new ObjectName("net.sf.hajdbc:cluster=" + ctx + ",database="+ hostName));
+                      cluster.add(hostName,realJdbcDriver,dbUrl);
+                    }
+ else {
+                      throw ex;
+                    }
                   }
                 }
                 ActivateHostFunction.prepareConnections(host,contextName);
@@ -62,16 +72,17 @@
             }
           }
  catch (          final NoSuchElementException ex1) {
-            LOG.info(ex1);
-            Logs.extreme().debug(ex1,ex1);
+            LOG.error(ex1);
+            Logs.extreme().error(ex1,ex1);
             return;
           }
 catch (          final IllegalStateException ex1) {
-            LOG.info(ex1);
-            Logs.extreme().debug(ex1,ex1);
+            LOG.error(ex1);
+            Logs.extreme().error(ex1,ex1);
             return;
           }
 catch (          final Exception ex1) {
+            LOG.error(ex1);
             Logs.extreme().error(ex1,ex1);
             throw Exceptions.toUndeclared("Failed to activate host " + host + " because of: "+ ex1.getMessage(),ex1);
           }
