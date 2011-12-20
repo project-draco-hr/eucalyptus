@@ -1,14 +1,71 @@
 {
-  return new SubjectRemoteCallbackFactory(){
+  return new SubjectRemoteCallbackFactory<T,P>(){
     @Override public T newInstance(){
       try {
-        final T callback=callbackClass.newInstance();
-        callback.setSubject(subject);
-        return callback;
+        if (subject != null) {
+          try {
+            T callback=Classes.builder(callbackClass).arg(subject).newInstance();
+            return callback;
+          }
+ catch (          UndeclaredThrowableException ex) {
+            if (ex.getCause() instanceof CancellationException) {
+              throw (CancellationException)ex.getCause();
+            }
+ else             if (ex.getCause() instanceof NoSuchMethodException) {
+              try {
+                T callback=Classes.builder(callbackClass).newInstance();
+                callback.setSubject(subject);
+                return callback;
+              }
+ catch (              UndeclaredThrowableException ex1) {
+                if (ex1.getCause() instanceof CancellationException) {
+                  throw (CancellationException)ex.getCause();
+                }
+ else                 if (ex1.getCause() instanceof NoSuchMethodException) {
+                  throw ex1;
+                }
+ else {
+                  throw ex1;
+                }
+              }
+catch (              Exception ex1) {
+                if (ex1.getCause() instanceof CancellationException) {
+                  throw (CancellationException)ex.getCause();
+                }
+ else                 if (ex1.getCause() instanceof NoSuchMethodException) {
+                  throw ex;
+                }
+ else {
+                  throw Exceptions.toUndeclared(ex1);
+                }
+              }
+            }
+ else {
+              T callback=callbackClass.newInstance();
+              LOG.error("Creating uninitialized callback (subject=" + subject + ") for type: "+ callbackClass.getCanonicalName());
+              return callback;
+            }
+          }
+catch (          RuntimeException ex) {
+            LOG.error("Failed to create instance of: " + callbackClass);
+            Logs.extreme().error(ex,ex);
+            throw ex;
+          }
+        }
+ else {
+          T callback=callbackClass.newInstance();
+          LOG.error("Creating uninitialized callback (subject=" + subject + ") for type: "+ callbackClass.getCanonicalName());
+          return callback;
+        }
       }
- catch (      final Throwable t) {
-        LOG.error(t,t);
-        throw new RuntimeException(t);
+ catch (      final CancellationException ex) {
+        LOG.debug(ex);
+        throw ex;
+      }
+catch (      final Exception ex) {
+        LOG.error(ex);
+        Logs.exhaust().error(ex,ex);
+        throw Exceptions.toUndeclared(ex);
       }
     }
     @Override public P getSubject(){
