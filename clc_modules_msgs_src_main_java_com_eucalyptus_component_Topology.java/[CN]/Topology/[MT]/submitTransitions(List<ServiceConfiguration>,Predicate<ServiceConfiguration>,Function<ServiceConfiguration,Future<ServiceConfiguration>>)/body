@@ -1,8 +1,26 @@
 {
   final Collection<ServiceConfiguration> filteredServices=Collections2.filter(services,serviceFilter);
-  final Collection<Future<ServiceConfiguration>> submittedCallables=Collections2.transform(filteredServices,submitFunction);
-  final Collection<Future<ServiceConfiguration>> completedServices=Collections2.filter(submittedCallables,WaitForResults.INSTANCE);
-  List<ServiceConfiguration> results=Lists.newArrayList(Collections2.transform(completedServices,ExtractFuture.INSTANCE));
+  Map<ServiceConfiguration,Future<ServiceConfiguration>> submittedCallables=Maps.newHashMap();
+  for (  ServiceConfiguration s : filteredServices) {
+    submittedCallables.put(s,submitFunction.apply(s));
+  }
+  final Map<ServiceConfiguration,Future<ServiceConfiguration>> completedServices=Maps.filterValues(submittedCallables,WaitForResults.INSTANCE);
+  for (  Map.Entry<ServiceConfiguration,Future<ServiceConfiguration>> e : submittedCallables.entrySet()) {
+    if (e.getKey().isVmLocal()) {
+      try {
+        e.getValue().get();
+      }
+ catch (      Exception ex) {
+        if (Exceptions.isCausedBy(ex,CheckException.class)) {
+          CheckException checkEx=Exceptions.findCause(ex,CheckException.class);
+          if (Faults.Severity.FATAL.equals(checkEx)) {
+            Hosts.failstop(e.getKey(),checkEx);
+          }
+        }
+      }
+    }
+  }
+  List<ServiceConfiguration> results=Lists.newArrayList(Collections2.transform(completedServices.values(),ExtractFuture.INSTANCE));
   printCheckInfo(submitFunction.toString(),results);
   return results;
 }
