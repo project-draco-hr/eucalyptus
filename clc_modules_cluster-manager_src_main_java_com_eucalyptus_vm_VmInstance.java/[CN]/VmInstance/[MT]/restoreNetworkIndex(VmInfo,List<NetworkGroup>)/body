@@ -1,0 +1,34 @@
+{
+  PrivateNetworkIndex index=null;
+  if (networks.isEmpty()) {
+    LOG.warn("Failed to recover network index for " + input.getInstanceId() + " because no network group information is available: "+ input.getGroupNames());
+  }
+ else {
+    final EntityTransaction db=Entities.get(NetworkGroup.class);
+    try {
+      final NetworkGroup network=networks.get(0);
+      final NetworkGroup entity=Entities.merge(network);
+      ExtantNetwork exNet=null;
+      if (entity.hasExtantNetwork() && entity.extantNetwork().getTag().equals(input.getNetParams().getVlan())) {
+        LOG.info("Found matching extant network for " + input.getInstanceId() + ": "+ entity.extantNetwork());
+        index=entity.extantNetwork().reclaimNetworkIndex(input.getNetParams().getNetworkIndex());
+      }
+ else       if (entity.hasExtantNetwork() && !entity.extantNetwork().getTag().equals(input.getNetParams().getVlan())) {
+        LOG.warn("Found conflicting extant network for " + input.getInstanceId() + ": "+ entity.extantNetwork());
+      }
+ else {
+        LOG.debug("Restoring extant network for " + input.getInstanceId() + ": "+ input.getNetParams().getVlan());
+        exNet=entity.reclaim(input.getNetParams().getVlan());
+        LOG.info("Restore extant network for " + input.getInstanceId() + ": "+ entity.extantNetwork());
+        LOG.debug("Restoring private network index for " + input.getInstanceId() + ": "+ input.getNetParams().getNetworkIndex());
+        index=exNet.reclaimNetworkIndex(input.getNetParams().getNetworkIndex());
+      }
+      db.commit();
+    }
+ catch (    final Exception ex) {
+      Logs.exhaust().error(ex,ex);
+      db.rollback();
+    }
+  }
+  return index;
+}

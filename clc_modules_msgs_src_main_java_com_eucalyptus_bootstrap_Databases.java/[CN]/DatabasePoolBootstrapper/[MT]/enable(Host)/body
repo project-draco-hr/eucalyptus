@@ -1,47 +1,73 @@
 {
-  if (!host.hasDatabase() || !Bootstrap.isLoaded()) {
+  if (!host.hasDatabase()) {
     return false;
   }
  else {
     if (host.isLocalHost()) {
-      if (syncState.compareAndSet(SyncState.NOTSYNCED,SyncState.SYNCING)) {
+      if (SyncState.SYNCING.set()) {
         try {
           runDbStateChange(ActivateHostFunction.INSTANCE.apply(host));
-          syncState.set(SyncState.SYNCED);
+          SyncState.SYNCED.set();
           return true;
         }
- catch (        Exception ex) {
-          try {
-            runDbStateChange(DeactivateHostFunction.INSTANCE.apply(host.getDisplayName()));
-          }
- catch (          Exception ex1) {
-            LOG.error("Databases.enable(): failed because of: " + ex.getMessage());
-            Logs.extreme().error(ex,ex);
-          }
- finally {
-            syncState.set(SyncState.NOTSYNCED);
-          }
+ catch (        LockTimeoutException ex) {
+          SyncState.NOTSYNCED.set();
+          return false;
+        }
+catch (        Exception ex) {
+          SyncState.NOTSYNCED.set();
+          LOG.error(ex);
+          Logs.extreme().error(ex,ex);
+          return false;
+        }
+      }
+ else       if (!SyncState.SYNCING.isCurrent()) {
+        try {
+          runDbStateChange(ActivateHostFunction.INSTANCE.apply(host));
+          return true;
+        }
+ catch (        LockTimeoutException ex) {
+          return false;
+        }
+catch (        Exception ex) {
+          LOG.error(ex);
+          Logs.extreme().error(ex,ex);
           return false;
         }
       }
  else {
         try {
           runDbStateChange(ActivateHostFunction.INSTANCE.apply(host));
+          SyncState.SYNCED.set();
           return true;
         }
- catch (        Exception ex) {
+ catch (        LockTimeoutException ex) {
+          SyncState.NOTSYNCED.set();
+          return false;
+        }
+catch (        Exception ex) {
+          SyncState.NOTSYNCED.set();
+          LOG.error(ex,ex);
           return false;
         }
       }
     }
- else {
+ else     if (!ActiveHostSet.ACTIVATED.get().contains(host.getDisplayName())) {
       try {
         runDbStateChange(ActivateHostFunction.INSTANCE.apply(host));
         return true;
       }
- catch (      Exception ex) {
+ catch (      LockTimeoutException ex) {
         return false;
       }
+catch (      Exception ex) {
+        Logs.extreme().debug(ex);
+        ActivateHostFunction.rollback(host,ex);
+        return false;
+      }
+    }
+ else {
+      return ActiveHostSet.ACTIVATED.get().contains(host.getDisplayName());
     }
   }
 }
