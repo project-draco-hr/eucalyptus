@@ -15,43 +15,56 @@
               DriverDatabaseClusterMBean cluster=LookupPersistenceContextDatabaseCluster.INSTANCE.apply(contextName);
               final String dbUrl="jdbc:" + ServiceUris.remote(Database.class,host.getBindAddress(),contextName);
               final String realJdbcDriver=Databases.getDriverName();
-              try {
-                if (fullSync) {
-                  if (cluster.getActiveDatabases().contains(hostName)) {
-                    LOG.info("Deactivating existing database connections to: " + host);
-                    cluster.deactivate(hostName);
-                  }
-                  if (cluster.getInactiveDatabases().contains(hostName)) {
-                    LOG.info("Deactivating existing database connections to: " + host);
-                    cluster.remove(hostName);
-                  }
-                  LOG.info("Creating database connections for: " + host);
-                  cluster.add(hostName,realJdbcDriver,dbUrl);
-                  ActivateHostFunction.prepareConnections(host,contextName);
-                  LOG.info("Full sync of database on: " + host + " using "+ cluster.getActiveDatabases());
-                  cluster.activate(hostName,"full");
-                  return;
+              String syncStrategy="passive";
+              boolean activated=cluster.getActiveDatabases().contains(hostName);
+              boolean deactivated=cluster.getInactiveDatabases().contains(hostName);
+              syncStrategy=(fullSync ? "full" : "passive");
+              if (activated) {
+                return;
+              }
+ else               if (deactivated) {
+                ActivateHostFunction.prepareConnections(host,contextName);
+              }
+ else {
+                LOG.info("Creating database connections for: " + host);
+                try {
+                  cluster.getDatabase(hostName);
                 }
- else                 if (passiveSync) {
+ catch (                IllegalArgumentException ex2) {
                   try {
-                    cluster.getDatabase(hostName);
+                    cluster.add(hostName,realJdbcDriver,dbUrl);
+                    Logs.extreme().debug("Added db connections for host: " + hostName);
                   }
  catch (                  IllegalArgumentException ex) {
-                    try {
+                    Logs.extreme().debug("Skipping addition of db connections for host which already exists: " + hostName);
+                  }
+catch (                  IllegalStateException ex) {
+                    if (Exceptions.isCausedBy(ex,InstanceAlreadyExistsException.class)) {
+                      ManagementFactory.getPlatformMBeanServer().unregisterMBean(new ObjectName("net.sf.hajdbc:cluster=" + ctx + ",database="+ hostName));
                       cluster.add(hostName,realJdbcDriver,dbUrl);
                     }
- catch (                    Exception ex1) {
+ else {
+                      throw ex;
                     }
                   }
-                  if (!cluster.getActiveDatabases().contains(hostName)) {
-                    ActivateHostFunction.prepareConnections(host,contextName);
-                    LOG.info("Passive activation of database connections to: " + host);
-                    cluster.activate(hostName,"passive");
-                  }
+                }
+                ActivateHostFunction.prepareConnections(host,contextName);
+              }
+              try {
+                if (fullSync) {
+                  LOG.info("Full sync of database on: " + host);
                 }
  else {
-                  Logs.extreme().info("Skipping activation of already present database for: " + contextName + " on "+ hostName);
+                  LOG.info("Passive activation of database connections to: " + host);
                 }
+                cluster.activate(hostName,syncStrategy);
+                if (fullSync) {
+                  LOG.info("Full sync of database on: " + host + " using "+ cluster.getActiveDatabases());
+                }
+ else {
+                  LOG.info("Passive activation of database on: " + host + " using "+ cluster.getActiveDatabases());
+                }
+                return;
               }
  catch (              Exception ex) {
                 throw Exceptions.toUndeclared(ex);
@@ -59,16 +72,17 @@
             }
           }
  catch (          final NoSuchElementException ex1) {
-            LOG.info(ex1);
-            Logs.extreme().debug(ex1,ex1);
+            LOG.error(ex1);
+            Logs.extreme().error(ex1,ex1);
             return;
           }
 catch (          final IllegalStateException ex1) {
-            LOG.info(ex1);
-            Logs.extreme().debug(ex1,ex1);
+            LOG.error(ex1);
+            Logs.extreme().error(ex1,ex1);
             return;
           }
 catch (          final Exception ex1) {
+            LOG.error(ex1);
             Logs.extreme().error(ex1,ex1);
             throw Exceptions.toUndeclared("Failed to activate host " + host + " because of: "+ ex1.getMessage(),ex1);
           }
