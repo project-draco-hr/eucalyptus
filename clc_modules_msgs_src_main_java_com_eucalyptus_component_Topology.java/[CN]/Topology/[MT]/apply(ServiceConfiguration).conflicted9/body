@@ -1,3 +1,31 @@
 {
-  return input.getFullName() + ":" + input.lookupState();
+  if (config.getComponentId().isManyToOnePartition()) {
+    try {
+      return super.apply(config);
+    }
+ catch (    final RuntimeException ex) {
+      throw ex;
+    }
+  }
+ else   if (Topology.guard().tryEnable(config)) {
+    try {
+      return super.apply(config);
+    }
+ catch (    final RuntimeException ex) {
+      Topology.guard().tryDisable(config);
+      throw ex;
+    }
+  }
+ else {
+    try {
+      return ServiceTransitions.pathTo(config,Component.State.DISABLED).get();
+    }
+ catch (    final InterruptedException ex) {
+      Thread.currentThread().interrupt();
+      throw Exceptions.toUndeclared(ex);
+    }
+catch (    final ExecutionException ex) {
+      throw Exceptions.toUndeclared(ex);
+    }
+  }
 }
