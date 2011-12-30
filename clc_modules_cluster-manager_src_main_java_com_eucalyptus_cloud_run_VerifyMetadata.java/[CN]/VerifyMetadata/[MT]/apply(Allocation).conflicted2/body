@@ -1,20 +1,26 @@
 {
-  if (allocInfo.getRequest().getKeyName() == null || "".equals(allocInfo.getRequest().getKeyName())) {
-    if (ImageMetadata.Platform.windows.name().equals(allocInfo.getBootSet().getMachine().getPlatform())) {
-      throw new InvalidMetadataException("You must specify a keypair when running a windows vm: " + allocInfo.getRequest().getImageId());
+  RunInstancesType msg=allocInfo.getRequest();
+  String imageId=msg.getImageId();
+  VmType vmType=allocInfo.getVmType();
+  try {
+    BootableSet bootSet=Emis.newBootableSet(imageId);
+    allocInfo.setBootableSet(bootSet);
+    if (bootSet.isBlockStorage()) {
     }
- else {
-      allocInfo.setSshKeyPair(KeyPairs.noKey());
-      return true;
+ else     if (Platform.windows.equals(bootSet.getMachine().getPlatform()) && bootSet.getMachine().getImageSizeBytes() > ((1024L * 1024L * 1024L* vmType.getDisk()) + (1024L * 1024L * 10))) {
+      throw new VerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
+    }
+ else     if (bootSet.getMachine().getImageSizeBytes() >= ((1024L * 1024L * 1024L* vmType.getDisk()))) {
+      throw new VerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
     }
   }
-  Context ctx=allocInfo.getContext();
-  RunInstancesType request=allocInfo.getRequest();
-  String keyName=request.getKeyName();
-  SshKeyPair key=KeyPairs.lookup(ctx.getUserFullName().asAccountFullName(),keyName);
-  if (!ctx.hasAdministrativePrivileges() && !RestrictedTypes.filterPrivileged().apply(key)) {
-    throw new IllegalMetadataAccessException("Not authorized to use keypair " + keyName + " by "+ ctx.getUser().getName());
+ catch (  MetadataException ex) {
+    LOG.error(ex);
+    throw ex;
   }
-  allocInfo.setSshKeyPair(key);
+catch (  RuntimeException ex) {
+    LOG.error(ex);
+    throw new VerificationException("Failed to verify references for request: " + msg.toSimpleString() + " because of: "+ ex.getMessage(),ex);
+  }
   return true;
 }
