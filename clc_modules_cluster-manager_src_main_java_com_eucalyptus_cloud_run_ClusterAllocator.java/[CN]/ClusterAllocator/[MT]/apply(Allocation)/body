@@ -1,10 +1,23 @@
 {
   try {
-    EventRecord.here(ClusterAllocator.class,EventType.VM_PREPARE,LogUtil.dumpObject(allocInfo)).trace();
-    Threads.enqueue(ServiceConfigurations.createEphemeral(ClusterController.INSTANCE),new ClusterAllocator(allocInfo));
+    EventRecord.here(ClusterAllocator.class,EventType.VM_PREPARE,LogUtil.dumpObject(allocInfo)).info();
+    final ServiceConfiguration config=Topology.lookup(ClusterController.class,allocInfo.getPartition());
+    final Runnable runnable=new Runnable(){
+      @Override public void run(){
+        try {
+          new ClusterAllocator(allocInfo).run();
+        }
+ catch (        final Exception ex) {
+          LOG.warn("Failed to prepare allocator for: " + allocInfo.getAllocationTokens());
+          LOG.error("Failed to prepare allocator for: " + allocInfo.getAllocationTokens(),ex);
+        }
+      }
+    }
+;
+    Threads.enqueue(config,32,runnable);
     return true;
   }
- catch (  Exception ex) {
+ catch (  final Exception ex) {
     throw Exceptions.toUndeclared(ex);
   }
 }

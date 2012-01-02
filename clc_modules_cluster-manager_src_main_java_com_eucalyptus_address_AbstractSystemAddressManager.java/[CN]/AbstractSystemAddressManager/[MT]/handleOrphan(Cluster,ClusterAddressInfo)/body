@@ -8,15 +8,43 @@
     EventRecord.caller(ClusterState.class,EventType.ADDRESS_STATE,"Unassigning orphaned public ip address: " + LogUtil.dumpObject(address) + " count="+ orphanCount).warn();
     try {
       final Address addr=Addresses.getInstance().lookup(address.getAddress());
-      if (addr.isAssigned()) {
-        AsyncRequests.newRequest(new UnassignAddressCallback(address)).dispatch(cluster.getConfiguration());
+      if (addr.isPending()) {
+        try {
+          addr.clearPending();
+        }
+ catch (        Exception ex) {
+        }
       }
- else       if (addr.isSystemOwned()) {
-        addr.release();
+      try {
+        if (addr.isAssigned() && "0.0.0.0".equals(address.getInstanceIp())) {
+          addr.unassign().clearPending();
+          if (addr.isSystemOwned()) {
+            addr.release();
+          }
+        }
+ else         if (addr.isAssigned() && !"0.0.0.0".equals(address.getInstanceIp())) {
+          AsyncRequests.newRequest(new UnassignAddressCallback(address)).sendSync(cluster.getConfiguration());
+          if (addr.isSystemOwned()) {
+            addr.release();
+          }
+        }
+ else         if (!addr.isAssigned() && addr.isAllocated() && addr.isSystemOwned()) {
+          addr.release();
+        }
+      }
+ catch (      ExecutionException ex) {
+        if (!addr.isAssigned() && addr.isAllocated() && addr.isSystemOwned()) {
+          addr.release();
+        }
       }
     }
- catch (    NoSuchElementException e) {
+ catch (    InterruptedException ex) {
+      Exceptions.maybeInterrupted(ex);
     }
-    orphans.remove(address);
+catch (    NoSuchElementException ex) {
+    }
+ finally {
+      orphans.remove(address);
+    }
   }
 }

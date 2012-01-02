@@ -1,0 +1,22 @@
+{
+  if (!isVolatile()) {
+    return;
+  }
+ else {
+    Collection<StackTraceElement> stack=Threads.filteredStack(stackFilter);
+    String caller=(stack.isEmpty() ? "" : stack.iterator().next().toString());
+    for (int i=0; i < MAX_TX_START_SYNC_RETRIES && isVolatile(); i++) {
+      try {
+        TimeUnit.MILLISECONDS.sleep(1000);
+        LOG.debug("Transaction blocked on sync: " + caller);
+      }
+ catch (      InterruptedException ex) {
+        Exceptions.maybeInterrupted(ex);
+        return;
+      }
+    }
+    if (isVolatile()) {
+      throw new DatabaseStateException("Transaction begin failed due to concurrent database synchronization: " + Hosts.listDatabases() + " for caller:\n"+ Joiner.on("\n\tat ").join(stack));
+    }
+  }
+}

@@ -2,17 +2,31 @@
   for (  final PeriodicMembershipChecks runner : PeriodicMembershipChecks.values()) {
     Runnable safeRunner=new Runnable(){
       @Override public void run(){
-        if (!Bootstrap.isFinished() || Bootstrap.isShuttingDown()) {
+        if (!Bootstrap.isLoaded() || Bootstrap.isShuttingDown()) {
           return;
         }
  else {
-          LOG.debug(runner.toString() + ": RUNNING");
           try {
-            runner.run();
+            if (PeriodicMembershipChecks.canHasChecks.tryLock(1,TimeUnit.SECONDS)) {
+              try {
+                LOG.debug(runner.toString() + ": RUNNING");
+                try {
+                  runner.run();
+                }
+ catch (                Exception ex) {
+                  LOG.error(runner.toString() + ": FAILED because of: " + ex.getMessage());
+                  Logs.extreme().error(runner.toString() + ": FAILED because of: " + ex.getMessage(),ex);
+                }
+              }
+  finally {
+                PeriodicMembershipChecks.canHasChecks.unlock();
+              }
+            }
           }
  catch (          Exception ex) {
-            LOG.error(runner.toString() + ": FAILED because of: " + ex.getMessage());
-            Logs.extreme().error(runner.toString() + ": FAILED because of: " + ex.getMessage(),ex);
+            Exceptions.maybeInterrupted(ex);
+            LOG.debug(runner.toString() + ": SKIPPED: " + ex.getMessage());
+            Logs.extreme().debug(ex,ex);
           }
         }
       }
