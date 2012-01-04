@@ -16,14 +16,26 @@
       @Override public Boolean apply(      final VmInfo input){
         final VmInstance vm=VmInstances.lookup(input.getInstanceId());
         vm.updateAddresses(input.getNetParams().getIpAddress(),input.getNetParams().getIgnoredPublicIp());
+        final ServiceConfiguration ccConfig=Topology.lookup(ClusterController.class,vm.lookupPartition());
         final Address addr=VmRunCallback.this.token.getAddress();
         if (addr != null) {
-          AsyncRequests.newRequest(addr.assign(vm).getCallback()).then(new Callback.Success<BaseMessage>(){
-            @Override public void fire(            final BaseMessage response){
-              vm.updateAddresses(addr.getInstanceAddress(),addr.getName());
+          try {
+            AsyncRequests.newRequest(addr.assign(vm).getCallback()).then(new Callback.Success<BaseMessage>(){
+              @Override public void fire(              final BaseMessage response){
+                vm.updateAddresses(addr.getInstanceAddress(),addr.getName());
+              }
             }
+).sendSync(ccConfig);
           }
-).dispatch(vm.getPartition());
+ catch (          InterruptedException ex) {
+            Exceptions.maybeInterrupted(ex);
+            Addresses.release(addr);
+          }
+catch (          Exception ex) {
+            LOG.error(ex);
+            Logs.extreme().error(ex,ex);
+            Addresses.release(addr);
+          }
         }
         return true;
       }
