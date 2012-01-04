@@ -1,20 +1,6 @@
 {
   LOG.debug(LogUtil.header("Failing run instances because of: " + e.getMessage()),e);
   LOG.debug(LogUtil.subheader(VmRunCallback.this.getRequest().toString()));
-  Predicate<Throwable> rollbackToken=new Predicate<Throwable>(){
-    @Override public boolean apply(    Throwable input){
-      LOG.debug("-> Release resource tokens for unused resources.");
-      try {
-        VmRunCallback.this.token.abort();
-      }
- catch (      final Exception ex) {
-        LOG.error(ex.getMessage());
-        Logs.extreme().error(ex,ex);
-      }
-      return true;
-    }
-  }
-;
   Predicate<Throwable> rollbackAddr=new Predicate<Throwable>(){
     @Override public boolean apply(    Throwable input){
       final Address addr=VmRunCallback.this.token.getAddress();
@@ -31,7 +17,27 @@
   }
 ;
   try {
-    Entities.asTransaction(VmInstance.class,Functions.forPredicate(Predicates.and(rollbackToken,rollbackAddr))).apply(e);
+    Entities.asTransaction(VmInstance.class,Functions.forPredicate(rollbackAddr)).apply(e);
+  }
+ catch (  Exception ex) {
+    Logs.extreme().error(ex,ex);
+  }
+  Predicate<Throwable> rollbackToken=new Predicate<Throwable>(){
+    @Override public boolean apply(    Throwable input){
+      LOG.debug("-> Release resource tokens for unused resources.");
+      try {
+        VmRunCallback.this.token.abort();
+      }
+ catch (      final Exception ex) {
+        LOG.error(ex.getMessage());
+        Logs.extreme().error(ex,ex);
+      }
+      return true;
+    }
+  }
+;
+  try {
+    Entities.asTransaction(VmInstance.class,Functions.forPredicate(rollbackToken)).apply(e);
   }
  catch (  Exception ex) {
     Logs.extreme().error(ex,ex);

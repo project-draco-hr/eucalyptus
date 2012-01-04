@@ -4,28 +4,39 @@
     this.token.abort();
     throw new EucalyptusClusterException("Failed to run instance: " + this.getRequest().getInstanceId());
   }
-  Function<VmRunResponseType,Boolean> redeemToken=new Function<VmRunResponseType,Boolean>(){
-    @Override public Boolean apply(    final VmRunResponseType reply){
-      try {
-        VmRunCallback.this.token.redeem();
-      }
- catch (      Exception ex) {
-        LOG.error(ex);
-        Logs.extreme().error(ex,ex);
-      }
-      for (      final VmInfo vmInfo : reply.getVms()) {
-        final VmInstance vm=VmInstances.lookup(vmInfo.getInstanceId());
-        vm.updateAddresses(vmInfo.getNetParams().getIpAddress(),vmInfo.getNetParams().getIgnoredPublicIp());
-      }
-      return true;
+ else {
+    try {
+      this.token.redeem();
     }
-  }
+ catch (    Exception ex) {
+      LOG.error(ex);
+      Logs.extreme().error(ex,ex);
+    }
+    Function<VmInfo,Boolean> redeemToken=new Function<VmInfo,Boolean>(){
+      @Override public Boolean apply(      final VmInfo input){
+        final VmInstance vm=VmInstances.lookup(input.getInstanceId());
+        vm.updateAddresses(input.getNetParams().getIpAddress(),input.getNetParams().getIgnoredPublicIp());
+        final Address addr=VmRunCallback.this.token.getAddress();
+        if (addr != null) {
+          AsyncRequests.newRequest(addr.assign(vm).getCallback()).then(new Callback.Success<BaseMessage>(){
+            @Override public void fire(            final BaseMessage response){
+              vm.updateAddresses(addr.getInstanceAddress(),addr.getName());
+            }
+          }
+).dispatch(vm.getPartition());
+        }
+        return true;
+      }
+    }
 ;
-  try {
-    Entities.asTransaction(VmInstance.class,redeemToken).apply(reply);
-  }
- catch (  RuntimeException ex) {
-    LOG.error(ex,ex);
-    throw ex;
+    for (    final VmInfo vmInfo : reply.getVms()) {
+      try {
+        Entities.asTransaction(VmInstance.class,redeemToken,10).apply(vmInfo);
+      }
+ catch (      RuntimeException ex) {
+        LOG.error("Failed: " + this.token + " because of "+ ex.getMessage(),ex);
+        throw ex;
+      }
+    }
   }
 }
