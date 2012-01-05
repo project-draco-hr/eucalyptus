@@ -88,10 +88,12 @@ catch (        EucalyptusCloudException ex) {
             if (WalrusDataMessage.isEOF(dataMessage)) {
               WalrusMonitor monitor=messenger.getMonitor(key);
               if (monitor.getLastModified() == null) {
+                LOG.trace("Monitor wait: " + key + " random: "+ randomKey);
 synchronized (monitor) {
                   monitor.wait();
                 }
               }
+              LOG.trace("Monitor resume: " + key + " random: "+ randomKey);
               lastModified=monitor.getLastModified();
               md5=monitor.getMd5();
               if (fileIO != null)               fileIO.finish();
@@ -115,7 +117,19 @@ synchronized (monitor) {
             }
           }
  else           if (WalrusDataMessage.isEOF(dataMessage)) {
-            if (digest != null)             md5=Hashes.bytesToHex(digest.digest());
+            if (digest != null) {
+              md5=Hashes.bytesToHex(digest.digest());
+            }
+ else {
+              WalrusMonitor monitor=messenger.getMonitor(key);
+              md5=monitor.getMd5();
+              lastModified=monitor.getLastModified();
+              if (md5 == null) {
+                LOG.error("ETag did not match for: " + randomKey + " Computed MD5 is null");
+                throw new ContentMismatchException(bucketName + "/" + objectKey);
+              }
+              break;
+            }
             String contentMD5=request.getContentMD5();
             if (contentMD5 != null) {
               String contentMD5AsHex=Hashes.bytesToHex(Base64.decode(contentMD5));
@@ -124,6 +138,7 @@ synchronized (monitor) {
                 ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,-1L,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
                 Threads.lookup(Walrus.class,WalrusManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
                 messenger.removeQueue(key,randomKey);
+                LOG.error("ETag did not match for: " + randomKey + " Expected: "+ contentMD5AsHex+ " Computed: "+ md5);
                 throw new ContentMismatchException(bucketName + "/" + objectKey);
               }
             }
@@ -140,10 +155,6 @@ synchronized (monitor) {
             ObjectInfo searchObject=new ObjectInfo(bucketName,objectKey);
             searchObject.setVersionId(versionId);
             EntityWrapper<ObjectInfo> dbObject=EntityWrapper.get(ObjectInfo.class);
-            List<ObjectInfo> objectInfos=dbObject.query(new ObjectInfo(bucketName,objectKey));
-            for (            ObjectInfo objInfo : objectInfos) {
-              objInfo.setLast(false);
-            }
             ObjectInfo foundObject;
             try {
               foundObject=dbObject.getUnique(searchObject);
@@ -174,7 +185,7 @@ synchronized (monitor) {
                 foundObject=objectInfo;
               }
  else {
-                db.rollback();
+                dbObject.rollback();
                 throw new EucalyptusCloudException("Unable to update object: " + bucketName + "/"+ objectKey);
               }
             }
@@ -189,15 +200,6 @@ synchronized (monitor) {
             foundObject.setLast(true);
             foundObject.setDeleted(false);
             reply.setSize(size);
-            ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
-            deleteMarker.setDeleted(true);
-            try {
-              ObjectInfo foundDeleteMarker=dbObject.getUnique(deleteMarker);
-              dbObject.delete(foundDeleteMarker);
-            }
- catch (            EucalyptusCloudException ex) {
-              LOG.trace("No delete marker found for: " + bucketName + "/"+ objectKey);
-            }
             if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
               dbObject.rollback();
               LOG.error("Quota exceeded for Walrus putObject");
@@ -237,7 +239,43 @@ catch (              EucalyptusCloudException ex) {
               logData.setObjectSize(size);
               updateLogData(bucket,logData);
             }
-            if (objectInfo != null)             dbObject.add(foundObject);
+            if (objectInfo != null) {
+              dbObject.add(foundObject);
+            }
+            success=false;
+            try {
+              dbObject.commit();
+              success=true;
+            }
+ catch (            RollbackException ex) {
+              dbObject.rollback();
+              LOG.error(ex,ex);
+            }
+            dbObject=EntityWrapper.get(ObjectInfo.class);
+            List<ObjectInfo> objectInfos=dbObject.query(new ObjectInfo(bucketName,objectKey));
+            for (            ObjectInfo objInfo : objectInfos) {
+              if (!success) {
+                if (objInfo.getLast()) {
+                  lastModified=objInfo.getLastModified();
+                  md5=objInfo.getEtag();
+                }
+                success=true;
+              }
+              if (!versionId.equals(objInfo.getVersionId())) {
+                objInfo.setLast(false);
+              }
+            }
+            dbObject.commit();
+            dbObject=EntityWrapper.get(ObjectInfo.class);
+            ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
+            deleteMarker.setDeleted(true);
+            try {
+              ObjectInfo foundDeleteMarker=dbObject.getUnique(deleteMarker);
+              dbObject.delete(foundDeleteMarker);
+            }
+ catch (            EucalyptusCloudException ex) {
+              LOG.trace("No delete marker found for: " + bucketName + "/"+ objectKey);
+            }
             dbObject.commit();
             if (logData != null) {
               logData.setTurnAroundTime(Long.parseLong(new String(dataMessage.getPayload())));
@@ -248,7 +286,7 @@ synchronized (monitor) {
               monitor.setMd5(md5);
               monitor.notifyAll();
             }
-            messenger.removeMonitor(key);
+            messenger.clearQueues(key);
             messenger.removeQueue(key,randomKey);
             LOG.info("Transfer complete: " + key);
             QueueSender queueSender=QueueFactory.getInstance().getSender(QueueIdentifier.S3);

@@ -44,16 +44,25 @@
       bucket.setHidden(false);
       if (locationConstraint != null)       bucket.setLocation(locationConstraint);
  else       bucket.setLocation("US");
-      db.add(bucket);
       try {
+        db.add(bucket);
+        db.commit();
         storageManager.createBucket(bucketName);
         if (WalrusProperties.trackUsageStatistics)         walrusStatistics.incrementBucketCount();
-        db.commit();
       }
  catch (      IOException ex) {
-        LOG.error(ex);
+        LOG.error(ex,ex);
+        throw new BucketAlreadyExistsException(bucketName);
+      }
+catch (      Exception ex) {
+        LOG.error(ex,ex);
         db.rollback();
-        throw new EucalyptusCloudException("Unable to create bucket: " + bucketName);
+        if (Exceptions.isCausedBy(ex,ConstraintViolationException.class)) {
+          throw new BucketAlreadyExistsException(bucketName);
+        }
+ else {
+          throw new EucalyptusCloudException("Unable to create bucket: " + bucketName);
+        }
       }
     }
  else {
