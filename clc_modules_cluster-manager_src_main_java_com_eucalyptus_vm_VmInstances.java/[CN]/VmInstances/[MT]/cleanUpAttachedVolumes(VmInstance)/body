@@ -2,8 +2,14 @@
   try {
     ServiceConfiguration ccConfig=Topology.lookup(ClusterController.class,vm.lookupPartition());
     final Cluster cluster=Clusters.lookup(ccConfig);
-    vm.eachVolumeAttachment(new Predicate<AttachedVolume>(){
-      @Override public boolean apply(      final AttachedVolume arg0){
+    vm.eachVolumeAttachment(new Predicate<VmVolumeAttachment>(){
+      @Override public boolean apply(      final VmVolumeAttachment arg0){
+        if (arg0.getDeleteOnTerminate() && !arg0.getRemoveOnCleanUp()) {
+        }
+ else         if (!arg0.getDeleteOnTerminate() && !arg0.getRemoveOnCleanUp()) {
+        }
+ else {
+        }
         if ("/dev/sda1".equals(arg0.getDevice())) {
           try {
             final ServiceConfiguration sc=Topology.lookup(Storage.class,vm.lookupPartition());
@@ -22,6 +28,10 @@
             vm.removeVolumeAttachment(arg0.getVolumeId());
             final Dispatcher scDispatcher=ServiceDispatcher.lookup(sc);
             scDispatcher.send(new DetachStorageVolumeType(cluster.getNode(vm.getServiceTag()).getIqn(),arg0.getVolumeId()));
+            AttachedVolume attachedVolume=vm.lookupVolumeAttachment(arg0.getVolumeId());
+            if (attachedVolume.getDeleteOnTerminate()) {
+              scDispatcher.send(new DeleteStorageVolumeType(attachedVolume.getVolumeId()));
+            }
             return true;
           }
  catch (          final Throwable e) {
