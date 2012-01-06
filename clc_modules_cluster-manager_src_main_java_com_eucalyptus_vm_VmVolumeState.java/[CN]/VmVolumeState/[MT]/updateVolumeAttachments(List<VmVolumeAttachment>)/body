@@ -1,4 +1,12 @@
 {
+  Set<String> remoteVolumes=Sets.newHashSet(Collections2.transform(ncAttachedVols,VmVolumeAttachmentName.INSTANCE));
+  Set<String> localVolumes=Sets.newHashSet(Collections2.transform(this.getAttachments(),VmVolumeAttachmentName.INSTANCE));
+  Set<String> intersection=Sets.intersection(remoteVolumes,localVolumes);
+  Set<String> remoteOnly=Sets.difference(remoteVolumes,localVolumes);
+  Set<String> localOnly=Sets.difference(localVolumes,remoteVolumes);
+  if (!intersection.isEmpty() || !remoteOnly.isEmpty() || !localOnly.isEmpty()) {
+    LOG.debug("Updating volume attachments for: " + this.getVmInstance().getInstanceId() + " intersection="+ intersection+ " local="+ localOnly+ " remote="+ remoteOnly);
+  }
   final Map<String,VmVolumeAttachment> ncAttachedVolMap=new HashMap<String,VmVolumeAttachment>(){
 {
       for (      final VmVolumeAttachment v : ncAttachedVols) {
@@ -7,27 +15,63 @@
     }
   }
 ;
-  this.eachVolumeAttachment(new Predicate<VmVolumeAttachment>(){
-    @Override public boolean apply(    final VmVolumeAttachment arg0){
-      final String volId=arg0.getVolumeId();
-      if (ncAttachedVolMap.containsKey(volId)) {
-        final VmVolumeAttachment ncVol=ncAttachedVolMap.get(volId);
-        if ("detached".equals(ncVol.getStatus()) || "attaching failed".equals(ncVol.getStatus())) {
-          VmVolumeState.this.removeVolumeAttachment(volId);
+  for (  String volId : intersection) {
+    try {
+      VmVolumeAttachment ncVolumeAttachment=ncAttachedVolMap.get(volId);
+      VmVolumeAttachment localVolumeAttachment=this.lookupVolumeAttachment(volId);
+      final AttachmentState localState=localVolumeAttachment.getAttachmentState();
+      final AttachmentState remoteState=AttachmentState.parse(ncVolumeAttachment.getStatus());
+      if (!localState.isVolatile()) {
+        if (AttachmentState.detached.equals(remoteState)) {
+          this.removeVolumeAttachment(volId);
         }
- else         if ("attaching".equals(arg0.getStatus()) || "attached".equals(ncVol.getStatus()) || "detach failed".equals(ncVol.getStatus())) {
-          VmVolumeState.this.updateVolumeAttachment(volId,arg0.getStatus());
+ else         if (AttachmentState.attaching_failed.equals(remoteState)) {
+          this.removeVolumeAttachment(volId);
+        }
+ else         if (AttachmentState.detaching_failed.equals(remoteState) && !AttachmentState.attached.equals(localState)) {
+          this.updateVolumeAttachment(volId,AttachmentState.attached);
+        }
+ else         if (AttachmentState.detaching_failed.equals(remoteState) && !AttachmentState.attached.equals(localState)) {
+          this.updateVolumeAttachment(volId,AttachmentState.attached);
         }
       }
-      ncAttachedVolMap.remove(volId);
-      return true;
+ else {
+        if (AttachmentState.attaching_failed.equals(remoteState)) {
+          this.removeVolumeAttachment(volId);
+        }
+ else         if (AttachmentState.detaching_failed.equals(remoteState) && !AttachmentState.attached.equals(localState)) {
+          this.updateVolumeAttachment(volId,AttachmentState.attached);
+        }
+ else         if (AttachmentState.attached.equals(remoteState) && !localState.equals(remoteState)) {
+          this.updateVolumeAttachment(volId,remoteState);
+        }
+      }
+    }
+ catch (    Exception ex) {
+      LOG.error(ex);
     }
   }
-);
-  for (  final VmVolumeAttachment v : ncAttachedVolMap.values()) {
-    if ("attached".equals(v.getStatus()) || "detach failed".equals(v.getStatus())) {
-      LOG.warn("Restoring volume attachment state for " + this.getVmInstance().getInstanceId() + " with "+ v.toString());
-      this.addVolumeAttachment(v);
+  for (  String volId : remoteOnly) {
+    try {
+      VmVolumeAttachment ncVolumeAttachment=ncAttachedVolMap.get(volId);
+      final AttachmentState remoteState=AttachmentState.parse(ncVolumeAttachment.getStatus());
+      if (AttachmentState.attached.equals(remoteState) || AttachmentState.detaching_failed.equals(remoteState)) {
+        LOG.warn("Restoring volume attachment state for " + this.getVmInstance().getInstanceId() + " with "+ ncVolumeAttachment.toString());
+        this.addVolumeAttachment(ncVolumeAttachment);
+      }
+    }
+ catch (    Exception ex) {
+      LOG.error(ex);
+    }
+  }
+  for (  String volId : localOnly) {
+    try {
+      final AttachmentState localState=this.lookupVolumeAttachment(volId).getAttachmentState();
+      if (!localState.isVolatile()) {
+      }
+    }
+ catch (    Exception ex) {
+      LOG.error(ex);
     }
   }
 }

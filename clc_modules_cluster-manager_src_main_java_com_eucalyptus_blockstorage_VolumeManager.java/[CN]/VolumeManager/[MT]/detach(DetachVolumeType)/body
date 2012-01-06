@@ -17,13 +17,12 @@
   }
   VmInstance vm=null;
   AttachedVolume volume=null;
-  for (  VmInstance iter : VmInstances.list(Predicates.not(VmState.TERMINATED))) {
-    try {
-      volume=iter.lookupVolumeAttachment(request.getVolumeId());
-      vm=iter;
-    }
- catch (    NoSuchElementException ex) {
-    }
+  try {
+    VmVolumeAttachment vmVolAttach=VmInstances.lookupVolumeAttachment(request.getVolumeId());
+    volume=VmVolumeAttachment.asAttachedVolume(vmVolAttach.getVmInstance()).apply(vmVolAttach);
+    vm=vmVolAttach.getVmInstance();
+  }
+ catch (  NoSuchElementException ex) {
   }
   if (volume == null) {
     throw new EucalyptusCloudException("Volume is not attached: " + request.getVolumeId());
@@ -53,10 +52,10 @@
   }
  catch (  Exception ex) {
     LOG.error(ex,ex);
-    throw new EucalyptusCloudException("Failed to lookup SC for cluster: " + cluster,ex);
+    throw new EucalyptusCloudException("Failed to lookup SC for partition: " + vm.getPartition(),ex);
   }
   try {
-    ServiceDispatcher.lookup(scVm).send(new DetachStorageVolumeType(cluster.getNode(vm.getServiceTag()).getIqn(),volume.getVolumeId()));
+    AsyncRequests.sendSync(scVm,new DetachStorageVolumeType(cluster.getNode(vm.getServiceTag()).getIqn(),volume.getVolumeId()));
   }
  catch (  Exception e) {
     LOG.debug(e,e);

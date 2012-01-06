@@ -1,44 +1,40 @@
 {
-  Function<VmInfo,VmInstance> handleFunc=new Function<VmInfo,VmInstance>(){
-    @Override public VmInstance apply(    VmInfo runVm){
-      VmInstance vm=null;
-      try {
-        final VmState runVmState=VmState.Mapper.get(runVm.getStateName());
-        vm=VmInstances.lookup(runVm.getInstanceId());
-        if (VmInstances.Timeout.EXPIRED.apply(vm)) {
-          VmInstances.shutDown(vm);
-        }
- else         if (VmState.SHUTTING_DOWN.equals(runVmState)) {
-          VmStateCallback.handleReportedTeardown(vm,runVm);
-        }
- else         if (VmStateSet.RUN.apply(vm)) {
-          vm.doUpdate().apply(runVm);
-        }
- else         if (!VmStateSet.RUN.apply(vm) && VmStateSet.RUN.contains(runVmState) && vm.lastUpdateMillis() > (VmInstances.VOLATILE_STATE_TIMEOUT_SEC * 1000l)) {
-          vm.doUpdate().apply(runVm);
-        }
+  final VmState runVmState=VmState.Mapper.get(runVm.getStateName());
+  try {
+    EntityTransaction db=Entities.get(VmInstance.class);
+    try {
+      VmInstance vm=VmInstances.lookup(runVm.getInstanceId());
+      if (VmInstances.Timeout.EXPIRED.apply(vm)) {
+        VmInstances.shutDown(vm);
+      }
+ else       if (VmState.SHUTTING_DOWN.equals(runVmState)) {
+        VmStateCallback.handleReportedTeardown(vm,runVm);
+      }
+ else       if (VmStateSet.RUN.apply(vm)) {
+        vm.doUpdate().apply(runVm);
+      }
+ else       if (!VmStateSet.RUN.apply(vm) && VmStateSet.RUN.contains(runVmState) && vm.lastUpdateMillis() > (VmInstances.VOLATILE_STATE_TIMEOUT_SEC * 1000l)) {
+        vm.doUpdate().apply(runVm);
+      }
  else {
-          throw new Exception("Can't handle the instance's reported state (" + runVmState + ")");
-        }
+        db.rollback();
+        return;
       }
- catch (      TerminatedInstanceException ex1) {
-        LOG.trace("Ignore state update to terminated instance: " + runVm.getInstanceId());
-        throw Exceptions.toUndeclared(ex1);
-      }
-catch (      NoSuchElementException ex1) {
-        throw Exceptions.toUndeclared(ex1);
-      }
-catch (      Exception ex1) {
-        throw Exceptions.toUndeclared(ex1);
-      }
-      return vm;
+      Entities.commit(db);
+    }
+ catch (    Exception ex) {
+      LOG.error(ex);
+      Logs.extreme().error(ex,ex);
+      db.rollback();
+      throw ex;
     }
   }
-;
-  try {
-    Entities.asTransaction(VmInstance.class,handleFunc).apply(runVm);
+ catch (  TerminatedInstanceException ex1) {
+    LOG.trace("Ignore state update to terminated instance: " + runVm.getInstanceId());
   }
- catch (  Exception ex1) {
+catch (  NoSuchElementException ex1) {
+  }
+catch (  Exception ex1) {
     LOG.error(ex1);
     Logs.extreme().error(ex1,ex1);
   }
