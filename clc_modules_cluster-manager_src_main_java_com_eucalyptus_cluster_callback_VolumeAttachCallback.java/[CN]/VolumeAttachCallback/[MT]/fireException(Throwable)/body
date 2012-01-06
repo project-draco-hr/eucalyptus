@@ -16,15 +16,16 @@
  catch (    EucalyptusCloudException ex) {
       LOG.error(ex,ex);
     }
-    AttachedVolume failVol=new AttachedVolume(this.getRequest().getVolumeId());
-    try {
-      AttachedVolume volume=vm.removeVolumeAttachment(this.getRequest().getVolumeId());
-      LOG.debug("Found volume attachment info in async error path: " + volume);
+    final Function<String,VmInstance> removeVolAttachment=new Function<String,VmInstance>(){
+      public VmInstance apply(      final String input){
+        VmInstance vm=VmInstances.lookup(input);
+        vm.removeVolumeAttachment(VolumeAttachCallback.this.getRequest().getVolumeId());
+        return vm;
+      }
     }
- catch (    NoSuchElementException ex1) {
-      LOG.error("Failed to find volume attachment information for volume: " + failVol);
-    }
-    LOG.debug("Removed failed attachment: " + failVol.getVolumeId() + " -> "+ vm.getInstanceId());
+;
+    Entities.asTransaction(VmInstance.class,removeVolAttachment).apply(this.getRequest().getInstanceId());
+    LOG.debug("Removed failed attachment: " + this.getRequest().getVolumeId() + " -> "+ vm.getInstanceId());
   }
  catch (  Exception e1) {
     LOG.error(e1,e1);
