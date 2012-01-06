@@ -11,6 +11,20 @@
     @Override public Boolean apply(    final VmInfo input){
       final VmInstance vm=VmInstances.lookup(input.getInstanceId());
       vm.updateAddresses(input.getNetParams().getIpAddress(),input.getNetParams().getIgnoredPublicIp());
+      if (VmRunCallback.this.token.getRootVolume() != null) {
+        try {
+          ServiceConfiguration scConfig=Topology.lookup(ClusterController.class,vm.lookupPartition());
+          Cluster cluster=Clusters.lookup(Topology.lookup(ClusterController.class,vm.lookupPartition()));
+          String volumeId=VmRunCallback.this.token.getRootVolume().getDisplayName();
+          String iqn=cluster.getNode(vm.getServiceTag()).getIqn();
+          final AttachStorageVolumeType attachMsg=new AttachStorageVolumeType(iqn,volumeId);
+          AsyncRequests.dispatch(scConfig,attachMsg);
+        }
+ catch (        Exception ex) {
+          LOG.error(ex);
+          Logs.extreme().error(ex,ex);
+        }
+      }
       final Address addr=VmRunCallback.this.token.getAddress();
       if (addr != null) {
         try {
