@@ -1,19 +1,28 @@
 {
-  if (!Entities.isPersistent(v)) {
-    throw new TransientEntityException(v.toString());
+  if (!Entities.isPersistent(vm)) {
+    throw new TransientEntityException(vm.toString());
   }
  else {
     final EntityTransaction db=Entities.get(VmInstance.class);
     try {
-      final VmInstance vm=Entities.merge(v);
-      vm.setState(VmState.PENDING,Reason.USER_STARTED);
+      VmInstance entity=Entities.uniqueResult(VmInstance.named(null,vm.getInstanceId()));
+      entity.cleanUp();
+      Entities.delete(entity);
       db.commit();
-      return vm;
     }
- catch (    final RuntimeException ex) {
+ catch (    final Exception ex) {
+      LOG.error(ex);
       Logs.extreme().error(ex,ex);
       db.rollback();
-      throw ex;
     }
+    try {
+      vm.cleanUp();
+      vm.setState(VmState.TERMINATED);
+    }
+ catch (    Exception ex) {
+      LOG.error(ex);
+      Logs.extreme().error(ex,ex);
+    }
+    return vm;
   }
 }
