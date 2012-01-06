@@ -1,0 +1,34 @@
+{
+  EntityTransaction db1=Entities.get(VmInstance.class);
+  try {
+    VmInstance vm=VmInstances.cachedLookup(vmId);
+    if (VmState.PENDING.apply(vm) && vm.getCreationSplitTime() < VM_INITIAL_REPORT_TIMEOUT) {
+      db1.rollback();
+      return;
+    }
+ else     if (VmState.STOPPING.apply(vm)) {
+      VmInstances.stopped(vm);
+    }
+ else     if (VmState.SHUTTING_DOWN.apply(vm)) {
+      VmInstances.terminated(vm);
+    }
+ else     if (VmInstances.Timeout.TERMINATED.apply(vm)) {
+      VmInstances.delete(vm);
+    }
+ else     if (VmInstances.Timeout.SHUTTING_DOWN.apply(vm)) {
+      VmInstances.terminated(vm);
+    }
+ else     if (VmInstances.Timeout.UNREPORTED.apply(vm)) {
+      VmInstances.terminated(vm);
+    }
+ else {
+      db1.rollback();
+      return;
+    }
+    Entities.commit(db1);
+  }
+ catch (  final Exception ex) {
+    Logs.extreme().error(ex,ex);
+    db1.rollback();
+  }
+}

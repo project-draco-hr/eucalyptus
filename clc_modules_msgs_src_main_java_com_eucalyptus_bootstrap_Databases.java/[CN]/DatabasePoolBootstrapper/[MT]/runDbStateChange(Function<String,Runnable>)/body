@@ -1,8 +1,10 @@
 {
-  LOG.info("DB STATE CHANGE: " + runnableFunction);
+  Logs.extreme().info("DB STATE CHANGE: " + runnableFunction);
   try {
-    if (canHas.writeLock().tryLock()) {
+    Logs.extreme().info("Attempting to acquire db state lock: " + runnableFunction);
+    if (canHas.writeLock().tryLock(5,TimeUnit.MINUTES)) {
       try {
+        Logs.extreme().info("Acquired db state lock: " + runnableFunction);
         Map<Runnable,Future<Runnable>> runnables=Maps.newHashMap();
         for (        final String ctx : PersistenceContexts.list()) {
           Runnable run=runnableFunction.apply(ctx);
@@ -23,12 +25,16 @@
       }
     }
  else {
-      throw Exceptions.toUndeclared("DB STATE CHANGE ABORTED (failed to get lock): " + runnableFunction);
+      throw new LockTimeoutException("DB STATE CHANGE ABORTED (failed to get lock): " + runnableFunction);
     }
   }
  catch (  RuntimeException ex) {
     LOG.error(ex);
     Logs.extreme().error(ex,ex);
     throw ex;
+  }
+catch (  InterruptedException ex) {
+    Exceptions.maybeInterrupted(ex);
+    throw Exceptions.toUndeclared(ex);
   }
 }

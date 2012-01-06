@@ -1,0 +1,36 @@
+{
+  Set<String> hosts=DBHOSTS.get();
+  Set<String> union=Sets.newHashSet();
+  Set<String> intersection=Sets.newHashSet(hosts);
+  Logs.extreme().debug("ActiveHostSet: universe of db hosts: " + hosts);
+  for (  String ctx : PersistenceContexts.list()) {
+    try {
+      Set<String> activeDatabases=Databases.lookup(ctx).getActiveDatabases();
+      union.addAll(activeDatabases);
+      intersection.retainAll(activeDatabases);
+    }
+ catch (    Exception ex) {
+    }
+  }
+  Logs.extreme().debug("ActiveHostSet: union of activated db connections: " + union);
+  Logs.extreme().debug("ActiveHostSet: intersection of db hosts and activated db connections: " + intersection);
+  boolean dbVolatile=!hosts.equals(intersection);
+  String msg=String.format("ActiveHostSet: %-14.14s %s%s%s",dbVolatile ? "volatile" : "synchronized",hosts,dbVolatile ? "!=" : "=",intersection);
+  if (dbVolatile) {
+    if (last.compareAndSet(false,dbVolatile)) {
+      LOG.warn(msg);
+    }
+ else {
+      LOG.debug(msg);
+    }
+  }
+ else {
+    if (last.compareAndSet(true,dbVolatile)) {
+      LOG.warn(msg);
+    }
+ else {
+      Logs.extreme().info(msg);
+    }
+  }
+  return intersection;
+}

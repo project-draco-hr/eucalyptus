@@ -1,18 +1,34 @@
 {
   this.allocInfo=allocInfo;
-  EntityTransaction db=Entities.get(VmInstance.class);
+  final EntityTransaction db=Entities.get(VmInstance.class);
   try {
     this.cluster=Clusters.lookup(Topology.lookup(ClusterController.class,allocInfo.getPartition()));
     this.messages=new StatefulMessageSet<State>(this.cluster,State.values());
     this.setupVolumeMessages();
     this.setupNetworkMessages();
-    for (    final ResourceToken token : allocInfo.getAllocationTokens()) {
-      this.setupVmMessages(token);
-    }
     db.commit();
   }
  catch (  final Exception e) {
     db.rollback();
+    LOG.debug(e,e);
+    this.allocInfo.abort();
+    for (    final ResourceToken token : allocInfo.getAllocationTokens()) {
+      try {
+        final VmInstance vm=VmInstances.lookup(token.getInstanceId());
+        vm.setState(VmState.TERMINATED,Reason.FAILED,e.getMessage());
+      }
+ catch (      final Exception e1) {
+        LOG.debug(e1,e1);
+      }
+    }
+    return;
+  }
+  try {
+    for (    final ResourceToken token : allocInfo.getAllocationTokens()) {
+      this.setupVmMessages(token);
+    }
+  }
+ catch (  final Exception e) {
     LOG.debug(e,e);
     this.allocInfo.abort();
     for (    final ResourceToken token : allocInfo.getAllocationTokens()) {

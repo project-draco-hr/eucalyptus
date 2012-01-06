@@ -1,11 +1,12 @@
 {
   final DescribeInstancesResponseType reply=(DescribeInstancesResponseType)msg.getReply();
+  Context ctx=Contexts.lookup();
+  boolean showAll=msg.getInstancesSet().remove("verbose");
   final ArrayList<String> instancesSet=msg.getInstancesSet();
   final Multimap<String,RunningInstancesItemType> instanceMap=TreeMultimap.create();
   final Map<String,ReservationInfoType> reservations=Maps.newHashMap();
   Predicate<VmInstance> filter=CloudMetadatas.filterPrivilegesById(msg.getInstancesSet());
-  Context ctx=Contexts.lookup();
-  OwnerFullName ownerFullName=ctx.hasAdministrativePrivileges() ? null : ctx.getUserFullName().asAccountFullName();
+  OwnerFullName ownerFullName=(ctx.hasAdministrativePrivileges() && showAll) ? null : ctx.getUserFullName().asAccountFullName();
   try {
     for (    final VmInstance vm : VmInstances.list(ownerFullName,filter)) {
       if (!instancesSet.isEmpty() && !instancesSet.contains(vm.getInstanceId())) {
@@ -17,7 +18,7 @@
         if (instanceMap.put(v.getReservationId(),VmInstances.transform(v)) && !reservations.containsKey(v.getReservationId())) {
           reservations.put(v.getReservationId(),new ReservationInfoType(v.getReservationId(),v.getOwner().getAccountNumber(),v.getNetworkNames()));
         }
-        db.commit();
+        db.rollback();
       }
  catch (      Exception ex) {
         Logs.exhaust().error(ex,ex);

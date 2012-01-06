@@ -76,9 +76,6 @@
           }
         }
         foundVolumeInfo.setStatus(StorageProperties.Status.available.toString());
-        if (StorageProperties.trackUsageStatistics) {
-          blockStorageStatistics.incrementVolumeCount((size * StorageProperties.GB));
-        }
       }
  else {
         foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
@@ -91,6 +88,23 @@
       throw new EucalyptusCloudException();
     }
     db.commit();
+    if (success) {
+      if (StorageProperties.trackUsageStatistics) {
+        boolean updated=false;
+        int retryCount=0;
+        do {
+          try {
+            blockStorageStatistics.incrementVolumeCount((size * StorageProperties.GB));
+            updated=true;
+          }
+ catch (          RollbackException ex) {
+            retryCount++;
+            LOG.trace("retrying stats update for: " + volumeId);
+          }
+        }
+ while (!updated && (retryCount < 5));
+      }
+    }
   }
  catch (  EucalyptusCloudException ex) {
     db.rollback();
