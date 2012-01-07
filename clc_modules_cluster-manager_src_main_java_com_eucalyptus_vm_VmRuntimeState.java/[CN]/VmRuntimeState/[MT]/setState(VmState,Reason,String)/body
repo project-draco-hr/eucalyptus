@@ -1,6 +1,6 @@
 {
   final VmState oldState=this.getVmInstance().getState();
-  Runnable action=null;
+  Callable<Boolean> action=null;
   if (VmStateSet.RUN.contains(newState) && VmStateSet.NOT_RUNNING.contains(oldState)) {
     action=this.cleanUpRunnable(SEND_USER_TERMINATE);
   }
@@ -18,10 +18,15 @@
     this.addReasonDetail(extra);
     this.reason=reason;
     try {
-      Threads.lookup(Eucalyptus.class,VmInstance.class).limitTo(VmInstances.MAX_STATE_THREADS).submit(action).get();
+      Threads.enqueue(Eucalyptus.class,VmInstance.class,VmInstances.MAX_STATE_THREADS,action).get(10,TimeUnit.MILLISECONDS);
     }
- catch (    final Exception ex) {
-      LOG.error(ex,ex);
+ catch (    final TimeoutException ex) {
+    }
+catch (    final InterruptedException ex) {
+    }
+catch (    final Exception ex) {
+      LOG.error(ex);
+      Logs.extreme().error(ex,ex);
     }
   }
 }

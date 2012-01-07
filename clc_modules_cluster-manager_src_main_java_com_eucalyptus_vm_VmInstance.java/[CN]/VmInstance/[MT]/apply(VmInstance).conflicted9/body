@@ -1,28 +1,16 @@
 {
-  if (!Entities.isPersistent(vm)) {
-    throw new TransientEntityException(vm.toString());
-  }
- else {
-    final EntityTransaction db=Entities.get(VmInstance.class);
-    try {
-      VmInstance entity=Entities.uniqueResult(VmInstance.named(null,vm.getInstanceId()));
-      entity.cleanUp();
-      Entities.delete(entity);
-      db.commit();
+  final EntityTransaction db=Entities.get(VmInstance.class);
+  try {
+    final VmInstance vm=Entities.uniqueResult(VmInstance.named(null,v.getInstanceId()));
+    if (VmStateSet.RUN.apply(vm)) {
+      vm.setState(VmState.SHUTTING_DOWN,(Timeout.SHUTTING_DOWN.apply(vm) ? Reason.EXPIRED : Reason.USER_TERMINATED));
     }
- catch (    final Exception ex) {
-      LOG.error(ex);
-      Logs.extreme().error(ex,ex);
-      db.rollback();
-    }
-    try {
-      vm.cleanUp();
-      vm.setState(VmState.TERMINATED);
-    }
- catch (    Exception ex) {
-      LOG.error(ex);
-      Logs.extreme().error(ex,ex);
-    }
+    db.commit();
     return vm;
+  }
+ catch (  final Exception ex) {
+    Logs.extreme().trace(ex,ex);
+    db.rollback();
+    throw new NoSuchElementException("Failed to lookup instance: " + v);
   }
 }
