@@ -1,45 +1,47 @@
 {
-  if (!parent.getComponentId().isDistributedService()) {
-    return;
+  if (parent.isVmLocal() && Faults.isFailstop()) {
+    if (Component.State.ENABLED.apply(parent)) {
+      try {
+        DISABLE.fire(parent);
+      }
+ catch (      Exception ex1) {
+      }
+    }
+    throw new IllegalStateException("Failed to CHECK service " + parent.getFullName() + " because the host is currently fail-stopped.");
+  }
+ else   if (Component.State.ENABLED.apply(parent)) {
+    try {
+      parent.lookupBootstrapper().check();
+      ServiceBuilders.lookup(parent.getComponentId()).fireCheck(parent);
+    }
+ catch (    Exception ex) {
+      if (Exceptions.isCausedBy(ex,CheckException.class)) {
+        CheckException checkEx=Exceptions.findCause(ex,CheckException.class);
+        Faults.failstop(parent,checkEx);
+      }
+      if (Faults.filter(parent,ex)) {
+        try {
+          DISABLE.fire(parent);
+        }
+ catch (        Exception ex1) {
+          LOG.error("Failed to call DISABLE on an ENABLED service after CHECK failure: " + parent.getFullName() + " due to: "+ ex.getMessage()+ ". With current service info: "+ parent);
+          Logs.extreme().error(ex1,ex1);
+        }
+      }
+      throw ex;
+    }
   }
  else {
-    CheckException errors=null;
-    Host h=Hosts.lookup(parent.getHostName());
-    if (h == null) {
-      UnknownHostException ex=new UnknownHostException("Failed to lookup host " + parent.getHostName() + " for service "+ parent.getFullName()+ ".  Current hosts are: "+ Hosts.list());
-      errors=Faults.failure(parent,ex);
+    try {
+      parent.lookupBootstrapper().check();
+      ServiceBuilders.lookup(parent.getComponentId()).fireCheck(parent);
     }
- else     if (!h.hasBootstrapped()) {
-      UnknownHostException ex=new UnknownHostException("Host " + parent.getHostName() + " not yet bootstrapped for service "+ parent.getFullName()+ ".");
-      errors=Faults.failure(parent,ex);
-    }
- else {
-      DescribeServicesResponseType response=ServiceTransitions.sendEmpyreanRequest(parent,new DescribeServicesType(){
-{
-          this.getServices().add(TypeMappers.transform(parent,ServiceId.class));
-        }
+ catch (    Exception ex) {
+      if (Exceptions.isCausedBy(ex,CheckException.class)) {
+        CheckException checkEx=Exceptions.findCause(ex,CheckException.class);
+        Faults.failstop(parent,checkEx);
       }
-);
-      ServiceStatusType status=Iterables.find(response.getServiceStatuses(),new Predicate<ServiceStatusType>(){
-        @Override public boolean apply(        final ServiceStatusType arg0){
-          return parent.getName().equals(arg0.getServiceId().getName());
-        }
-      }
-);
-      errors=Faults.transformToExceptions().apply(status);
-    }
-    if (Faults.Severity.FATAL.equals(errors.getSeverity())) {
-      throw errors;
-    }
- else     if (Faults.Severity.TRACE.equals(errors.getSeverity())) {
-      Logs.extreme().error(errors,errors);
-      return;
-    }
- else     if (errors.getSeverity().ordinal() < Faults.Severity.ERROR.ordinal()) {
-      Logs.extreme().error(errors,errors);
-    }
- else {
-      throw errors;
+      throw ex;
     }
   }
 }
