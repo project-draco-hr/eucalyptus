@@ -1,0 +1,32 @@
+{
+  VmVolumeAttachment vmAttachedVol=null;
+  VmInstance vm=null;
+  try {
+    vmAttachedVol=VmInstances.lookupVolumeAttachment(v.getDisplayName());
+    vm=vmAttachedVol.getVmInstance();
+    v.setState(State.BUSY);
+  }
+ catch (  NoSuchElementException ex) {
+    v.setMappedState(status);
+  }
+  if (v.getSize() <= 0) {
+    v.setSize(new Integer(size));
+  }
+  if ("invalid".equals(v.getRemoteDevice()) || "unknown".equals(v.getRemoteDevice()) || v.getRemoteDevice() == null) {
+    v.setRemoteDevice(actualDeviceName);
+  }
+  edu.ucsb.eucalyptus.msgs.Volume aVolume=v.morph(new edu.ucsb.eucalyptus.msgs.Volume());
+  if (vmAttachedVol != null) {
+    aVolume.setStatus(v.mapState());
+    aVolume.getAttachmentSet().add(VmVolumeAttachment.asAttachedVolume(vm).apply(vmAttachedVol));
+    for (    AttachedVolume attachedVolume : aVolume.getAttachmentSet()) {
+      if (!attachedVolume.getDevice().startsWith("/dev/")) {
+        attachedVolume.setDevice("/dev/" + attachedVolume.getDevice());
+      }
+    }
+  }
+  if ("invalid".equals(v.getRemoteDevice()) && !State.FAIL.equals(v.getState())) {
+    aVolume.setStatus("creating");
+  }
+  return aVolume;
+}

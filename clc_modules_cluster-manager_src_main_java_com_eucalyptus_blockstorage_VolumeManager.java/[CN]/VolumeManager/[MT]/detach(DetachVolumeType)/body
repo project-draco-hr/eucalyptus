@@ -5,25 +5,24 @@
   EntityWrapper<Volume> db=EntityWrapper.get(Volume.class);
   try {
     vol=db.getUnique(Volume.named(ctx.getUserFullName().asAccountFullName(),request.getVolumeId()));
+    db.commit();
   }
  catch (  EucalyptusCloudException e) {
     LOG.debug(e,e);
     db.rollback();
     throw new EucalyptusCloudException("Volume does not exist: " + request.getVolumeId());
   }
-  db.commit();
   if (!RestrictedTypes.filterPrivileged().apply(vol)) {
     throw new EucalyptusCloudException("Not authorized to detach volume " + request.getVolumeId() + " by "+ ctx.getUser().getName());
   }
   VmInstance vm=null;
   AttachedVolume volume=null;
-  for (  VmInstance iter : VmInstances.list(Predicates.not(VmState.TERMINATED))) {
-    try {
-      volume=iter.lookupVolumeAttachment(request.getVolumeId());
-      vm=iter;
-    }
- catch (    NoSuchElementException ex) {
-    }
+  try {
+    VmVolumeAttachment vmVolAttach=VmInstances.lookupVolumeAttachment(request.getVolumeId());
+    volume=VmVolumeAttachment.asAttachedVolume(vmVolAttach.getVmInstance()).apply(vmVolAttach);
+    vm=vmVolAttach.getVmInstance();
+  }
+ catch (  NoSuchElementException ex) {
   }
   if (volume == null) {
     throw new EucalyptusCloudException("Volume is not attached: " + request.getVolumeId());
@@ -53,20 +52,21 @@
   }
  catch (  Exception ex) {
     LOG.error(ex,ex);
-    throw new EucalyptusCloudException("Failed to lookup SC for cluster: " + cluster,ex);
-  }
-  try {
-    ServiceDispatcher.lookup(scVm).send(new DetachStorageVolumeType(cluster.getNode(vm.getServiceTag()).getIqn(),volume.getVolumeId()));
-  }
- catch (  Exception e) {
-    LOG.debug(e,e);
-    throw new EucalyptusCloudException(e.getMessage());
+    throw new EucalyptusCloudException("Failed to lookup SC for partition: " + vm.getPartition(),ex);
   }
   request.setVolumeId(volume.getVolumeId());
   request.setRemoteDevice(volume.getRemoteDevice());
   request.setDevice(volume.getDevice().replaceAll("unknown,requested:",""));
   request.setInstanceId(vm.getInstanceId());
-  AsyncRequests.newRequest(new VolumeDetachCallback(request)).dispatch(cluster.getConfiguration());
+  VolumeDetachCallback ncDetach=new VolumeDetachCallback(request);
+  try {
+    AsyncRequests.sendSync(scVm,new DetachStorageVolumeType(cluster.getNode(vm.getServiceTag()).getIqn(),volume.getVolumeId()));
+  }
+ catch (  Exception e) {
+    LOG.debug(e);
+    Logs.extreme().debug(e,e);
+  }
+  AsyncRequests.newRequest(ncDetach).dispatch(cluster.getConfiguration());
   EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_DETACH).withDetails(vm.getOwner().toString(),volume.getVolumeId(),"instance",vm.getInstanceId()).withDetails("cluster",ccConfig.getFullName().toString()).info();
   volume.setStatus("detaching");
   reply.setDetachedVolume(volume);
