@@ -1,21 +1,24 @@
 {
-  final EntityWrapper<T> db=EntityWrapper.get(config);
+  final EntityTransaction db=Entities.get(config.getClass());
   try {
     final T searchConfig=(T)config.getClass().newInstance();
     searchConfig.setName(config.getName());
-    final T exists=db.getUnique(searchConfig);
-    db.delete(exists);
+    final T exists=Entities.uniqueResult(searchConfig);
+    Entities.delete(exists);
     db.commit();
     EventRecord.here(ServiceConfigurations.class,EventClass.COMPONENT,EventType.COMPONENT_DEREGISTERED,config.toString()).info();
   }
- catch (  final PersistenceException ex) {
-    LOG.trace(ex);
+ catch (  final NoSuchElementException ex) {
+    db.rollback();
+  }
+catch (  final PersistenceException ex) {
+    LOG.debug(ex);
     EventRecord.here(ServiceConfigurations.class,EventClass.COMPONENT,EventType.COMPONENT_DEREGISTERED,"FAILED",config.toString()).error();
     db.rollback();
     throw ex;
   }
 catch (  final Throwable ex) {
-    LOG.trace(ex);
+    LOG.debug(ex);
     EventRecord.here(ServiceConfigurations.class,EventClass.COMPONENT,EventType.COMPONENT_DEREGISTERED,"FAILED",config.toString()).error();
     db.rollback();
     throw new PersistenceException("Service configuration removal failed for: " + LogUtil.dumpObject(config),ex);
