@@ -1,3 +1,65 @@
 {
-  return transition(State.PRIMORDIAL).apply(config);
+  try {
+    ServiceConfigurations.remove(config);
+  }
+ catch (  Exception ex) {
+    LOG.error(ex);
+    Logs.extreme().debug(ex,ex);
+  }
+  try {
+    Topology.disable(config).get();
+  }
+ catch (  Exception ex) {
+    Exceptions.maybeInterrupted(ex);
+    LOG.error(ex);
+    Logs.extreme().debug(ex,ex);
+  }
+  try {
+    Topology.stop(config).get();
+  }
+ catch (  Exception ex) {
+    Exceptions.maybeInterrupted(ex);
+    LOG.error(ex);
+    Logs.extreme().debug(ex,ex);
+  }
+  try {
+    Component comp=Components.lookup(config.getComponentId());
+    comp.destroy(config);
+  }
+ catch (  Exception ex) {
+    Exceptions.maybeInterrupted(ex);
+    LOG.error(ex);
+    Logs.extreme().debug(ex,ex);
+  }
+  if (Hosts.isCoordinator()) {
+    DestroyServiceType msg=new DestroyServiceType();
+    try {
+      msg.getServices().add(TypeMappers.transform(config,ServiceId.class));
+      for (      Host h : Hosts.list()) {
+        if (!h.isLocalHost() && h.hasBootstrapped()) {
+          try {
+            AsyncRequests.sendSync(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE,h.getBindAddress()),msg);
+          }
+ catch (          Exception ex) {
+            Exceptions.maybeInterrupted(ex);
+            LOG.error(ex);
+            Logs.extreme().debug(ex,ex);
+          }
+        }
+      }
+    }
+ catch (    Exception ex) {
+      LOG.error(ex);
+      Logs.extreme().debug(ex,ex);
+    }
+  }
+  try {
+    ServiceTransitions.StateCallbacks.PROPERTIES_REMOVE.fire(config);
+  }
+ catch (  Exception ex) {
+    Exceptions.maybeInterrupted(ex);
+    LOG.error(ex);
+    Logs.extreme().debug(ex,ex);
+  }
+  return Futures.predestinedFuture(config);
 }
