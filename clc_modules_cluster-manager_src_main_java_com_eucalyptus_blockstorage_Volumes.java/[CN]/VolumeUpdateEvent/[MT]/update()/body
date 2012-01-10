@@ -1,0 +1,33 @@
+{
+  Multimap<String,String> partitionVolumeMap=HashMultimap.create();
+  EntityTransaction db=Entities.get(Volume.class);
+  try {
+    for (    Volume v : Entities.query(Volume.named(null,null))) {
+      partitionVolumeMap.put(v.getPartition(),v.getDisplayName());
+    }
+    db.rollback();
+  }
+ catch (  Exception ex) {
+    Logs.extreme().error(ex,ex);
+    db.rollback();
+  }
+  Logs.extreme().debug("Volume state update: " + Joiner.on("\n").join(partitionVolumeMap.entries()));
+  for (  String partition : partitionVolumeMap.keySet()) {
+    try {
+      Map<String,StorageVolume> idStorageVolumeMap=updateVolumesInPartition(partition);
+      for (      String v : partitionVolumeMap.get(partition)) {
+        try {
+          volumeStateUpdate(v,idStorageVolumeMap.get(v));
+        }
+ catch (        Exception ex) {
+          LOG.error(ex);
+          Logs.extreme().error(ex,ex);
+        }
+      }
+    }
+ catch (    Exception ex) {
+      LOG.error(ex);
+      Logs.extreme().error(ex,ex);
+    }
+  }
+}
