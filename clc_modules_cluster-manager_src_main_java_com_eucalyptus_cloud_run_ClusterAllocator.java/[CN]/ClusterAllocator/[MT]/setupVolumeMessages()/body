@@ -3,35 +3,36 @@
     final ServiceConfiguration sc=Topology.lookup(Storage.class,this.cluster.getConfiguration().lookupPartition());
     final VirtualBootRecord root=this.allocInfo.getVmTypeInfo().lookupRoot();
     if (root.isBlockStorage()) {
-      for (      final ResourceToken token : this.allocInfo.getAllocationTokens()) {
-        final BlockStorageImageInfo imgInfo=((BlockStorageImageInfo)this.allocInfo.getBootSet().getMachine());
-        Long volSizeBytes=imgInfo.getImageSizeBytes();
-        Boolean deleteOnTerminate=imgInfo.getDeleteOnTerminate();
-        for (        final BlockDeviceMappingItemType blockDevMapping : this.allocInfo.getRequest().getBlockDeviceMapping()) {
-          if ("root".equals(blockDevMapping.getVirtualName()) && (blockDevMapping.getEbs() != null)) {
-            deleteOnTerminate|=blockDevMapping.getEbs().getDeleteOnTermination();
-            if (blockDevMapping.getEbs().getVolumeSize() != null) {
-              volSizeBytes=BYTES_PER_GB * blockDevMapping.getEbs().getVolumeSize();
-            }
+      final BlockStorageImageInfo imgInfo=((BlockStorageImageInfo)this.allocInfo.getBootSet().getMachine());
+      Long volSizeBytes=imgInfo.getImageSizeBytes();
+      Boolean deleteOnTerminate=imgInfo.getDeleteOnTerminate();
+      for (      final BlockDeviceMappingItemType blockDevMapping : this.allocInfo.getRequest().getBlockDeviceMapping()) {
+        if ("root".equals(blockDevMapping.getVirtualName()) && (blockDevMapping.getEbs() != null)) {
+          deleteOnTerminate|=blockDevMapping.getEbs().getDeleteOnTermination();
+          if (blockDevMapping.getEbs().getVolumeSize() != null) {
+            volSizeBytes=BYTES_PER_GB * blockDevMapping.getEbs().getVolumeSize();
           }
         }
-        final int sizeGb=(int)Math.ceil(volSizeBytes / BYTES_PER_GB);
-        LOG.debug("About to prepare root volume using bootable block storage: " + imgInfo + " and vbr: "+ root);
+      }
+      final int sizeGb=(int)Math.ceil(volSizeBytes / BYTES_PER_GB);
+      LOG.debug("About to prepare root volume using bootable block storage: " + imgInfo + " and vbr: "+ root);
+      for (      final ResourceToken token : this.allocInfo.getAllocationTokens()) {
         final VmInstance vm=VmInstances.lookup(token.getInstanceId());
         Volume vol=null;
         if (!vm.getBootRecord().hasPersistentVolumes()) {
           vol=Volumes.createStorageVolume(sc,this.allocInfo.getOwnerFullName(),imgInfo.getSnapshotId(),sizeGb,this.allocInfo.getRequest());
-          vm.addPersistentVolume("/dev/sda1",vol);
+          if (deleteOnTerminate) {
+            vm.addPersistentVolume("/dev/sda1",vol);
+          }
+ else {
+            vm.addPermanentVolume("/dev/sda1",vol);
+          }
+          token.setRootVolume(vol);
         }
  else {
           final VmVolumeAttachment volumeAttachment=vm.getBootRecord().getPersistentVolumes().iterator().next();
           vol=Volumes.lookup(null,volumeAttachment.getVolumeId());
-        }
-        if (deleteOnTerminate) {
-          this.allocInfo.getTransientVolumes().add(vol);
-        }
- else {
-          this.allocInfo.getPersistentVolumes().add(vol);
+          token.setRootVolume(vol);
         }
       }
     }

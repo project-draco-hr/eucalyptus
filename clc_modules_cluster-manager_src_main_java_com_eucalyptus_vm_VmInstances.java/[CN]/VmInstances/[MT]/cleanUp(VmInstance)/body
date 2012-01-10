@@ -1,25 +1,43 @@
 {
-  LOG.trace(Logs.dump(vm));
-  LOG.info("Terminating instance: " + vm.getInstanceId(),new RuntimeException());
+  Logs.extreme().info("Terminating instance: " + vm.getInstanceId(),new RuntimeException());
   try {
-    final Cluster cluster=Clusters.lookup(Topology.lookup(ClusterController.class,vm.lookupPartition()));
-    VmInstances.cleanUpAttachedVolumes(vm);
     Address address=null;
-    final Request<TerminateInstancesType,TerminateInstancesResponseType> req=AsyncRequests.newRequest(new TerminateCallback(vm.getInstanceId()));
     if (NetworkGroups.networkingConfiguration().hasNetworking()) {
       try {
         address=Addresses.getInstance().lookup(vm.getPublicAddress());
+        if (address.isAssigned()) {
+          AsyncRequests.newRequest(address.unassign().getCallback()).dispatch(vm.getPartition());
+        }
+        if (address.isSystemOwned()) {
+          EventRecord.caller(VmInstances.class,EventType.VM_TERMINATING,"SYSTEM_ADDRESS",address.toString()).debug();
+        }
+ else {
+          EventRecord.caller(VmInstances.class,EventType.VM_TERMINATING,"USER_ADDRESS",address.toString()).debug();
+        }
       }
  catch (      final NoSuchElementException e) {
       }
-catch (      final Throwable e1) {
+catch (      final Exception e1) {
         LOG.debug(e1,e1);
       }
     }
-    req.then(VmInstances.getCleanUpCallback(address,vm,cluster));
-    req.dispatch(cluster.getConfiguration());
   }
- catch (  final Throwable e) {
-    LOG.error(e,e);
+ catch (  final Exception e) {
+    LOG.error(e);
+    Logs.extreme().error(e,e);
+  }
+  try {
+    VmInstances.cleanUpAttachedVolumes(vm);
+  }
+ catch (  Exception ex) {
+    LOG.error(ex);
+    Logs.extreme().error(ex,ex);
+  }
+  try {
+    AsyncRequests.newRequest(new TerminateCallback(vm.getInstanceId())).dispatch(vm.getPartition());
+  }
+ catch (  Exception ex) {
+    LOG.error(ex);
+    Logs.extreme().error(ex,ex);
   }
 }
