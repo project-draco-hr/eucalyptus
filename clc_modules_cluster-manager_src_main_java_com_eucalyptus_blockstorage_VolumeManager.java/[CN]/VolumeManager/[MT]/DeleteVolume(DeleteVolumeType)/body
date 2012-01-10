@@ -1,50 +1,63 @@
 {
   DeleteVolumeResponseType reply=(DeleteVolumeResponseType)request.getReply();
-  Context ctx=Contexts.lookup();
+  final Context ctx=Contexts.lookup();
   reply.set_return(false);
-  EntityWrapper<Volume> db=EntityWrapper.get(Volume.class);
-  boolean reallyFailed=false;
-  try {
-    Volume vol=db.getUnique(Volume.named(ctx.getUserFullName().asAccountFullName(),request.getVolumeId()));
-    if (!RestrictedTypes.filterPrivileged().apply(vol)) {
-      throw new EucalyptusCloudException("Not authorized to delete volume by " + ctx.getUser().getName());
-    }
-    for (    VmInstance vm : VmInstances.list(Predicates.not(VmState.TERMINATED))) {
+  final Function<String,Volume> deleteVolume=new Function<String,Volume>(){
+    @Override public Volume apply(    final String input){
       try {
-        vm.lookupVolumeAttachment(request.getVolumeId());
-        db.rollback();
-        return reply;
+        Volume vol=Entities.uniqueResult(Volume.named(ctx.getUserFullName().asAccountFullName(),input));
+        if (!RestrictedTypes.filterPrivileged().apply(vol)) {
+          throw Exceptions.toUndeclared("Not authorized to delete volume by " + ctx.getUser().getName());
+        }
+        try {
+          VmVolumeAttachment attachment=VmInstances.lookupVolumeAttachment(input);
+          throw new IllegalStateException("Volume is currently attached: " + attachment);
+        }
+ catch (        NoSuchElementException ex) {
+        }
+        if (State.FAIL.equals(vol.getState()) || State.ANNIHILATED.equals(vol.getState())) {
+          Entities.delete(vol);
+          Volumes.fireDeleteEvent(vol);
+          return vol;
+        }
+ else         if (State.ANNIHILATING.equals(vol.getState())) {
+          return vol;
+        }
+ else {
+          try {
+            ServiceConfiguration sc=Topology.lookup(Storage.class,Partitions.lookupByName(vol.getPartition()));
+            DeleteStorageVolumeResponseType scReply=AsyncRequests.sendSync(sc,new DeleteStorageVolumeType(vol.getDisplayName()));
+            if (scReply.get_return()) {
+              vol.setState(State.ANNIHILATING);
+              return vol;
+            }
+ else {
+              throw Exceptions.toUndeclared("Storage Controller returned false:  Contact the administrator to report the problem.");
+            }
+          }
+ catch (          Exception ex) {
+            throw Exceptions.toUndeclared("Storage Controller request failed:  Contact the administrator to report the problem.",ex);
+          }
+        }
       }
  catch (      NoSuchElementException ex) {
+        throw ex;
+      }
+catch (      TransactionException ex) {
+        throw Exceptions.toUndeclared("Deleting volume failed:  Contact the administrator to report the problem.",ex);
       }
     }
-    if (State.FAIL.equals(vol.getState())) {
-      db.delete(vol);
-      db.commit();
-      return reply;
-    }
-    ServiceConfiguration sc=Topology.lookup(Storage.class,Partitions.lookupByName(vol.getPartition()));
-    DeleteStorageVolumeResponseType scReply=ServiceDispatcher.lookup(sc).send(new DeleteStorageVolumeType(vol.getDisplayName()));
-    if (scReply.get_return()) {
-      vol.setState(State.ANNIHILATING);
-      db.commit();
-      fireDeleteEvent(vol);
-    }
- else {
-      reallyFailed=true;
-      throw new EucalyptusCloudException("Storage Controller returned false:  Contact the administrator to report the problem.");
-    }
   }
- catch (  EucalyptusCloudException e) {
-    LOG.debug(e,e);
-    db.rollback();
-    if (reallyFailed) {
-      throw e;
-    }
- else {
-      return reply;
-    }
+;
+  try {
+    Entities.asTransaction(Volume.class,deleteVolume).apply(request.getVolumeId());
+    reply.set_return(true);
+    return reply;
   }
-  reply.set_return(true);
-  return reply;
+ catch (  NoSuchElementException ex) {
+    return reply;
+  }
+catch (  RuntimeException ex) {
+    throw ex;
+  }
 }
