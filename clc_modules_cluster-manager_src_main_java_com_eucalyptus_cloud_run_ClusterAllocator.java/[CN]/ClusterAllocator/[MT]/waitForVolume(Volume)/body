@@ -1,0 +1,47 @@
+{
+  final ServiceConfiguration scConfig=Topology.lookup(Storage.class,Partitions.lookupByName(vol.getPartition()));
+  long startTime=System.currentTimeMillis();
+  int numDescVolError=0;
+  while ((System.currentTimeMillis() - startTime) < VmInstances.EBS_VOLUME_CREATION_TIMEOUT * 60 * 1000L) {
+    try {
+      DescribeStorageVolumesResponseType volState=null;
+      try {
+        final DescribeStorageVolumesType describeMsg=new DescribeStorageVolumesType(Lists.newArrayList(vol.getDisplayName()));
+        volState=AsyncRequests.sendSync(scConfig,describeMsg);
+      }
+ catch (      final Exception e) {
+        if (numDescVolError++ < 5) {
+          try {
+            TimeUnit.SECONDS.sleep(5);
+          }
+ catch (          final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+          }
+          continue;
+        }
+ else {
+          throw e;
+        }
+      }
+      StorageVolume storageVolume=volState.getVolumeSet().get(0);
+      LOG.debug("Got storage volume info: " + storageVolume);
+      if ("available".equals(storageVolume.getStatus())) {
+        return scConfig;
+      }
+ else       if ("failed".equals(storageVolume.getStatus())) {
+        throw new EucalyptusCloudException("volume creation failed");
+      }
+ else {
+        TimeUnit.SECONDS.sleep(5);
+      }
+    }
+ catch (    final InterruptedException ex) {
+      Thread.currentThread().interrupt();
+    }
+catch (    final Exception ex) {
+      LOG.error(ex,ex);
+      throw ex;
+    }
+  }
+  throw new EucalyptusCloudException("volume " + vol.getDisplayName() + " was not created in time");
+}
