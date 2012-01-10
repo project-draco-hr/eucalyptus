@@ -1,0 +1,58 @@
+{
+  final Function<String,Volume> updateVolume=new Function<String,Volume>(){
+    public Volume apply(    final String input){
+      try {
+        Volume v=Entities.uniqueResult(Volume.named(null,input));
+        String status=null;
+        Integer size=0;
+        String actualDeviceName="unknown";
+        State volumeState;
+        if (storageVolume != null) {
+          status=storageVolume.getStatus();
+          size=Integer.parseInt(storageVolume.getSize());
+          actualDeviceName=storageVolume.getActualDeviceName();
+          if (actualDeviceName == null || "invalid".equals(actualDeviceName) || "unknown".equals(actualDeviceName)) {
+            volumeState=State.GENERATING;
+          }
+ else {
+            volumeState=Volumes.transformStorageState(v.getState(),status);
+          }
+        }
+ else         if (v.lastUpdateMillis() > VOLUME_STATE_TIMEOUT && State.GENERATING.equals(v.getState())) {
+          volumeState=State.FAIL;
+        }
+ else {
+          volumeState=Volumes.transformStorageState(v.getState(),status);
+        }
+        VmVolumeAttachment vmAttachedVol=null;
+        VmInstance vm=null;
+        try {
+          vmAttachedVol=VmInstances.lookupVolumeAttachment(v.getDisplayName());
+          vm=vmAttachedVol.getVmInstance();
+          v.setState(State.BUSY);
+        }
+ catch (        NoSuchElementException ex) {
+          v.setState(volumeState);
+        }
+        try {
+          if (v.getSize() <= 0) {
+            v.setSize(new Integer(size));
+          }
+        }
+ catch (        Exception ex) {
+          LOG.error(ex);
+          Logs.extreme().error(ex,ex);
+        }
+        return v;
+      }
+ catch (      TransactionException ex) {
+        throw Exceptions.toUndeclared(ex);
+      }
+catch (      NoSuchElementException ex) {
+        throw ex;
+      }
+    }
+  }
+;
+  Entities.asTransaction(Volume.class,updateVolume).apply(volumeId);
+}
