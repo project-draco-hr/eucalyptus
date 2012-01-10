@@ -1,54 +1,62 @@
 {
   final Function<String,Volume> updateVolume=new Function<String,Volume>(){
-    public Volume apply(    final String input){
+    @Override public Volume apply(    final String input){
+      final StringBuilder buf=new StringBuilder();
       try {
-        Volume v=Entities.uniqueResult(Volume.named(null,input));
+        final Volume v=Entities.uniqueResult(Volume.named(null,input));
+        VmVolumeAttachment vmAttachedVol=null;
+        String vmId=null;
+        try {
+          vmAttachedVol=VmInstances.lookupVolumeAttachment(v.getDisplayName());
+          v.setState(State.BUSY);
+          vmId=vmAttachedVol.getVmInstance().getInstanceId();
+        }
+ catch (        final NoSuchElementException ex) {
+        }
+        final State initialState=v.getState();
+        buf.append("VolumeStateUpdate: ").append(v.getPartition()).append(" ").append(v.getDisplayName()).append(" ").append(v.getState()).append(" ").append(v.getCreationTimestamp());
+        if (vmAttachedVol != null) {
+          buf.append(" attachment ").append(vmId).append(" ").append(vmAttachedVol.getAttachmentState());
+        }
         String status=null;
         Integer size=0;
         String actualDeviceName="unknown";
-        State volumeState;
+        State volumeState=initialState;
         if (storageVolume != null) {
           status=storageVolume.getStatus();
           size=Integer.parseInt(storageVolume.getSize());
           actualDeviceName=storageVolume.getActualDeviceName();
-          if (actualDeviceName == null || "invalid".equals(actualDeviceName) || "unknown".equals(actualDeviceName)) {
+          if (State.EXTANT.equals(initialState) && ((actualDeviceName == null) || "invalid".equals(actualDeviceName) || "unknown".equals(actualDeviceName))) {
             volumeState=State.GENERATING;
           }
  else {
             volumeState=Volumes.transformStorageState(v.getState(),status);
           }
+          buf.append("\nVolumeStateUpdate: ").append(v.getPartition()).append(" ").append(v.getDisplayName()).append(" ").append(" storage-volume ").append(storageVolume.getStatus()).append("=>").append(volumeState).append(" ").append(storageVolume.getSize()).append("GB ").append(storageVolume.getSnapshotId()).append(" ").append(storageVolume.getCreateTime()).append(" ").append(storageVolume.getActualDeviceName());
         }
- else         if (v.lastUpdateMillis() > VOLUME_STATE_TIMEOUT && State.GENERATING.equals(v.getState())) {
+ else         if ((v.lastUpdateMillis() > VOLUME_STATE_TIMEOUT) && State.GENERATING.equals(v.getState())) {
           volumeState=State.FAIL;
         }
- else {
-          volumeState=Volumes.transformStorageState(v.getState(),status);
-        }
-        VmVolumeAttachment vmAttachedVol=null;
-        VmInstance vm=null;
-        try {
-          vmAttachedVol=VmInstances.lookupVolumeAttachment(v.getDisplayName());
-          vm=vmAttachedVol.getVmInstance();
-          v.setState(State.BUSY);
-        }
- catch (        NoSuchElementException ex) {
-          v.setState(volumeState);
-        }
+        v.setState(volumeState);
         try {
           if (v.getSize() <= 0) {
             v.setSize(new Integer(size));
           }
         }
- catch (        Exception ex) {
+ catch (        final Exception ex) {
           LOG.error(ex);
           Logs.extreme().error(ex,ex);
         }
+        buf.append("VolumeStateUpdate: ").append(v.getPartition()).append(" ").append(v.getDisplayName()).append(" updated ").append(v.getState()).append(" ").append(v.getCreationTimestamp());
+        Logs.extreme().info(buf.toString());
         return v;
       }
- catch (      TransactionException ex) {
+ catch (      final TransactionException ex) {
+        Logs.extreme().error(buf.toString() + " failed because of " + ex.getMessage(),ex);
         throw Exceptions.toUndeclared(ex);
       }
-catch (      NoSuchElementException ex) {
+catch (      final NoSuchElementException ex) {
+        Logs.extreme().error(buf.toString() + " failed because of " + ex.getMessage(),ex);
         throw ex;
       }
     }
