@@ -1,6 +1,6 @@
 {
   Callable<Boolean> action=null;
-  LOG.info(String.format("%s state change: %s -> %s",this.getVmInstance().getInstanceId(),this.getVmInstance().getState(),newState));
+  LOG.info(String.format("%s state change: %s -> %s (previously %s)",this.getVmInstance().getInstanceId(),oldState,newState,olderState));
   if (VmStateSet.RUN.contains(oldState) && VmStateSet.NOT_RUNNING.contains(newState)) {
     this.getVmInstance().setState(newState);
     action=this.cleanUpRunnable();
@@ -11,27 +11,30 @@
       this.restoreVolumeState();
     }
   }
- else   if (VmState.PENDING.equals(oldState) && VmState.RUNNING.equals(newState)) {
-    this.getVmInstance().setState(newState);
-  }
- else   if (VmState.SHUTTING_DOWN.equals(oldState) && VmStateSet.RUN.contains(newState)) {
-    this.getVmInstance().setState(oldState);
-  }
- else   if (VmState.TERMINATED.equals(newState) && (VmState.STOPPED.equals(oldState) || VmState.STOPPED.equals(olderState))) {
+ else   if (VmState.PENDING.equals(oldState) && VmState.TERMINATED.equals(newState) && VmState.STOPPED.equals(olderState)) {
     this.getVmInstance().setState(VmState.STOPPED);
     action=this.cleanUpRunnable();
   }
- else   if (VmState.TERMINATED.equals(newState) && (oldState.ordinal() <= VmState.RUNNING.ordinal())) {
+ else   if (VmState.STOPPED.equals(oldState) && VmState.PENDING.equals(newState)) {
+    this.getVmInstance().setState(VmState.PENDING);
+  }
+ else   if (VmStateSet.EXPECTING_TEARDOWN.contains(oldState) && VmStateSet.RUN.contains(newState)) {
+    this.getVmInstance().setState(oldState);
+  }
+ else   if (VmStateSet.EXPECTING_TEARDOWN.equals(oldState) && VmState.TERMINATED.equals(newState)) {
+    if (VmState.SHUTTING_DOWN.equals(oldState)) {
+      this.getVmInstance().setState(VmState.SHUTTING_DOWN);
+    }
+ else {
+      this.getVmInstance().setState(VmState.STOPPED);
+    }
+    action=this.cleanUpRunnable();
+  }
+ else   if (VmStateSet.RUN.contains(oldState) && VmStateSet.NOT_RUNNING.contains(newState)) {
     this.getVmInstance().setState(newState);
     action=this.cleanUpRunnable();
   }
  else   if (VmState.TERMINATED.equals(newState) && (oldState.ordinal() > VmState.RUNNING.ordinal())) {
-    this.getVmInstance().setState(newState);
-  }
- else   if (newState.ordinal() > oldState.ordinal()) {
-    this.getVmInstance().setState(newState);
-  }
- else   if (VmState.STOPPED.equals(oldState) && VmState.PENDING.equals(newState)) {
     this.getVmInstance().setState(newState);
   }
   try {
