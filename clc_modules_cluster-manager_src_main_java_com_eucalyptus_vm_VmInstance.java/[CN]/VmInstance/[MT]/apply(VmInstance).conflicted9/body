@@ -1,14 +1,23 @@
 {
   final EntityTransaction db=Entities.get(VmInstance.class);
   try {
-    final VmInstance vm=Entities.merge(v);
-    vm.setState(VmState.PENDING,Reason.USER_STARTED);
+    final VmInstance vm=Entities.uniqueResult(VmInstance.named(null,v.getInstanceId()));
+    vm.cleanUp();
+    Entities.delete(vm);
     db.commit();
-    return vm;
   }
- catch (  final RuntimeException ex) {
+ catch (  final Exception ex) {
+    LOG.error(ex);
     Logs.extreme().error(ex,ex);
     db.rollback();
-    throw ex;
   }
+  try {
+    v.cleanUp();
+    v.setState(VmState.TERMINATED);
+  }
+ catch (  Exception ex) {
+    LOG.error(ex);
+    Logs.extreme().error(ex,ex);
+  }
+  return v;
 }
