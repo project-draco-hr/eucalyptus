@@ -3,56 +3,54 @@
   if (root.isBlockStorage()) {
     childVmInfo=vmInfo.child();
     final Volume vol=token.getRootVolume();
-    final ServiceConfiguration scConfig=Topology.lookup(Storage.class,Partitions.lookupByName(vol.getPartition()));
-    int numDescVolError=0;
-    int i=0;
-    for (i=0; i < VmInstances.EBS_VOLUME_CREATION_TIMEOUT * 60; i++) {
-      try {
-        DescribeStorageVolumesResponseType volState=null;
+    final ServiceConfiguration scConfig=waitForVolume(vol);
+    VirtualBootRecord vbrRootDevice=childVmInfo.lookupRoot();
+    String volumeId=vol.getDisplayName();
+    String remoteDeviceString=null;
+    Exception lastError=null;
+    String finalIqn=null;
+    for (    final String nodeTag : this.cluster.getNodeTags()) {
+      NodeInfo nodeInfo=this.cluster.getNode(nodeTag);
+      if (nodeInfo != null && nodeInfo.getIqn() != null) {
         try {
-          final DescribeStorageVolumesType describeMsg=new DescribeStorageVolumesType(Lists.newArrayList(vol.getDisplayName()));
-          volState=AsyncRequests.sendSync(scConfig,describeMsg);
-        }
- catch (        final Exception e) {
-          if (numDescVolError++ < 5) {
-            try {
-              TimeUnit.SECONDS.sleep(1);
-            }
- catch (            final InterruptedException ex) {
-              Thread.currentThread().interrupt();
-            }
-            continue;
+          String nodeIqn=nodeInfo.getIqn();
+          remoteDeviceString=requestAttachStorageVolume(scConfig,volumeId,nodeIqn);
+          if (remoteDeviceString != null) {
+            finalIqn=nodeIqn;
+            Logs.extreme().debug("Updating remote device for " + token + " using iqn "+ finalIqn+ " with "+ remoteDeviceString);
+            break;
           }
- else           throw e;
         }
-        if ("available".equals(volState.getVolumeSet().get(0).getStatus())) {
-          break;
+ catch (        Exception ex) {
+          lastError=ex;
         }
- else         if ("failed".equals(volState.getVolumeSet().get(0).getStatus())) {
-          throw new EucalyptusCloudException("volume creation failed");
-        }
- else {
-          TimeUnit.SECONDS.sleep(1);
-        }
-      }
- catch (      final InterruptedException ex) {
-        Thread.currentThread().interrupt();
-      }
-catch (      final Exception ex) {
-        LOG.error(ex,ex);
-        throw ex;
       }
     }
-    if (i >= VmInstances.EBS_VOLUME_CREATION_TIMEOUT * 60)     throw new EucalyptusCloudException("volume " + vol.getDisplayName() + " was not created in time");
-    for (    final String nodeTag : this.cluster.getNodeTags()) {
-      try {
-        final AttachStorageVolumeType attachMsg=new AttachStorageVolumeType(this.cluster.getNode(nodeTag).getIqn(),vol.getDisplayName());
-        final AttachStorageVolumeResponseType scAttachResponse=AsyncRequests.sendSync(scConfig,attachMsg);
-        childVmInfo.lookupRoot().setResourceLocation(scAttachResponse.getRemoteDeviceString());
+    if (remoteDeviceString == null || finalIqn == null) {
+      if (lastError == null) {
+        lastError=new NullPointerException("Failed to find a node w/ reported iqn: " + this.cluster.getNodeMap());
       }
- catch (      final Exception ex) {
-        LOG.error(ex,ex);
-        throw ex;
+      LOG.error("Failed to start instance " + token + " while preparing attachment of volume "+ volumeId+ " failed because: "+ lastError,lastError);
+      throw lastError;
+    }
+ else {
+      token.setInitialIqn(finalIqn);
+      vbrRootDevice.setResourceLocation(remoteDeviceString);
+      final String updateRemoteDevString=remoteDeviceString;
+      final Function<String,VmInstance> updateInstance=new Function<String,VmInstance>(){
+        public VmInstance apply(        final String input){
+          VmVolumeAttachment attachment=VmInstances.lookupVolumeAttachment(input);
+          attachment.setRemoteDevice(updateRemoteDevString);
+          return attachment.getVmInstance();
+        }
+      }
+;
+      try {
+        Entities.asTransaction(VmInstance.class,updateInstance).apply(volumeId);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex);
+        Logs.extreme().error(ex,ex);
       }
     }
   }
