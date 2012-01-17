@@ -1,7 +1,23 @@
 {
+  final String instanceId=this.getRequest().getInstanceId();
+  final String volumeId=this.getRequest().getVolumeId();
+  final Function<String,VmInstance> funcName=new Function<String,VmInstance>(){
+    public VmInstance apply(    final String input){
+      VmInstance vm=VmInstances.lookup(instanceId);
+      try {
+        if (!AttachmentState.attached.equals(vm.lookupVolumeAttachment(volumeId).getAttachmentState())) {
+          vm.updateVolumeAttachment(volumeId,AttachmentState.attaching);
+        }
+      }
+ catch (      Exception ex) {
+        vm.updateVolumeAttachment(volumeId,AttachmentState.attaching);
+      }
+      return vm;
+    }
+  }
+;
   try {
-    VmInstance vm=VmInstances.lookup(this.getRequest().getInstanceId());
-    vm.updateVolumeAttachment(this.getRequest().getVolumeId(),"attached");
+    Entities.asTransaction(VmInstance.class,funcName).apply(this.getRequest().getInstanceId());
   }
  catch (  NoSuchElementException e1) {
     LOG.error("Failed to lookup volume attachment state in order to update: " + this.getRequest().getVolumeId() + " due to "+ e1.getMessage(),e1);

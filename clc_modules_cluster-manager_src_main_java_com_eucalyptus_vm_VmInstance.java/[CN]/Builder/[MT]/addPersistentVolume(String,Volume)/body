@@ -1,13 +1,13 @@
 {
-  final EntityTransaction db=Entities.get(VmInstance.class);
-  try {
-    final VmInstance entity=Entities.merge(this);
-    final VmVolumeAttachment volumeAttachment=new VmVolumeAttachment(entity,vol.getDisplayName(),deviceName,vol.getRemoteDevice(),"attached",new Date());
-    entity.bootRecord.getPersistentVolumes().add(volumeAttachment);
-    db.commit();
+  final Function<Volume,Volume> attachmentFunction=new Function<Volume,Volume>(){
+    public Volume apply(    final Volume input){
+      final VmInstance entity=Entities.merge(VmInstance.this);
+      final Volume volEntity=Entities.merge(vol);
+      final VmVolumeAttachment volumeAttachment=new VmVolumeAttachment(entity,vol.getDisplayName(),deviceName,null,AttachmentState.attached.name(),new Date(),true);
+      entity.bootRecord.getPersistentVolumes().add(volumeAttachment);
+      return volEntity;
+    }
   }
- catch (  final Exception ex) {
-    Logs.exhaust().error(ex,ex);
-    db.rollback();
-  }
+;
+  Entities.asTransaction(VmInstance.class,attachmentFunction,VmInstances.TX_RETRIES).apply(vol);
 }

@@ -1,46 +1,87 @@
 {
-  DescribeVolumesResponseType reply=(DescribeVolumesResponseType)request.getReply();
-  Context ctx=Contexts.lookup();
-  boolean showAll=request.getVolumeSet().remove("verbose");
-  EntityWrapper<Volume> db=EntityWrapper.get(Volume.class);
-  try {
-    final Map<String,AttachedVolume> attachedVolumes=new HashMap<String,AttachedVolume>();
-    for (    VmInstance vm : VmInstances.list(Predicates.not(VmState.TERMINATED))) {
-      vm.eachVolumeAttachment(new Predicate<AttachedVolume>(){
-        @Override public boolean apply(        AttachedVolume arg0){
-          return attachedVolumes.put(arg0.getVolumeId(),arg0) == null;
+  final DescribeVolumesResponseType reply=(DescribeVolumesResponseType)request.getReply();
+  final Context ctx=Contexts.lookup();
+  final boolean showAll=request.getVolumeSet().remove("verbose");
+  final AccountFullName ownerFullName=(ctx.hasAdministrativePrivileges() && showAll) ? null : ctx.getUserFullName().asAccountFullName();
+  final Set<String> volumeIds=Sets.newHashSet();
+  if (!request.getVolumeSet().isEmpty()) {
+    volumeIds.addAll(request.getVolumeSet());
+  }
+  final Function<Set<String>,Set<String>> lookupVolumeIds=new Function<Set<String>,Set<String>>(){
+    public Set<String> apply(    final Set<String> input){
+      Set<String> res=Sets.newHashSet();
+      if (input.isEmpty()) {
+        for (        Volume foundVol : Collections2.filter(Entities.query(Volume.named(ownerFullName,null)),RestrictedTypes.filterPrivileged())) {
+          res.add(foundVol.getDisplayName());
         }
-      }
-);
-    }
-    List<Volume> volumes=db.query(Volume.named((ctx.hasAdministrativePrivileges() && showAll) ? null : ctx.getUserFullName().asAccountFullName(),null));
-    List<Volume> describeVolumes=Lists.newArrayList();
-    for (    Volume v : Iterables.filter(volumes,CloudMetadatas.filterPrivilegesById(request.getVolumeSet()))) {
-      if (!State.ANNIHILATED.equals(v.getState())) {
-        describeVolumes.add(v);
       }
  else {
-        try {
-          ListenerRegistry.getInstance().fireEvent(new StorageEvent(StorageEvent.EventType.EbsVolume,false,v.getSize(),v.getOwnerUserId(),v.getOwnerUserName(),v.getOwnerAccountNumber(),v.getOwnerAccountName(),v.getScName(),v.getPartition()));
+        for (        String s : input) {
+          try {
+            Volume foundVol=Entities.uniqueResult(Volume.named(ownerFullName,s));
+            if (RestrictedTypes.filterPrivileged().apply(foundVol)) {
+              res.add(foundVol.getDisplayName());
+            }
+          }
+ catch (          NoSuchElementException ex) {
+          }
+catch (          TransactionException ex) {
+            throw Exceptions.toUndeclared(ex);
+          }
         }
- catch (        EventFailedException ex) {
-          LOG.error(ex,ex);
-        }
-        db.delete(v);
       }
+      return res;
     }
-    try {
-      ArrayList<edu.ucsb.eucalyptus.msgs.Volume> volumeReplyList=StorageUtil.getVolumeReply(attachedVolumes,describeVolumes);
-      reply.getVolumeSet().addAll(volumeReplyList);
-    }
- catch (    Exception e) {
-      LOG.warn("Error getting volume information from the Storage Controller: " + e);
-      LOG.debug(e,e);
-    }
-    db.commit();
   }
- catch (  Exception t) {
-    db.commit();
+;
+  Set<String> allowedVolumeIds=Entities.asTransaction(Volume.class,lookupVolumeIds).apply(volumeIds);
+  final Function<String,Volume> lookupVolume=new Function<String,Volume>(){
+    @Override public Volume apply(    String input){
+      try {
+        Volume foundVol=Entities.uniqueResult(Volume.named(ownerFullName,input));
+        if (State.ANNIHILATED.equals(foundVol.getState())) {
+          Entities.delete(foundVol);
+          Volumes.fireDeleteEvent(foundVol);
+          reply.getVolumeSet().add(foundVol.morph(new edu.ucsb.eucalyptus.msgs.Volume()));
+          return foundVol;
+        }
+ else         if (RestrictedTypes.filterPrivileged().apply(foundVol)) {
+          AttachedVolume attachedVolume=null;
+          try {
+            VmVolumeAttachment attachment=VmInstances.lookupVolumeAttachment(input);
+            attachedVolume=VmVolumeAttachment.asAttachedVolume(attachment.getVmInstance()).apply(attachment);
+            foundVol.setState(State.BUSY);
+          }
+ catch (          NoSuchElementException ex) {
+            if (State.BUSY.equals(foundVol.getState())) {
+              foundVol.setState(State.EXTANT);
+            }
+          }
+          edu.ucsb.eucalyptus.msgs.Volume msgTypeVolume=foundVol.morph(new edu.ucsb.eucalyptus.msgs.Volume());
+          if (attachedVolume != null) {
+            msgTypeVolume.getAttachmentSet().add(attachedVolume);
+          }
+          reply.getVolumeSet().add(msgTypeVolume);
+          return foundVol;
+        }
+      }
+ catch (      NoSuchElementException ex) {
+        throw ex;
+      }
+catch (      TransactionException ex) {
+        throw Exceptions.toUndeclared(ex);
+      }
+      throw new NoSuchElementException("Failed to lookup volume: " + input);
+    }
+  }
+;
+  for (  String volId : allowedVolumeIds) {
+    try {
+      Volume vol=Entities.asTransaction(Volume.class,lookupVolume).apply(volId);
+    }
+ catch (    Exception ex) {
+      Logs.extreme().debug(ex,ex);
+    }
   }
   return reply;
 }

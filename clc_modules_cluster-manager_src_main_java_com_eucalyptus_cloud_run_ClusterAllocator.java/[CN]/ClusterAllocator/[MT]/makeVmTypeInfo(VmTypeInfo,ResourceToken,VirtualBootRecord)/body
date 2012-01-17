@@ -1,0 +1,45 @@
+{
+  VmTypeInfo childVmInfo=vmInfo;
+  if (root.isBlockStorage()) {
+    childVmInfo=vmInfo.child();
+    final Volume vol=token.getRootVolume();
+    final ServiceConfiguration scConfig=waitForVolume(vol);
+    VirtualBootRecord vbrRootDevice=childVmInfo.lookupRoot();
+    String volumeId=vol.getDisplayName();
+    String remoteDeviceString=null;
+    try {
+      AttachStorageVolumeType attachMsg=new AttachStorageVolumeType(Nodes.lookupIqns(this.cluster.getConfiguration()),volumeId);
+      final AttachStorageVolumeResponseType scAttachResponse=AsyncRequests.sendSync(scConfig,attachMsg);
+      LOG.debug(scAttachResponse);
+      remoteDeviceString=scAttachResponse.getRemoteDeviceString();
+      if (remoteDeviceString == null) {
+        throw new EucalyptusCloudException("Failed to get remote device string for " + volumeId + " while running instance "+ token.getInstanceId());
+      }
+ else {
+        vbrRootDevice.setResourceLocation(remoteDeviceString);
+        final String updateRemoteDevString=remoteDeviceString;
+        final Function<String,VmInstance> updateInstance=new Function<String,VmInstance>(){
+          public VmInstance apply(          final String input){
+            VmVolumeAttachment attachment=VmInstances.lookupVolumeAttachment(input);
+            attachment.setRemoteDevice(updateRemoteDevString);
+            return attachment.getVmInstance();
+          }
+        }
+;
+        try {
+          Entities.asTransaction(VmInstance.class,updateInstance).apply(volumeId);
+        }
+ catch (        Exception ex) {
+          LOG.error(ex);
+          Logs.extreme().error(ex,ex);
+        }
+      }
+    }
+ catch (    final Exception ex) {
+      LOG.error(ex);
+      Logs.extreme().error(ex,ex);
+      throw ex;
+    }
+  }
+  return childVmInfo;
+}
