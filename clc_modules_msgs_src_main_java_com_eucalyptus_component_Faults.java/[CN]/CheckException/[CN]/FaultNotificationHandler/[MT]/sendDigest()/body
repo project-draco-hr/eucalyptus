@@ -1,0 +1,31 @@
+{
+  if (Hosts.isCoordinator() && Faults.DIGEST) {
+    long lastTime=lastDigest.getAndSet(System.currentTimeMillis());
+    if ((lastDigest.get() - lastTime) > Faults.DIGEST_FREQUENCY_HOURS * 60 * 60* 1000) {
+      Date digestDate=new Date(lastDigest.get());
+      if (!serviceExceptions.isEmpty() || !Faults.DIGEST_ONLY_ON_ERRORS) {
+        LOG.debug("Fault notifications: preparing digest for " + digestDate + ".");
+        try {
+          String subject=Faults.EMAIL_SUBJECT_PREFIX + " system state for " + digestDate;
+          String result=Groovyness.run(SubDirectory.SCRIPTS,"notifications_digest");
+          if (!Strings.isNullOrEmpty(result)) {
+            LOG.debug("From: " + Faults.EMAIL_FROM_NAME + " <"+ Faults.EMAIL_FROM+ ">");
+            LOG.debug("To: " + Faults.EMAIL_TO);
+            LOG.debug("Subject: " + subject);
+            LOG.debug(result);
+          }
+        }
+ catch (        Exception ex) {
+          LOG.error("Fault notifications: rendering digest failed: " + ex.getMessage());
+          Logs.extreme().error(ex,ex);
+        }
+      }
+ else {
+        LOG.debug("Fault notifications: skipping digest for " + digestDate + ".");
+      }
+    }
+ else {
+      lastDigest.set(lastTime);
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  LOG.debug("Fault notifications: waking up to service error queue.");
+  List<FaultRecord> pendingFaults=Lists.newArrayList();
+  errorQueue.drainTo(pendingFaults);
+  if (pendingFaults.isEmpty()) {
+    LOG.debug("Fault notifications: service error queue is empty... going back to sleep.");
+  }
+ else {
+    if (Hosts.isCoordinator()) {
+      String subject=Faults.EMAIL_SUBJECT_PREFIX;
+      List<FaultRecord> noStateChange=Lists.newArrayList();
+      List<FaultRecord> stateChange=Lists.newArrayList();
+      for (      FaultRecord f : pendingFaults) {
+        TransitionRecord<ServiceConfiguration,State,Transition> tr=f.getTransitionRecord();
+        if (tr.getRule().getFromState().equals(f.getFinalState())) {
+          noStateChange.add(f);
+        }
+ else {
+          stateChange.add(f);
+          subject+=" " + f.getServiceConfiguration().getName() + "->"+ f.getFinalState();
+        }
+      }
+      if (stateChange.isEmpty()) {
+        LOG.debug("Fault notifications: no state changes pending, discarding pending faults");
+      }
+ else {
+        try {
+          String result=Groovyness.run(SubDirectory.SCRIPTS,"notifications",ImmutableMap.builder().put("faults",pendingFaults).build());
+          if (!Strings.isNullOrEmpty(result)) {
+            LOG.debug("From: " + Faults.EMAIL_FROM_NAME + " <"+ Faults.EMAIL_FROM+ ">");
+            LOG.debug("To: " + Faults.EMAIL_TO);
+            LOG.debug("Subject: " + subject);
+            LOG.debug(result);
+          }
+        }
+ catch (        Exception ex) {
+          LOG.error("Fault notifications: rendering notification failed: " + ex.getMessage());
+          Logs.extreme().error(ex,ex);
+        }
+      }
+    }
+  }
+}
