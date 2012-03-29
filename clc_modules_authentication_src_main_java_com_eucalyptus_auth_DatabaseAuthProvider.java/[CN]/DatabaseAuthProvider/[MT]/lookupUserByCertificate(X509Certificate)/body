@@ -4,17 +4,12 @@
   }
   EntityWrapper<UserEntity> db=EntityWrapper.get(UserEntity.class);
   try {
-    Example userExample=Example.create(new UserEntity(true)).enableLike(MatchMode.EXACT);
-    CertificateEntity searchCert=new CertificateEntity(X509CertHelper.fromCertificate(cert));
-    searchCert.setActive(true);
-    searchCert.setRevoked(false);
-    Example certExample=Example.create(searchCert).enableLike(MatchMode.EXACT);
-    @SuppressWarnings("unchecked") List<UserEntity> users=(List<UserEntity>)db.createCriteria(UserEntity.class).setCacheable(true).add(userExample).createCriteria("certificates").setCacheable(true).add(certExample).list();
-    if (users.size() != 1) {
-      throw new AuthException("Found " + users.size() + " user(s)");
+    @SuppressWarnings("unchecked") UserEntity result=(UserEntity)db.createCriteria(UserEntity.class).setCacheable(true).add(Restrictions.eq("enabled",true)).createCriteria("certificates").setCacheable(true).add(Restrictions.and(Restrictions.eq("pem",X509CertHelper.fromCertificate(cert)),Restrictions.and(Restrictions.eq("active",true),Restrictions.eq("revoked",false)))).uniqueResult();
+    if (result == null) {
+      throw new NoSuchElementException("Can not find user with specific cert");
     }
     db.commit();
-    return new DatabaseUserProxy(users.get(0));
+    return new DatabaseUserProxy(result);
   }
  catch (  Exception e) {
     db.rollback();
