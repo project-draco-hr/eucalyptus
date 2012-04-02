@@ -1,0 +1,22 @@
+{
+  if (event.getMessage() instanceof MappingHttpMessage) {
+    MappingHttpMessage httpRequest=(MappingHttpMessage)event.getMessage();
+    OMElement omElem=null;
+    if (httpRequest.getMessage() instanceof EucalyptusErrorMessageType || httpRequest.getMessage() == null) {
+      return;
+    }
+ else     if (httpRequest.getMessage() instanceof ExceptionResponseType) {
+      ExceptionResponseType msg=(ExceptionResponseType)httpRequest.getMessage();
+      String createFaultDetails=Logs.isExtrrreeeme() ? Exceptions.string(msg.getException()) : msg.getException().getMessage();
+      omElem=Binding.createFault(msg.getRequestType(),msg.getMessage(),createFaultDetails);
+    }
+ else {
+      Class targetClass=httpRequest.getMessage().getClass();
+      while (!targetClass.getSimpleName().endsWith("Type"))       targetClass=targetClass.getSuperclass();
+      Class responseClass=ClassLoader.getSystemClassLoader().loadClass(targetClass.getName());
+      ctx.setAttachment(responseClass);
+      omElem=this.binding.toOM(httpRequest.getMessage());
+    }
+    httpRequest.setOmMessage(omElem);
+  }
+}
