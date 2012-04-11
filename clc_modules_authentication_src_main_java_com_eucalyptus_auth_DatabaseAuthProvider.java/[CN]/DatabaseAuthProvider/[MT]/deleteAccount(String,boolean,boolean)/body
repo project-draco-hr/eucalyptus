@@ -8,13 +8,11 @@
   if (!recursive && !DatabaseAuthUtils.isAccountEmpty(accountName)) {
     throw new AuthException(AuthException.ACCOUNT_DELETE_CONFLICT);
   }
-  Example accountExample=Example.create(new AccountEntity(accountName)).enableLike(MatchMode.EXACT);
-  Example groupExample=Example.create(new GroupEntity(true)).enableLike(MatchMode.EXACT);
   EntityWrapper<AccountEntity> db=EntityWrapper.get(AccountEntity.class);
   try {
     if (recursive) {
-      List<GroupEntity> groups=(List<GroupEntity>)db.createCriteria(GroupEntity.class).setCacheable(true).createCriteria("account").setCacheable(true).add(accountExample).list();
-      List<UserEntity> users=(List<UserEntity>)db.createCriteria(UserEntity.class).setCacheable(true).createCriteria("groups").setCacheable(true).add(groupExample).createCriteria("account").setCacheable(true).add(accountExample).list();
+      List<GroupEntity> groups=(List<GroupEntity>)db.createCriteria(GroupEntity.class).setCacheable(true).createCriteria("account").setCacheable(true).add(Restrictions.eq("name",accountName)).list();
+      List<UserEntity> users=(List<UserEntity>)db.createCriteria(UserEntity.class).setCacheable(true).createCriteria("groups").setCacheable(true).add(Restrictions.eq("userGroup",true)).createCriteria("account").setCacheable(true).add(Restrictions.eq("name",accountName)).list();
       for (      GroupEntity g : groups) {
         db.recast(GroupEntity.class).delete(g);
       }
@@ -22,11 +20,11 @@
         db.recast(UserEntity.class).delete(u);
       }
     }
-    List<AccountEntity> accounts=(List<AccountEntity>)db.createCriteria(AccountEntity.class).setCacheable(true).add(accountExample).list();
-    if (accounts.size() != 1) {
-      throw new AuthException("Found " + accounts.size() + " account(s)");
+    AccountEntity account=(AccountEntity)db.createCriteria(AccountEntity.class).setCacheable(true).add(Restrictions.eq("name",accountName)).uniqueResult();
+    if (account == null) {
+      throw new NoSuchElementException("Can not find account " + accountName);
     }
-    db.delete(accounts.get(0));
+    db.delete(account);
     db.commit();
   }
  catch (  Exception e) {
