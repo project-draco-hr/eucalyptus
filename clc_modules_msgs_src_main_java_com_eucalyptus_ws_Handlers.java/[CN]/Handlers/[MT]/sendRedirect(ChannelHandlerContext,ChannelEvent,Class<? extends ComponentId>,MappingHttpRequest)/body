@@ -3,23 +3,26 @@
   String redirectUri=null;
   if (Topology.isEnabled(compClass)) {
     final URI serviceUri=ServiceUris.remote(Topology.lookup(compClass));
-    redirectUri=serviceUri.toASCIIString() + originalPath.replace(serviceUri.getPath(),"");
+    redirectUri=serviceUri.toASCIIString() + request.getServicePath().replace(serviceUri.getPath(),"");
   }
  else   if (Topology.isEnabled(Eucalyptus.class)) {
     final URI serviceUri=ServiceUris.remote(Topology.lookup(Eucalyptus.class));
-    redirectUri=serviceUri.toASCIIString().replace(Eucalyptus.INSTANCE.getServicePath(),"") + originalPath.replace(serviceUri.getPath(),"");
+    redirectUri=serviceUri.toASCIIString().replace(Eucalyptus.INSTANCE.getServicePath(),"") + request.getServicePath().replace(serviceUri.getPath(),"");
   }
   HttpResponse response=null;
   if (redirectUri == null) {
     response=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.SERVICE_UNAVAILABLE);
     if (Logs.isDebug()) {
-      String errorMessage="Failed to lookup service for " + Components.lookup(compClass).getName() + " for path "+ originalPath+ ".\nCurrent state: \n\t"+ Joiner.on("\n\t").join(Topology.enabledServices());
+      String errorMessage="Failed to lookup service for " + Components.lookup(compClass).getName() + " for path "+ request.getServicePath()+ ".\nCurrent state: \n\t"+ Joiner.on("\n\t").join(Topology.enabledServices());
       byte[] errorBytes=Exceptions.string(new ServiceStateException(errorMessage)).getBytes();
       response.setContent(ChannelBuffers.wrappedBuffer(errorBytes));
     }
   }
  else {
     response=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.TEMPORARY_REDIRECT);
+    if (request.getQuery() != null) {
+      redirectUri+="?" + request.getQuery();
+    }
     response.setHeader(HttpHeaders.Names.LOCATION,redirectUri);
   }
   final ChannelFuture writeFuture=Channels.future(ctx.getChannel());
