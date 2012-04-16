@@ -4,18 +4,24 @@
   Context ctx=Contexts.lookup();
   Account account=ctx.getAccount();
   String prefix=request.getPrefix();
-  if (prefix == null)   prefix="";
+  if (prefix == null) {
+    prefix="";
+  }
   String marker=request.getMarker();
   int maxKeys=-1;
   String maxKeysString=request.getMaxKeys();
-  if (maxKeysString != null)   maxKeys=Integer.parseInt(maxKeysString);
- else   maxKeys=WalrusProperties.MAX_KEYS;
+  if (maxKeysString != null) {
+    maxKeys=Integer.parseInt(maxKeysString);
+  }
+ else {
+    maxKeys=WalrusProperties.MAX_KEYS;
+  }
   String delimiter=request.getDelimiter();
   EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   bucketInfo.setHidden(false);
   List<BucketInfo> bucketList=db.query(bucketInfo);
-  ArrayList<PrefixEntry> prefixes=new ArrayList<PrefixEntry>();
+  Hashtable<String,PrefixEntry> prefixes=new Hashtable<String,PrefixEntry>();
   if (bucketList.size() > 0) {
     BucketInfo bucket=bucketList.get(0);
     BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
@@ -28,92 +34,120 @@
         EntityWrapper<WalrusSnapshotInfo> dbSnap=db.recast(WalrusSnapshotInfo.class);
         WalrusSnapshotInfo walrusSnapInfo=new WalrusSnapshotInfo();
         walrusSnapInfo.setSnapshotBucket(bucketName);
-        List<WalrusSnapshotInfo> walrusSnaps=dbSnap.query(walrusSnapInfo);
-        if (walrusSnaps.size() > 0) {
+        Criteria snapCount=dbSnap.createCriteria(WalrusSnapshotInfo.class).add(Example.create(walrusSnapInfo)).setProjection(Projections.rowCount());
+        Long rowCount=(Long)snapCount.uniqueResult();
+        if (rowCount != null && rowCount.longValue() > 0) {
           db.rollback();
           throw new NoSuchBucketException(bucketName);
         }
       }
       reply.setName(bucketName);
       reply.setIsTruncated(false);
-      if (maxKeys >= 0)       reply.setMaxKeys(maxKeys);
       reply.setPrefix(prefix);
-      reply.setMarker(marker);
-      if (delimiter != null)       reply.setDelimiter(delimiter);
+      if (maxKeys >= 0) {
+        reply.setMaxKeys(maxKeys);
+      }
+      if (delimiter != null) {
+        reply.setDelimiter(delimiter);
+      }
+      if (maxKeys == 0) {
+        reply.setContents(new ArrayList<ListEntry>());
+        db.commit();
+        return reply;
+      }
+      final int queryStrideSize=maxKeys + 1;
       EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-      ObjectInfo searchObjectInfo=new ObjectInfo();
-      searchObjectInfo.setBucketName(bucketName);
-      searchObjectInfo.setDeleted(false);
-      searchObjectInfo.setLast(true);
-      List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
-      if (objectInfos.size() > 0) {
-        int howManyProcessed=0;
-        if (marker != null || objectInfos.size() < maxKeys)         Collections.sort(objectInfos);
-        ArrayList<ListEntry> contents=new ArrayList<ListEntry>();
-        for (        ObjectInfo objectInfo : objectInfos) {
-          String objectKey=objectInfo.getObjectKey();
-          if (marker != null) {
-            if (objectKey.compareTo(marker) <= 0)             continue;
-          }
-          if (prefix != null) {
-            if (!objectKey.startsWith(prefix)) {
-              continue;
-            }
- else {
-              if (delimiter != null) {
-                String[] parts=objectKey.substring(prefix.length()).split(delimiter);
-                if (parts.length > 1) {
-                  String prefixString=parts[0] + delimiter;
-                  boolean foundPrefix=false;
-                  for (                  PrefixEntry prefixEntry : prefixes) {
-                    if (prefixEntry.getPrefix().equals(prefixString)) {
-                      foundPrefix=true;
-                      break;
-                    }
+      ObjectInfo searchObj=new ObjectInfo();
+      searchObj.setBucketName(bucketName);
+      searchObj.setLast(true);
+      searchObj.setDeleted(false);
+      Criteria objCriteria=dbObject.createCriteria(ObjectInfo.class);
+      objCriteria.add(Example.create(searchObj));
+      objCriteria.addOrder(Order.asc("objectKey"));
+      objCriteria.setMaxResults(queryStrideSize);
+      if (marker != null) {
+        objCriteria.add(Restrictions.ge("objectKey",marker));
+      }
+      if (prefix != null && !prefix.equals("")) {
+        objCriteria.add(Restrictions.like("objectKey",prefix,MatchMode.START));
+      }
+      List<ObjectInfo> objectInfos=null;
+      int resultKeyCount=0;
+      String objectKey=null;
+      String[] parts=null;
+      String prefixString=null;
+      ArrayList<ListEntry> contents=new ArrayList<ListEntry>();
+      ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
+      do {
+        objectKey=null;
+        parts=null;
+        prefixString=null;
+        if (resultKeyCount > 0) {
+          objCriteria.setFirstResult(queryStrideSize);
+        }
+        objectInfos=(List<ObjectInfo>)objCriteria.list();
+        if (objectInfos.size() > 0) {
+          for (          ObjectInfo objectInfo : objectInfos) {
+            objectKey=objectInfo.getObjectKey();
+            if (delimiter != null) {
+              parts=objectKey.substring(prefix.length()).split(delimiter);
+              if (parts.length > 1) {
+                prefixString=parts[0] + delimiter;
+                if (!prefixes.containsKey(prefixString)) {
+                  if (resultKeyCount == maxKeys) {
+                    reply.setNextMarker(objectKey);
+                    reply.setIsTruncated(true);
+                    resultKeyCount++;
+                    break;
                   }
-                  if (!foundPrefix) {
-                    prefixes.add(new PrefixEntry(prefixString));
-                    if (maxKeys >= 0) {
-                      if (howManyProcessed++ >= maxKeys) {
-                        reply.setIsTruncated(true);
-                        break;
-                      }
-                    }
-                  }
-                  continue;
+                  prefixes.put(prefixString,new PrefixEntry(prefixString));
+                  resultKeyCount++;
                 }
+                continue;
               }
             }
-          }
-          if (maxKeys >= 0) {
-            if (howManyProcessed++ >= maxKeys) {
+            if (resultKeyCount == maxKeys) {
+              reply.setNextMarker(objectKey);
               reply.setIsTruncated(true);
+              resultKeyCount++;
               break;
             }
+            ListEntry listEntry=new ListEntry();
+            listEntry.setKey(objectKey);
+            listEntry.setEtag(objectInfo.getEtag());
+            listEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+            listEntry.setStorageClass(objectInfo.getStorageClass());
+            try {
+              listEntry.setOwner(new CanonicalUserType(objectInfo.getOwnerId(),Accounts.lookupAccountById(objectInfo.getOwnerId()).getName()));
+            }
+ catch (            AuthException e) {
+              db.rollback();
+              throw new AccessDeniedException("Bucket",bucketName,logData);
+            }
+            objectInfo.returnMetaData(metaData);
+            listEntry.setSize(objectInfo.getSize());
+            listEntry.setStorageClass(objectInfo.getStorageClass());
+            contents.add(listEntry);
+            resultKeyCount++;
           }
-          ListEntry listEntry=new ListEntry();
-          listEntry.setKey(objectKey);
-          listEntry.setEtag(objectInfo.getEtag());
-          listEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
-          listEntry.setStorageClass(objectInfo.getStorageClass());
-          try {
-            listEntry.setOwner(new CanonicalUserType(objectInfo.getOwnerId(),Accounts.lookupAccountById(objectInfo.getOwnerId()).getName()));
-          }
- catch (          AuthException e) {
-            db.rollback();
-            throw new AccessDeniedException("Bucket",bucketName,logData);
-          }
-          ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
-          objectInfo.returnMetaData(metaData);
-          reply.setMetaData(metaData);
-          listEntry.setSize(objectInfo.getSize());
-          listEntry.setStorageClass(objectInfo.getStorageClass());
-          contents.add(listEntry);
         }
-        reply.setContents(contents);
-        if (prefixes.size() > 0) {
-          reply.setCommonPrefixes(prefixes);
+        if (resultKeyCount <= maxKeys && objectInfos.size() <= maxKeys) {
+          break;
         }
+      }
+ while (resultKeyCount <= maxKeys);
+      reply.setMetaData(metaData);
+      reply.setContents(contents);
+      if (prefixes != null && prefixes.size() > 0) {
+        ArrayList<PrefixEntry> prefixList=new ArrayList<PrefixEntry>();
+        prefixList.addAll(prefixes.values());
+        Collections.sort(prefixList,new Comparator<PrefixEntry>(){
+          public int compare(          PrefixEntry e1,          PrefixEntry e2){
+            return e1.getPrefix().compareTo(e2.getPrefix());
+          }
+        }
+);
+        reply.setCommonPrefixes(prefixList);
       }
     }
  else {
