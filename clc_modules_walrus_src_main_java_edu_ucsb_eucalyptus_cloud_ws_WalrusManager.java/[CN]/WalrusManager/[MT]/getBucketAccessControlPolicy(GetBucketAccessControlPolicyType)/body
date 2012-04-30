@@ -21,19 +21,31 @@
       ownerId=bucket.getOwnerId();
       ArrayList<Grant> grants=new ArrayList<Grant>();
       bucket.readPermissions(grants);
+      CanonicalUserType grantUser=null;
+      Account tmpAccnt=null;
       for (      GrantInfo grantInfo : grantInfos) {
         String uId=grantInfo.getUserId();
         try {
           if (uId != null) {
-            addPermission(grants,Accounts.lookupAccountById(uId),grantInfo);
+            try {
+              tmpAccnt=Accounts.lookupAccountById(uId);
+              grantUser=new CanonicalUserType(tmpAccnt.getAccountNumber(),tmpAccnt.getName());
+              tmpAccnt=null;
+            }
+ catch (            AuthException e) {
+              LOG.debug(e,e);
+              grantUser=new CanonicalUserType(uId,"");
+              tmpAccnt=null;
+            }
+            addPermission(grants,grantUser,grantInfo);
           }
  else {
             addPermission(grants,grantInfo);
           }
         }
  catch (        AuthException e) {
-          db.rollback();
-          throw new AccessDeniedException("Bucket",bucketName,logData);
+          LOG.debug(e,e);
+          continue;
         }
       }
       accessControlList.setGrants(grants);
