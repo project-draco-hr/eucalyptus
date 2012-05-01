@@ -30,13 +30,15 @@
         reply.setLogData(logData);
       }
       if (Contexts.lookup().hasAdministrativePrivileges()) {
-        EntityWrapper<WalrusSnapshotInfo> dbSnap=db.recast(WalrusSnapshotInfo.class);
-        WalrusSnapshotInfo walrusSnapInfo=new WalrusSnapshotInfo();
-        walrusSnapInfo.setSnapshotBucket(bucketName);
-        List<WalrusSnapshotInfo> walrusSnaps=dbSnap.query(walrusSnapInfo);
-        if (walrusSnaps.size() > 0) {
-          db.rollback();
-          throw new NoSuchBucketException(bucketName);
+        try {
+          if (bucketHasSnapshots(bucketName)) {
+            db.rollback();
+            throw new NoSuchBucketException(bucketName);
+          }
+        }
+ catch (        Exception e) {
+          LOG.debug(e,e);
+          throw new EucalyptusCloudException(e);
         }
       }
       reply.setName(bucketName);
@@ -123,10 +125,10 @@
             deleteMarkerEntry.setKey(objectKey);
             deleteMarkerEntry.setVersionId(objectInfo.getVersionId());
             deleteMarkerEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
-            String displayName=objectInfo.getOwnerId();
             try {
-              User userInfo=Accounts.lookupUserById(displayName);
-              deleteMarkerEntry.setOwner(new CanonicalUserType(Accounts.getFirstActiveAccessKeyId(userInfo),displayName));
+              String ownerId=objectInfo.getOwnerId();
+              String displayName=Accounts.lookupAccountById(ownerId).getName();
+              deleteMarkerEntry.setOwner(new CanonicalUserType(ownerId,displayName));
             }
  catch (            AuthException e) {
               db.rollback();
