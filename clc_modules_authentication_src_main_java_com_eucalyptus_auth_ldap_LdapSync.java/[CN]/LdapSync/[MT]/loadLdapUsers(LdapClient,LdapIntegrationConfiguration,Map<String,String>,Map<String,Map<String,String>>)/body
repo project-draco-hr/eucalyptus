@@ -1,15 +1,25 @@
 {
-  List<String> attrNames=Lists.newArrayList();
+  if (VERBOSE) {
+    LOG.debug("Loading users from LDAP/AD");
+  }
+  Set<String> attrNames=Sets.newHashSet();
   attrNames.addAll(lic.getUserInfoAttributes().keySet());
-  if (!lic.getUserInfoAttributes().keySet().contains(lic.getUserIdAttribute())) {
+  if (!Strings.isNullOrEmpty(lic.getUserIdAttribute())) {
     attrNames.add(lic.getUserIdAttribute());
   }
-  final Map<String,Map<String,String>> userMap=Maps.newHashMap();
+  if (!Strings.isNullOrEmpty(lic.getUserSaslIdAttribute())) {
+    attrNames.add(lic.getUserSaslIdAttribute());
+  }
+  if (VERBOSE) {
+    LOG.debug("Attributes to load for users: " + attrNames);
+  }
   retrieveSelection(ldap,lic.getUserBaseDn(),lic.getUsersSelection(),attrNames.toArray(new String[0]),new LdapEntryProcessor(){
     @Override public void processLdapEntry(    String dn,    Attributes attrs) throws NamingException {
       if (VERBOSE) {
         LOG.debug("Retrieved user: " + dn + " -> "+ attrs);
       }
+      String id=sanitizeUserGroupId(getId(dn,lic.getUserIdAttribute(),attrs));
+      userDnToId.put(dn,id);
       Map<String,String> infoMap=Maps.newHashMap();
       for (      String attrName : lic.getUserInfoAttributes().keySet()) {
         String infoKey=lic.getUserInfoAttributes().get(attrName);
@@ -19,9 +29,11 @@
         }
       }
       infoMap.put(User.DN,dn);
-      userMap.put(getId(lic.getUserIdAttribute(),attrs).toLowerCase(),infoMap);
+      if (!Strings.isNullOrEmpty(lic.getUserSaslIdAttribute())) {
+        infoMap.put(User.SASLID,getAttrWithNullCheck(attrs,lic.getUserSaslIdAttribute()));
+      }
+      users.put(id,infoMap);
     }
   }
 );
-  return userMap;
 }
