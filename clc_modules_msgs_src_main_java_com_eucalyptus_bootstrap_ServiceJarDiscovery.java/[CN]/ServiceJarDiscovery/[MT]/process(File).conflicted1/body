@@ -1,44 +1,19 @@
 {
-  if (f.isDirectory()) {
-    File[] files=f.listFiles(new FilenameFilter(){
-      @Override public boolean accept(      File dir,      String name){
-        return name.matches(FILE_PATTERN);
+  final JarFile jar=new JarFile(f);
+  final Properties props=new Properties();
+  final List<JarEntry> jarList=Collections.list(jar.entries());
+  LOG.trace("-> Trying to load component info from " + f.getAbsolutePath());
+  for (  final JarEntry j : jarList) {
+    try {
+      if (j.getName().matches(".*\\.class.{0,1}")) {
+        handleClassFile(f,j);
       }
     }
-);
-    for (    File ff : files) {
-      byte[] bindingBytes=Files.toByteArray(ff);
-      this.addCurrentBinding(bindingBytes,ff.getName(),"file:" + ff.getAbsolutePath());
+ catch (    RuntimeException ex) {
+      LOG.error(ex,ex);
+      jar.close();
+      throw ex;
     }
   }
- else {
-    String digest=new BigInteger(Files.getDigest(f,Digest.MD5.get())).abs().toString(16);
-    CURRENT_PROPS.put(BINDING_CACHE_JAR_PREFIX + f.getName(),digest);
-    final JarFile jar=new JarFile(f);
-    final List<JarEntry> jarList=Collections.list(jar.entries());
-    LOG.trace("-> Trying to load message binding info from " + f.getAbsolutePath());
-    for (    final JarEntry j : jarList) {
-      try {
-        if (j.getName().matches(FILE_PATTERN)) {
-          byte[] bindingBytes=ByteStreams.toByteArray(jar.getInputStream(j));
-          String bindingName=j.getName();
-          String bindingFullPath="jar:file:" + f.getAbsolutePath() + "!/"+ bindingName;
-          this.addCurrentBinding(bindingBytes,bindingName,bindingFullPath);
-        }
- else         if (j.getName().matches(".*\\.class.{0,1}")) {
-          final String classGuess=j.getName().replaceAll("/",".").replaceAll("\\.class.{0,1}","");
-          final Class candidate=ClassLoader.getSystemClassLoader().loadClass(classGuess);
-          if (MSG_BASE_CLASS.isAssignableFrom(candidate)) {
-            BINDING_CLASS_MAP.putIfAbsent(classGuess,candidate);
-          }
-        }
-      }
- catch (      RuntimeException ex) {
-        LOG.error(ex,ex);
-        jar.close();
-        throw ex;
-      }
-    }
-    jar.close();
-  }
+  jar.close();
 }
