@@ -1,42 +1,47 @@
 {
-  Class targetType=obj.getClass();
-  if (targetType.isAnonymousClass()) {
-    targetType=(targetType.getSuperclass() != null ? targetType.getSuperclass() : targetType.getInterfaces()[0]);
+  if (jmxBuilder == null) {
+    return;
   }
-  String exportString="jmx.export{ bean( " + " target: obj, " + " name: obj.class.package.name+\":type=${obj.class.simpleName}\","+ " desc: \"${obj.toString()}\""+ " ) }";
-  for (  Class c : Classes.ancestors(targetType)) {
-    File jmxConfig=SubDirectory.MANAGEMENT.getChildFile(c.getCanonicalName());
-    if (jmxConfig.exists()) {
-      LOG.trace("Trying to read jmx config file: " + jmxConfig.getAbsolutePath());
-      try {
-        exportString=Files.toString(jmxConfig,Charset.defaultCharset());
-        LOG.trace("Succeeded reading jmx config file: " + jmxConfig.getAbsolutePath());
-        break;
-      }
- catch (      IOException ex) {
-        LOG.error(ex,ex);
+ else {
+    Class targetType=obj.getClass();
+    if (targetType.isAnonymousClass()) {
+      targetType=(targetType.getSuperclass() != null ? targetType.getSuperclass() : targetType.getInterfaces()[0]);
+    }
+    String exportString="jmx.export{ bean( " + " target: obj, " + " name: obj.class.package.name+\":type=${obj.class.simpleName}\","+ " desc: \"${obj.toString()}\""+ " ) }";
+    for (    Class c : Classes.ancestors(targetType)) {
+      File jmxConfig=SubDirectory.MANAGEMENT.getChildFile(c.getCanonicalName());
+      if (jmxConfig.exists()) {
+        LOG.trace("Trying to read jmx config file: " + jmxConfig.getAbsolutePath());
+        try {
+          exportString=Files.toString(jmxConfig,Charset.defaultCharset());
+          LOG.trace("Succeeded reading jmx config file: " + jmxConfig.getAbsolutePath());
+          break;
+        }
+ catch (        IOException ex) {
+          LOG.error(ex,ex);
+        }
       }
     }
-  }
-  try {
-    LOG.trace("Exporting MBean: " + obj);
-    LOG.trace("Exporting MBean: " + exportString);
-    List<GroovyMBean> mbeans=(List<GroovyMBean>)Groovyness.eval(exportString,new HashMap(){
+    try {
+      LOG.trace("Exporting MBean: " + obj);
+      LOG.trace("Exporting MBean: " + exportString);
+      List<GroovyMBean> mbeans=(List<GroovyMBean>)Groovyness.eval(exportString,new HashMap(){
 {
-        put("jmx",jmxBuilder);
-        put("obj",obj);
+          put("jmx",jmxBuilder);
+          put("obj",obj);
+        }
+      }
+);
+      for (      GroovyMBean mbean : mbeans) {
+        LOG.trace("MBean server: default=" + mbean.server().getDefaultDomain() + " all="+ Arrays.asList(mbean.server().getDomains()));
+        LOG.trace("Exported MBean: " + mbean);
       }
     }
-);
-    for (    GroovyMBean mbean : mbeans) {
-      LOG.trace("MBean server: default=" + mbean.server().getDefaultDomain() + " all="+ Arrays.asList(mbean.server().getDomains()));
-      LOG.trace("Exported MBean: " + mbean);
+ catch (    ScriptExecutionFailedException ex) {
+      LOG.error("Exporting MBean failed: " + ex.getMessage(),ex);
     }
-  }
- catch (  ScriptExecutionFailedException ex) {
-    LOG.error("Exporting MBean failed: " + ex.getMessage(),ex);
-  }
-catch (  IOException ex) {
-    LOG.error("Error after export MBean: " + ex.getMessage(),ex);
+catch (    IOException ex) {
+      LOG.error("Error after export MBean: " + ex.getMessage(),ex);
+    }
   }
 }
