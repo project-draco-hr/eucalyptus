@@ -1,52 +1,37 @@
 {
-  final File libDir=new File(BaseDirectory.LIB.toString());
-  for (  final File f : libDir.listFiles()) {
-    if (f.getName().startsWith("eucalyptus") && f.getName().endsWith(".jar") && !f.getName().matches(".*-ext-.*")) {
-      EventRecord.here(ServiceJarDiscovery.class,EventType.BOOTSTRAP_INIT_SERVICE_JAR,f.getName()).info();
-      try {
-        BindingFileSearch.INSTANCE.process(f);
-      }
- catch (      final Throwable e) {
-        LOG.error(e.getMessage());
-        continue;
-      }
-    }
-  }
-  for (  String pathName : ClassPath.SYSTEM_CLASS_PATH.getClassPath().split(File.pathSeparator)) {
-    File pathFile=new File(pathName);
-    if (pathFile.isDirectory()) {
-      try {
-        BindingFileSearch.INSTANCE.process(pathFile);
-      }
- catch (      final Throwable e) {
-        LOG.error(e.getMessage());
-        continue;
-      }
-      ;
-    }
-  }
+  processFiles();
   if (!BindingFileSearch.INSTANCE.check()) {
     try {
       BindingFileSearch.reset(Utility.getClassPaths());
       Iterables.all(BindingFileSearch.BINDING_LIST,BindingFileSearch.INSTANCE);
+      InternalSoapBindingGenerator gen=new InternalSoapBindingGenerator();
+      for (      Class genBindClass : BindingFileSearch.BINDING_CLASS_MAP.values()) {
+        if (BINDING_DEBUG) {
+          LOG.info("Generating binding: " + genBindClass);
+        }
+        gen.processClass(genBindClass);
+      }
+      gen.close();
+      BINDING_LIST.add(gen.getOutFile().toURI());
       BindingFileSearch.reset(Utility.getClassPaths());
-      List<BindingDefinition> bindingDefs=Lists.newArrayList();
+      Map<URI,BindingDefinition> bindingDefs=Maps.newHashMap();
       for (      URI binding : BINDING_LIST) {
         String shortPath=binding.toURL().getPath().replaceAll(".*!/","");
         String sname=Utility.bindingFromFileName(shortPath);
         BindingDefinition def=Utility.loadBinding(binding.toASCIIString(),sname,binding.toURL().openStream(),binding.toURL(),true);
-        bindingDefs.add(def);
+        bindingDefs.put(binding,def);
       }
-      for (      BindingDefinition def : bindingDefs) {
+      for (      Entry<URI,BindingDefinition> def : bindingDefs.entrySet()) {
         try {
-          def.generateCode(BindingFileSearch.BINDING_DEBUG,BindingFileSearch.BINDING_DEBUG);
+          LOG.info("Compiling binding: " + def.getKey());
+          def.getValue().generateCode(BindingFileSearch.BINDING_DEBUG,BindingFileSearch.BINDING_DEBUG);
         }
  catch (        RuntimeException e) {
-          throw new JiBXException("\n*** Error during code generation for file '" + def.getFactoryName() + "' -\n this may be due to an error in "+ "your binding or classpath, or to an error in the "+ "JiBX code ***\n",e);
+          throw new JiBXException("\n*** Error during code generation for file '" + def.getKey() + "' -\n this may be due to an error in "+ "your binding or classpath, or to an error in the "+ "JiBX code ***\n",e);
         }
       }
       ClassFile[][] lists=MungedClass.fixDispositions();
-      for (      BindingDefinition def : bindingDefs) {
+      for (      BindingDefinition def : bindingDefs.values()) {
         def.addClassList(lists[0],lists[1]);
       }
       MungedClass.writeChanges();
