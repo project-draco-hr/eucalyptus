@@ -1,0 +1,46 @@
+{
+  try {
+    String shortPath=input.toURL().getPath().replaceAll(".*!/","");
+    String sname=Utility.bindingFromFileName(shortPath);
+    ValidationContext vctx=BindingElement.newValidationContext();
+    BindingElement root=BindingElement.validateBinding(input.toASCIIString(),input.toURL(),input.toURL().openStream(),vctx);
+    Predicate<BindingElement> writeFile=new Predicate<BindingElement>(){
+      @SuppressWarnings("unchecked") @Override public boolean apply(      BindingElement input){
+        for (        ElementBase child : (List<ElementBase>)input.topChildren()) {
+          try {
+            if (child instanceof MappingElement) {
+              MappingElementBase mapping=(MappingElementBase)child;
+              ClassFile classFile=mapping.getHandledClass().getClassFile();
+              String classFileName=classFile.getName().replace(".","/") + ".class";
+              InputSupplier<InputStream> classSupplier=Resources.newInputStreamSupplier(ClassLoader.getSystemResource(classFileName));
+              File destClassFile=SubDirectory.CLASSCACHE.getChildFile(classFileName);
+              if (!destClassFile.exists()) {
+                Files.createParentDirs(destClassFile);
+                Files.copy(classSupplier,destClassFile);
+              }
+              ClassFile cf=ClassFile.getClassFile(classFile.getName());
+              LOG.info(classFile.getName() + " => " + destClassFile.getAbsolutePath());
+              LOG.info(new URLClassLoader(new URL[]{SubDirectory.CLASSCACHE.getFile().toURL()}).loadClass(classFile.getName()).getProtectionDomain().getCodeSource().getLocation());
+            }
+ else             if (child instanceof IncludeElement) {
+              BindingElement bind=((IncludeElement)child).getBinding();
+              if (bind != null) {
+                this.apply(bind);
+              }
+            }
+          }
+ catch (          Exception ex) {
+            LOG.error(ex,ex);
+          }
+        }
+        return true;
+      }
+    }
+;
+    writeFile.apply(root);
+    return def;
+  }
+ catch (  Exception ex) {
+    throw Exceptions.toUndeclared(ex);
+  }
+}

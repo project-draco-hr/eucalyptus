@@ -1,0 +1,80 @@
+{
+  final File libDir=new File(BaseDirectory.LIB.toString());
+  for (  final File f : libDir.listFiles()) {
+    if (f.getName().startsWith("eucalyptus") && f.getName().endsWith(".jar") && !f.getName().matches(".*-ext-.*")) {
+      EventRecord.here(ServiceJarDiscovery.class,EventType.BOOTSTRAP_INIT_SERVICE_JAR,f.getName()).info();
+      try {
+        BindingFileSearch.INSTANCE.process(f);
+      }
+ catch (      final Throwable e) {
+        LOG.error(e.getMessage());
+        continue;
+      }
+    }
+  }
+  for (  String pathName : ClassPath.SYSTEM_CLASS_PATH.getClassPath().split(File.pathSeparator)) {
+    File pathFile=new File(pathName);
+    if (pathFile.isDirectory()) {
+      try {
+        BindingFileSearch.INSTANCE.process(pathFile);
+      }
+ catch (      final Throwable e) {
+        LOG.error(e.getMessage());
+        continue;
+      }
+      ;
+    }
+  }
+  if (!BindingFileSearch.INSTANCE.check()) {
+    try {
+      List<BindingDefinition> bindingDefs=Lists.transform(BindingFileSearch.BINDING_LIST,BindingFileSearch.INSTANCE);
+      String[] paths=new String[]{SubDirectory.CLASSCACHE.getFile().getAbsolutePath()};
+      ClassCache.setPaths(paths);
+      ClassFile.setPaths(paths);
+      ClasspathUrlExtender.setClassLoader(new URLClassLoader(new URL[]{SubDirectory.CLASSCACHE.getFile().toURL()}));
+      BoundClass.reset();
+      MungedClass.reset();
+      BindingDefinition.reset();
+      BranchWrapper.setTracking(false);
+      BranchWrapper.setErrorOverride(false);
+      for (      URI binding : BINDING_LIST) {
+      }
+      for (      BindingDefinition def : bindingDefs) {
+        def.setFactoryLocation("",SubDirectory.CLASSCACHE.getFile());
+        try {
+          def.generateCode(BindingFileSearch.BINDING_DEBUG,BindingFileSearch.BINDING_DEBUG);
+        }
+ catch (        RuntimeException e) {
+          throw new JiBXException("\n*** Error during code generation for file '" + def.getFactoryName() + "' -\n this may be due to an error in "+ "your binding or classpath, or to an error in the "+ "JiBX code ***\n",e);
+        }
+      }
+      ClassFile[][] lists=MungedClass.fixDispositions();
+      for (      BindingDefinition def : bindingDefs) {
+        def.addClassList(lists[0],lists[1]);
+      }
+      MungedClass.writeChanges();
+      ClassFile[] adds=lists[0];
+      int addcount=adds.length;
+      LOG.info("\nWrote " + addcount + " files");
+      if (BindingFileSearch.BINDING_DEBUG) {
+        ClassFile[] keeps=lists[1];
+        LOG.info("\nKept " + keeps.length + " files unchanged:");
+        for (int i=0; i < keeps.length; i++) {
+          LOG.info(" " + keeps[i].getName());
+        }
+        ClassFile[] dels=lists[2];
+        LOG.info("\nDeleted " + dels.length + " files:");
+        for (int i=0; i < dels.length; i++) {
+          LOG.info(" " + dels[i].getName());
+        }
+      }
+      BindingFileSearch.INSTANCE.store();
+    }
+ catch (    Exception ex) {
+      LOG.error(ex,ex);
+      System.exit(1);
+      throw new Error("Failed to prepare the system while trying to compile bindings: " + ex.getMessage(),ex);
+    }
+    System.exit(1);
+  }
+}
