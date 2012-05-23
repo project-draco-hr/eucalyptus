@@ -11,8 +11,8 @@
     BucketInfo bucketInfo=bucketList.get(0);
     BucketLogData logData=bucketInfo.getLoggingEnabled() ? request.getLogData() : null;
     if (ctx.hasAdministrativePrivileges() || (bucketInfo.canWrite(account.getAccountNumber()) && (bucketInfo.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_DELETEOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketInfo.getBucketName(),null)))) {
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
       if (bucketInfo.isVersioningEnabled()) {
-        EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
         ObjectInfo searchDeletedObjectInfo=new ObjectInfo(bucketName,objectKey);
         searchDeletedObjectInfo.setDeleted(true);
         try {
@@ -43,40 +43,56 @@ catch (        EucalyptusCloudException ex) {
       }
  else {
         ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
-        searchObjectInfo.setVersionId(WalrusProperties.NULL_VERSION_ID);
-        EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+        searchObjectInfo.setLast(true);
+        searchObjectInfo.setDeleted(false);
         List<ObjectInfo> objectInfos=dbObject.query(searchObjectInfo);
         if (objectInfos.size() > 0) {
-          ObjectInfo nullObject=objectInfos.get(0);
-          dbObject.delete(nullObject);
-          String objectName=nullObject.getObjectName();
-          for (          GrantInfo grantInfo : nullObject.getGrants()) {
-            db.delete(grantInfo);
+          if (objectInfos.size() > 1) {
+            db.rollback();
+            throw new EucalyptusCloudException("More than one object set to 'last' found");
           }
-          Long size=nullObject.getSize();
-          boolean success=false;
-          int retryCount=0;
-          do {
-            try {
-              decrementBucketSize(bucketName,size);
-              success=true;
+          ObjectInfo lastObject=objectInfos.get(0);
+          if (lastObject.getVersionId().equals(WalrusProperties.NULL_VERSION_ID)) {
+            ObjectInfo nullObject=lastObject;
+            dbObject.delete(nullObject);
+            String objectName=nullObject.getObjectName();
+            for (            GrantInfo grantInfo : nullObject.getGrants()) {
+              db.delete(grantInfo);
             }
- catch (            NoSuchBucketException ex) {
-              db.rollback();
-              throw ex;
+            Long size=nullObject.getSize();
+            boolean success=false;
+            int retryCount=0;
+            do {
+              try {
+                decrementBucketSize(bucketName,size);
+                success=true;
+              }
+ catch (              NoSuchBucketException ex) {
+                db.rollback();
+                throw ex;
+              }
+catch (              RollbackException ex) {
+                retryCount++;
+                LOG.trace("retrying update: " + bucketName);
+              }
+catch (              EucalyptusCloudException ex) {
+                db.rollback();
+                throw ex;
+              }
             }
-catch (            RollbackException ex) {
-              retryCount++;
-              LOG.trace("retrying update: " + bucketName);
-            }
-catch (            EucalyptusCloudException ex) {
-              db.rollback();
-              throw ex;
-            }
-          }
  while (!success && (retryCount < 5));
-          ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectName,size,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
-          Threads.lookup(Walrus.class,WalrusManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
+            ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectName,size,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
+            Threads.lookup(Walrus.class,WalrusManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
+          }
+ else {
+            if (bucketInfo.isVersioningSuspended()) {
+              lastObject.setLast(false);
+            }
+ else {
+              db.rollback();
+              throw new EucalyptusCloudException("Non 'null' versioned object found in a versioning disabled bucket, not sure how to proceed with delete.");
+            }
+          }
           reply.setCode("200");
           reply.setDescription("OK");
           if (logData != null) {
@@ -94,7 +110,6 @@ catch (            EucalyptusCloudException ex) {
           }
         }
  else {
-          db.rollback();
           throw new NoSuchEntityException(objectKey,logData);
         }
       }
