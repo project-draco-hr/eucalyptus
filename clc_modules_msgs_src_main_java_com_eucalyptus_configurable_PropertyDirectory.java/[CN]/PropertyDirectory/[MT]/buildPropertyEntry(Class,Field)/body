@@ -1,41 +1,47 @@
 {
-  for (  ConfigurablePropertyBuilder b : builders) {
-    try {
-      ConfigurableProperty prop=null;
+  fqLock.writeLock().lock();
+  try {
+    for (    ConfigurablePropertyBuilder b : builders) {
       try {
-        prop=b.buildProperty(c,field);
+        ConfigurableProperty prop=null;
+        try {
+          prop=b.buildProperty(c,field);
+        }
+ catch (        ConfigurablePropertyException e) {
+          throw e;
+        }
+catch (        Exception t) {
+          LOG.error("Failed to prepare configurable field: " + c.getCanonicalName() + "."+ field.getName(),t);
+        }
+        if (prop != null) {
+          if (prop.isDeferred()) {
+            if (!fqPendingMap.containsKey(prop.getQualifiedName())) {
+              fqPendingMap.put(prop.getQualifiedName(),prop);
+              fqPendingPrefixMap.put(prop.getEntrySetName(),prop);
+              return prop;
+            }
+          }
+ else {
+            if (!fqMap.containsKey(prop.getQualifiedName())) {
+              fqMap.put(prop.getQualifiedName(),prop);
+              fqPrefixMap.put(prop.getEntrySetName(),prop);
+              return prop;
+            }
+ else {
+              RuntimeException r=new RuntimeException("Duplicate configurable field in same config file: \n" + "-> " + fqMap.get(prop.getQualifiedName()).getDefiningClass().getCanonicalName() + "."+ field.getName()+ "\n"+ "-> "+ c.getCanonicalName()+ "."+ field.getName()+ "\n");
+              LOG.fatal(r,r);
+              throw r;
+            }
+          }
+        }
       }
  catch (      ConfigurablePropertyException e) {
-        throw e;
-      }
-catch (      Exception t) {
-        LOG.error("Failed to prepare configurable field: " + c.getCanonicalName() + "."+ field.getName(),t);
-      }
-      if (prop != null) {
-        if (prop.isDeferred()) {
-          if (!fqPendingMap.containsKey(prop.getQualifiedName())) {
-            fqPendingMap.put(prop.getQualifiedName(),prop);
-            fqPendingPrefixMap.put(prop.getEntrySetName(),prop);
-            return prop;
-          }
-        }
- else {
-          if (!fqMap.containsKey(prop.getQualifiedName())) {
-            fqMap.put(prop.getQualifiedName(),prop);
-            fqPrefixMap.put(prop.getEntrySetName(),prop);
-            return prop;
-          }
- else {
-            RuntimeException r=new RuntimeException("Duplicate configurable field in same config file: \n" + "-> " + fqMap.get(prop.getQualifiedName()).getDefiningClass().getCanonicalName() + "."+ field.getName()+ "\n"+ "-> "+ c.getCanonicalName()+ "."+ field.getName()+ "\n");
-            LOG.fatal(r,r);
-            throw r;
-          }
-        }
+        LOG.debug(e,e);
       }
     }
- catch (    ConfigurablePropertyException e) {
-      LOG.debug(e,e);
-    }
+  }
+  finally {
+    fqLock.writeLock().unlock();
   }
   return null;
 }
