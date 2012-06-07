@@ -3,29 +3,28 @@
     final ServiceConfiguration sc=Topology.lookup(Storage.class,this.cluster.getConfiguration().lookupPartition());
     final VirtualBootRecord root=this.allocInfo.getVmTypeInfo().lookupRoot();
     if (root.isBlockStorage()) {
+      final String rootDevName="/dev/sda1";
       final BlockStorageImageInfo imgInfo=((BlockStorageImageInfo)this.allocInfo.getBootSet().getMachine());
       Long volSizeBytes=imgInfo.getImageSizeBytes();
       Boolean deleteOnTerminate=imgInfo.getDeleteOnTerminate();
-      for (      final BlockDeviceMappingItemType blockDevMapping : this.allocInfo.getRequest().getBlockDeviceMapping()) {
-        if ("root".equals(blockDevMapping.getVirtualName()) && (blockDevMapping.getEbs() != null)) {
-          deleteOnTerminate|=blockDevMapping.getEbs().getDeleteOnTermination();
-          if (blockDevMapping.getEbs().getVolumeSize() != null) {
-            volSizeBytes=BYTES_PER_GB * blockDevMapping.getEbs().getVolumeSize();
-          }
+      for (      final BlockDeviceMappingItemType blockDevMapping : Iterables.filter(this.allocInfo.getRequest().getBlockDeviceMapping(),findEbsRootOptionalSnapshot(rootDevName))) {
+        deleteOnTerminate=blockDevMapping.getEbs().getDeleteOnTermination();
+        if (blockDevMapping.getEbs().getVolumeSize() != null) {
+          volSizeBytes=BYTES_PER_GB * blockDevMapping.getEbs().getVolumeSize();
         }
       }
       final int sizeGb=(int)Math.ceil(volSizeBytes / BYTES_PER_GB);
       LOG.debug("About to prepare root volume using bootable block storage: " + imgInfo + " and vbr: "+ root);
       for (      final ResourceToken token : this.allocInfo.getAllocationTokens()) {
         final VmInstance vm=VmInstances.lookup(token.getInstanceId());
-        Volume vol=null;
+        final Volume vol;
         if (!vm.getBootRecord().hasPersistentVolumes()) {
           vol=Volumes.createStorageVolume(sc,this.allocInfo.getOwnerFullName(),imgInfo.getSnapshotId(),sizeGb,this.allocInfo.getRequest());
           if (deleteOnTerminate) {
-            vm.addPersistentVolume("/dev/sda1",vol);
+            vm.addPersistentVolume(rootDevName,vol);
           }
  else {
-            vm.addPermanentVolume("/dev/sda1",vol);
+            vm.addPermanentVolume(rootDevName,vol);
           }
           token.setRootVolume(vol);
         }
