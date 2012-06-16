@@ -276,18 +276,15 @@ catch (              EucalyptusCloudException ex) {
             dbObject=EntityWrapper.get(ObjectInfo.class);
             ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
             deleteMarker.setDeleted(true);
+            ObjectInfo foundDeleteMarker=null;
             try {
-              ObjectInfo foundDeleteMarker=dbObject.getUnique(deleteMarker);
+              foundDeleteMarker=dbObject.getUnique(deleteMarker);
               dbObject.delete(foundDeleteMarker);
-              final String userId=ctx.getUser().getUserId();
-              final String accountId=ctx.getAccount().getAccountNumber();
-              final String userName=Accounts.lookupUserById(userId).getName();
-              final String accountName=Accounts.lookupAccountById(accountId).getName();
-              QueueSender queueSender=QueueFactory.getInstance().getSender(QueueIdentifier.S3);
-              queueSender.send(new S3Event(true,size / WalrusProperties.M,userId,userName,accountId,accountName));
             }
  catch (            Exception ex) {
-              LOG.error("Deletion failed for: " + bucketName + "/"+ objectKey,ex);
+              if (foundDeleteMarker != null) {
+                LOG.error("Deletion of delete marker failed for: " + bucketName + "/"+ objectKey,ex);
+              }
             }
             dbObject.commit();
             if (logData != null) {
@@ -302,6 +299,7 @@ synchronized (monitor) {
             messenger.clearQueues(key);
             messenger.removeQueue(key,randomKey);
             LOG.info("Transfer complete: " + key);
+            reportWalrusEvent(genObjectEvent(ctx,true,size));
             break;
           }
  else {
