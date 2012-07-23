@@ -1,19 +1,19 @@
 {
-  if (input.startsWith("eki-")) {
-    return LookupKernel.INSTANCE.apply(input);
-  }
- else   if (input.startsWith("eri-")) {
-    return LookupRamdisk.INSTANCE.apply(input);
-  }
- else   if (input.startsWith("emi-")) {
-    try {
-      return LookupMachine.INSTANCE.apply(input);
+  final EntityTransaction db=Entities.get(MachineImageInfo.class);
+  try {
+    final MachineImageInfo ret=Entities.uniqueResult(Images.exampleMachineWithImageId(identifier));
+    if (!ImageMetadata.State.available.equals(ret.getState())) {
+      db.rollback();
+      throw new NoSuchElementException("Unable to start instance with deregistered image : " + ret);
     }
- catch (    final Exception ex) {
-      return LookupBlockStorage.INSTANCE.apply(input);
-    }
-  }
  else {
-    throw new NoSuchElementException("Failed to lookup image: " + input);
+      db.rollback();
+      return ret;
+    }
+  }
+ catch (  final Exception ex) {
+    Logs.exhaust().error(ex,ex);
+    db.rollback();
+    throw new NoSuchElementException("Failed to lookup image: " + identifier + " because of "+ ex.getMessage());
   }
 }
