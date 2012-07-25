@@ -1,0 +1,32 @@
+{
+  if (Bootstrap.isFinished() && Hosts.isCoordinator()) {
+    final List<ResourceAvailabilityEvent> resourceAvailabilityEvents=Lists.newArrayList();
+    final Map<ResourceType,AvailabilityAccumulator> availabilities=Maps.newEnumMap(ResourceType.class);
+    final Iterable<VmType> vmTypes=Lists.newArrayList(VmTypes.list());
+    for (    final Cluster cluster : Clusters.getInstance().listValues()) {
+      availabilities.put(Core,new AvailabilityAccumulator(VmType.SizeProperties.Cpu));
+      availabilities.put(Disk,new AvailabilityAccumulator(VmType.SizeProperties.Disk));
+      availabilities.put(Memory,new AvailabilityAccumulator(VmType.SizeProperties.Memory));
+      for (      final VmType vmType : vmTypes) {
+        final VmTypeAvailability va=cluster.getNodeState().getAvailability(vmType.getName());
+        resourceAvailabilityEvents.add(new ResourceAvailabilityEvent(Instance,new Availability(va.getMax(),va.getAvailable(),Lists.<Tag>newArrayList(new Dimension(cluster.getPartition()),new Dimension(cluster.getName()),new Type(vmType.getName())))));
+        for (        final AvailabilityAccumulator availability : availabilities.values()) {
+          availability.total=Math.max(availability.total,va.getMax() * availability.valueExtractor.apply(vmType));
+          availability.available=Math.max(availability.available,va.getAvailable() * availability.valueExtractor.apply(vmType));
+        }
+      }
+      for (      final AvailabilityAccumulator availability : availabilities.values()) {
+        availability.rollUp(Lists.<Tag>newArrayList(new Dimension(cluster.getPartition()),new Dimension(cluster.getName())));
+      }
+    }
+    for (    final Map.Entry<ResourceType,AvailabilityAccumulator> entry : availabilities.entrySet()) {
+      resourceAvailabilityEvents.add(new ResourceAvailabilityEvent(entry.getKey(),entry.getValue().availabilities));
+    }
+    for (    final ResourceAvailabilityEvent resourceAvailabilityEvent : resourceAvailabilityEvents)     try {
+      ListenerRegistry.getInstance().fireEvent(resourceAvailabilityEvent);
+    }
+ catch (    Exception ex) {
+      LOG.error(ex,ex);
+    }
+  }
+}
