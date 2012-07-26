@@ -1,22 +1,29 @@
 def post(self, arg):
     action = self.get_argument('action')
     response = None
-    error = None
-    if (action == 'login'):
-        try:
-            response = LoginProcessor.post(self)
-        except Exception as err:
-            traceback.print_exc(file=sys.stdout)
-            error = {'status_code': 401, 'message': 'failed to log-in', }
-    elif (action == 'session'):
-        try:
-            response = SessionProcessor.post(self)
-        except Exception as err:
-            traceback.print_exc(file=sys.stdout)
-            error = {'status_code': 400, 'message': "can't retrieve session info", }
-    else:
-        error = {'status_code': 400, 'message': 'unknown action', }
-    if error:
-        raise tornado.web.HTTPError(error['status_code'], error['message'])
-    else:
-        self.write(ProxyResponse.generate(response))
+    try:
+        if (action == 'login'):
+            try:
+                response = LoginProcessor.post(self)
+            except Exception as err:
+                traceback.print_exc(file=sys.stdout)
+                raise EuiException(401, 'not authorized')
+        else:
+            if (not self.authorized()):
+                raise EuiException(401, 'not authorized')
+            if (action == 'session'):
+                try:
+                    response = SessionProcessor.post(self)
+                except Exception as err:
+                    traceback.print_exc(file=sys.stdout)
+                    raise EuiException(500, "can't retrieve session info")
+            else:
+                raise EuiException(500, 'unknown action')
+    except EuiException as err:
+        if err:
+            raise tornado.web.HTTPError(err.status_code, err.message)
+        else:
+            raise tornado.web.HTTPError(500, 'unknown error occured')
+    if (not response):
+        raise tornado.web.HTTPError(500, 'unknown error occured')
+    self.write(response.get_response())
