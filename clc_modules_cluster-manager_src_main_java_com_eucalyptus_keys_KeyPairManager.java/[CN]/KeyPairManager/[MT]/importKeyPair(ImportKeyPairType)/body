@@ -5,19 +5,35 @@
     KeyPairs.lookup(ctx.getUserFullName(),request.getKeyName());
   }
  catch (  Exception e1) {
-    Supplier<SshKeyPair> allocator=new Supplier<SshKeyPair>(){
-      @Override public SshKeyPair get(){
-        SshKeyPair newKey=new SshKeyPair(ctx.getUserFullName(),request.getKeyName());
-        newKey.setPublicKey(request.getPublicKeyMaterial());
-        byte[] digest=Digest.MD5.get().digest(request.getPublicKeyMaterial().getBytes());
-        String fingerprint=String.format("%032X",new BigInteger(digest));
-        newKey.setFingerPrint(fingerprint);
-        reply.setKeyName(request.getKeyName());
-        return newKey;
+    try {
+      final RSAPublicKey key=decodeKeyMaterial(request.getPublicKeyMaterial());
+      final String keyFingerprint=KeyPairs.getPublicKeyFingerprint(key);
+      if (keyFingerprint == null) {
+        throw new GeneralSecurityException("Error generating fingerprint");
       }
-    }
+      final Supplier<SshKeyPair> allocator=new Supplier<SshKeyPair>(){
+        @Override public SshKeyPair get(){
+          final SshKeyPair newKey=new SshKeyPair(ctx.getUserFullName(),request.getKeyName());
+          newKey.setFingerPrint(keyFingerprint);
+          newKey.setPublicKey(KeyPairs.rfc4253Format(ctx.getUserFullName(),request.getKeyName(),key));
+          try {
+            Transactions.save(newKey);
+            reply.setKeyName(newKey.getDisplayName());
+            reply.setKeyFingerprint(newKey.getFingerPrint());
+          }
+ catch (          TransactionException e) {
+            LOG.warn("Error saving imported key",e);
+          }
+          return newKey;
+        }
+      }
 ;
-    RestrictedTypes.allocateUnitlessResource(allocator);
+      RestrictedTypes.allocateUnitlessResource(allocator);
+    }
+ catch (    GeneralSecurityException e) {
+      LOG.warn("Error importing SSH public key",e);
+      reply.set_return(false);
+    }
   }
   return reply;
 }
