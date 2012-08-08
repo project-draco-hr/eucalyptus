@@ -1,17 +1,20 @@
 {
   Preconditions.checkNotNull(event,"Event is required");
   final long timeInMs=getCurrentTimeMillis();
-  final ReportingAccountCrud reportingAccountCrud=getReportingAccountCrud();
-  reportingAccountCrud.createOrUpdateAccount(event.getAccountId(),event.getAccountName());
-  final ReportingUserCrud reportingUserCrud=getReportingUserCrud();
-  reportingUserCrud.createOrUpdateUser(event.getOwnerId(),event.getAccountId(),event.getAccountName());
-  final ReportingVolumeEventStore eventStore=getReportingVolumeEventStore();
+  User user=null;
+  try {
+    user=Accounts.lookupUserById(event.getOwner().getUserId());
+    final ReportingAccountCrud reportingAccountCrud=getReportingAccountCrud();
+    reportingAccountCrud.createOrUpdateAccount(user.getAccount().getName(),user.getAccount().getAccountNumber());
+    final ReportingUserCrud reportingUserCrud=getReportingUserCrud();
+    reportingUserCrud.createOrUpdateUser(user.getUserId(),user.getAccount().getAccountNumber(),user.getName());
+    final ReportingVolumeEventStore eventStore=getReportingVolumeEventStore();
 switch (event.getActionInfo().getAction()) {
 case VOLUMECREATE:
-    eventStore.insertCreateEvent(event.getUuid(),event.getDisplayName(),timeInMs,event.getOwnerId(),event.getAvailabilityZone(),event.getSizeGB());
-  break;
+      eventStore.insertCreateEvent(event.getUuid(),event.getDisplayName(),timeInMs,event.getOwner().getUserId(),event.getAvailabilityZone(),event.getSizeGB());
+    break;
 case VOLUMEDELETE:
-eventStore.insertDeleteEvent(event.getUuid(),timeInMs);
+  eventStore.insertDeleteEvent(event.getUuid(),timeInMs);
 break;
 case VOLUMEATTACH:
 eventStore.insertAttachEvent(event.getUuid(),((InstanceActionInfo)event.getActionInfo()).getInstanceUuid(),event.getSizeGB(),timeInMs);
@@ -19,5 +22,9 @@ break;
 case VOLUMEDETACH:
 eventStore.insertDetachEvent(event.getUuid(),((InstanceActionInfo)event.getActionInfo()).getInstanceUuid(),event.getSizeGB(),timeInMs);
 break;
+}
+}
+ catch (AuthException e) {
+LOG.debug("Unable to find event with user id " + event.getOwner().getUserId());
 }
 }
