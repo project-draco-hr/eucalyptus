@@ -1,10 +1,44 @@
 {
-synchronized (LoggingResetter.class) {
+  LOG.info("Resetting log levels to " + System.getProperty("euca.log.level"));
+  SmallLoggingConfiguration smallLoggingConfiguration=null;
+  InputStream in=null;
+  try {
+    DocumentBuilderFactory dbFactory=DocumentBuilderFactory.newInstance();
+    DocumentBuilder dBuilder=dbFactory.newDocumentBuilder();
     URL url=Thread.currentThread().getContextClassLoader().getResource("log4j.xml");
-    LOG.info("Resetting log levels to " + System.getProperty("euca.log.level"));
     if (url != null) {
-      DOMConfigurator.configure(url);
-      LOG.info("Finished resetting log levels");
+      in=url.openStream();
+      Document document=dBuilder.parse(in);
+      Element documentElement=document.getDocumentElement();
+      smallLoggingConfiguration=parse(documentElement);
+    }
+    resetRootLogLevel(LogManager.getRootLogger(),smallLoggingConfiguration);
+    Enumeration e=LogManager.getCurrentLoggers();
+    while (e.hasMoreElements()) {
+      resetLogLevel((Logger)e.nextElement(),smallLoggingConfiguration);
+    }
+    LOG.info("Finished resetting log levels");
+  }
+ catch (  IOException ex) {
+    LOG.error(ex);
+    LOG.info("Unable to reset log levels");
+  }
+catch (  ParserConfigurationException ex) {
+    LOG.error(ex);
+    LOG.info("Unable to reset log levels");
+  }
+catch (  SAXException ex) {
+    LOG.error(ex);
+    LOG.info("Unable to reset log levels");
+  }
+ finally {
+    if (in != null) {
+      try {
+        in.close();
+      }
+ catch (      IOException ex) {
+        LOG.debug(ex);
+      }
     }
   }
 }
