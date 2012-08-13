@@ -1,0 +1,87 @@
+{
+  Preconditions.checkNotNull(event,"Event is required");
+  ReportingAccountCrud.getInstance().createOrUpdateAccount(event.getAccountId(),event.getAccountName());
+  ReportingUserCrud.getInstance().createOrUpdateUser(event.getOwnerId(),event.getAccountId(),event.getOwnerName());
+  final long timeMillis=getCurrentTimeMillis();
+  final S3UsageLog usageLog=S3UsageLog.getS3UsageLog();
+  final EntityTransaction entityTransaction=Entities.get(S3UsageSnapshot.class);
+  try {
+    ConcurrentMap<S3SummaryKey,S3UsageData> usageDataMap;
+    usageDataLock.readLock().lock();
+    try {
+      usageDataMap=this.usageDataMap;
+    }
+  finally {
+      usageDataLock.readLock().unlock();
+    }
+    if (usageDataMap == null) {
+      usageDataLock.writeLock().lock();
+      try {
+        if (this.usageDataMap == null) {
+          usageDataMap=this.usageDataMap=new ConcurrentHashMap<S3SummaryKey,S3UsageData>(usageLog.findLatestUsageData());
+        }
+ else {
+          usageDataMap=this.usageDataMap;
+        }
+        LOG.info("Loaded usageDataMap");
+      }
+  finally {
+        usageDataLock.writeLock().unlock();
+      }
+    }
+    final S3SummaryKey key=new S3SummaryKey(event.getOwnerId(),event.getAccountId());
+    final S3UsageData usageData=usageDataMap.putIfAbsent(key,new S3UsageData());
+    final long addNum=(event.isCreateOrDelete()) ? 1 : -1;
+    if (event.isObjectOrBucket()) {
+synchronized (usageData) {
+        final long addAmountMegs=(event.isCreateOrDelete()) ? event.getSizeMegs() : -event.getSizeMegs();
+        LOG.debug("Receive event:" + event.toString() + " usageData:"+ usageData+ " addNum:"+ addNum+ " addAmountMegs:"+ addAmountMegs);
+        final Long newObjectsNum=usageData.getObjectsNum() + addNum;
+        if (newObjectsNum != null && newObjectsNum < 0) {
+          throw new IllegalStateException("Objects num cannot be negative");
+        }
+        usageData.setObjectsNum(newObjectsNum);
+        final Long newObjectsMegs=usageData.getObjectsMegs() + addAmountMegs;
+        if (newObjectsMegs != null && newObjectsMegs < 0) {
+          throw new IllegalStateException("Objects megs cannot be negative");
+        }
+        usageData.setObjectsMegs(newObjectsMegs);
+      }
+    }
+ else synchronized (usageData) {
+      final Long newBucketsNum=usageData.getBucketsNum() + addNum;
+      if (newBucketsNum != null && newBucketsNum < 0) {
+        throw new IllegalStateException("Buckets num cannot be negative");
+      }
+      usageData.setBucketsNum(newBucketsNum);
+      LOG.debug("Receive event:" + event.toString() + " usageData:"+ usageData+ " addNum:"+ addNum);
+    }
+    boolean wroteAll=false;
+    if (shouldWriteAll(timeMillis)) {
+synchronized (allSnapshotLock) {
+        if (shouldWriteAll(timeMillis)) {
+          LOG.info("Starting allSnapshot...");
+          for (          Map.Entry<S3SummaryKey,S3UsageData> entry : usageDataMap.entrySet()) {
+            final S3UsageSnapshot sus=toUsageSnapshot(timeMillis,entry.getKey(),entry.getValue());
+            sus.setAllSnapshot(true);
+            LOG.info("Storing part of allSnapshot:" + sus);
+            Entities.persist(sus);
+            lastAllSnapshotMs.set(timeMillis);
+            wroteAll=true;
+          }
+          LOG.info("Ending allSnapshot...");
+        }
+      }
+    }
+    if (!wroteAll) {
+      final S3UsageSnapshot sus=toUsageSnapshot(timeMillis,key,usageData);
+      LOG.info("Storing:" + sus);
+      Entities.persist(sus);
+    }
+    entityTransaction.commit();
+  }
+ catch (  Exception ex) {
+    entityTransaction.rollback();
+    LOG.error(ex);
+  }
+}

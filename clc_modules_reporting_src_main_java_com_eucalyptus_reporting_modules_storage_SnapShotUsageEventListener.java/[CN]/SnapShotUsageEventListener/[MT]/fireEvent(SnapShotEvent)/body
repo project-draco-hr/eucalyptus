@@ -1,0 +1,21 @@
+{
+  Preconditions.checkNotNull(event,"Event is required");
+  final long timeInMs=getCurrentTimeMillis();
+  try {
+    final User user=Accounts.lookupUserById(event.getOwnerFullName().getUserId());
+    getReportingAccountCrud().createOrUpdateAccount(user.getAccount().getName(),user.getAccount().getAccountNumber());
+    getReportingUserCrud().createOrUpdateUser(user.getUserId(),user.getAccount().getAccountNumber(),user.getName());
+    final ReportingVolumeSnapshotEventStore eventStore=getReportingVolumeSnapshotEventStore();
+switch (event.getActionInfo().getAction()) {
+case SNAPSHOTCREATE:
+      eventStore.insertCreateEvent(event.getUUID(),event.getSnapshotId(),timeInMs,event.getOwnerFullName().getUserName(),event.getSizeGB());
+    break;
+case SNAPSHOTDELETE:
+  eventStore.insertDeleteEvent(event.getUUID(),event.getSnapshotId(),event.getOwnerFullName().getUserName(),timeInMs);
+break;
+}
+}
+ catch (AuthException e) {
+LOG.error("Unable fire snap shot reporting event",e.getCause());
+}
+}

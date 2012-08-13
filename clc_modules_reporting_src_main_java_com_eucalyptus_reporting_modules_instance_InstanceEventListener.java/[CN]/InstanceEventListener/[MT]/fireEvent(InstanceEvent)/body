@@ -1,0 +1,49 @@
+{
+  final long receivedEventMs=getCurrentTimeMillis();
+  log.debug("Received instance event:" + event);
+  final String uuid=event.getUuid();
+  if (uuid == null) {
+    log.warn("Received null uuid");
+    return;
+  }
+  getReportingAccountCrud().createOrUpdateAccount(event.getAccountId(),event.getAccountName());
+  getReportingUserCrud().createOrUpdateUser(event.getUserId(),event.getAccountId(),event.getUserName());
+  if (!recentlySeenUuids.contains(uuid)) {
+    try {
+      log.info("Wrote Reporting Instance:" + uuid);
+      final ReportingInstanceEventStore eventStore=getReportingInstanceEventStore();
+      eventStore.insertCreateEvent(event.getUuid(),receivedEventMs,event.getInstanceId(),event.getInstanceType(),event.getUserId(),event.getClusterName(),event.getAvailabilityZone());
+    }
+ catch (    ConstraintViolationException ex) {
+      log.debug(ex,ex);
+    }
+catch (    Exception ex) {
+      log.error(ex,ex);
+    }
+ finally {
+      recentlySeenUuids.add(uuid);
+    }
+  }
+  boolean accepted=false;
+  persistenceLock.readLock().lock();
+  try {
+    final DatedInstanceEvent oldInstanceEvent=recentUsageEvents.get(uuid);
+    if (oldInstanceEvent == null || oldInstanceEvent.getTimestamp() < receivedEventMs) {
+      recentUsageEvents.put(uuid,new DatedInstanceEvent(receivedEventMs,event));
+      accepted=true;
+    }
+  }
+  finally {
+    persistenceLock.readLock().unlock();
+  }
+  if (!accepted)   log.error("Events are arriving out of order");
+  if (receivedEventMs > (lastWriteMs.get() + (DEFAULT_WRITE_INTERVAL_SECS * 1000))) {
+    try {
+      flush();
+      lastWriteMs.set(receivedEventMs);
+    }
+ catch (    Exception ex) {
+      log.error(ex,ex);
+    }
+  }
+}
