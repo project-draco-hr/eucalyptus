@@ -1,0 +1,45 @@
+{
+  final String targetLoggerName="com.eucalyptus.troubleshooting.fault." + component.toString().toLowerCase() + ".log";
+  final String targetAppenderName=component.toString().toLowerCase() + "-fault-log";
+  final String targetLogFileName=component.toString().toLowerCase() + "-fault.log";
+  Logger logger=null;
+  Enumeration logEnum=LogManager.getCurrentLoggers();
+  while (logEnum.hasMoreElements()) {
+    Logger currentLogger=(Logger)logEnum.nextElement();
+    if (logger == null || currentLogger.getName().equals("com.eucalyptus.troubleshooting.fault." + component.toString() + ".log")) {
+      logger=currentLogger;
+    }
+  }
+  if (logger == null) {
+    logger=Logger.getLogger(targetLoggerName);
+    logger.setAdditivity(false);
+    logger.setLevel(Level.FATAL);
+  }
+  Appender appender=checkAppender(LogManager.getRootLogger(),targetAppenderName);
+  if (appender == null) {
+    Enumeration logEnum2=LogManager.getCurrentLoggers();
+    while (logEnum2.hasMoreElements()) {
+      if (appender == null) {
+        appender=checkAppender((Logger)logEnum.nextElement(),targetAppenderName);
+      }
+ else {
+        break;
+      }
+    }
+  }
+  if (appender == null) {
+    RollingFileAppender rAppender=new RollingFileAppender();
+    rAppender.setFile(BaseDirectory.LOG.getChildFile(targetLogFileName).toString());
+    rAppender.setMaxFileSize("10MB");
+    rAppender.setMaxBackupIndex(10);
+    rAppender.setLayout(new PatternLayout("%m%n"));
+    rAppender.setThreshold(Level.FATAL);
+    rAppender.activateOptions();
+    appender=rAppender;
+  }
+  if (checkAppender(logger,targetAppenderName) == null) {
+    logger.addAppender(appender);
+  }
+  FaultLogger faultLogger=new XMLFaultLogger(logger);
+  return faultLogger;
+}
