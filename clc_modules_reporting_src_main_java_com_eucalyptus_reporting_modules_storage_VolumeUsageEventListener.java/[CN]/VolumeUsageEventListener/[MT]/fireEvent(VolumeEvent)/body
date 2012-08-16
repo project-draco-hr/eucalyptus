@@ -1,0 +1,27 @@
+{
+  Preconditions.checkNotNull(event,"Event is required");
+  final long timeInMs=getCurrentTimeMillis();
+  try {
+    final User user=lookupUser(event.getOwner().getUserId());
+    getReportingAccountCrud().createOrUpdateAccount(user.getAccount().getName(),user.getAccount().getAccountNumber());
+    getReportingUserCrud().createOrUpdateUser(user.getUserId(),user.getAccount().getAccountNumber(),user.getName());
+    final ReportingVolumeEventStore eventStore=getReportingVolumeEventStore();
+switch (event.getActionInfo().getAction()) {
+case VOLUMECREATE:
+      eventStore.insertCreateEvent(event.getUuid(),event.getVolumeId(),timeInMs,event.getOwner().getUserId(),event.getAvailabilityZone(),event.getSizeGB());
+    break;
+case VOLUMEDELETE:
+  eventStore.insertDeleteEvent(event.getUuid(),timeInMs);
+break;
+case VOLUMEATTACH:
+eventStore.insertAttachEvent(event.getUuid(),((EventActionInfo.InstanceEventActionInfo<VolumeAction>)event.getActionInfo()).getInstanceUuid(),event.getSizeGB(),timeInMs);
+break;
+case VOLUMEDETACH:
+eventStore.insertDetachEvent(event.getUuid(),((InstanceEventActionInfo)event.getActionInfo()).getInstanceUuid(),event.getSizeGB(),timeInMs);
+break;
+}
+}
+ catch (AuthException e) {
+LOG.error("Unable to fire volume reporting event.",e.getCause());
+}
+}
