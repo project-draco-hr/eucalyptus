@@ -1,0 +1,53 @@
+{
+  final String targetLoggerName="com.eucalyptus.troubleshooting.fault." + componentId.getName().toLowerCase() + ".log";
+  final String targetAppenderName=componentId.getName().toLowerCase() + "-fault-log";
+  final String targetLogFileName=componentId.getName().toLowerCase() + "-fault.log";
+  LOG.info("looking for logger " + targetLoggerName);
+  Logger logger=null;
+  Enumeration logEnum=LogManager.getCurrentLoggers();
+  while (logEnum.hasMoreElements()) {
+    Logger currentLogger=(Logger)logEnum.nextElement();
+    if (logger == null && currentLogger.getName().equals(targetLoggerName)) {
+      logger=currentLogger;
+      LOG.info("Found logger " + targetLoggerName);
+      break;
+    }
+  }
+  if (logger == null) {
+    LOG.info("Didn't find logger " + targetLoggerName + ", creating it now");
+    logger=Logger.getLogger(targetLoggerName);
+    logger.setAdditivity(false);
+    logger.setLevel(Level.FATAL);
+  }
+  LOG.info("Checking root logger for appender " + targetAppenderName);
+  Appender appender=checkAppender(LogManager.getRootLogger(),targetAppenderName);
+  if (appender == null) {
+    logEnum=LogManager.getCurrentLoggers();
+    while (logEnum.hasMoreElements()) {
+      if (appender == null) {
+        Logger currentLogger=(Logger)logEnum.nextElement();
+        LOG.info("Checking " + currentLogger.getName() + " for appender "+ targetAppenderName);
+        appender=checkAppender(currentLogger,targetAppenderName);
+      }
+ else {
+        break;
+      }
+    }
+  }
+  if (appender == null) {
+    RollingFileAppender rAppender=new RollingFileAppender();
+    rAppender.setFile(BaseDirectory.LOG.getChildFile(targetLogFileName).toString());
+    rAppender.setMaxFileSize("10MB");
+    rAppender.setMaxBackupIndex(10);
+    rAppender.setLayout(new PatternLayout("%m%n"));
+    rAppender.setThreshold(Level.FATAL);
+    rAppender.activateOptions();
+    rAppender.setName(targetAppenderName);
+    appender=rAppender;
+  }
+  if (checkAppender(logger,targetAppenderName) == null) {
+    logger.addAppender(appender);
+  }
+  FaultLogger faultLogger=new XMLFaultLogger(logger);
+  return faultLogger;
+}
