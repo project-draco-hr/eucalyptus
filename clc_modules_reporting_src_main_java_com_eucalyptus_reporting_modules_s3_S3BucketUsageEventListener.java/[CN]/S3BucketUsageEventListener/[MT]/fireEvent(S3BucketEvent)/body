@@ -1,0 +1,21 @@
+{
+  Preconditions.checkNotNull(event,"Event is required");
+  final long timeInMs=getCurrentTimeMillis();
+  try {
+    final User user=lookupUser(event.getOwner().getUserId());
+    getReportingAccountCrud().createOrUpdateAccount(user.getAccount().getName(),user.getAccount().getAccountNumber());
+    getReportingUserCrud().createOrUpdateUser(user.getUserId(),user.getAccount().getAccountNumber(),user.getName());
+    final ReportingS3BucketEventStore eventStore=getReportingS3BucketEventStore();
+switch (event.getActionInfo().getAction()) {
+case BUCKETCREATE:
+      eventStore.insertS3BucketCreateEvent(event.getBucketName(),event.getSize(),event.getOwner().getUserId(),timeInMs);
+    break;
+case BUCKETDELETE:
+  eventStore.insertS3BucketDeleteEvent(event.getBucketName(),event.getSize(),event.getOwner().getUserId(),timeInMs);
+break;
+}
+}
+ catch (AuthException e) {
+LOG.error("Unable fire snap shot reporting event",e.getCause());
+}
+}
