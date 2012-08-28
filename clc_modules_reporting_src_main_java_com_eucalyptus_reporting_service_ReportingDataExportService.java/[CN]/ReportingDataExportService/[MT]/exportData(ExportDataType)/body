@@ -6,24 +6,37 @@
   if (!requestUser.isSystemAdmin()) {
     throw new ReportingException(HttpResponseStatus.UNUATHORIZED,ReportingException.NOT_AUTHORIZED,"Not authorized");
   }
-  List<Class<? extends AbstractPersistent>> eventClasses=ImmutableList.of(ReportingElasticIpAttachEvent.class,ReportingElasticIpCreateEvent.class,ReportingElasticIpDeleteEvent.class,ReportingElasticIpDetachEvent.class,ReportingInstanceAttributeEvent.class,ReportingInstanceCreateEvent.class,ReportingInstanceUsageEvent.class,ReportingS3BucketCreateEvent.class,ReportingS3BucketDeleteEvent.class,ReportingS3ObjectCreateEvent.class,ReportingS3ObjectDeleteEvent.class,ReportingS3ObjectUsageEvent.class,ReportingVolumeAttachEvent.class,ReportingVolumeCreateEvent.class,ReportingVolumeDeleteEvent.class,ReportingVolumeDetachEvent.class,ReportingVolumeSnapshotCreateEvent.class,ReportingVolumeSnapshotDeleteEvent.class,ReportingVolumeUsageEvent.class);
-  final List<Object> exportData=Lists.newArrayList();
+  final Conjunction criterion=Restrictions.conjunction();
+  if (request.getStartDate() != null) {
+    criterion.add(Restrictions.ge(CREATION_TIMESTAMP,request.getStartDate()));
+  }
+  if (request.getEndDate() != null) {
+    criterion.add(Restrictions.lt(CREATION_TIMESTAMP,request.getEndDate()));
+  }
+  final List<Serializable> exportData=Lists.newArrayList();
+  final Set<EventDependency> dependencies=Sets.newHashSet();
   for (  final Class<? extends AbstractPersistent> eventClass : eventClasses) {
+    final EntityTransaction transaction=Entities.get(eventClass);
     try {
-      exportData.addAll(Entities.query(eventClass.newInstance(),true));
+      addToExportList(exportData,dependencies,criteriaFor(eventClass,criterion).list());
     }
- catch (    InstantiationException e) {
+ catch (    Exception e) {
       log.error(e,e);
     }
-catch (    IllegalAccessException e) {
-      log.error(e,e);
+ finally {
+      transaction.rollback();
     }
   }
   final ByteArrayOutputStream out=new ByteArrayOutputStream();
-  final XMLEncoder encoder=new XMLEncoder(out);
-  encoder.writeObject(exportData);
-  encoder.flush();
-  encoder.close();
-  reply.setResult(new ExportDataResultType(out.toString()));
+  try {
+    final ObjectOutputStream oout=new ObjectOutputStream(out);
+    oout.writeObject(exportData);
+    oout.flush();
+    oout.close();
+    reply.setResult(new ExportDataResultType(B64.standard.encString(out.toByteArray())));
+  }
+ catch (  IOException e) {
+    throw new EucalyptusCloudException(e);
+  }
   return reply;
 }
