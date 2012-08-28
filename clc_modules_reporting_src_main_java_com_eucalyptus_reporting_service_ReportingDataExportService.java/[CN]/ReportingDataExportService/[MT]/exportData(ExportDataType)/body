@@ -1,0 +1,42 @@
+{
+  final ExportDataResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final User requestUser=ctx.getUser();
+  if (!requestUser.isSystemAdmin()) {
+    throw new ReportingException(HttpResponseStatus.UNUATHORIZED,ReportingException.NOT_AUTHORIZED,"Not authorized");
+  }
+  final Conjunction criterion=Restrictions.conjunction();
+  if (request.getStartDate() != null) {
+    criterion.add(Restrictions.ge(CREATION_TIMESTAMP,request.getStartDate()));
+  }
+  if (request.getEndDate() != null) {
+    criterion.add(Restrictions.lt(CREATION_TIMESTAMP,request.getEndDate()));
+  }
+  final List<Serializable> exportData=Lists.newArrayList();
+  final Set<EventDependency> dependencies=Sets.newHashSet();
+  for (  final Class<? extends AbstractPersistent> eventClass : eventClasses) {
+    final EntityTransaction transaction=Entities.get(eventClass);
+    try {
+      addToExportList(exportData,dependencies,criteriaFor(eventClass,criterion).list());
+    }
+ catch (    Exception e) {
+      log.error(e,e);
+    }
+ finally {
+      transaction.rollback();
+    }
+  }
+  final ByteArrayOutputStream out=new ByteArrayOutputStream();
+  try {
+    final ObjectOutputStream oout=new ObjectOutputStream(out);
+    oout.writeObject(exportData);
+    oout.flush();
+    oout.close();
+    reply.setResult(new ExportDataResultType(B64.standard.encString(out.toByteArray())));
+  }
+ catch (  IOException e) {
+    throw new EucalyptusCloudException(e);
+  }
+  return reply;
+}
