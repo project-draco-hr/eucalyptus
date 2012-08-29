@@ -1,0 +1,25 @@
+{
+  final GetSessionTokenResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final Subject subject=ctx.getSubject();
+  final User requestUser=ctx.getUser();
+  AccessKey accessKey=null;
+  final Set<QueryIdCredential> queryIdCreds=subject.getPublicCredentials(QueryIdCredential.class);
+  if (!queryIdCreds.isEmpty()) {
+    try {
+      accessKey=Accounts.lookupAccessKeyById(Iterables.getOnlyElement(queryIdCreds).getQueryId());
+    }
+ catch (    final AuthException e) {
+      throw new EucalyptusCloudException("Error finding access key",e);
+    }
+  }
+  try {
+    final SecurityToken token=SecurityTokenManager.issueSecurityToken(requestUser,accessKey,request.getDurationSeconds());
+    reply.setResult(GetSessionTokenResultType.forCredentials(token.getAccessKeyId(),token.getSecretKey(),token.getToken(),token.getExpires()));
+  }
+ catch (  final AuthException e) {
+    throw new EucalyptusCloudException(e.getMessage(),e);
+  }
+  return reply;
+}
