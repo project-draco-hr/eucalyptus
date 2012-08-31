@@ -1,0 +1,66 @@
+{
+  final String decoded;
+  try {
+    decoded=B64.standard.decString(b64EncodedKeyMaterial);
+  }
+ catch (  ArrayIndexOutOfBoundsException e) {
+    throw new GeneralSecurityException("Invalid key material (expected Base64)");
+  }
+catch (  StringIndexOutOfBoundsException e) {
+    throw new GeneralSecurityException("Invalid key material (expected Base64)");
+  }
+  final RSAPublicKey key;
+  if (decoded.startsWith("ssh-rsa ")) {
+    final String[] keyParts=decoded.split("\\s+");
+    if (keyParts.length > 1) {
+      key=KeyPairs.decodeSshRsaPublicKey(keyParts[1]);
+    }
+ else {
+      throw new GeneralSecurityException("Invalid SSH key format");
+    }
+  }
+ else   if (decoded.startsWith("---- BEGIN SSH2 PUBLIC KEY ----")) {
+    final String keyB64;
+    try {
+      keyB64=Joiner.on("\n").join(Iterables.filter(CharStreams.readLines(new StringReader(decoded)),new Predicate<String>(){
+        boolean continueLine=false;
+        boolean sawEnd=false;
+        @Override public boolean apply(        final String line){
+          sawEnd=sawEnd || line.contains("---- END SSH2 PUBLIC KEY ----");
+          if (line.contains("---- BEGIN SSH2 PUBLIC KEY ----") || sawEnd) {
+            continueLine=false;
+            return false;
+          }
+          if (continueLine || line.contains(":")) {
+            continueLine=line.endsWith("\\");
+            return false;
+          }
+          return true;
+        }
+      }
+));
+    }
+ catch (    IOException e) {
+      throw new GeneralSecurityException("Error reading key data");
+    }
+    key=KeyPairs.decodeSshRsaPublicKey(keyB64);
+  }
+ else {
+    try {
+      final KeyFactory keyFactory=KeyFactory.getInstance("RSA");
+      final X509EncodedKeySpec encodedSpec=new X509EncodedKeySpec(B64.standard.dec(decoded));
+      key=(RSAPublicKey)keyFactory.generatePublic(encodedSpec);
+    }
+ catch (    ArrayIndexOutOfBoundsException e) {
+      throw new GeneralSecurityException("Invalid key material");
+    }
+catch (    StringIndexOutOfBoundsException e) {
+      throw new GeneralSecurityException("Invalid key material");
+    }
+  }
+  final int keySize=key.getModulus().bitLength();
+  if (keySize != 1024 && keySize != 2048 && keySize != 4096) {
+    throw new GeneralSecurityException("Invalid key size: " + keySize);
+  }
+  return key;
+}

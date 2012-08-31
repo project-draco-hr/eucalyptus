@@ -3,7 +3,21 @@
     clientFactory.getShellView().getFooterView().showStatus(StatusType.ERROR,"Must select a single user to change password",FooterView.DEFAULT_STATUS_CLEAR_DELAY);
     return;
   }
-  InputView dialog=this.clientFactory.getInputView();
+  final String sessionUserId=this.clientFactory.getSessionData().getLoginUser().getUserId();
+  final String selectedUserId=Iterables.get(currentSelected,0).getField(0);
+  final ValueSaver oldPasswordSaver;
+  final ValueChecker passwordInequalityChecker;
+  if (sessionUserId.equals(selectedUserId)) {
+    oldPasswordSaver=ValueCheckerFactory.createValueSaver();
+    passwordInequalityChecker=ValueCheckerFactory.createInequalityChecker(ValueCheckerFactory.PASSWORD_NOT_CHANGED,oldPasswordSaver);
+  }
+ else {
+    oldPasswordSaver=null;
+    passwordInequalityChecker=null;
+  }
+  final ValueSaver newPasswordSaver=ValueCheckerFactory.createValueSaver();
+  final ValueChecker passwordEqualityChecker=ValueCheckerFactory.createEqualityChecker(ValueCheckerFactory.PASSWORDS_NOT_MATCH,newPasswordSaver);
+  final InputView dialog=this.clientFactory.getInputView();
   dialog.setPresenter(this);
   dialog.display(CHANGE_PASSWORD_CAPTION,CHANGE_PASSWORD_SUBJECT,new ArrayList<InputField>(Arrays.asList(new InputField(){
     @Override public String getTitle(){
@@ -13,7 +27,7 @@
       return ValueType.PASSWORD;
     }
     @Override public ValueChecker getChecker(){
-      return null;
+      return oldPasswordSaver;
     }
   }
 ,new InputField(){
@@ -24,7 +38,7 @@
       return ValueType.NEWPASSWORD;
     }
     @Override public ValueChecker getChecker(){
-      return ValueCheckerFactory.createPasswordChecker();
+      return ValueCheckerFactory.checkerForAll(passwordInequalityChecker,ValueCheckerFactory.createPasswordChecker(),newPasswordSaver);
     }
   }
 ,new InputField(){
@@ -35,7 +49,7 @@
       return ValueType.PASSWORD;
     }
     @Override public ValueChecker getChecker(){
-      return null;
+      return passwordEqualityChecker;
     }
   }
 )));

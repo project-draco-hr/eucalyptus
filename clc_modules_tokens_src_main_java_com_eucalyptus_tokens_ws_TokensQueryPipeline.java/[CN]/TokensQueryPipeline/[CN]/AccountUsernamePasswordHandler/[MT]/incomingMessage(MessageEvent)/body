@@ -1,0 +1,27 @@
+{
+  if (event.getMessage() instanceof MappingHttpRequest) {
+    final MappingHttpRequest httpRequest=(MappingHttpRequest)event.getMessage();
+    boolean challenge=true;
+    if (httpRequest.containsHeader(HttpHeaders.Names.AUTHORIZATION)) {
+      final String[] authorization=httpRequest.getHeader(HttpHeaders.Names.AUTHORIZATION).split(" ",2);
+      if (authorization.length == 2 && "basic".equalsIgnoreCase(authorization[0])) {
+        final String[] basicUsernamePassword=B64.standard.decString(authorization[1]).split(":",2);
+        final String[] encodedAccountUsername=basicUsernamePassword[0].split("@",2);
+        if (basicUsernamePassword.length == 2 && encodedAccountUsername.length == 2) {
+          final String account=B64.standard.decString(encodedAccountUsername[1]);
+          final String username=B64.standard.decString(encodedAccountUsername[0]);
+          final String password=basicUsernamePassword[1];
+          try {
+            SecurityContext.getLoginContext(new AccountUsernamePasswordCredentials(httpRequest.getCorrelationId(),account,username,password)).login();
+            challenge=false;
+          }
+ catch (          LoginException e) {
+          }
+        }
+      }
+    }
+    if (challenge) {
+      throw new ChallengeException();
+    }
+  }
+}

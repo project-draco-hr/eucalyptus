@@ -1,16 +1,21 @@
 {
-  EntityWrapper<InstanceUsageSnapshot> entityWrapper=EntityWrapper.get(InstanceUsageSnapshot.class);
+  final ReportingInstanceEventStore eventStore=getReportingInstanceEventStore();
+  persistenceLock.writeLock().lock();
   try {
-    for (    String key : recentUsageSnapshots.keySet()) {
-      InstanceUsageSnapshot ius=recentUsageSnapshots.get(key);
-      entityWrapper.add(ius);
-      log.info("Wrote Instance Usage:" + ius.getUuid() + ":"+ ius.getEntityId());
+    transactional(ReportingInstanceUsageEvent.class,new Function<Collection<DatedInstanceEvent>,Void>(){
+      @Override public Void apply(      final Collection<DatedInstanceEvent> datedInstanceEvents){
+        for (        final DatedInstanceEvent datedEvent : datedInstanceEvents) {
+          final InstanceEvent event=datedEvent.getInstanceEvent();
+          eventStore.insertUsageEvent(event.getUuid(),datedEvent.getTimestamp(),event.getCumulativeDiskIoMegs(),event.getCpuUtilizationPercent(),event.getCumulativeNetIncomingMegsBetweenZones(),event.getCumulativeNetIncomingMegsWithinZone(),event.getCumulativeNetIncomingMegsPublicIp(),event.getCumulativeNetOutgoingMegsBetweenZones(),event.getCumulativeNetOutgoingMegsWithinZone(),event.getCumulativeNetOutgoingMegsPublicIp());
+          log.debug("Wrote instance usage for: " + event.getUuid());
+        }
+        return null;
+      }
     }
-    recentUsageSnapshots.clear();
-    entityWrapper.commit();
+).apply(recentUsageEvents.values());
+    recentUsageEvents.clear();
   }
- catch (  Exception ex) {
-    entityWrapper.rollback();
-    log.error(ex);
+  finally {
+    persistenceLock.writeLock().unlock();
   }
 }
