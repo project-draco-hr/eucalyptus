@@ -1,0 +1,20 @@
+{
+  boolean usePasswordAuth=false;
+  if (event.getMessage() instanceof MappingHttpRequest) {
+    final MappingHttpRequest httpRequest=(MappingHttpRequest)event.getMessage();
+    usePasswordAuth=!httpRequest.getParameters().containsKey(RequiredQueryParams.SignatureVersion.toString());
+  }
+  final ChannelPipeline stagePipeline=Channels.pipeline();
+  if (usePasswordAuth) {
+    stagePipeline.addLast("tokens-password-authentication",new AccountUsernamePasswordHandler());
+  }
+ else {
+    standardAuthenticationStage.unrollStage(stagePipeline);
+  }
+  final ChannelPipeline pipeline=event.getChannel().getPipeline();
+  String addAfter="tokens-authentication-method-selector";
+  for (  final Map.Entry<String,ChannelHandler> handlerEntry : stagePipeline.toMap().entrySet()) {
+    pipeline.addAfter(addAfter,handlerEntry.getKey(),handlerEntry.getValue());
+    addAfter=handlerEntry.getKey();
+  }
+}
