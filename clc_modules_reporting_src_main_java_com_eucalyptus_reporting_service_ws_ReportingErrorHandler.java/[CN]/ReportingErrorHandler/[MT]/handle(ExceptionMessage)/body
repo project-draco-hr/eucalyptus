@@ -1,0 +1,38 @@
+{
+  EventRecord.here(ReportingErrorHandler.class,EventType.MSG_REPLY,exMsg.getPayload().getClass().getSimpleName()).debug();
+  log.trace("Caught exception while servicing: " + exMsg.getPayload());
+  Throwable exception=exMsg.getException();
+  if (exception instanceof MessagingException && exception.getCause() instanceof EucalyptusCloudException) {
+    try {
+      final EucalyptusCloudException cloudException=(EucalyptusCloudException)exception.getCause();
+      final BaseMessage payload=parsePayload(((MessagingException)exception).getUmoMessage().getPayload());
+      final ReportingErrorResponseType errorResp=new ReportingErrorResponseType();
+      final HttpResponseStatus status;
+      final String code;
+      if (cloudException instanceof ReportingException) {
+        final ReportingException reportingException=(ReportingException)cloudException;
+        status=reportingException.getStatus();
+        code=reportingException.getError();
+      }
+ else {
+        status=HttpResponseStatus.INTERNAL_SERVER_ERROR;
+        code=INTERNAL_FAILURE;
+      }
+      errorResp.setHttpStatus(status);
+      errorResp.setCorrelationId(payload.getCorrelationId());
+      errorResp.setRequestId(payload.getCorrelationId());
+      final ReportingErrorType error=new ReportingErrorType();
+      error.setType("Receiver");
+      error.setCode(code);
+      error.setMessage(cloudException.getMessage());
+      errorResp.getErrors().add(error);
+      Contexts.response(errorResp);
+    }
+ catch (    final PayloadParseException e) {
+      log.error("Failed to parse payload ",e.getCause());
+    }
+  }
+ else {
+    log.error("Unable to handle exception",exception);
+  }
+}
