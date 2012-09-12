@@ -1,4 +1,5 @@
 {
+  log.debug("GENERATING REPORT ART");
   EntityWrapper wrapper=EntityWrapper.get(ReportingInstanceCreateEvent.class);
   Iterator iter=wrapper.scanWithNativeQuery("scanInstanceCreateEvents");
   Map<String,InstanceArtEntity> instanceEntities=new HashMap<String,InstanceArtEntity>();
@@ -28,6 +29,7 @@
     InstanceArtEntity instance=user.getInstances().get(createEvent.getUuid());
     instanceEntities.put(createEvent.getUuid(),instance);
   }
+  log.debug("Super-tree:" + report.prettyPrint(0));
   Map<String,ReportingInstanceUsageEvent> lastEvents=new HashMap<String,ReportingInstanceUsageEvent>();
   iter=wrapper.scanWithNativeQuery("scanInstanceUsageEvents");
   while (iter.hasNext()) {
@@ -36,6 +38,7 @@
     lastEvents.put(usageEvent.getUuid(),usageEvent);
     InstanceArtEntity instance=instanceEntities.get(usageEvent.getUuid());
     InstanceUsageArtEntity usage=instance.getUsage();
+    log.debug("Usage:" + usage.toString());
     if (usageEvent.getTimestampMs() > report.getBeginMs() && usageEvent.getTimestampMs() < report.getEndMs()) {
       usage.setDiskIoMegMax(max(usage.getDiskIoMegMax(),subtract(usageEvent.getCumulativeDiskIoMegs(),(lastEvent == null) ? null : lastEvent.getCumulativeDiskIoMegs())));
       usage.setNetIoWithinZoneInMegMax(max(usage.getNetIoWithinZoneInMegMax(),subtract(usageEvent.getCumulativeNetIncomingMegsWithinZone(),(lastEvent == null) ? null : lastEvent.getCumulativeNetIncomingMegsWithinZone())));
@@ -45,6 +48,7 @@
       usage.setNetIoBetweenZoneOutMegMax(max(usage.getNetIoBetweenZoneOutMegMax(),subtract(usageEvent.getCumulativeNetOutgoingMegsBetweenZones(),(lastEvent == null) ? null : lastEvent.getCumulativeNetOutgoingMegsBetweenZones())));
       usage.setNetIoPublicIpOutMegMax(max(usage.getNetIoPublicIpOutMegMax(),subtract(usageEvent.getCumulativeNetOutgoingMegsPublic(),(lastEvent == null) ? null : lastEvent.getCumulativeNetOutgoingMegsPublic())));
     }
+    log.debug("Post-max Usage:" + usage.toString());
     if (lastEvent != null) {
       long lastMs=lastEvent.getTimestampMs();
       Long interpolatedMegsMs=interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),subtract(usageEvent.getCumulativeDiskIoMegs(),lastEvent.getCumulativeDiskIoMegs()));
@@ -80,7 +84,9 @@
       usage.setCpuPercentAvg(newWeightedAverage);
       usage.addDurationMs(durationMs);
     }
+    log.debug("Post-interpolated Usage:" + usage.toString());
   }
+  log.debug("Tree:" + report.prettyPrint(0));
   for (  String zoneName : report.getZones().keySet()) {
     AvailabilityZoneArtEntity zone=report.getZones().get(zoneName);
     UsageTotalsArtEntity zoneUsage=zone.getUsageTotals();
@@ -104,5 +110,6 @@
       }
     }
   }
+  log.debug("Totals Tree:" + report.prettyPrint(0));
   return report;
 }
