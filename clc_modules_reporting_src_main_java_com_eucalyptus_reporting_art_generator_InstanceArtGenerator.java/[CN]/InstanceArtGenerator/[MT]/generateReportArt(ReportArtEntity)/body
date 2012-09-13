@@ -14,7 +14,13 @@
     }
     ClusterArtEntity cluster=zone.getClusters().get(createEvent.getClusterName());
     ReportingUser reportingUser=ReportingUserDao.getInstance().getReportingUser(createEvent.getUserId());
+    if (reportingUser == null) {
+      log.error("No user corresponding to event:" + createEvent.getUserId());
+    }
     ReportingAccount reportingAccount=ReportingAccountDao.getInstance().getReportingAccount(reportingUser.getAccountId());
+    if (reportingAccount == null) {
+      log.error("No account corresponding to user:" + reportingUser.getAccountId());
+    }
     if (!cluster.getAccounts().containsKey(reportingAccount.getName())) {
       cluster.getAccounts().put(reportingAccount.getName(),new AccountArtEntity());
     }
@@ -29,7 +35,6 @@
     InstanceArtEntity instance=user.getInstances().get(createEvent.getUuid());
     instanceEntities.put(createEvent.getUuid(),instance);
   }
-  log.debug("Super-tree:" + report.prettyPrint(0));
   Map<String,ReportingInstanceUsageEvent> lastEvents=new HashMap<String,ReportingInstanceUsageEvent>();
   iter=wrapper.scanWithNativeQuery("scanInstanceUsageEvents");
   while (iter.hasNext()) {
@@ -37,48 +42,20 @@
     ReportingInstanceUsageEvent lastEvent=lastEvents.get(usageEvent.getUuid());
     lastEvents.put(usageEvent.getUuid(),usageEvent);
     InstanceArtEntity instance=instanceEntities.get(usageEvent.getUuid());
-    InstanceUsageArtEntity usage=instance.getUsage();
-    log.debug("Usage:" + usage.toString());
-    if (usageEvent.getTimestampMs() > report.getBeginMs() && usageEvent.getTimestampMs() < report.getEndMs()) {
-      usage.setDiskIoMegMax(max(usage.getDiskIoMegMax(),subtract(usageEvent.getCumulativeDiskIoMegs(),(lastEvent == null) ? null : lastEvent.getCumulativeDiskIoMegs())));
-      usage.setNetIoWithinZoneInMegMax(max(usage.getNetIoWithinZoneInMegMax(),subtract(usageEvent.getCumulativeNetIncomingMegsWithinZone(),(lastEvent == null) ? null : lastEvent.getCumulativeNetIncomingMegsWithinZone())));
-      usage.setNetIoBetweenZoneInMegMax(max(usage.getNetIoBetweenZoneInMegMax(),subtract(usageEvent.getCumulativeNetIncomingMegsBetweenZones(),(lastEvent == null) ? null : lastEvent.getCumulativeNetIncomingMegsBetweenZones())));
-      usage.setNetIoPublicIpInMegMax(max(usage.getNetIoPublicIpInMegMax(),subtract(usageEvent.getCumulativeNetIncomingMegsPublic(),(lastEvent == null) ? null : lastEvent.getCumulativeNetIncomingMegsPublic())));
-      usage.setNetIoWithinZoneOutMegMax(max(usage.getNetIoWithinZoneOutMegMax(),subtract(usageEvent.getCumulativeNetOutgoingMegsWithinZone(),(lastEvent == null) ? null : lastEvent.getCumulativeNetOutgoingMegsWithinZone())));
-      usage.setNetIoBetweenZoneOutMegMax(max(usage.getNetIoBetweenZoneOutMegMax(),subtract(usageEvent.getCumulativeNetOutgoingMegsBetweenZones(),(lastEvent == null) ? null : lastEvent.getCumulativeNetOutgoingMegsBetweenZones())));
-      usage.setNetIoPublicIpOutMegMax(max(usage.getNetIoPublicIpOutMegMax(),subtract(usageEvent.getCumulativeNetOutgoingMegsPublic(),(lastEvent == null) ? null : lastEvent.getCumulativeNetOutgoingMegsPublic())));
+    if (instance == null) {
+      log.error("instance usage without corresponding instance:" + usageEvent.getUuid());
+      continue;
     }
-    log.debug("Post-max Usage:" + usage.toString());
+    InstanceUsageArtEntity usage=instance.getUsage();
     if (lastEvent != null) {
       long lastMs=lastEvent.getTimestampMs();
-      Long interpolatedMegsMs=interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),subtract(usageEvent.getCumulativeDiskIoMegs(),lastEvent.getCumulativeDiskIoMegs()));
-      Long interpolatedMegsSecs=(interpolatedMegsMs == null) ? null : interpolatedMegsMs / 1000;
-      Long totalInterpolatedMegsSecs=plus(interpolatedMegsSecs,usage.getDiskIoMegSecs());
-      usage.setDiskIoMegSecs(totalInterpolatedMegsSecs);
-      interpolatedMegsMs=interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),subtract(usageEvent.getCumulativeNetIncomingMegsWithinZone(),lastEvent.getCumulativeNetIncomingMegsWithinZone()));
-      interpolatedMegsSecs=(interpolatedMegsMs == null) ? null : interpolatedMegsMs / 1000;
-      totalInterpolatedMegsSecs=plus(interpolatedMegsSecs,usage.getNetIoWithinZoneInMegSecs());
-      usage.setNetIoWithinZoneInMegSecs(totalInterpolatedMegsSecs);
-      interpolatedMegsMs=interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),subtract(usageEvent.getCumulativeNetIncomingMegsBetweenZones(),lastEvent.getCumulativeNetIncomingMegsBetweenZones()));
-      interpolatedMegsSecs=(interpolatedMegsMs == null) ? null : interpolatedMegsMs / 1000;
-      totalInterpolatedMegsSecs=plus(interpolatedMegsSecs,usage.getNetIoBetweenZoneInMegSecs());
-      usage.setNetIoBetweenZoneInMegSecs(totalInterpolatedMegsSecs);
-      interpolatedMegsMs=interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),subtract(usageEvent.getCumulativeNetIncomingMegsPublic(),lastEvent.getCumulativeNetIncomingMegsPublic()));
-      interpolatedMegsSecs=(interpolatedMegsMs == null) ? null : interpolatedMegsMs / 1000;
-      totalInterpolatedMegsSecs=plus(interpolatedMegsSecs,usage.getNetIoPublicIpInMegSecs());
-      usage.setNetIoPublicIpInMegSecs(totalInterpolatedMegsSecs);
-      interpolatedMegsMs=interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),subtract(usageEvent.getCumulativeNetOutgoingMegsWithinZone(),lastEvent.getCumulativeNetOutgoingMegsWithinZone()));
-      interpolatedMegsSecs=(interpolatedMegsMs == null) ? null : interpolatedMegsMs / 1000;
-      totalInterpolatedMegsSecs=plus(interpolatedMegsSecs,usage.getNetIoWithinZoneOutMegSecs());
-      usage.setNetIoWithinZoneOutMegSecs(totalInterpolatedMegsSecs);
-      interpolatedMegsMs=interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),subtract(usageEvent.getCumulativeNetOutgoingMegsBetweenZones(),lastEvent.getCumulativeNetOutgoingMegsBetweenZones()));
-      interpolatedMegsSecs=(interpolatedMegsMs == null) ? null : interpolatedMegsMs / 1000;
-      totalInterpolatedMegsSecs=plus(interpolatedMegsSecs,usage.getNetIoBetweenZoneOutMegSecs());
-      usage.setNetIoBetweenZoneOutMegSecs(totalInterpolatedMegsSecs);
-      interpolatedMegsMs=interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),subtract(usageEvent.getCumulativeNetOutgoingMegsPublic(),lastEvent.getCumulativeNetOutgoingMegsPublic()));
-      interpolatedMegsSecs=(interpolatedMegsMs == null) ? null : interpolatedMegsMs / 1000;
-      totalInterpolatedMegsSecs=plus(interpolatedMegsSecs,usage.getNetIoPublicIpOutMegSecs());
-      usage.setNetIoPublicIpOutMegSecs(totalInterpolatedMegsSecs);
+      usage.setDiskIoMegs(plus(usage.getDiskIoMegs(),subtract(usageEvent.getCumulativeDiskIoMegs(),lastEvent.getCumulativeDiskIoMegs())));
+      usage.setNetIoWithinZoneInMegs(plus(usage.getNetIoWithinZoneInMegs(),subtract(usageEvent.getCumulativeNetIncomingMegsWithinZone(),lastEvent.getCumulativeNetIncomingMegsWithinZone())));
+      usage.setNetIoBetweenZoneInMegs(plus(usage.getNetIoBetweenZoneInMegs(),subtract(usageEvent.getCumulativeNetIncomingMegsBetweenZones(),lastEvent.getCumulativeNetIncomingMegsBetweenZones())));
+      usage.setNetIoPublicIpInMegs(plus(usage.getNetIoPublicIpInMegs(),subtract(usageEvent.getCumulativeNetIncomingMegsPublic(),lastEvent.getCumulativeNetIncomingMegsPublic())));
+      usage.setNetIoWithinZoneOutMegs(plus(usage.getNetIoWithinZoneOutMegs(),subtract(usageEvent.getCumulativeNetOutgoingMegsWithinZone(),lastEvent.getCumulativeNetOutgoingMegsWithinZone())));
+      usage.setNetIoBetweenZoneOutMegs(plus(usage.getNetIoBetweenZoneOutMegs(),subtract(usageEvent.getCumulativeNetOutgoingMegsBetweenZones(),lastEvent.getCumulativeNetOutgoingMegsBetweenZones())));
+      usage.setNetIoPublicIpOutMegs(plus(usage.getNetIoPublicIpOutMegs(),subtract(usageEvent.getCumulativeNetOutgoingMegsPublic(),usageEvent.getCumulativeNetOutgoingMegsPublic())));
       long durationMs=Math.min(report.getEndMs(),usageEvent.getTimestampMs()) - Math.max(report.getBeginMs(),lastMs);
       if (usage.getCpuPercentAvg() == null && usageEvent.getCpuUtilizationPercent() != null) {
         usage.setCpuPercentAvg((double)usageEvent.getCpuUtilizationPercent());
@@ -90,9 +67,7 @@
         usage.addDurationMs(durationMs);
       }
     }
-    log.debug("Post-interpolated Usage:" + usage.toString());
   }
-  log.debug("Tree:" + report.prettyPrint(0));
   for (  String zoneName : report.getZones().keySet()) {
     AvailabilityZoneArtEntity zone=report.getZones().get(zoneName);
     UsageTotalsArtEntity zoneUsage=zone.getUsageTotals();
@@ -116,6 +91,5 @@
       }
     }
   }
-  log.debug("Totals Tree:" + report.prettyPrint(0));
   return report;
 }
