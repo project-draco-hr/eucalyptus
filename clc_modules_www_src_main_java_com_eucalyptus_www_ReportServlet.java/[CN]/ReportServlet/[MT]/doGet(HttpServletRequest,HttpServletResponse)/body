@@ -17,20 +17,27 @@
   }
   LOG.info(String.format("Params: type:%s format:%s period:%s" + "criterion:%s groupBy:%s",reportType,format,period,criterion,groupByCriterion));
   setContentTypeHeader(res,format,Param.type.get(req));
-  if (user.isSystemAdmin()) {
-    ReportGenerator.getInstance().generateReport(reportType,format,period,criterion,groupByCriterion,displayUnits,res.getOutputStream(),null);
-  }
- else   if (user.isAccountAdmin()) {
-    String accountId;
-    try {
-      accountId=user.getAccount().getAccountNumber();
+  String report=null;
+  try {
+    if (user.isSystemAdmin()) {
+      report=ReportGenerationFacade.generateReport(reportType,period.getBeginningMs(),period.getEndingMs(),null);
     }
- catch (    AuthException aex) {
-      throw new RuntimeException("Auth failed");
+ else     if (user.isAccountAdmin()) {
+      String accountId;
+      try {
+        accountId=user.getAccount().getAccountNumber();
+      }
+ catch (      AuthException aex) {
+        throw new RuntimeException("Auth failed");
+      }
+      report=ReportGenerationFacade.generateReport(reportType,period.getBeginningMs(),period.getEndingMs(),accountId);
     }
-    ReportGenerator.getInstance().generateReport(reportType,format,period,criterion,groupByCriterion,displayUnits,res.getOutputStream(),accountId);
-  }
  else {
-    throw new RuntimeException("Only admins and account owners can generate reports");
+      throw new RuntimeException("Only admins and account owners can generate reports");
+    }
+    res.getWriter().print(report);
+  }
+ catch (  ReportGenerationFacade.ReportGenerationException e) {
+    LOG.error(e,e);
   }
 }
