@@ -1,8 +1,8 @@
 {
   log.debug("GENERATING REPORT ART");
   EntityWrapper wrapper=EntityWrapper.get(ReportingInstanceCreateEvent.class);
-  Iterator iter=wrapper.scanWithNativeQuery("scanInstanceCreateEvents");
   Map<String,InstanceArtEntity> instanceEntities=new HashMap<String,InstanceArtEntity>();
+  Iterator iter=wrapper.scanWithNativeQuery("scanInstanceCreateEvents");
   while (iter.hasNext()) {
     ReportingInstanceCreateEvent createEvent=(ReportingInstanceCreateEvent)iter.next();
     if (!report.getZones().containsKey(createEvent.getAvailabilityZone())) {
@@ -36,7 +36,6 @@
     instanceEntities.put(createEvent.getUuid(),instance);
   }
   Map<String,ReportingInstanceUsageEvent> lastEvents=new HashMap<String,ReportingInstanceUsageEvent>();
-  Map<String,Long> runningTimes=new HashMap<String,Long>();
   iter=wrapper.scanWithNativeQuery("scanInstanceUsageEvents");
   while (iter.hasNext()) {
     ReportingInstanceUsageEvent usageEvent=(ReportingInstanceUsageEvent)iter.next();
@@ -48,18 +47,26 @@
       continue;
     }
     InstanceUsageArtEntity usage=instance.getUsage();
+    usage.setInstanceCnt(1);
     if (lastEvent != null) {
       long lastMs=lastEvent.getTimestampMs();
-      long timeMs=(runningTimes.containsKey(usageEvent.getUuid())) ? runningTimes.get(usageEvent.getUuid()).longValue() : 0l;
+      long timeMs=usage.getDurationMs();
       timeMs+=Math.min(report.getEndMs(),usageEvent.getTimestampMs()) - Math.max(report.getBeginMs(),lastEvent.getTimestampMs());
-      runningTimes.put(usageEvent.getUuid(),timeMs);
-      usage.setDiskIoMegs(plus(usage.getDiskIoMegs(),subtract(usageEvent.getCumulativeDiskIoMegs(),lastEvent.getCumulativeDiskIoMegs())));
-      usage.setNetIoWithinZoneInMegs(plus(usage.getNetIoWithinZoneInMegs(),subtract(usageEvent.getCumulativeNetIncomingMegsWithinZone(),lastEvent.getCumulativeNetIncomingMegsWithinZone())));
-      usage.setNetIoBetweenZoneInMegs(plus(usage.getNetIoBetweenZoneInMegs(),subtract(usageEvent.getCumulativeNetIncomingMegsBetweenZones(),lastEvent.getCumulativeNetIncomingMegsBetweenZones())));
-      usage.setNetIoPublicIpInMegs(plus(usage.getNetIoPublicIpInMegs(),subtract(usageEvent.getCumulativeNetIncomingMegsPublic(),lastEvent.getCumulativeNetIncomingMegsPublic())));
-      usage.setNetIoWithinZoneOutMegs(plus(usage.getNetIoWithinZoneOutMegs(),subtract(usageEvent.getCumulativeNetOutgoingMegsWithinZone(),lastEvent.getCumulativeNetOutgoingMegsWithinZone())));
-      usage.setNetIoBetweenZoneOutMegs(plus(usage.getNetIoBetweenZoneOutMegs(),subtract(usageEvent.getCumulativeNetOutgoingMegsBetweenZones(),lastEvent.getCumulativeNetOutgoingMegsBetweenZones())));
-      usage.setNetIoPublicIpOutMegs(plus(usage.getNetIoPublicIpOutMegs(),subtract(usageEvent.getCumulativeNetOutgoingMegsPublic(),lastEvent.getCumulativeNetOutgoingMegsPublic())));
+      usage.setDurationMs(usage.getDurationMs() + timeMs);
+      Long rawValue=plus(usage.getDiskIoMegs(),subtract(usageEvent.getCumulativeDiskIoMegs(),lastEvent.getCumulativeDiskIoMegs()));
+      usage.setDiskIoMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),rawValue));
+      rawValue=plus(usage.getNetIoWithinZoneInMegs(),subtract(usageEvent.getCumulativeNetIncomingMegsWithinZone(),lastEvent.getCumulativeNetIncomingMegsWithinZone()));
+      usage.setNetIoWithinZoneInMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),rawValue));
+      rawValue=plus(usage.getNetIoBetweenZoneInMegs(),subtract(usageEvent.getCumulativeNetIncomingMegsBetweenZones(),lastEvent.getCumulativeNetIncomingMegsBetweenZones()));
+      usage.setNetIoBetweenZoneInMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),rawValue));
+      rawValue=plus(usage.getNetIoPublicIpInMegs(),subtract(usageEvent.getCumulativeNetIncomingMegsPublic(),lastEvent.getCumulativeNetIncomingMegsPublic()));
+      usage.setNetIoPublicIpInMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),rawValue));
+      rawValue=plus(usage.getNetIoWithinZoneOutMegs(),subtract(usageEvent.getCumulativeNetOutgoingMegsWithinZone(),lastEvent.getCumulativeNetOutgoingMegsWithinZone()));
+      usage.setNetIoWithinZoneOutMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),rawValue));
+      rawValue=plus(usage.getNetIoBetweenZoneOutMegs(),subtract(usageEvent.getCumulativeNetOutgoingMegsBetweenZones(),lastEvent.getCumulativeNetOutgoingMegsBetweenZones()));
+      usage.setNetIoBetweenZoneOutMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),rawValue));
+      rawValue=plus(usage.getNetIoPublicIpOutMegs(),subtract(usageEvent.getCumulativeNetOutgoingMegsPublic(),lastEvent.getCumulativeNetOutgoingMegsPublic()));
+      usage.setNetIoPublicIpOutMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastMs,usageEvent.getTimestampMs(),rawValue));
       long durationMs=Math.min(report.getEndMs(),usageEvent.getTimestampMs()) - Math.max(report.getBeginMs(),lastMs);
       if (usage.getCpuPercentAvg() == null && usageEvent.getCpuUtilizationPercent() != null) {
         usage.setCpuPercentAvg((double)usageEvent.getCpuUtilizationPercent());
@@ -86,11 +93,10 @@
           UsageTotalsArtEntity userUsage=user.getUsageTotals();
           for (          String instanceUuid : user.getInstances().keySet()) {
             InstanceArtEntity instance=user.getInstances().get(instanceUuid);
-            long timeMs=(runningTimes.containsKey(instanceUuid)) ? runningTimes.get(instanceUuid).longValue() : 0l;
-            updateUsageTotals(userUsage,instance,timeMs);
-            updateUsageTotals(accountUsage,instance,timeMs);
-            updateUsageTotals(clusterUsage,instance,timeMs);
-            updateUsageTotals(zoneUsage,instance,timeMs);
+            updateUsageTotals(userUsage,instance);
+            updateUsageTotals(accountUsage,instance);
+            updateUsageTotals(clusterUsage,instance);
+            updateUsageTotals(zoneUsage,instance);
           }
         }
       }
