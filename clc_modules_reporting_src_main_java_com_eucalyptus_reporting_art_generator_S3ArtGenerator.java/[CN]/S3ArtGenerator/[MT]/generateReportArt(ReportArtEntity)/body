@@ -1,0 +1,93 @@
+{
+  log.debug("GENERATING REPORT ART");
+  EntityWrapper wrapper=EntityWrapper.get(ReportingS3BucketCreateEvent.class);
+  Iterator iter=wrapper.scanWithNativeQuery("scanS3BucketCreateEvents");
+  Map<String,BucketArtEntity> bucketEntities=new HashMap<String,BucketArtEntity>();
+  while (iter.hasNext()) {
+    ReportingS3BucketCreateEvent createEvent=(ReportingS3BucketCreateEvent)iter.next();
+    if (!report.getZones().containsKey(createEvent.getAvailabilityZone())) {
+      report.getZones().put(createEvent.getAvailabilityZone(),new AvailabilityZoneArtEntity());
+    }
+    AvailabilityZoneArtEntity zone=report.getZones().get(createEvent.getAvailabilityZone());
+    ReportingUser reportingUser=ReportingUserDao.getInstance().getReportingUser(createEvent.getUserId());
+    if (reportingUser == null) {
+      log.error("No user corresponding to event:" + createEvent.getUserId());
+    }
+    ReportingAccount reportingAccount=ReportingAccountDao.getInstance().getReportingAccount(reportingUser.getAccountId());
+    if (reportingAccount == null) {
+      log.error("No account corresponding to user:" + reportingUser.getAccountId());
+    }
+    if (!zone.getAccounts().containsKey(reportingAccount.getName())) {
+      zone.getAccounts().put(reportingAccount.getName(),new AccountArtEntity());
+    }
+    AccountArtEntity account=zone.getAccounts().get(reportingAccount.getName());
+    if (!account.getUsers().containsKey(reportingUser.getName())) {
+      account.getUsers().put(reportingUser.getName(),new UserArtEntity());
+    }
+    UserArtEntity user=account.getUsers().get(reportingUser.getName());
+    if (!user.getBuckets().containsKey(createEvent.getS3BucketName())) {
+      user.getBuckets().put(createEvent.getS3BucketName(),new BucketArtEntity());
+    }
+    BucketArtEntity bucket=user.getBuckets().get(createEvent.getS3BucketName());
+    bucketEntities.put(createEvent.getS3BucketName(),bucket);
+  }
+  iter=wrapper.scanWithNativeQuery("scanS3ObjectCreateEvents");
+  Map<String,Map<String,Long>> objectStartTimes=new HashMap<String,Map<String,Long>>();
+  while (iter.hasNext()) {
+    ReportingS3ObjectCreateEvent createEvent=(ReportingS3ObjectCreateEvent)iter.next();
+    if (createEvent.getTimestampMs() < report.getEndMs()) {
+      S3ObjectUsageArtEntity usage=new S3ObjectUsageArtEntity();
+      usage.setSizeGB(createEvent.getSizeGB());
+      usage.setObjectsNum(1);
+      long durationSecs=(report.getEndMs() - createEvent.getTimestampMs()) / 1000;
+      usage.setGBsecs(durationSecs * createEvent.getSizeGB());
+      bucketEntities.get(createEvent.getS3BucketName()).getObjects().put(createEvent.getS3ObjectName(),usage);
+      if (!objectStartTimes.containsKey(createEvent.getS3BucketName())) {
+        objectStartTimes.put(createEvent.getS3BucketName(),new HashMap<String,Long>());
+      }
+      Map<String,Long> innerMap=objectStartTimes.get(createEvent.getS3BucketName());
+      innerMap.put(createEvent.getS3ObjectName(),createEvent.getTimestampMs());
+    }
+  }
+  iter=wrapper.scanWithNativeQuery("scanS3ObjectDeleteEvents");
+  while (iter.hasNext()) {
+    ReportingS3ObjectDeleteEvent deleteEvent=(ReportingS3ObjectDeleteEvent)iter.next();
+    String bukName=deleteEvent.getS3BucketName();
+    String objName=deleteEvent.getS3ObjectName();
+    long endTime=Math.min(deleteEvent.getTimestampMs(),report.getEndMs());
+    if (!objectStartTimes.containsKey(bukName))     continue;
+    Map<String,Long> innerMap=objectStartTimes.get(bukName);
+    if (!innerMap.containsKey(objName))     continue;
+    long durationSecs=(endTime - innerMap.get(objName).longValue()) / 1000;
+    if (!bucketEntities.containsKey(bukName))     continue;
+    BucketArtEntity bucket=bucketEntities.get(bukName);
+    if (deleteEvent.getTimestampMs() < report.getBeginMs()) {
+      bucket.getObjects().remove(deleteEvent.getS3ObjectName());
+    }
+ else {
+      if (!bucket.getObjects().containsKey(objName))       continue;
+      S3ObjectUsageArtEntity usage=bucket.getObjects().get(objName);
+      usage.setGBsecs(usage.getSizeGB() * durationSecs);
+    }
+  }
+  for (  String zoneName : report.getZones().keySet()) {
+    AvailabilityZoneArtEntity zone=report.getZones().get(zoneName);
+    for (    String accountName : zone.getAccounts().keySet()) {
+      AccountArtEntity account=zone.getAccounts().get(accountName);
+      for (      String userName : account.getUsers().keySet()) {
+        UserArtEntity user=account.getUsers().get(userName);
+        for (        String bucketName : user.getBuckets().keySet()) {
+          BucketArtEntity bucket=user.getBuckets().get(bucketName);
+          for (          String objectName : bucket.getObjects().keySet()) {
+            S3ObjectUsageArtEntity usage=bucket.getObjects().get(objectName);
+            updateUsageTotals(bucket.getTotalUsage(),usage);
+            updateUsageTotals(user.getUsageTotals().getS3ObjectTotals(),usage);
+            updateUsageTotals(account.getUsageTotals().getS3ObjectTotals(),usage);
+            updateUsageTotals(zone.getUsageTotals().getS3ObjectTotals(),usage);
+          }
+        }
+      }
+    }
+  }
+  return report;
+}
