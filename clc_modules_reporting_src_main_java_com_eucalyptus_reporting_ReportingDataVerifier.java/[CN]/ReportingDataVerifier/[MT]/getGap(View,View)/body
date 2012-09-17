@@ -1,0 +1,57 @@
+{
+  final Gap gap=new Gap();
+  final Set<Class<?>> types=Sets.newHashSet(Iterables.transform(Iterables.concat(target.typedResourceHolders,current.typedResourceHolders),type()));
+  for (  final Class<?> type : types) {
+    final TypedResourceHolder targetHolder=target.getHolderOrNull(type);
+    final TypedResourceHolder currentHolder=current.getHolderOrNull(type);
+    if (targetHolder == null) {
+      gap.delete.add(currentHolder);
+    }
+ else     if (currentHolder == null) {
+      gap.create.add(targetHolder);
+    }
+ else {
+      final TypedResourceHolder add=new TypedResourceHolder(type);
+      final TypedResourceHolder del=new TypedResourceHolder(type);
+      final TypedResourceHolder att=new TypedResourceHolder(type);
+      final TypedResourceHolder det=new TypedResourceHolder(type);
+      List<ResourceWithRelation<?>> targetCopy=Lists.newArrayList(targetHolder.resources);
+      List<ResourceWithRelation<?>> currentCopy=Lists.newArrayList(currentHolder.resources);
+      if (ObjectInfo.class.equals(type)) {
+        removeMatching(targetCopy,currentHolder.resources);
+        removeMatching(currentCopy,targetHolder.resources);
+      }
+ else {
+        targetCopy.removeAll(currentHolder.resources);
+        currentCopy.removeAll(targetHolder.resources);
+      }
+      final Set<ResourceKey> keys=Sets.newHashSet(Iterables.transform(Iterables.concat(targetCopy,currentCopy),key()));
+      for (      final ResourceKey key : keys) {
+        final List<ResourceWithRelation<?>> findIn;
+        final TypedResourceHolder addTo;
+        if (!Iterables.contains(Iterables.transform(targetCopy,key()),key)) {
+          findIn=currentCopy;
+          addTo=del;
+        }
+ else         if (!Iterables.contains(Iterables.transform(currentCopy,key()),key)) {
+          findIn=targetCopy;
+          addTo=add;
+        }
+ else         if (Iterables.find(targetCopy,withKeyMatching(key)).relationId == null) {
+          findIn=currentCopy;
+          addTo=det;
+        }
+ else {
+          findIn=targetCopy;
+          addTo=att;
+        }
+        addTo.resources.add(Iterables.find(findIn,withKeyMatching(key)));
+      }
+      if (!add.resources.isEmpty())       gap.create.add(add);
+      if (!del.resources.isEmpty())       gap.delete.add(del);
+      if (!att.resources.isEmpty())       gap.attach.add(att);
+      if (!det.resources.isEmpty())       gap.detach.add(det);
+    }
+  }
+  return gap;
+}
