@@ -1,14 +1,21 @@
 {
+  final Map<String,String> userIdToAccountNumberMap=Maps.newHashMap();
   final Map<String,RelationTimestamp> addressRelationMap=Maps.newHashMap();
   foreach(ReportingElasticIpCreateEvent.class,new Callback<ReportingElasticIpCreateEvent>(){
     @Override public void fire(    final ReportingElasticIpCreateEvent input){
-      addressRelationMap.put(input.getUuid(),null);
+      RelationTimestamp rt=addressRelationMap.get(input.getUuid());
+      if (rt == null || rt.timestamp < input.getTimestampMs()) {
+        addressRelationMap.put(input.getUuid(),new RelationTimestamp(null,input.getTimestampMs()));
+      }
     }
   }
 );
   foreach(ReportingElasticIpDeleteEvent.class,new Callback<ReportingElasticIpDeleteEvent>(){
     @Override public void fire(    final ReportingElasticIpDeleteEvent input){
-      addressRelationMap.remove(input.getUuid());
+      RelationTimestamp rt=addressRelationMap.get(input.getUuid());
+      if (rt == null || rt.timestamp < input.getTimestampMs()) {
+        addressRelationMap.remove(input.getUuid());
+      }
     }
   }
 );
@@ -16,7 +23,7 @@
     @Override public void fire(    final ReportingElasticIpAttachEvent input){
       if (addressRelationMap.containsKey(input.getIpUuid())) {
         RelationTimestamp rt=addressRelationMap.get(input.getIpUuid());
-        if (rt == null || rt.timestamp < input.getTimestampMs()) {
+        if (rt == null || rt.relationId == null || rt.timestamp < input.getTimestampMs()) {
           addressRelationMap.put(input.getIpUuid(),new RelationTimestamp(input.getInstanceUuid(),input.getTimestampMs()));
         }
       }
@@ -37,7 +44,7 @@
   final List<S3ObjectKey> s3ObjectList=Lists.newLinkedList();
   foreach(ReportingS3ObjectCreateEvent.class,new Callback<ReportingS3ObjectCreateEvent>(){
     @Override public void fire(    final ReportingS3ObjectCreateEvent input){
-      s3ObjectList.add(new S3ObjectKey(input.getS3BucketName(),input.getS3ObjectName(),input.getSizeGB(),input.getUserId()));
+      s3ObjectList.add(new S3ObjectKey(input.getS3BucketName(),input.getS3ObjectName(),input.getSizeGB(),getAccountNumberForUserId(userIdToAccountNumberMap,input.getUserId())));
     }
   }
 );
