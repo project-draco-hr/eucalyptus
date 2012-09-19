@@ -1,0 +1,38 @@
+{
+  final Map<String,User> accountNumberToAccountAdminMap=Maps.newHashMap();
+  for (  TypedResourceHolder holder : holders) {
+    for (    ResourceWithRelation resource : holder.resources) {
+      if (Address.class.equals(holder.type)) {
+        final ReportingElasticIpEventStore store=ReportingElasticIpEventStore.getInstance();
+        final Address address=findAddress(resource.resourceKey.toString());
+        if (address != null && ensureUserAndAccount(verifiedUserIds,address.getUserId())) {
+          store.insertCreateEvent(address.getNaturalId(),address.getCreationTimestamp().getTime(),address.getUserId(),address.getDisplayName());
+        }
+      }
+ else       if (ObjectInfo.class.equals(holder.type)) {
+        final ReportingS3ObjectEventStore store=ReportingS3ObjectEventStore.getInstance();
+        final S3ObjectKey key=(S3ObjectKey)resource.resourceKey;
+        final ObjectInfo objectInfo=findObjectInfo(key);
+        final User user=objectInfo == null ? null : getAccountAdmin(accountNumberToAccountAdminMap,objectInfo.getOwnerId());
+        if (objectInfo != null && user != null && ensureUserAndAccount(verifiedUserIds,user.getUserId())) {
+          store.insertS3ObjectCreateEvent(objectInfo.getBucketName(),objectInfo.getObjectKey(),objectInfo.getVersionId(),objectInfo.getSize(),objectInfo.getCreationTimestamp().getTime(),user.getUserId());
+        }
+      }
+ else       if (Snapshot.class.equals(holder.type)) {
+        final ReportingVolumeSnapshotEventStore store=ReportingVolumeSnapshotEventStore.getInstance();
+        final Snapshot snapshot=findSnapshot(resource.resourceKey.toString());
+        final Volume volume=snapshot == null ? null : findVolumeById(snapshot.getParentVolume());
+        if (snapshot != null && volume != null && ensureUserAndAccount(verifiedUserIds,snapshot.getOwnerUserId())) {
+          store.insertCreateEvent(snapshot.getNaturalId(),volume.getNaturalId(),snapshot.getDisplayName(),snapshot.getCreationTimestamp().getTime(),snapshot.getOwnerUserId(),snapshot.getVolumeSize());
+        }
+      }
+ else       if (Volume.class.equals(holder.type)) {
+        final ReportingVolumeEventStore store=ReportingVolumeEventStore.getInstance();
+        final Volume volume=findVolume(resource.resourceKey.toString());
+        if (volume != null && ensureUserAndAccount(verifiedUserIds,volume.getOwnerUserId())) {
+          store.insertCreateEvent(volume.getNaturalId(),volume.getDisplayName(),volume.getCreationTimestamp().getTime(),volume.getOwnerUserId(),volume.getPartition(),volume.getSize());
+        }
+      }
+    }
+  }
+}

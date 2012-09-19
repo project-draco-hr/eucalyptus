@@ -25,19 +25,26 @@
       }
     }
     SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
+    SnapshotInfo snapshotInfo=null;
     EntityWrapper<SnapshotInfo> db=StorageProperties.getEntityWrapper();
     try {
-      SnapshotInfo snapshotInfo=db.getUnique(snapInfo);
+      snapshotInfo=db.getUnique(snapInfo);
       snapshotInfo.setStatus(StorageProperties.Status.available.toString());
       snapshotInfo.setProgress("100");
-      blockManager.getSnapshotSize(snapshotInfo.getSnapshotId());
-      fireUsageEvent(snapshotInfo.getNaturalId(),snapshotInfo.getSnapshotId(),snapshotInfo.getUserName(),SnapShotEvent.forSnapShotCreate(Long.valueOf(blockManager.getSnapshotSize(snapshotInfo.getSnapshotId()))));
     }
  catch (    EucalyptusCloudException e) {
       LOG.error(e);
     }
  finally {
       db.commit();
+    }
+    if (snapshotInfo != null)     try {
+      final long snapshotSize=blockManager.getSnapshotSize(snapshotInfo.getSnapshotId());
+      final String volumeUuid=Transactions.find(Volume.named(null,volumeId)).getNaturalId();
+      ListenerRegistry.getInstance().fireEvent(SnapShotEvent.with(SnapShotEvent.forSnapShotCreate(snapshotSize,volumeUuid,volumeId),snapshotInfo.getNaturalId(),snapshotInfo.getSnapshotId(),snapshotInfo.getUserName()));
+    }
+ catch (    final Exception e) {
+      LOG.error(e,e);
     }
   }
  catch (  Exception ex) {
