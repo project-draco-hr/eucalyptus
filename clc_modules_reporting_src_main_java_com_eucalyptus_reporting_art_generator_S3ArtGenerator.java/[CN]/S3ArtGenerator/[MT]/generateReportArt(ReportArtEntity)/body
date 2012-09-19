@@ -1,10 +1,12 @@
 {
   log.debug("GENERATING REPORT ART");
-  EntityWrapper wrapper=EntityWrapper.get(ReportingS3BucketCreateEvent.class);
-  Iterator iter=wrapper.scanWithNativeQuery("scanS3BucketCreateEvents");
-  Map<String,BucketArtEntity> bucketEntities=new HashMap<String,BucketArtEntity>();
+  EntityWrapper wrapper=EntityWrapper.get(ReportingS3ObjectCreateEvent.class);
+  Iterator iter=wrapper.scanWithNativeQuery("scanS3ObjectCreateEvents");
+  Map<String,BucketUsageArtEntity> bucketUsageEntities=new HashMap<String,BucketUsageArtEntity>();
+  Map<S3ObjectKey,S3ObjectData> objectData=new HashMap<S3ObjectKey,S3ObjectData>();
+  DurationCalculator<S3ObjectKey> objectDurationCalculator=new DurationCalculator<S3ObjectKey>();
   while (iter.hasNext()) {
-    ReportingS3BucketCreateEvent createEvent=(ReportingS3BucketCreateEvent)iter.next();
+    ReportingS3ObjectCreateEvent createEvent=(ReportingS3ObjectCreateEvent)iter.next();
     ReportingUser reportingUser=ReportingUserDao.getInstance().getReportingUser(createEvent.getUserId());
     if (reportingUser == null) {
       log.error("No user corresponding to event:" + createEvent.getUserId());
@@ -21,53 +23,37 @@
       account.getUsers().put(reportingUser.getName(),new UserArtEntity());
     }
     UserArtEntity user=account.getUsers().get(reportingUser.getName());
-    if (!user.getBuckets().containsKey(createEvent.getS3BucketName())) {
-      user.getBuckets().put(createEvent.getS3BucketName(),new BucketArtEntity());
+    if (!user.getBucketUsage().containsKey(createEvent.getS3BucketName())) {
+      user.getBucketUsage().put(createEvent.getS3BucketName(),new BucketUsageArtEntity());
     }
-    BucketArtEntity bucket=user.getBuckets().get(createEvent.getS3BucketName());
-    bucketEntities.put(createEvent.getS3BucketName(),bucket);
-  }
-  iter=wrapper.scanWithNativeQuery("scanS3ObjectCreateEvents");
-  Map<String,Map<String,Long>> objectStartTimes=new HashMap<String,Map<String,Long>>();
-  while (iter.hasNext()) {
-    ReportingS3ObjectCreateEvent createEvent=(ReportingS3ObjectCreateEvent)iter.next();
-    if (createEvent.getTimestampMs() < report.getEndMs()) {
-      S3ObjectUsageArtEntity usage=new S3ObjectUsageArtEntity();
-      usage.setSizeGB(createEvent.getSizeGB());
-      usage.setObjectsNum(1);
-      long durationSecs=(report.getEndMs() - createEvent.getTimestampMs()) / 1000;
-      usage.setGBsecs(durationSecs * createEvent.getSizeGB());
-      if (!bucketEntities.containsKey(createEvent.getS3BucketName())) {
-        log.error("S3 object without corresponding bucket:" + createEvent.getS3BucketName());
-        continue;
-      }
-      bucketEntities.get(createEvent.getS3BucketName()).getObjects().put(createEvent.getS3ObjectName(),usage);
-      if (!objectStartTimes.containsKey(createEvent.getS3BucketName())) {
-        objectStartTimes.put(createEvent.getS3BucketName(),new HashMap<String,Long>());
-      }
-      Map<String,Long> innerMap=objectStartTimes.get(createEvent.getS3BucketName());
-      innerMap.put(createEvent.getS3ObjectName(),createEvent.getTimestampMs());
-    }
+    BucketUsageArtEntity bucketUsage=user.getBucketUsage().get(createEvent.getS3BucketName());
+    bucketUsageEntities.put(createEvent.getS3BucketName(),bucketUsage);
+    S3ObjectKey objectKey=new S3ObjectKey(createEvent.getS3BucketName(),createEvent.getS3ObjectKey(),createEvent.getObjectVersion());
+    objectDurationCalculator.addStart(objectKey,createEvent.getTimestampMs());
+    objectData.put(objectKey,new S3ObjectData((createEvent.getSizeGB() - report.getEndMs()),createEvent.getSizeGB()));
   }
   iter=wrapper.scanWithNativeQuery("scanS3ObjectDeleteEvents");
   while (iter.hasNext()) {
     ReportingS3ObjectDeleteEvent deleteEvent=(ReportingS3ObjectDeleteEvent)iter.next();
-    String bukName=deleteEvent.getS3BucketName();
-    String objName=deleteEvent.getS3ObjectName();
-    long endTime=Math.min(deleteEvent.getTimestampMs(),report.getEndMs());
-    if (!objectStartTimes.containsKey(bukName))     continue;
-    Map<String,Long> innerMap=objectStartTimes.get(bukName);
-    if (!innerMap.containsKey(objName))     continue;
-    long durationSecs=(endTime - innerMap.get(objName).longValue()) / 1000;
-    if (!bucketEntities.containsKey(bukName))     continue;
-    BucketArtEntity bucket=bucketEntities.get(bukName);
-    if (deleteEvent.getTimestampMs() < report.getBeginMs()) {
-      bucket.getObjects().remove(deleteEvent.getS3ObjectName());
+    if (deleteEvent.getTimestampMs() < report.getEndMs()) {
+      S3ObjectKey key=new S3ObjectKey(deleteEvent.getS3BucketName(),deleteEvent.getS3ObjectKey(),deleteEvent.getObjectVersion());
+      long objDurationMs=objectDurationCalculator.getDuration(key,deleteEvent.getTimestampMs());
+      if (objectData.containsKey(key)) {
+        objectData.get(key).incrementDurationMs(objDurationMs);
+      }
+    }
+  }
+  for (  S3ObjectKey objKey : objectData.keySet()) {
+    S3ObjectData data=objectData.get(objKey);
+    if (bucketUsageEntities.containsKey(objKey.getBucketName())) {
+      BucketUsageArtEntity usage=bucketUsageEntities.get(objKey.getBucketName());
+      usage.setObjectsNum(usage.getObjectsNum() + 1);
+      long gBSecs=(data.getDurationMs() / 1000) * data.getSizeGB();
+      usage.setGBSecs(gBSecs);
+      usage.setSizeGB(usage.getSizeGB() + data.getSizeGB());
     }
  else {
-      if (!bucket.getObjects().containsKey(objName))       continue;
-      S3ObjectUsageArtEntity usage=bucket.getObjects().get(objName);
-      usage.setGBsecs(usage.getSizeGB() * durationSecs);
+      log.error("Object without corresponding bucket:" + objKey.getBucketName());
     }
   }
   for (  String zoneName : report.getZones().keySet()) {
@@ -76,15 +62,11 @@
       AccountArtEntity account=zone.getAccounts().get(accountName);
       for (      String userName : account.getUsers().keySet()) {
         UserArtEntity user=account.getUsers().get(userName);
-        for (        String bucketName : user.getBuckets().keySet()) {
-          BucketArtEntity bucket=user.getBuckets().get(bucketName);
-          for (          String objectName : bucket.getObjects().keySet()) {
-            S3ObjectUsageArtEntity usage=bucket.getObjects().get(objectName);
-            updateUsageTotals(bucket.getTotalUsage(),usage);
-            updateUsageTotals(user.getUsageTotals().getS3ObjectTotals(),usage);
-            updateUsageTotals(account.getUsageTotals().getS3ObjectTotals(),usage);
-            updateUsageTotals(zone.getUsageTotals().getS3ObjectTotals(),usage);
-          }
+        for (        String bucketName : user.getBucketUsage().keySet()) {
+          BucketUsageArtEntity usage=user.getBucketUsage().get(bucketName);
+          updateUsageTotals(user.getUsageTotals().getBucketTotals(),usage);
+          updateUsageTotals(account.getUsageTotals().getBucketTotals(),usage);
+          updateUsageTotals(zone.getUsageTotals().getBucketTotals(),usage);
         }
       }
     }
