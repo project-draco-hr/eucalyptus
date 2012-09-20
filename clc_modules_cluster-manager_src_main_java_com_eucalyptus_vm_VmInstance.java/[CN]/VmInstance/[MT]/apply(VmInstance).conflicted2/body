@@ -1,3 +1,26 @@
 {
-  return this.equals(arg0.getState());
+  final EntityTransaction db=Entities.get(VmInstance.class);
+  try {
+    final VmInstance vm=Entities.uniqueResult(VmInstance.named(null,v.getInstanceId()));
+    if (VmStateSet.RUN.apply(vm)) {
+      vm.setState(VmState.STOPPING,Reason.USER_STOPPED);
+    }
+ else     if (VmState.STOPPING.equals(vm.getState())) {
+      vm.setState(VmState.STOPPED,Reason.USER_STOPPED);
+      PrivateNetworkIndex vmIdx=vm.getNetworkIndex();
+      if (vmIdx != null) {
+        vmIdx.release();
+        vmIdx.teardown();
+        vmIdx=null;
+      }
+      vm.setNetworkIndex(null);
+    }
+    db.commit();
+    return vm;
+  }
+ catch (  final Exception ex) {
+    Logs.extreme().debug(ex,ex);
+    db.rollback();
+    throw new NoSuchElementException("Failed to lookup instance: " + v);
+  }
 }
