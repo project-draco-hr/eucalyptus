@@ -34,16 +34,15 @@
   Map<String,Long> snapshotStartTimes=new HashMap<String,Long>();
   while (iter.hasNext()) {
     ReportingVolumeSnapshotCreateEvent createEvent=(ReportingVolumeSnapshotCreateEvent)iter.next();
+    if (createEvent.getTimestampMs() > report.getEndMs())     continue;
     VolumeSnapshotUsageArtEntity usage=new VolumeSnapshotUsageArtEntity();
     usage.setSizeGB(createEvent.getSizeGB());
     usage.setSnapshotNum(1);
-    usage.setGBSecs(createEvent.getSizeGB() * (report.getEndMs() - createEvent.getTimestampMs()));
-    if (createEvent.getTimestampMs() <= report.getEndMs()) {
-      VolumeArtEntity volume=volumeEntities.get(createEvent.getVolumeUuid());
-      volume.getSnapshotUsage().put(createEvent.getVolumeSnapshotId(),usage);
-      snapshotEntities.put(createEvent.getUuid(),usage);
-      snapshotStartTimes.put(createEvent.getUuid(),createEvent.getTimestampMs());
-    }
+    usage.setGBSecs(createEvent.getSizeGB() * (DurationCalculator.boundDuration(report.getBeginMs(),report.getEndMs(),createEvent.getTimestampMs()) / 1000));
+    VolumeArtEntity volume=volumeEntities.get(createEvent.getVolumeUuid());
+    volume.getSnapshotUsage().put(createEvent.getVolumeSnapshotId(),usage);
+    snapshotEntities.put(createEvent.getUuid(),usage);
+    snapshotStartTimes.put(createEvent.getUuid(),createEvent.getTimestampMs());
   }
   iter=wrapper.scanWithNativeQuery("scanVolumeSnapshotDeleteEvents");
   while (iter.hasNext()) {
@@ -51,7 +50,8 @@
     if (snapshotEntities.containsKey(deleteEvent.getUuid())) {
       VolumeSnapshotUsageArtEntity snap=snapshotEntities.get(deleteEvent.getUuid());
       long startTimeMs=snapshotStartTimes.get(deleteEvent.getUuid()).longValue();
-      snap.setSizeGB(snap.getSizeGB() * (deleteEvent.getTimestampMs() - startTimeMs));
+      long duration=DurationCalculator.boundDuration(report.getBeginMs(),report.getEndMs(),startTimeMs,deleteEvent.getTimestampMs()) / 1000;
+      snap.setGBSecs(snap.getSizeGB() * duration);
     }
   }
   for (  String zoneName : report.getZones().keySet()) {

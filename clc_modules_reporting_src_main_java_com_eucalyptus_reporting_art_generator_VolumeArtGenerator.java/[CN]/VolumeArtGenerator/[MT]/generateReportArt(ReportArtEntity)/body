@@ -28,7 +28,7 @@
     UserArtEntity user=account.getUsers().get(reportingUser.getName());
     VolumeArtEntity volume=new VolumeArtEntity(createEvent.getVolumeId());
     volume.getUsage().setSizeGB(createEvent.getSizeGB());
-    long startTime=Math.max(report.getBeginMs(),createEvent.getTimestampMs());
+    long startTime=createEvent.getTimestampMs();
     if (startTime <= report.getEndMs()) {
       user.getVolumes().put(createEvent.getUuid(),volume);
       volStartEndTimes.put(createEvent.getUuid(),new StartEndTimes(startTime,report.getEndMs()));
@@ -39,10 +39,12 @@
   iter=wrapper.scanWithNativeQuery("scanVolumeDeleteEvents");
   while (iter.hasNext()) {
     ReportingVolumeDeleteEvent deleteEvent=(ReportingVolumeDeleteEvent)iter.next();
-    long endTime=Math.min(deleteEvent.getTimestampMs(),report.getEndMs());
+    long endTime=deleteEvent.getTimestampMs();
     if (endTime >= report.getBeginMs() && volStartEndTimes.containsKey(deleteEvent.getUuid())) {
       StartEndTimes startEndTimes=volStartEndTimes.get(deleteEvent.getUuid());
-      startEndTimes.setEndTimeMs(endTime);
+      startEndTimes.setEndTime(endTime);
+    }
+ else {
       volumeEntities.remove(deleteEvent.getUuid());
       volStartEndTimes.remove(deleteEvent.getUuid());
     }
@@ -54,7 +56,8 @@
       log.error("volume without corresponding start end times:" + uuid);
       continue;
     }
-    volume.getUsage().setGBSecs(startEndTimes.getDurationMs() * volume.getUsage().getSizeGB());
+    long duration=DurationCalculator.boundDuration(report.getBeginMs(),report.getEndMs(),startEndTimes.getStartTime(),startEndTimes.getEndTime()) / 1000;
+    volume.getUsage().setGBSecs(duration * volume.getUsage().getSizeGB());
   }
   Map<String,InstanceArtEntity> instanceEntities=new HashMap<String,InstanceArtEntity>();
   iter=wrapper.scanWithNativeQuery("scanInstanceCreateEvents");
@@ -72,11 +75,11 @@
   iter=wrapper.scanWithNativeQuery("scanVolumeDetachEvents");
   while (iter.hasNext()) {
     ReportingVolumeDetachEvent detachEvent=(ReportingVolumeDetachEvent)iter.next();
-    long duration=durationCalc.detach(detachEvent.getInstanceUuid(),detachEvent.getVolumeUuid(),detachEvent.getTimestampMs());
-    if (duration == 0)     continue;
+    long durationMs=durationCalc.detach(detachEvent.getInstanceUuid(),detachEvent.getVolumeUuid(),detachEvent.getTimestampMs());
+    if (durationMs == 0)     continue;
     if (!volumeEntities.containsKey(detachEvent.getVolumeUuid()))     continue;
     VolumeArtEntity volume=volumeEntities.get(detachEvent.getVolumeUuid());
-    long gbsecs=duration * volume.getUsage().getSizeGB();
+    long gbsecs=((durationMs / 1000) * volume.getUsage().getSizeGB());
     if (volume.getInstanceAttachments().containsKey(detachEvent.getInstanceUuid())) {
       gbsecs+=volume.getInstanceAttachments().get(detachEvent.getInstanceUuid()).getGBSecs();
     }
@@ -84,7 +87,13 @@
     usage.setGBSecs(gbsecs);
     usage.setSizeGB(volume.getUsage().getSizeGB());
     usage.setVolumeCnt(1);
-    volume.getInstanceAttachments().put(detachEvent.getInstanceUuid(),usage);
+    if (instanceEntities.keySet().contains(detachEvent.getInstanceUuid())) {
+      String instanceId=instanceEntities.get(detachEvent.getInstanceUuid()).getInstanceId();
+      volume.getInstanceAttachments().put(instanceId,usage);
+    }
+ else {
+      log.error("instance uuid in detach events without corresponding instance:" + detachEvent.getInstanceUuid());
+    }
   }
   for (  String zoneName : report.getZones().keySet()) {
     AvailabilityZoneArtEntity zone=report.getZones().get(zoneName);

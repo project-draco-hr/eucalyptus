@@ -29,13 +29,22 @@
       user.getInstances().put(createEvent.getUuid(),new InstanceArtEntity(createEvent.getInstanceType(),createEvent.getInstanceId()));
     }
     InstanceArtEntity instance=user.getInstances().get(createEvent.getUuid());
+    instance.getUsage().addInstanceCnt(1);
     usageEntities.put(createEvent.getUuid(),instance.getUsage());
   }
   Map<UsageEventKey,ReportingInstanceUsageEvent> lastEvents=new HashMap<UsageEventKey,ReportingInstanceUsageEvent>();
-  Map<String,StartEndTime> startEndTimes=new HashMap<String,StartEndTime>();
+  Map<String,StartEndTimes> startEndTimes=new HashMap<String,StartEndTimes>();
   iter=wrapper.scanWithNativeQuery("scanInstanceUsageEvents");
   while (iter.hasNext()) {
     ReportingInstanceUsageEvent usageEvent=(ReportingInstanceUsageEvent)iter.next();
+    if (!startEndTimes.containsKey(usageEvent.getUuid())) {
+      startEndTimes.put(usageEvent.getUuid(),new StartEndTimes(usageEvent.getTimestampMs(),usageEvent.getTimestampMs()));
+    }
+ else {
+      StartEndTimes seTime=startEndTimes.get(usageEvent.getUuid());
+      seTime.setStartTime(Math.min(seTime.getStartTime(),usageEvent.getTimestampMs()));
+      seTime.setEndTime(Math.max(seTime.getEndTime(),usageEvent.getTimestampMs()));
+    }
     UsageEventKey key=new UsageEventKey(usageEvent.getUuid(),usageEvent.getMetric(),usageEvent.getDimension());
     if (!lastEvents.containsKey(key)) {
       lastEvents.put(key,usageEvent);
@@ -52,14 +61,6 @@
     if (usageEvent.getValue() == null || lastEvent.getValue() == null) {
       log.debug("Null metric values shouldn't occur");
       continue;
-    }
-    if (!startEndTimes.containsKey(usageEvent.getUuid())) {
-      startEndTimes.put(usageEvent.getUuid(),new StartEndTime(Math.max(report.getBeginMs(),lastEvent.getTimestampMs()),Math.min(report.getEndMs(),usageEvent.getTimestampMs())));
-    }
- else {
-      StartEndTime seTime=startEndTimes.get(usageEvent.getUuid());
-      seTime.setStartTimeMs(Math.max(report.getBeginMs(),Math.min(seTime.getStartTimeMs(),lastEvent.getTimestampMs())));
-      seTime.setEndTimeMs(Math.min(report.getEndMs(),Math.max(seTime.getEndTimeMs(),usageEvent.getTimestampMs())));
     }
     Double value=null;
     if (usageEvent.getValue() != null && lastEvent.getValue() != null) {
@@ -96,9 +97,9 @@
     lastEvents.put(key,usageEvent);
   }
   for (  String uuid : startEndTimes.keySet()) {
-    StartEndTime seTime=startEndTimes.get(uuid);
+    StartEndTimes seTime=startEndTimes.get(uuid);
     if (usageEntities.containsKey(uuid)) {
-      long durationMs=seTime.getEndTimeMs() - seTime.getStartTimeMs();
+      long durationMs=DurationCalculator.boundDuration(report.getBeginMs(),report.getEndMs(),seTime.getStartTime(),seTime.getEndTime());
       usageEntities.get(uuid).setDurationMs(durationMs);
     }
  else {
