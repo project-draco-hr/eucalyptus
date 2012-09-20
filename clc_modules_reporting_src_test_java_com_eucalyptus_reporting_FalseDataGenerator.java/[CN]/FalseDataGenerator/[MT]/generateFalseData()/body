@@ -40,6 +40,8 @@
               FalseInstanceType type=FalseInstanceType.values()[typeNum];
               instanceUuid=String.format(UUID_FORMAT,uniqueUserId,instanceUuidNum++);
               log.debug(String.format("  Generating instance uuid %s\n",instanceUuid));
+              ReportingInstanceEventStore.getInstance().insertCreateEvent(instanceUuid,timeMs,("i-" + userNum + "-"+ periodNum),type.toString(),userId,userName,accountName,accountId,availZone);
+              createdInstanceNum++;
               volumeUuid=String.format(UUID_FORMAT,uniqueUserId,volumeUuidNum++);
               log.debug(String.format("  Generating volume uuid %s\n",volumeUuid));
               ReportingVolumeEventStore.getInstance().insertCreateEvent(volumeUuid,("vol-" + userNum + "-"+ periodNum),timeMs,userId,availZone,VOLUME_SIZE);
@@ -53,14 +55,39 @@
               log.debug(String.format("  Generating snapshot uuid %s\n",uuid));
               ReportingVolumeSnapshotEventStore.getInstance().insertCreateEvent(uuid,volumeUuid,("snap-" + userNum + "-"+ periodNum),timeMs,userId,SNAPSHOT_SIZE);
             }
+            if (periodNum % NUM_PERIODS_PER_BUCKET == 0) {
+              bucketUuid=String.format(UUID_FORMAT,uniqueUserId,bucketUuidNum++);
+            }
+            if (periodNum % NUM_PERIODS_PER_OBJECT == 0) {
+              String uuid=String.format(UUID_FORMAT,uniqueUserId,objectUuidNum++);
+              log.debug(String.format("  Generating object uuid %s\n",uuid));
+              ReportingS3ObjectEventStore.getInstance().insertS3ObjectCreateEvent(bucketUuid,uuid,"0",OBJECT_SIZE,timeMs,userId);
+            }
+            double oneMB=1024d * 11024d;
             for (long i=INSTANCE_UUID_START; i < instanceUuidNum - 2; i++) {
               String uuid=String.format(UUID_FORMAT,uniqueUserId,i);
               log.debug(String.format("  Generating instance usage uuid %s\n",uuid));
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","NetworkIn",0,"total",oneMB * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","NetworkIn",0,"internal",oneMB * 2 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","NetworkOut",0,"total",oneMB * 3 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","NetworkOut",0,"internal",oneMB * 4 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","DiskReadBytes",0,"root",oneMB * 5 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","DiskWriteBytes",0,"root",oneMB * 6 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","DiskReadBytes",0,"ephemeral0",oneMB * 7 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","DiskWriteBytes",0,"ephemeral0",oneMB * 8 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","CPUUtilizationMs",0,"default",(double)(PERIOD_DURATION / 2),timeMs);
             }
             for (long i=VOLUME_UUID_START; i < volumeUuidNum - 2; i++) {
               String uuid=String.format(UUID_FORMAT,uniqueUserId,i);
               log.debug(String.format("  Generating volume usage uuid %s\n",uuid));
               ReportingVolumeEventStore.getInstance().insertUsageEvent(uuid,timeMs,VOLUME_CUMULATIVE_READ_PER_PERIOD,VOLUME_CUMULATIVE_WRITTEN_PER_PERIOD);
+            }
+            for (long i=OBJECT_UUID_START; i < objectUuidNum - 2; i++) {
+              String uuid=String.format(UUID_FORMAT,uniqueUserId,i);
+              long bucketNum=i / (NUM_PERIODS_PER_BUCKET / NUM_PERIODS_PER_OBJECT);
+              bucketUuid=String.format(UUID_FORMAT,uniqueUserId,bucketNum);
+              log.debug(String.format("  Generating object usage, bucket uuid %s, object uuid %s\n",bucketUuid,uuid));
+              ReportingS3ObjectEventStore.getInstance().insertS3ObjectUsageEvent(bucketUuid,uuid,"0",OBJECT_SIZE,timeMs,userId);
             }
             ReportingVolumeEventStore.getInstance().insertAttachEvent(volumeUuid,instanceUuid,VOLUME_SIZE,timeMs);
             ReportingElasticIpEventStore.getInstance().insertAttachEvent(elasticIpUuid,instanceUuid,timeMs);
