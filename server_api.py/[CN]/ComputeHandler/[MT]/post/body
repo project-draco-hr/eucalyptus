@@ -9,7 +9,17 @@ def post(self):
         self.user_session.clc = CachingClcInterface(self.user_session.clc, server.config)
     try:
         action = self.get_argument('Action')
-        if (action == 'GetPassword'):
+        if (action == 'RunInstances'):
+            user_data_file = []
+            try:
+                user_data_file = self.request.files['user_data_file']
+            except KeyError:
+                pass
+            if (len(user_data_file) > 0):
+                ret = self.handleRunInstances(action, self.user_session.clc, user_data_file[0].body)
+            else:
+                ret = self.handleRunInstances(action, self.user_session.clc, None)
+        elif (action == 'GetPassword'):
             instanceid = self.get_argument('InstanceId')
             passwd_data = self.user_session.clc.get_password_data(instanceid)
             priv_key_file = self.request.files['priv_key']
@@ -17,8 +27,8 @@ def post(self):
             string_to_decrypt = base64.b64decode(passwd_data)
             ret = user_priv_key.private_decrypt(string_to_decrypt, RSA.pkcs1_padding)
             ret = Response({'instance': instanceid, 'password': ret, })
-            data = json.dumps(ret, cls=BotoJsonEncoder, indent=2)
-            self.write(data)
+        data = json.dumps(ret, cls=BotoJsonEncoder, indent=2)
+        self.write(data)
     except EC2ResponseError as err:
         ret = ClcError(err.status, err.reason, err.errors[0])
         self.set_status(err.status)
