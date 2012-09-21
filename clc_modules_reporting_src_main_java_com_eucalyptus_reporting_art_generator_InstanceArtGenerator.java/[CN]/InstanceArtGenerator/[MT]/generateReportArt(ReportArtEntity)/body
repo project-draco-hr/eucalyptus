@@ -1,21 +1,22 @@
 {
   log.debug("GENERATING REPORT ART");
-  EntityWrapper wrapper=EntityWrapper.get(ReportingInstanceCreateEvent.class);
   Map<String,InstanceUsageArtEntity> usageEntities=new HashMap<String,InstanceUsageArtEntity>();
-  Iterator iter=wrapper.scanWithNativeQuery("scanInstanceCreateEvents");
-  while (iter.hasNext()) {
-    ReportingInstanceCreateEvent createEvent=(ReportingInstanceCreateEvent)iter.next();
+  Iterator<ReportingInstanceCreateEvent> createEventIterator=getInstanceCreateEventIterator();
+  while (createEventIterator.hasNext()) {
+    ReportingInstanceCreateEvent createEvent=createEventIterator.next();
     if (!report.getZones().containsKey(createEvent.getAvailabilityZone())) {
       report.getZones().put(createEvent.getAvailabilityZone(),new AvailabilityZoneArtEntity());
     }
     AvailabilityZoneArtEntity zone=report.getZones().get(createEvent.getAvailabilityZone());
-    ReportingUser reportingUser=ReportingUserDao.getInstance().getReportingUser(createEvent.getUserId());
+    ReportingUser reportingUser=getUserById(createEvent.getUserId());
     if (reportingUser == null) {
       log.error("No user corresponding to event:" + createEvent.getUserId());
+      continue;
     }
-    ReportingAccount reportingAccount=ReportingAccountDao.getInstance().getReportingAccount(reportingUser.getAccountId());
+    ReportingAccount reportingAccount=getAccountById(reportingUser.getAccountId());
     if (reportingAccount == null) {
       log.error("No account corresponding to user:" + reportingUser.getAccountId());
+      continue;
     }
     if (!zone.getAccounts().containsKey(reportingAccount.getName())) {
       zone.getAccounts().put(reportingAccount.getName(),new AccountArtEntity());
@@ -34,9 +35,9 @@
   }
   Map<UsageEventKey,ReportingInstanceUsageEvent> lastEvents=new HashMap<UsageEventKey,ReportingInstanceUsageEvent>();
   Map<String,StartEndTimes> startEndTimes=new HashMap<String,StartEndTimes>();
-  iter=wrapper.scanWithNativeQuery("scanInstanceUsageEvents");
-  while (iter.hasNext()) {
-    ReportingInstanceUsageEvent usageEvent=(ReportingInstanceUsageEvent)iter.next();
+  final Iterator<ReportingInstanceUsageEvent> usageEventIterator=getInstanceUsageEventIterator();
+  while (usageEventIterator.hasNext()) {
+    final ReportingInstanceUsageEvent usageEvent=usageEventIterator.next();
     if (!startEndTimes.containsKey(usageEvent.getUuid())) {
       startEndTimes.put(usageEvent.getUuid(),new StartEndTimes(usageEvent.getTimestampMs(),usageEvent.getTimestampMs()));
     }
