@@ -1,31 +1,28 @@
 {
   try {
-    List<VmInstance> vmIntList=VmInstances.list();
-    List<String> uuidList=new ArrayList<String>();
-    for (    VmInstance vmInt : vmIntList) {
-      if (vmInt.getState().equals(VmState.RUNNING)) {
-        uuidList.add(vmInt.getInstanceUuid());
-      }
-    }
-    String resourceName, resourceUuid, metricName, dimensionName="";
-    int sequenceNum=-1;
-    long valueDatestamp=-1;
-    Double value=null;
-    for (    SensorsResourceType sensorData : msg.getSensorsResources()) {
-      resourceName=sensorData.getResourceName();
-      resourceUuid=sensorData.getResourceUuid();
-      if (uuidList.contains(resourceUuid)) {
-        for (        MetricsResourceType metricType : sensorData.getMetrics()) {
-          metricName=metricType.getMetricName();
-          for (          MetricCounterType counterType : metricType.getCounters()) {
-            sequenceNum=Integer.parseInt(counterType.getSequenceNum().toString());
-            for (            MetricDimensionsType dimensionType : counterType.getDimensions()) {
-              dimensionName=dimensionType.getDimensionName();
-              for (              MetricDimensionsValuesType valueType : dimensionType.getValues()) {
+    final Iterable<String> uuidList=Iterables.transform(VmInstances.list(VmState.RUNNING),VmInstances.toInstanceUuid());
+    for (    final SensorsResourceType sensorData : msg.getSensorsResources()) {
+      if (!RESOURCE_TYPE_INSTANCE.equals(sensorData.getResourceType()) || !Iterables.contains(uuidList,sensorData.getResourceUuid()))       continue;
+      for (      final MetricsResourceType metricType : sensorData.getMetrics()) {
+        for (        final MetricCounterType counterType : metricType.getCounters()) {
+          for (          final MetricDimensionsType dimensionType : counterType.getDimensions()) {
+            Double value=null;
+            long valueTimestamp=0;
+            for (            final MetricDimensionsValuesType valueType : dimensionType.getValues()) {
+              if (valueType.getTimestamp() != null && (valueTimestamp == 0 || valueTimestamp < valueType.getTimestamp().getTime())) {
+                valueTimestamp=valueType.getTimestamp().getTime();
                 value=valueType.getValue();
-                valueDatestamp=valueType.getTimestamp().getTime();
-                fireUsageEvent(new com.eucalyptus.reporting.event.InstanceUsageEvent(resourceUuid,System.currentTimeMillis(),resourceName,metricName,sequenceNum,dimensionName,value,valueDatestamp));
               }
+            }
+            if (value != null) {
+              final Double usageValue=value;
+              final Long usageTimestamp=valueTimestamp;
+              fireUsageEvent(new Supplier<InstanceUsageEvent>(){
+                @Override public InstanceUsageEvent get(){
+                  return new InstanceUsageEvent(sensorData.getResourceUuid(),sensorData.getResourceName(),metricType.getMetricName(),counterType.getSequenceNum(),dimensionType.getDimensionName(),usageValue,usageTimestamp);
+                }
+              }
+);
             }
           }
         }
