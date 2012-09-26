@@ -1,138 +1,100 @@
 {
   log.debug("Generating report ART");
+  final Map<String,UsageCollator> usageCollators=findUsageEventsForReport(report);
   final Map<String,InstanceUsageArtEntity> usageEntities=Maps.newHashMap();
-  final Iterator<ReportingInstanceCreateEvent> createEventIterator=getInstanceCreateEventIterator();
-  while (createEventIterator.hasNext()) {
-    final ReportingInstanceCreateEvent createEvent=createEventIterator.next();
-    if (createEvent.getTimestampMs() > report.getEndMs()) {
-      break;
-    }
-    if (!report.getZones().containsKey(createEvent.getAvailabilityZone())) {
-      report.getZones().put(createEvent.getAvailabilityZone(),new AvailabilityZoneArtEntity());
-    }
-    final AvailabilityZoneArtEntity zone=report.getZones().get(createEvent.getAvailabilityZone());
-    final ReportingUser reportingUser=getUserById(createEvent.getUserId());
-    if (reportingUser == null) {
-      log.error("No user corresponding to event:" + createEvent.getUserId());
-      continue;
-    }
-    final ReportingAccount reportingAccount=getAccountById(reportingUser.getAccountId());
-    if (reportingAccount == null) {
-      log.error("No account corresponding to user:" + reportingUser.getAccountId());
-      continue;
-    }
-    if (!zone.getAccounts().containsKey(reportingAccount.getName())) {
-      zone.getAccounts().put(reportingAccount.getName(),new AccountArtEntity());
-    }
-    final AccountArtEntity account=zone.getAccounts().get(reportingAccount.getName());
-    if (!account.getUsers().containsKey(reportingUser.getName())) {
-      account.getUsers().put(reportingUser.getName(),new UserArtEntity());
-    }
-    final UserArtEntity user=account.getUsers().get(reportingUser.getName());
-    if (!user.getInstances().containsKey(createEvent.getUuid())) {
-      user.getInstances().put(createEvent.getUuid(),new InstanceArtEntity(createEvent.getInstanceType(),createEvent.getInstanceId()));
-    }
-    final InstanceArtEntity instance=user.getInstances().get(createEvent.getUuid());
-    instance.getUsage().addInstanceCnt(1);
-    usageEntities.put(createEvent.getUuid(),instance.getUsage());
-  }
-  final Map<UsageEventKey,ReportingInstanceUsageEvent> lastEvents=Maps.newHashMap();
-  final Map<String,StartEndTimes> startEndTimes=Maps.newHashMap();
-  final Iterator<ReportingInstanceUsageEvent> usageEventIterator=getInstanceUsageEventIterator();
-  while (usageEventIterator.hasNext()) {
-    final ReportingInstanceUsageEvent usageEvent=usageEventIterator.next();
-    if (usageEvent.getTimestampMs() > (report.getEndMs() + TimeUnit.HOURS.toMillis(12))) {
-      break;
-    }
-    if (!startEndTimes.containsKey(usageEvent.getUuid())) {
-      startEndTimes.put(usageEvent.getUuid(),new StartEndTimes(usageEvent.getTimestampMs(),usageEvent.getTimestampMs()));
-    }
- else {
-      StartEndTimes seTime=startEndTimes.get(usageEvent.getUuid());
-      seTime.setStartTime(Math.min(seTime.getStartTime(),usageEvent.getTimestampMs()));
-      seTime.setEndTime(Math.max(seTime.getEndTime(),usageEvent.getTimestampMs()));
-    }
-    final UsageEventKey key=new UsageEventKey(usageEvent.getUuid(),usageEvent.getMetric(),usageEvent.getDimension());
-    if (!lastEvents.containsKey(key)) {
-      lastEvents.put(key,usageEvent);
-      continue;
-    }
-    final ReportingInstanceUsageEvent lastEvent=lastEvents.get(key);
-    if (!usageEntities.containsKey(usageEvent.getUuid())) {
-      log.error("usage event without corresponding instance:" + usageEvent.getUuid());
-      continue;
-    }
-    final InstanceUsageArtEntity usage=usageEntities.get(usageEvent.getUuid());
-    final String metric=usageEvent.getMetric();
-    final String dim=usageEvent.getDimension();
-    if (usageEvent.getValue() == null || lastEvent.getValue() == null) {
-      log.debug("Null metric values shouldn't occur");
-      continue;
-    }
-    if (usageEvent.getValue() == null) {
-      continue;
-    }
-    final Double value=usageEvent.getValue() - Objects.firstNonNull(lastEvent.getValue(),0d);
-    final Double valueMB=value / 1024 / 1024;
-    if (metric.equals(METRIC_NET_IN_BYTES) && dim.equals(DIM_TOTAL)) {
-      usage.addNetTotalInMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
-    }
- else     if (metric.equals(METRIC_NET_OUT_BYTES) && dim.equals(DIM_TOTAL)) {
-      usage.addNetTotalOutMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
-    }
- else     if (metric.equals(METRIC_DISK_IN_BYTES)) {
-      usage.addDiskReadMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
-    }
- else     if (metric.equals(METRIC_DISK_OUT_BYTES)) {
-      usage.addDiskWriteMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
-    }
- else     if (metric.equals(METRIC_DISK_READ_OPS)) {
-      usage.addDiskReadOps(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),value).longValue());
-    }
- else     if (metric.equals(METRIC_DISK_WRITE_OPS)) {
-      usage.addDiskWriteOps(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),value).longValue());
-    }
- else     if (metric.equals(METRIC_VOLUME_READ)) {
-      usage.addDiskReadTime(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),value).longValue());
-    }
- else     if (metric.equals(METRIC_VOLUME_WRITE)) {
-      usage.addDiskWriteTime(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),value).longValue());
-    }
- else     if (metric.equals(METRIC_CPU_USAGE_MS) && (dim.equals(DIM_DEFAULT))) {
-      usage.addCpuUtilizationMs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),value).longValue());
-    }
- else {
-      log.debug("Unrecognized metric for report:" + metric + "/"+ dim);
-    }
-    lastEvents.put(key,usageEvent);
-  }
-  final Set<String> zonesToRemove=Sets.newHashSet();
-  for (  final Map.Entry<String,AvailabilityZoneArtEntity> zoneEntry : report.getZones().entrySet()) {
-    final Set<String> accountsToRemove=Sets.newHashSet();
-    for (    final Map.Entry<String,AccountArtEntity> accountEntry : zoneEntry.getValue().getAccounts().entrySet()) {
-      final Set<String> usersToRemove=Sets.newHashSet();
-      for (      final Map.Entry<String,UserArtEntity> userEntry : accountEntry.getValue().getUsers().entrySet()) {
-        final Set<String> instancesToRemove=Sets.newHashSet();
-        for (        final Map.Entry<String,InstanceArtEntity> instanceEntry : userEntry.getValue().getInstances().entrySet()) {
-          if (instanceEntry.getValue().getUsage().isEmpty()) {
-            instancesToRemove.add(instanceEntry.getKey());
-          }
-        }
-        removeAndTrackEmpty(userEntry.getValue().getInstances(),instancesToRemove,usersToRemove,userEntry.getKey());
+  foreachInstanceCreateEventInReverse(report.getEndMs(),new Predicate<ReportingInstanceCreateEvent>(){
+    @Override public boolean apply(    final ReportingInstanceCreateEvent createEvent){
+      if (!usageCollators.keySet().contains(createEvent.getUuid())) {
+        return true;
       }
-      removeAndTrackEmpty(accountEntry.getValue().getUsers(),usersToRemove,accountsToRemove,accountEntry.getKey());
+      if (!report.getZones().containsKey(createEvent.getAvailabilityZone())) {
+        report.getZones().put(createEvent.getAvailabilityZone(),new AvailabilityZoneArtEntity());
+      }
+      final AvailabilityZoneArtEntity zone=report.getZones().get(createEvent.getAvailabilityZone());
+      final ReportingUser reportingUser=getUserById(createEvent.getUserId());
+      if (reportingUser == null) {
+        log.error("No user corresponding to event:" + createEvent.getUserId());
+        usageEntities.remove(createEvent.getUuid());
+        return true;
+      }
+      final ReportingAccount reportingAccount=getAccountById(reportingUser.getAccountId());
+      if (reportingAccount == null) {
+        log.error("No account corresponding to user:" + reportingUser.getAccountId());
+        usageEntities.remove(createEvent.getUuid());
+        return true;
+      }
+      usageCollators.get(createEvent.getUuid()).created(report.getBeginMs(),createEvent.getTimestampMs());
+      if (!zone.getAccounts().containsKey(reportingAccount.getName())) {
+        zone.getAccounts().put(reportingAccount.getName(),new AccountArtEntity());
+      }
+      final AccountArtEntity account=zone.getAccounts().get(reportingAccount.getName());
+      if (!account.getUsers().containsKey(reportingUser.getName())) {
+        account.getUsers().put(reportingUser.getName(),new UserArtEntity());
+      }
+      final UserArtEntity user=account.getUsers().get(reportingUser.getName());
+      if (!user.getInstances().containsKey(createEvent.getUuid())) {
+        user.getInstances().put(createEvent.getUuid(),new InstanceArtEntity(createEvent.getInstanceType(),createEvent.getInstanceId()));
+      }
+      final InstanceArtEntity instance=user.getInstances().get(createEvent.getUuid());
+      instance.getUsage().addInstanceCnt(1);
+      usageEntities.put(createEvent.getUuid(),instance.getUsage());
+      return !usageEntities.keySet().containsAll(usageCollators.keySet());
     }
-    removeAndTrackEmpty(zoneEntry.getValue().getAccounts(),accountsToRemove,zonesToRemove,zoneEntry.getKey());
   }
-  report.getZones().keySet().removeAll(zonesToRemove);
-  for (  String uuid : startEndTimes.keySet()) {
-    final StartEndTimes seTime=startEndTimes.get(uuid);
-    if (usageEntities.containsKey(uuid)) {
-      long durationMs=DurationCalculator.boundDuration(report.getBeginMs(),report.getEndMs(),seTime.getStartTime(),seTime.getEndTime());
-      usageEntities.get(uuid).setDurationMs(durationMs);
-    }
+);
+  for (  final Map.Entry<String,UsageCollator> usageCollatorEntry : usageCollators.entrySet()) {
+    final String instanceUuid=usageCollatorEntry.getKey();
+    final UsageCollator usageCollator=usageCollatorEntry.getValue();
+    final InstanceUsageArtEntity usage=usageEntities.get(instanceUuid);
+    usage.setDurationMs(usageCollator.getDuration(report.getBeginMs(),report.getEndMs()));
+    for (    final Map.Entry<UsageMetricDimensionKey,UsageMetricDimension> mericsEntry : usageCollator.usage.entrySet()) {
+      final UsageMetricDimensionKey key=mericsEntry.getKey();
+      final UsageMetricDimension usageMetricDimension=mericsEntry.getValue();
+      final String metric=key.metric;
+      final String dim=key.dimension;
+      ReportingInstanceUsageEvent lastEvent=null;
+      for (      final ReportingInstanceUsageEvent usageEvent : usageMetricDimension) {
+        if (lastEvent == null) {
+          lastEvent=usageEvent;
+          continue;
+        }
+        if (lastEvent.getSequenceNum() >= usageEvent.getSequenceNum()) {
+          lastEvent=usageEvent.zero(lastEvent.getTimestampMs());
+        }
+        final Double value=usageEvent.getValue() - Objects.firstNonNull(lastEvent.getValue(),0d);
+        final Double valueMB=value / 1024 / 1024;
+        if (metric.equals(METRIC_NET_IN_BYTES) && dim.equals(DIM_TOTAL)) {
+          usage.addNetTotalInMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
+        }
+ else         if (metric.equals(METRIC_NET_OUT_BYTES) && dim.equals(DIM_TOTAL)) {
+          usage.addNetTotalOutMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
+        }
+ else         if (metric.equals(METRIC_DISK_IN_BYTES)) {
+          usage.addDiskReadMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
+        }
+ else         if (metric.equals(METRIC_DISK_OUT_BYTES)) {
+          usage.addDiskWriteMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
+        }
+ else         if (metric.equals(METRIC_DISK_READ_OPS)) {
+          usage.addDiskReadOps(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),value).longValue());
+        }
+ else         if (metric.equals(METRIC_DISK_WRITE_OPS)) {
+          usage.addDiskWriteOps(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),value).longValue());
+        }
+ else         if (metric.equals(METRIC_VOLUME_READ)) {
+          usage.addDiskReadTime(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),value).longValue());
+        }
+ else         if (metric.equals(METRIC_VOLUME_WRITE)) {
+          usage.addDiskWriteTime(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),value).longValue());
+        }
+ else         if (metric.equals(METRIC_CPU_USAGE_MS) && (dim.equals(DIM_DEFAULT))) {
+          usage.addCpuUtilizationMs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),value).longValue());
+        }
  else {
-      log.error("startEndTime without corresponding instance:" + uuid);
+          log.debug("Unrecognized metric for report:" + metric + "/"+ dim);
+        }
+        lastEvent=usageEvent;
+      }
     }
   }
   for (  final AvailabilityZoneArtEntity zone : report.getZones().values()) {
