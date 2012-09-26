@@ -1,6 +1,8 @@
 {
   log.debug("Generating report ART");
   final Map<String,UsageCollator> usageCollators=findUsageEventsForReport(report);
+  final Map<String,ReportingUser> reportingUsersById=Maps.newHashMap();
+  final Map<String,String> accountNamesById=Maps.newHashMap();
   final Map<String,InstanceUsageArtEntity> usageEntities=Maps.newHashMap();
   foreachInstanceCreateEventInReverse(report.getEndMs(),new Predicate<ReportingInstanceCreateEvent>(){
     @Override public boolean apply(    final ReportingInstanceCreateEvent createEvent){
@@ -11,23 +13,23 @@
         report.getZones().put(createEvent.getAvailabilityZone(),new AvailabilityZoneArtEntity());
       }
       final AvailabilityZoneArtEntity zone=report.getZones().get(createEvent.getAvailabilityZone());
-      final ReportingUser reportingUser=getUserById(createEvent.getUserId());
+      final ReportingUser reportingUser=getUserById(reportingUsersById,createEvent.getUserId());
       if (reportingUser == null) {
         log.error("No user corresponding to event:" + createEvent.getUserId());
         usageCollators.remove(createEvent.getUuid());
         return true;
       }
-      final ReportingAccount reportingAccount=getAccountById(reportingUser.getAccountId());
-      if (reportingAccount == null) {
+      final String accountName=getAccountNameById(accountNamesById,reportingUser.getAccountId());
+      if (accountName == null) {
         log.error("No account corresponding to user:" + reportingUser.getAccountId());
         usageCollators.remove(createEvent.getUuid());
         return true;
       }
       usageCollators.get(createEvent.getUuid()).created(report.getBeginMs(),createEvent.getTimestampMs());
-      if (!zone.getAccounts().containsKey(reportingAccount.getName())) {
-        zone.getAccounts().put(reportingAccount.getName(),new AccountArtEntity());
+      if (!zone.getAccounts().containsKey(accountName)) {
+        zone.getAccounts().put(accountName,new AccountArtEntity());
       }
-      final AccountArtEntity account=zone.getAccounts().get(reportingAccount.getName());
+      final AccountArtEntity account=zone.getAccounts().get(accountName);
       if (!account.getUsers().containsKey(reportingUser.getName())) {
         account.getUsers().put(reportingUser.getName(),new UserArtEntity());
       }

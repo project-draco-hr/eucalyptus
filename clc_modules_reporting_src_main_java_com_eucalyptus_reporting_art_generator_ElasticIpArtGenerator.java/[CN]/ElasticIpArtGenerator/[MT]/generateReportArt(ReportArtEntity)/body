@@ -2,6 +2,8 @@
   log.debug("Generating report ART");
   final Map<String,List<Long>> ipToDeleteTimesMap=Maps.newHashMap();
   foreachElasticIpDeleteEvent(buildTimestampMap(report,ipToDeleteTimesMap));
+  final Map<String,ReportingUser> reportingUsersById=Maps.newHashMap();
+  final Map<String,String> accountNamesById=Maps.newHashMap();
   final Map<String,List<ElasticIpAllocation>> ipUuidToAllocationListMap=Maps.newHashMap();
   foreachElasticIpCreateEvent(new Predicate<ReportingElasticIpCreateEvent>(){
     @Override public boolean apply(    final ReportingElasticIpCreateEvent createEvent){
@@ -12,13 +14,13 @@
       if (createEvent.getTimestampMs() > report.getEndMs()) {
         return false;
       }
-      final ReportingUser reportingUser=getUserById(createEvent.getUserId());
+      final ReportingUser reportingUser=getUserById(reportingUsersById,createEvent.getUserId());
       if (reportingUser == null) {
         log.error("No user corresponding to event:" + createEvent.getUserId() + " "+ createEvent.getNaturalId());
         return true;
       }
-      final ReportingAccount reportingAccount=getAccountById(reportingUser.getAccountId());
-      if (reportingAccount == null) {
+      final String accountName=getAccountNameById(accountNamesById,reportingUser.getAccountId());
+      if (accountName == null) {
         log.error("No account corresponding to user:" + reportingUser.getAccountId() + " "+ createEvent.getNaturalId());
         return true;
       }
@@ -27,14 +29,14 @@
         allocations=Lists.newArrayList();
         ipUuidToAllocationListMap.put(createEvent.getUuid(),allocations);
       }
-      allocations.add(new ElasticIpAllocation(reportingAccount.getName(),reportingUser.getName(),createEvent.getIp(),createEvent.getTimestampMs(),deleteTime));
+      allocations.add(new ElasticIpAllocation(accountName,reportingUser.getName(),createEvent.getIp(),createEvent.getTimestampMs(),deleteTime));
       final AccountArtEntity account;
-      if (!report.getAccounts().containsKey(reportingAccount.getName())) {
+      if (!report.getAccounts().containsKey(accountName)) {
         account=new AccountArtEntity();
-        report.getAccounts().put(reportingAccount.getName(),account);
+        report.getAccounts().put(accountName,account);
       }
  else {
-        account=report.getAccounts().get(reportingAccount.getName());
+        account=report.getAccounts().get(accountName);
       }
       final UserArtEntity user;
       if (!account.getUsers().containsKey(reportingUser.getName())) {
