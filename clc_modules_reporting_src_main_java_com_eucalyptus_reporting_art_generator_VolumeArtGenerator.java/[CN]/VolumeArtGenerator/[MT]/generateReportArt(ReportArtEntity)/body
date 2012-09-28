@@ -1,54 +1,61 @@
 {
-  log.debug("GENERATING REPORT ART");
-  EntityWrapper wrapper=EntityWrapper.get(ReportingVolumeCreateEvent.class);
-  Iterator iter=wrapper.scanWithNativeQuery("scanVolumeCreateEvents");
-  Map<String,VolumeArtEntity> volumeEntities=new HashMap<String,VolumeArtEntity>();
-  Map<String,StartEndTimes> volStartEndTimes=new HashMap<String,StartEndTimes>();
-  while (iter.hasNext()) {
-    ReportingVolumeCreateEvent createEvent=(ReportingVolumeCreateEvent)iter.next();
-    if (!report.getZones().containsKey(createEvent.getAvailabilityZone())) {
-      report.getZones().put(createEvent.getAvailabilityZone(),new AvailabilityZoneArtEntity());
-    }
-    AvailabilityZoneArtEntity zone=report.getZones().get(createEvent.getAvailabilityZone());
-    ReportingUser reportingUser=ReportingUserDao.getInstance().getReportingUser(createEvent.getUserId());
-    if (reportingUser == null) {
-      log.error("No user corresponding to event:" + createEvent.getUserId());
-    }
-    ReportingAccount reportingAccount=ReportingAccountDao.getInstance().getReportingAccount(reportingUser.getAccountId());
-    if (reportingAccount == null) {
-      log.error("No account corresponding to user:" + reportingUser.getAccountId());
-    }
-    if (!zone.getAccounts().containsKey(reportingAccount.getName())) {
-      zone.getAccounts().put(reportingAccount.getName(),new AccountArtEntity());
-    }
-    AccountArtEntity account=zone.getAccounts().get(reportingAccount.getName());
-    if (!account.getUsers().containsKey(reportingUser.getName())) {
-      account.getUsers().put(reportingUser.getName(),new UserArtEntity());
-    }
-    UserArtEntity user=account.getUsers().get(reportingUser.getName());
-    VolumeArtEntity volume=new VolumeArtEntity(createEvent.getVolumeId());
-    volume.getUsage().setSizeGB(createEvent.getSizeGB());
-    long startTime=createEvent.getTimestampMs();
-    if (startTime <= report.getEndMs()) {
-      user.getVolumes().put(createEvent.getUuid(),volume);
-      volStartEndTimes.put(createEvent.getUuid(),new StartEndTimes(startTime,report.getEndMs()));
-      volumeEntities.put(createEvent.getUuid(),volume);
-      volume.getUsage().setVolumeCnt(1);
+  log.debug("Generating report ART");
+  final Map<String,ReportingUser> reportingUsersById=Maps.newHashMap();
+  final Map<String,String> accountNamesById=Maps.newHashMap();
+  final Map<String,VolumeArtEntity> volumeEntities=Maps.newHashMap();
+  final Map<String,StartEndTimes> volStartEndTimes=Maps.newHashMap();
+  foreachReportingVolumeCreateEvent(report.getEndMs(),new Predicate<ReportingVolumeCreateEvent>(){
+    @Override public boolean apply(    final ReportingVolumeCreateEvent createEvent){
+      if (!report.getZones().containsKey(createEvent.getAvailabilityZone())) {
+        report.getZones().put(createEvent.getAvailabilityZone(),new AvailabilityZoneArtEntity());
+      }
+      final AvailabilityZoneArtEntity zone=report.getZones().get(createEvent.getAvailabilityZone());
+      final ReportingUser reportingUser=getUserById(reportingUsersById,createEvent.getUserId());
+      if (reportingUser == null) {
+        log.error("No user corresponding to event:" + createEvent.getUserId());
+        return true;
+      }
+      final String accountName=getAccountNameById(accountNamesById,reportingUser.getAccountId());
+      if (accountName == null) {
+        log.error("No account corresponding to user:" + reportingUser.getAccountId());
+        return true;
+      }
+      if (!zone.getAccounts().containsKey(accountName)) {
+        zone.getAccounts().put(accountName,new AccountArtEntity());
+      }
+      AccountArtEntity account=zone.getAccounts().get(accountName);
+      if (!account.getUsers().containsKey(reportingUser.getName())) {
+        account.getUsers().put(reportingUser.getName(),new UserArtEntity());
+      }
+      UserArtEntity user=account.getUsers().get(reportingUser.getName());
+      VolumeArtEntity volume=new VolumeArtEntity(createEvent.getVolumeId());
+      volume.getUsage().setSizeGB(createEvent.getSizeGB());
+      long startTime=createEvent.getTimestampMs();
+      if (startTime <= report.getEndMs()) {
+        user.getVolumes().put(createEvent.getUuid(),volume);
+        volStartEndTimes.put(createEvent.getUuid(),new StartEndTimes(startTime,report.getEndMs()));
+        volumeEntities.put(createEvent.getUuid(),volume);
+        volume.getUsage().setVolumeCnt(1);
+      }
+      return true;
     }
   }
-  iter=wrapper.scanWithNativeQuery("scanVolumeDeleteEvents");
-  while (iter.hasNext()) {
-    ReportingVolumeDeleteEvent deleteEvent=(ReportingVolumeDeleteEvent)iter.next();
-    long endTime=deleteEvent.getTimestampMs();
-    if (endTime >= report.getBeginMs() && volStartEndTimes.containsKey(deleteEvent.getUuid())) {
-      StartEndTimes startEndTimes=volStartEndTimes.get(deleteEvent.getUuid());
-      startEndTimes.setEndTime(endTime);
-    }
+);
+  foreachReportingVolumeDeleteEvent(report.getEndMs(),new Predicate<ReportingVolumeDeleteEvent>(){
+    @Override public boolean apply(    final ReportingVolumeDeleteEvent deleteEvent){
+      long endTime=deleteEvent.getTimestampMs();
+      if (endTime >= report.getBeginMs() && volStartEndTimes.containsKey(deleteEvent.getUuid())) {
+        StartEndTimes startEndTimes=volStartEndTimes.get(deleteEvent.getUuid());
+        startEndTimes.setEndTime(endTime);
+      }
  else {
-      volumeEntities.remove(deleteEvent.getUuid());
-      volStartEndTimes.remove(deleteEvent.getUuid());
+        volumeEntities.remove(deleteEvent.getUuid());
+        volStartEndTimes.remove(deleteEvent.getUuid());
+      }
+      return true;
     }
   }
+);
   for (  String uuid : volumeEntities.keySet()) {
     VolumeArtEntity volume=volumeEntities.get(uuid);
     StartEndTimes startEndTimes=volStartEndTimes.get(uuid);
@@ -59,42 +66,48 @@
     long duration=DurationCalculator.boundDuration(report.getBeginMs(),report.getEndMs(),startEndTimes.getStartTime(),startEndTimes.getEndTime()) / 1000;
     volume.getUsage().setGBSecs(duration * volume.getUsage().getSizeGB());
   }
-  Map<String,InstanceArtEntity> instanceEntities=new HashMap<String,InstanceArtEntity>();
-  iter=wrapper.scanWithNativeQuery("scanInstanceCreateEvents");
-  while (iter.hasNext()) {
-    ReportingInstanceCreateEvent createEvent=(ReportingInstanceCreateEvent)iter.next();
-    InstanceArtEntity instance=new InstanceArtEntity(createEvent.getInstanceType(),createEvent.getInstanceId());
-    instanceEntities.put(createEvent.getUuid(),instance);
-  }
-  AttachDurationCalculator<String,String> durationCalc=new AttachDurationCalculator<String,String>(report.getBeginMs(),report.getEndMs());
-  iter=wrapper.scanWithNativeQuery("scanVolumeAttachEvents");
-  while (iter.hasNext()) {
-    ReportingVolumeAttachEvent attachEvent=(ReportingVolumeAttachEvent)iter.next();
-    durationCalc.attach(attachEvent.getInstanceUuid(),attachEvent.getVolumeUuid(),attachEvent.getTimestampMs());
-  }
-  iter=wrapper.scanWithNativeQuery("scanVolumeDetachEvents");
-  while (iter.hasNext()) {
-    ReportingVolumeDetachEvent detachEvent=(ReportingVolumeDetachEvent)iter.next();
-    long durationMs=durationCalc.detach(detachEvent.getInstanceUuid(),detachEvent.getVolumeUuid(),detachEvent.getTimestampMs());
-    if (durationMs == 0)     continue;
-    if (!volumeEntities.containsKey(detachEvent.getVolumeUuid()))     continue;
-    VolumeArtEntity volume=volumeEntities.get(detachEvent.getVolumeUuid());
-    long gbsecs=((durationMs / 1000) * volume.getUsage().getSizeGB());
-    if (volume.getInstanceAttachments().containsKey(detachEvent.getInstanceUuid())) {
-      gbsecs+=volume.getInstanceAttachments().get(detachEvent.getInstanceUuid()).getGBSecs();
+  final Map<String,InstanceArtEntity> instanceEntities=new HashMap<String,InstanceArtEntity>();
+  foreachInstanceCreateEvent(report.getEndMs(),new Predicate<ReportingInstanceCreateEvent>(){
+    @Override public boolean apply(    final ReportingInstanceCreateEvent createEvent){
+      InstanceArtEntity instance=new InstanceArtEntity(createEvent.getInstanceType(),createEvent.getInstanceId());
+      instanceEntities.put(createEvent.getUuid(),instance);
+      return true;
     }
-    VolumeUsageArtEntity usage=new VolumeUsageArtEntity();
-    usage.setGBSecs(gbsecs);
-    usage.setSizeGB(volume.getUsage().getSizeGB());
-    usage.setVolumeCnt(1);
-    if (instanceEntities.keySet().contains(detachEvent.getInstanceUuid())) {
-      String instanceId=instanceEntities.get(detachEvent.getInstanceUuid()).getInstanceId();
-      volume.getInstanceAttachments().put(instanceId,usage);
+  }
+);
+  final AttachDurationCalculator<String,String> durationCalc=new AttachDurationCalculator<String,String>(report.getBeginMs(),report.getEndMs());
+  foreachReportingVolumeDetachEvent(report.getEndMs(),new Predicate<ReportingVolumeDetachEvent>(){
+    @Override public boolean apply(    final ReportingVolumeDetachEvent detachEvent){
+      durationCalc.detach(detachEvent.getInstanceUuid(),detachEvent.getVolumeUuid(),detachEvent.getTimestampMs());
+      return true;
     }
+  }
+);
+  foreachReportingVolumeAttachEvent(report.getEndMs(),new Predicate<ReportingVolumeAttachEvent>(){
+    @Override public boolean apply(    final ReportingVolumeAttachEvent attachEvent){
+      long durationMs=durationCalc.attach(attachEvent.getInstanceUuid(),attachEvent.getVolumeUuid(),attachEvent.getTimestampMs());
+      if (durationMs == 0)       return true;
+      if (!volumeEntities.containsKey(attachEvent.getVolumeUuid()))       return true;
+      VolumeArtEntity volume=volumeEntities.get(attachEvent.getVolumeUuid());
+      long gbsecs=((durationMs / 1000) * volume.getUsage().getSizeGB());
+      if (volume.getInstanceAttachments().containsKey(attachEvent.getInstanceUuid())) {
+        gbsecs+=volume.getInstanceAttachments().get(attachEvent.getInstanceUuid()).getGBSecs();
+      }
+      VolumeUsageArtEntity usage=new VolumeUsageArtEntity();
+      usage.setGBSecs(gbsecs);
+      usage.setSizeGB(volume.getUsage().getSizeGB());
+      usage.setVolumeCnt(1);
+      if (instanceEntities.keySet().contains(attachEvent.getInstanceUuid())) {
+        String instanceId=instanceEntities.get(attachEvent.getInstanceUuid()).getInstanceId();
+        volume.getInstanceAttachments().put(instanceId,usage);
+      }
  else {
-      log.error("instance uuid in detach events without corresponding instance:" + detachEvent.getInstanceUuid());
+        log.error("instance uuid in attach events without corresponding instance:" + attachEvent.getInstanceUuid());
+      }
+      return true;
     }
   }
+);
   for (  String zoneName : report.getZones().keySet()) {
     AvailabilityZoneArtEntity zone=report.getZones().get(zoneName);
     for (    String accountName : zone.getAccounts().keySet()) {

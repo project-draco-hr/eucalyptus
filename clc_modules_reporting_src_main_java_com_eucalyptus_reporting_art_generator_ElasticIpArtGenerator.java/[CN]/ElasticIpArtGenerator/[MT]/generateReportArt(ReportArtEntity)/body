@@ -1,101 +1,111 @@
 {
-  log.debug("GENERATING REPORT ART");
-  final Map<String,List<Long>> ipToDeleteTimesMap=buildTimestampMap(report,getElasticIpDeleteEventIterator());
+  log.debug("Generating report ART");
+  final Map<String,List<Long>> ipToDeleteTimesMap=Maps.newHashMap();
+  foreachElasticIpDeleteEvent(buildTimestampMap(report,ipToDeleteTimesMap));
+  final Map<String,ReportingUser> reportingUsersById=Maps.newHashMap();
+  final Map<String,String> accountNamesById=Maps.newHashMap();
   final Map<String,List<ElasticIpAllocation>> ipUuidToAllocationListMap=Maps.newHashMap();
-  final Iterator<ReportingElasticIpCreateEvent> createEventIterator=getElasticIpCreateEventIterator();
-  while (createEventIterator.hasNext()) {
-    final ReportingElasticIpCreateEvent createEvent=createEventIterator.next();
-    final Long deleteTime=findTimeAfter(ipToDeleteTimesMap,createEvent.getUuid(),createEvent.getTimestampMs());
-    if (deleteTime < report.getBeginMs()) {
-      continue;
-    }
-    if (createEvent.getTimestampMs() > report.getEndMs()) {
-      break;
-    }
-    final ReportingUser reportingUser=getUserById(createEvent.getUserId());
-    if (reportingUser == null) {
-      log.error("No user corresponding to event:" + createEvent.getUserId() + " "+ createEvent.getNaturalId());
-      continue;
-    }
-    final ReportingAccount reportingAccount=getAccountById(reportingUser.getAccountId());
-    if (reportingAccount == null) {
-      log.error("No account corresponding to user:" + reportingUser.getAccountId() + " "+ createEvent.getNaturalId());
-      continue;
-    }
-    List<ElasticIpAllocation> allocations=ipUuidToAllocationListMap.get(createEvent.getUuid());
-    if (allocations == null) {
-      allocations=Lists.newArrayList();
-      ipUuidToAllocationListMap.put(createEvent.getUuid(),allocations);
-    }
-    allocations.add(new ElasticIpAllocation(reportingAccount.getName(),reportingUser.getName(),createEvent.getIp(),createEvent.getTimestampMs(),deleteTime));
-    final AccountArtEntity account;
-    if (!report.getAccounts().containsKey(reportingAccount.getName())) {
-      account=new AccountArtEntity();
-      report.getAccounts().put(reportingAccount.getName(),account);
-    }
+  foreachElasticIpCreateEvent(new Predicate<ReportingElasticIpCreateEvent>(){
+    @Override public boolean apply(    final ReportingElasticIpCreateEvent createEvent){
+      final Long deleteTime=findTimeAfter(ipToDeleteTimesMap,createEvent.getUuid(),createEvent.getTimestampMs());
+      if (deleteTime < report.getBeginMs()) {
+        return true;
+      }
+      if (createEvent.getTimestampMs() > report.getEndMs()) {
+        return false;
+      }
+      final ReportingUser reportingUser=getUserById(reportingUsersById,createEvent.getUserId());
+      if (reportingUser == null) {
+        log.error("No user corresponding to event:" + createEvent.getUserId() + " "+ createEvent.getNaturalId());
+        return true;
+      }
+      final String accountName=getAccountNameById(accountNamesById,reportingUser.getAccountId());
+      if (accountName == null) {
+        log.error("No account corresponding to user:" + reportingUser.getAccountId() + " "+ createEvent.getNaturalId());
+        return true;
+      }
+      List<ElasticIpAllocation> allocations=ipUuidToAllocationListMap.get(createEvent.getUuid());
+      if (allocations == null) {
+        allocations=Lists.newArrayList();
+        ipUuidToAllocationListMap.put(createEvent.getUuid(),allocations);
+      }
+      allocations.add(new ElasticIpAllocation(accountName,reportingUser.getName(),createEvent.getIp(),createEvent.getTimestampMs(),deleteTime));
+      final AccountArtEntity account;
+      if (!report.getAccounts().containsKey(accountName)) {
+        account=new AccountArtEntity();
+        report.getAccounts().put(accountName,account);
+      }
  else {
-      account=report.getAccounts().get(reportingAccount.getName());
-    }
-    final UserArtEntity user;
-    if (!account.getUsers().containsKey(reportingUser.getName())) {
-      user=new UserArtEntity();
-      account.getUsers().put(reportingUser.getName(),user);
-    }
+        account=report.getAccounts().get(accountName);
+      }
+      final UserArtEntity user;
+      if (!account.getUsers().containsKey(reportingUser.getName())) {
+        user=new UserArtEntity();
+        account.getUsers().put(reportingUser.getName(),user);
+      }
  else {
-      user=account.getUsers().get(reportingUser.getName());
-    }
-    final ElasticIpArtEntity elasticIp;
-    if (!user.getElasticIps().containsKey(createEvent.getIp())) {
-      elasticIp=new ElasticIpArtEntity();
-      elasticIp.getUsage().setIpNum(1);
-      user.getElasticIps().put(createEvent.getIp(),elasticIp);
-    }
+        user=account.getUsers().get(reportingUser.getName());
+      }
+      final ElasticIpArtEntity elasticIp;
+      if (!user.getElasticIps().containsKey(createEvent.getIp())) {
+        elasticIp=new ElasticIpArtEntity();
+        elasticIp.getUsage().setIpNum(1);
+        user.getElasticIps().put(createEvent.getIp(),elasticIp);
+      }
  else {
-      elasticIp=user.getElasticIps().get(createEvent.getIp());
+        elasticIp=user.getElasticIps().get(createEvent.getIp());
+      }
+      elasticIp.getUsage().setDurationMs(elasticIp.getUsage().getDurationMs() + calculateDuration(report,createEvent.getTimestampMs(),deleteTime));
+      return true;
     }
-    elasticIp.getUsage().setDurationMs(elasticIp.getUsage().getDurationMs() + calculateDuration(report,createEvent.getTimestampMs(),deleteTime));
   }
+);
   final Map<String,InstanceArtEntity> instanceEntities=Maps.newHashMap();
-  final Iterator<ReportingInstanceCreateEvent> instanceIterator=getInstanceCreateEventIterator();
-  while (instanceIterator.hasNext()) {
-    final ReportingInstanceCreateEvent createEvent=instanceIterator.next();
-    if (createEvent.getTimestampMs() > report.getEndMs()) {
-      break;
+  foreachInstanceCreateEvent(new Predicate<ReportingInstanceCreateEvent>(){
+    @Override public boolean apply(    final ReportingInstanceCreateEvent createEvent){
+      if (createEvent.getTimestampMs() > report.getEndMs()) {
+        return false;
+      }
+      final InstanceArtEntity instance=new InstanceArtEntity(createEvent.getInstanceType(),createEvent.getInstanceId());
+      instanceEntities.put(createEvent.getUuid(),instance);
+      return true;
     }
-    final InstanceArtEntity instance=new InstanceArtEntity(createEvent.getInstanceType(),createEvent.getInstanceId());
-    instanceEntities.put(createEvent.getUuid(),instance);
   }
-  final Map<String,List<Long>> ipToDetachTimesMap=buildTimestampMap(report,getElasticIpDetachEventIterator());
-  final Iterator<ReportingElasticIpAttachEvent> attachEventIterator=getElasticIpAttachEventIterator();
-  while (attachEventIterator.hasNext()) {
-    final ReportingElasticIpAttachEvent attachEvent=attachEventIterator.next();
-    final Long deleteTime=findTimeAfter(ipToDeleteTimesMap,attachEvent.getIpUuid(),attachEvent.getTimestampMs());
-    final Long detachTime=Math.min(deleteTime,findTimeAfter(ipToDetachTimesMap,attachEvent.getIpUuid(),attachEvent.getTimestampMs()));
-    if (detachTime < report.getBeginMs()) {
-      continue;
+);
+  final Map<String,List<Long>> ipToDetachTimesMap=Maps.newHashMap();
+  foreachElasticIpDetachEvent(buildTimestampMap(report,ipToDetachTimesMap));
+  foreachElasticIpAttachEvent(new Predicate<ReportingElasticIpAttachEvent>(){
+    @Override public boolean apply(    final ReportingElasticIpAttachEvent attachEvent){
+      final Long deleteTime=findTimeAfter(ipToDeleteTimesMap,attachEvent.getIpUuid(),attachEvent.getTimestampMs());
+      final Long detachTime=Math.min(deleteTime,findTimeAfter(ipToDetachTimesMap,attachEvent.getIpUuid(),attachEvent.getTimestampMs()));
+      if (detachTime < report.getBeginMs()) {
+        return true;
+      }
+      if (attachEvent.getTimestampMs() > report.getEndMs()) {
+        return false;
+      }
+      final Long attachmentDuration=calculateDuration(report,attachEvent.getTimestampMs(),detachTime);
+      final ElasticIpArtEntity entity=findEntityForTimestamp(report,ipUuidToAllocationListMap,attachEvent.getIpUuid(),attachEvent.getTimestampMs());
+      if (entity == null) {
+        log.error("Unable to find elastic ip owner for attachment, instance uuid: " + attachEvent.getInstanceUuid());
+        return true;
+      }
+      final InstanceArtEntity instance=instanceEntities.get(attachEvent.getInstanceUuid());
+      if (instance == null) {
+        log.error("Unable to find instance for attachment, instance uuid: " + attachEvent.getInstanceUuid());
+        return true;
+      }
+      ElasticIpUsageArtEntity usage=entity.getInstanceAttachments().get(instance.getInstanceId());
+      if (usage == null) {
+        usage=new ElasticIpUsageArtEntity();
+        usage.setIpNum(1);
+        entity.getInstanceAttachments().put(instance.getInstanceId(),usage);
+      }
+      usage.setDurationMs(usage.getDurationMs() + attachmentDuration);
+      return true;
     }
-    if (attachEvent.getTimestampMs() > report.getEndMs()) {
-      break;
-    }
-    final Long attachmentDuration=calculateDuration(report,attachEvent.getTimestampMs(),detachTime);
-    final ElasticIpArtEntity entity=findEntityForTimestamp(report,ipUuidToAllocationListMap,attachEvent.getIpUuid(),attachEvent.getTimestampMs());
-    if (entity == null) {
-      log.error("Unable to find elastic ip owner for attachment, instance uuid: " + attachEvent.getInstanceUuid());
-      continue;
-    }
-    final InstanceArtEntity instance=instanceEntities.get(attachEvent.getInstanceUuid());
-    if (instance == null) {
-      log.error("Unable to find instance for attachment, instance uuid: " + attachEvent.getInstanceUuid());
-      continue;
-    }
-    ElasticIpUsageArtEntity usage=entity.getInstanceAttachments().get(instance.getInstanceId());
-    if (usage == null) {
-      usage=new ElasticIpUsageArtEntity();
-      usage.setIpNum(1);
-      entity.getInstanceAttachments().put(instance.getInstanceId(),usage);
-    }
-    usage.setDurationMs(usage.getDurationMs() + attachmentDuration);
   }
+);
   for (  final AccountArtEntity account : report.getAccounts().values()) {
     for (    final UserArtEntity user : account.getUsers().values()) {
       for (      final ElasticIpArtEntity ip : user.getElasticIps().values()) {
