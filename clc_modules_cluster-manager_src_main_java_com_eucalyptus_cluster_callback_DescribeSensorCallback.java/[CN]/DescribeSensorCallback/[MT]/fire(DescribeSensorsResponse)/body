@@ -6,20 +6,16 @@
       for (      final MetricsResourceType metricType : sensorData.getMetrics()) {
         for (        final MetricCounterType counterType : metricType.getCounters()) {
           for (          final MetricDimensionsType dimensionType : counterType.getDimensions()) {
-            Double value=null;
-            long valueTimestamp=0;
-            for (            final MetricDimensionsValuesType valueType : dimensionType.getValues()) {
-              if (valueType.getTimestamp() != null && (valueTimestamp == 0 || valueTimestamp < valueType.getTimestamp().getTime())) {
-                valueTimestamp=valueType.getTimestamp().getTime();
-                value=valueType.getValue();
-              }
-            }
-            if (value != null) {
-              final Double usageValue=value;
-              final Long usageTimestamp=valueTimestamp;
+            final List<MetricDimensionsValuesType> values=Lists.newArrayList(dimensionType.getValues());
+            Collections.sort(values,Ordering.natural().onResultOf(GetTimestamp.INSTANCE));
+            if (!values.isEmpty()) {
+              final MetricDimensionsValuesType latestValue=Iterables.getLast(values);
+              final Double usageValue=latestValue.getValue();
+              final Long usageTimestamp=latestValue.getTimestamp().getTime();
+              final long sequenceNumber=counterType.getSequenceNum() + (values.size() - 1);
               fireUsageEvent(new Supplier<InstanceUsageEvent>(){
                 @Override public InstanceUsageEvent get(){
-                  return new InstanceUsageEvent(sensorData.getResourceUuid(),sensorData.getResourceName(),metricType.getMetricName(),counterType.getSequenceNum(),dimensionType.getDimensionName(),usageValue,usageTimestamp);
+                  return new InstanceUsageEvent(sensorData.getResourceUuid(),sensorData.getResourceName(),metricType.getMetricName(),sequenceNumber,dimensionType.getDimensionName(),usageValue,usageTimestamp);
                 }
               }
 );

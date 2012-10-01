@@ -1,0 +1,48 @@
+{
+  final Map<String,UsageCollator> usageCollators=Maps.newHashMap();
+  foreachInstanceUsageEvent(report.getBeginMs(),report.getEndMs(),true,new Predicate<ReportingInstanceUsageEvent>(){
+    @Override public boolean apply(    final ReportingInstanceUsageEvent usageEvent){
+      UsageCollator collator=usageCollators.get(usageEvent.getUuid());
+      if (collator == null) {
+        collator=new UsageCollator();
+        usageCollators.put(usageEvent.getUuid(),collator);
+      }
+      collator.addUsage(usageEvent);
+      return true;
+    }
+  }
+);
+  for (  final UsageCollator collator : usageCollators.values()) {
+    collator.regularUsageCompleted();
+  }
+  foreachInstanceUsageEvent(report.getEndMs(),report.getEndMs() + USAGE_SEARCH_PERIOD,true,new Predicate<ReportingInstanceUsageEvent>(){
+    @Override public boolean apply(    final ReportingInstanceUsageEvent usageEvent){
+      UsageCollator collator=usageCollators.get(usageEvent.getUuid());
+      if (collator == null) {
+        collator=new UsageCollator();
+        usageCollators.put(usageEvent.getUuid(),collator);
+      }
+      if (!collator.hasPostUsage(usageEvent)) {
+        collator.addPostUsage(usageEvent);
+      }
+      return true;
+    }
+  }
+);
+  foreachInstanceUsageEvent(report.getBeginMs() - USAGE_SEARCH_PERIOD,report.getBeginMs(),false,new Predicate<ReportingInstanceUsageEvent>(){
+    @Override public boolean apply(    final ReportingInstanceUsageEvent usageEvent){
+      UsageCollator collator=usageCollators.get(usageEvent.getUuid());
+      if (collator != null && !collator.hasPreUsage(report.getBeginMs(),usageEvent)) {
+        collator.addPreUsage(usageEvent);
+      }
+      return !Iterables.all(usageCollators.values(),new Predicate<UsageCollator>(){
+        @Override public boolean apply(        final UsageCollator usageCollator){
+          return usageCollator.hasPreUsage(report.getBeginMs());
+        }
+      }
+);
+    }
+  }
+);
+  return usageCollators;
+}
