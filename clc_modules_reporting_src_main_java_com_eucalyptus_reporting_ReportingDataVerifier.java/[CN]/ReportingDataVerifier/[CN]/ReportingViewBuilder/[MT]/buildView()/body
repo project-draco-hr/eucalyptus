@@ -1,0 +1,118 @@
+{
+  final Map<String,RelationTimestamp> addressRelationMap=Maps.newHashMap();
+  foreach(ReportingElasticIpCreateEvent.class,new Callback<ReportingElasticIpCreateEvent>(){
+    @Override public void fire(    final ReportingElasticIpCreateEvent input){
+      RelationTimestamp rt=addressRelationMap.get(input.getUuid());
+      if (rt == null || rt.timestamp < input.getTimestampMs()) {
+        addressRelationMap.put(input.getUuid(),new RelationTimestamp(null,input.getTimestampMs()));
+      }
+    }
+  }
+);
+  foreach(ReportingElasticIpDeleteEvent.class,new Callback<ReportingElasticIpDeleteEvent>(){
+    @Override public void fire(    final ReportingElasticIpDeleteEvent input){
+      RelationTimestamp rt=addressRelationMap.get(input.getUuid());
+      if (rt == null || rt.timestamp < input.getTimestampMs()) {
+        addressRelationMap.remove(input.getUuid());
+      }
+    }
+  }
+);
+  foreach(ReportingElasticIpAttachEvent.class,new Callback<ReportingElasticIpAttachEvent>(){
+    @Override public void fire(    final ReportingElasticIpAttachEvent input){
+      if (addressRelationMap.containsKey(input.getIpUuid())) {
+        RelationTimestamp rt=addressRelationMap.get(input.getIpUuid());
+        if (rt == null || rt.relationId == null || rt.timestamp < input.getTimestampMs()) {
+          addressRelationMap.put(input.getIpUuid(),new RelationTimestamp(input.getInstanceUuid(),input.getTimestampMs()));
+        }
+      }
+    }
+  }
+);
+  foreach(ReportingElasticIpDetachEvent.class,new Callback<ReportingElasticIpDetachEvent>(){
+    @Override public void fire(    final ReportingElasticIpDetachEvent input){
+      if (addressRelationMap.containsKey(input.getIpUuid())) {
+        RelationTimestamp rt=addressRelationMap.get(input.getIpUuid());
+        if (rt != null && rt.relationId != null && rt.relationId.equals(input.getInstanceUuid()) && rt.timestamp < input.getTimestampMs()) {
+          addressRelationMap.put(input.getIpUuid(),null);
+        }
+      }
+    }
+  }
+);
+  final List<S3ObjectKey> s3ObjectList=Lists.newLinkedList();
+  foreach(ReportingS3ObjectCreateEvent.class,new Callback<ReportingS3ObjectCreateEvent>(){
+    @Override public void fire(    final ReportingS3ObjectCreateEvent input){
+      s3ObjectList.add(new S3ObjectKey(input.getS3BucketName(),input.getS3ObjectKey(),input.getObjectVersion()));
+    }
+  }
+);
+  foreach(ReportingS3ObjectDeleteEvent.class,new Callback<ReportingS3ObjectDeleteEvent>(){
+    @Override public void fire(    final ReportingS3ObjectDeleteEvent input){
+      s3ObjectList.remove(new S3ObjectKey(input.getS3BucketName(),input.getS3ObjectKey(),input.getObjectVersion()));
+    }
+  }
+);
+  final Map<String,RelationTimestamp> volumeRelationMap=Maps.newHashMap();
+  foreach(ReportingVolumeCreateEvent.class,new Callback<ReportingVolumeCreateEvent>(){
+    @Override public void fire(    final ReportingVolumeCreateEvent input){
+      volumeRelationMap.put(input.getUuid(),null);
+    }
+  }
+);
+  foreach(ReportingVolumeDeleteEvent.class,new Callback<ReportingVolumeDeleteEvent>(){
+    @Override public void fire(    final ReportingVolumeDeleteEvent input){
+      volumeRelationMap.remove(input.getUuid());
+    }
+  }
+);
+  foreach(ReportingVolumeAttachEvent.class,new Callback<ReportingVolumeAttachEvent>(){
+    @Override public void fire(    final ReportingVolumeAttachEvent input){
+      if (volumeRelationMap.containsKey(input.getVolumeUuid())) {
+        RelationTimestamp rt=volumeRelationMap.get(input.getVolumeUuid());
+        if (rt == null || rt.timestamp < input.getTimestampMs()) {
+          volumeRelationMap.put(input.getVolumeUuid(),new RelationTimestamp(input.getInstanceUuid(),input.getTimestampMs()));
+        }
+      }
+    }
+  }
+);
+  foreach(ReportingVolumeDetachEvent.class,new Callback<ReportingVolumeDetachEvent>(){
+    @Override public void fire(    final ReportingVolumeDetachEvent input){
+      if (volumeRelationMap.containsKey(input.getVolumeUuid())) {
+        RelationTimestamp rt=volumeRelationMap.get(input.getVolumeUuid());
+        if (rt != null && rt.relationId.equals(input.getInstanceUuid()) && rt.timestamp < input.getTimestampMs()) {
+          volumeRelationMap.put(input.getVolumeUuid(),null);
+        }
+      }
+    }
+  }
+);
+  final List<String> snapshotList=Lists.newLinkedList();
+  foreach(ReportingVolumeSnapshotCreateEvent.class,new Callback<ReportingVolumeSnapshotCreateEvent>(){
+    @Override public void fire(    final ReportingVolumeSnapshotCreateEvent input){
+      snapshotList.add(input.getUuid());
+    }
+  }
+);
+  foreach(ReportingVolumeSnapshotDeleteEvent.class,new Callback<ReportingVolumeSnapshotDeleteEvent>(){
+    @Override public void fire(    final ReportingVolumeSnapshotDeleteEvent input){
+      snapshotList.remove(input.getUuid());
+    }
+  }
+);
+  final View view=new View();
+  for (  final Map.Entry<String,RelationTimestamp> addressEntry : addressRelationMap.entrySet()) {
+    view.add(Address.class,addressEntry.getKey(),addressEntry.getValue() == null ? null : addressEntry.getValue().relationId);
+  }
+  for (  final S3ObjectKey s3ObjectKey : s3ObjectList) {
+    view.add(ObjectInfo.class,ReportingDataVerifier.s3ObjectResource(s3ObjectKey));
+  }
+  for (  final Map.Entry<String,RelationTimestamp> volumeEntry : volumeRelationMap.entrySet()) {
+    view.add(Volume.class,volumeEntry.getKey(),volumeEntry.getValue() == null ? null : volumeEntry.getValue().relationId);
+  }
+  for (  final String snapshotUuid : snapshotList) {
+    view.add(Snapshot.class,snapshotUuid,null);
+  }
+  return view;
+}

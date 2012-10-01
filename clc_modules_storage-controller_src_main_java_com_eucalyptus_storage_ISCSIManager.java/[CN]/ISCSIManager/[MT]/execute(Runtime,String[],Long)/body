@@ -1,0 +1,36 @@
+{
+  Integer exitValue=null;
+  try {
+    Process process=runtime.exec(command);
+    StreamConsumer error=new StreamConsumer(process.getErrorStream());
+    StreamConsumer output=new StreamConsumer(process.getInputStream());
+    error.start();
+    output.start();
+    Callable<Integer> processMonitor=new ProcessMonitor(process);
+    Future<Integer> processController=service.submit(processMonitor);
+    try {
+      exitValue=processController.get(timeout,TimeUnit.MILLISECONDS);
+    }
+ catch (    TimeoutException tex) {
+      processController.cancel(true);
+      FaultSubsystem.forComponent(new Storage()).havingId(TGT_HOSED).withVar("component","Storage Controller").withVar("operation","Volume operation").log();
+      throw new EucalyptusCloudException("No response was received within the timeout for the process: " + buildCommand(command));
+    }
+    output.join();
+    String errorValue=error.getReturnValue();
+    if (errorValue.length() > 0) {
+      throw new EucalyptusCloudException(errorValue);
+    }
+    if (null != exitValue && exitValue != 0) {
+      throw new EucalyptusCloudException("Received non-zero exit value from the execution of: " + buildCommand(command));
+    }
+  }
+ catch (  Exception ex) {
+    if (ex instanceof EucalyptusCloudException) {
+      throw (EucalyptusCloudException)ex;
+    }
+ else {
+      throw new EucalyptusCloudException(ex);
+    }
+  }
+}

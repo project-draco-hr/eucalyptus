@@ -3,34 +3,21 @@
   if (user == null) {
     throw new RuntimeException("User was null");
   }
+  if (!user.isSystemAdmin()) {
+    throw new RuntimeException("Only admins can generate reports");
+  }
   final String reportType=Param.type.get(req);
-  final ReportFormat format=ReportFormat.valueOf(Param.format.get(req));
+  final ReportFormat format=ReportFormat.valueOf(Objects.firstNonNull(Param.format.get(req),"html"));
   final long start=Long.parseLong(Param.start.get(req));
   final long end=Long.parseLong(Param.end.get(req));
   final Period period=new Period(start,end);
-  final ReportingCriterion criterion=ReportingCriterion.valueOf(Param.criterion.get(req));
-  final Units displayUnits=Units.getDefaultDisplayUnits();
-  ReportingCriterion groupByCriterion=null;
-  String groupByParam=req.getParameter(Param.groupByCriterion.name());
-  if (groupByParam != null && !groupByParam.equalsIgnoreCase("NONE")) {
-    groupByCriterion=ReportingCriterion.valueOf(Param.groupByCriterion.get(req));
-  }
-  LOG.info(String.format("Params: type:%s format:%s period:%s" + "criterion:%s groupBy:%s",reportType,format,period,criterion,groupByCriterion));
+  LOG.info(String.format("Params: type:%s format:%s period:%s",reportType,format,period));
   setContentTypeHeader(res,format,Param.type.get(req));
-  if (user.isSystemAdmin()) {
-    ReportGenerator.getInstance().generateReport(reportType,format,period,criterion,groupByCriterion,displayUnits,res.getOutputStream(),null);
+  try {
+    String report=ReportGenerationFacade.generateReport(reportType,format.name(),period.getBeginningMs(),period.getEndingMs());
+    res.getWriter().print(report);
   }
- else   if (user.isAccountAdmin()) {
-    String accountId;
-    try {
-      accountId=user.getAccount().getAccountNumber();
-    }
- catch (    AuthException aex) {
-      throw new RuntimeException("Auth failed");
-    }
-    ReportGenerator.getInstance().generateReport(reportType,format,period,criterion,groupByCriterion,displayUnits,res.getOutputStream(),accountId);
-  }
- else {
-    throw new RuntimeException("Only admins and account owners can generate reports");
+ catch (  ReportGenerationFacade.ReportGenerationException e) {
+    LOG.error(e,e);
   }
 }
