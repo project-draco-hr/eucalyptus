@@ -12,16 +12,21 @@
     long snapshotSize=(size * StorageProperties.GB) / 2;
     String rawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId+ Hashes.getRandom(6);
     volumeManager.finish();
-    volumeManager=null;
     try {
       String absoluteVolLVName=lvmRootDirectory + PATH_SEPARATOR + foundLVMVolumeInfo.getVgName()+ PATH_SEPARATOR+ foundLVMVolumeInfo.getLvName();
       String volLoDevName=foundLVMVolumeInfo.getLoDevName();
-      boolean volumeIsMounted=true;
+      boolean tearDown=false;
       if (!logicalVolumeExists(absoluteVolLVName)) {
         volLoDevName=createLoopback(DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId);
         enableLogicalVolume(absoluteVolLVName);
-        volumeIsMounted=false;
+        tearDown=true;
       }
+      snapshotInfo.setStatus(StorageProperties.Status.pending.toString());
+      snapshotInfo.setSize(size);
+      snapshotInfo.setSnapshotOf(volumeId);
+      volumeManager=new VolumeEntityWrapperManager();
+      volumeManager.add(snapshotInfo);
+      volumeManager.finish();
       String loDevName=createLoopback(rawFileName,snapshotSize);
       createSnapshotLogicalVolume(loDevName,vgName,absoluteLVName,lvName);
       String snapRawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + snapshotId;
@@ -43,18 +48,18 @@
       if (!(new File(rawFileName)).delete()) {
         LOG.error("Unable to remove temporary snapshot file: " + rawFileName);
       }
-      snapshotInfo.setLoFileName(snapRawFileName);
-      snapshotInfo.setStatus(StorageProperties.Status.available.toString());
-      snapshotInfo.setSize(size);
-      returnValues.add(snapRawFileName);
-      returnValues.add(String.valueOf(size * WalrusProperties.G));
-      volumeManager=new VolumeEntityWrapperManager();
-      volumeManager.add(snapshotInfo);
-      volumeManager.finish();
-      if (!volumeIsMounted) {
+      if (tearDown) {
+        LOG.info("Snapshot complete. Detaching loop device" + volLoDevName);
         disableLogicalVolume(absoluteVolLVName);
         removeLoopback(volLoDevName);
       }
+      returnValues.add(snapRawFileName);
+      returnValues.add(String.valueOf(size * WalrusProperties.G));
+      volumeManager=new VolumeEntityWrapperManager();
+      LVMVolumeInfo foundSnapshotInfo=volumeManager.getVolumeInfo(snapshotId);
+      foundSnapshotInfo.setLoFileName(snapRawFileName);
+      foundSnapshotInfo.setStatus(StorageProperties.Status.available.toString());
+      volumeManager.finish();
     }
  catch (    EucalyptusCloudException ex) {
       if (volumeManager != null)       volumeManager.abort();
