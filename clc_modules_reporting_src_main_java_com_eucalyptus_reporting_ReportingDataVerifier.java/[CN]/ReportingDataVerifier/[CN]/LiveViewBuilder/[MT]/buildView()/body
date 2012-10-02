@@ -1,0 +1,41 @@
+{
+  try {
+    final View view=new View();
+    for (    final Address address : Iterables.concat(Addresses.getInstance().listValues(),Addresses.getInstance().listDisabledValues())) {
+      if (address.isAllocated() && !address.isSystemOwned()) {
+        final String id=address.getNaturalId();
+        String relatedId=null;
+        if (address.isAssigned()) {
+          relatedId=address.getInstanceUuid();
+        }
+        view.add(Address.class,id,relatedId);
+      }
+    }
+    for (    final ObjectInfo objectInfo : Transactions.findAll(new ObjectInfo())) {
+      if (Boolean.FALSE.equals(objectInfo.getDeleted())) {
+        view.add(ObjectInfo.class,s3ObjectResource(objectInfo.getBucketName(),objectInfo.getObjectKey(),objectInfo.getVersionId()));
+      }
+    }
+    for (    final Volume volume : Transactions.findAll(Volume.named(null,null))) {
+      if (volume.isReady()) {
+        final String id=volume.getNaturalId();
+        String relatedId=null;
+        try {
+          relatedId=VmInstances.lookupVolumeAttachment(volume.getDisplayName()).getVmInstance().getInstanceId();
+        }
+ catch (        NoSuchElementException ex1) {
+        }
+        view.add(Volume.class,id,relatedId);
+      }
+    }
+    for (    final Snapshot snapshot : Transactions.findAll(Snapshot.named(null,null))) {
+      if (EnumSet.of(State.EXTANT,State.BUSY).contains(snapshot.getState())) {
+        view.add(Snapshot.class,snapshot.getNaturalId(),null);
+      }
+    }
+    return view;
+  }
+ catch (  TransactionException e) {
+    throw Exceptions.toUndeclared(e);
+  }
+}

@@ -7,9 +7,7 @@
       List<SnapshotInfo> foundSnapshotInfos=db.query(snapshotInfo);
       if (foundSnapshotInfos.size() == 0) {
         db.commit();
-        if (blockManager.getFromBackend(snapshotId)) {
-        }
- else {
+        if (!blockManager.getFromBackend(snapshotId)) {
           int sizeExpected;
           if (size <= 0) {
             sizeExpected=getSnapshotSize(snapshotId);
@@ -20,6 +18,9 @@
           String snapDestination=blockManager.prepareSnapshot(snapshotId,sizeExpected);
           if (snapDestination != null) {
             getSnapshot(snapshotId,snapDestination);
+          }
+ else {
+            LOG.warn("Block Manager replied that " + snapshotId + " not on backend, but snapshot preparation indicated that the snapshot is already present");
           }
         }
         db=StorageProperties.getEntityWrapper();
@@ -73,7 +74,7 @@
         if (StorageProperties.shouldEnforceUsageLimits && StorageProperties.trackUsageStatistics) {
           int totalVolumeSize=(int)(blockStorageStatistics.getTotalSpaceUsed() / StorageProperties.GB);
           if ((totalVolumeSize + size) > StorageInfo.getStorageInfo().getMaxTotalVolumeSizeInGb() || (size > StorageInfo.getStorageInfo().getMaxVolumeSizeInGB())) {
-            LOG.error("Volume size limit exceeeded");
+            LOG.error("Max Total Volume size limit exceeded creating " + volumeId + ". Removing volume and cancelling operation");
             db.commit();
             checker.cleanFailedVolume(volumeId);
             return;
