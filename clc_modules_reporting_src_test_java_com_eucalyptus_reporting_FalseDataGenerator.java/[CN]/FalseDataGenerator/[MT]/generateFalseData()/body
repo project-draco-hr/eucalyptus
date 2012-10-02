@@ -1,5 +1,5 @@
 {
-  System.out.println(" ----> GENERATING FALSE DATA");
+  log.debug(" ----> GENERATING FALSE DATA");
   int uniqueUserId=0;
   int uniqueAccountId=0;
   int uniqueClusterId=0;
@@ -14,7 +14,7 @@
         String accountName="account-" + uniqueAccountId;
         ReportingAccountCrud.getInstance().createOrUpdateAccount(accountId,accountName);
         for (int userNum=0; userNum < NUM_USERS_PER_ACCOUNT; userNum++) {
-          System.out.printf("Generating usage for user %d",userNum);
+          log.debug(String.format("Generating usage for user %d\n",userNum));
           String user="user-" + userNum;
           uniqueUserId++;
           List<Attachment> attachments=new ArrayList<Attachment>();
@@ -30,56 +30,74 @@
           String instanceUuid="(none)";
           String volumeUuid="(none)";
           String elasticIpUuid="(none)";
-          String bucketUuid="(none)";
+          String bucketName="(none)";
           int createdInstanceNum=0;
           for (int periodNum=0; periodNum < NUM_PERIODS; periodNum++) {
-            System.out.printf(" Generating usage for period %d",periodNum);
+            log.debug(String.format(" Generating usage for period %d\n",periodNum));
             long timeMs=START_TIME + (PERIOD_DURATION * periodNum);
             if (periodNum % NUM_PERIODS_PER_ENTITY == 0) {
               int typeNum=createdInstanceNum % FalseInstanceType.values().length;
               FalseInstanceType type=FalseInstanceType.values()[typeNum];
               instanceUuid=String.format(UUID_FORMAT,uniqueUserId,instanceUuidNum++);
-              ReportingInstanceEventStore.getInstance().insertCreateEvent(instanceUuid,timeMs,("i-" + userNum + "-"+ periodNum),type.toString(),user,cluster,availZone);
+              log.debug(String.format("  Generating instance uuid %s\n",instanceUuid));
+              ReportingInstanceEventStore.getInstance().insertCreateEvent(instanceUuid,timeMs,("i-" + userNum + "-"+ periodNum),type.toString(),userId,userName,accountName,accountId,availZone);
               createdInstanceNum++;
               volumeUuid=String.format(UUID_FORMAT,uniqueUserId,volumeUuidNum++);
-              ReportingVolumeEventStore.getInstance().insertCreateEvent(volumeUuid,("vol-" + userNum + "-"+ periodNum),timeMs,user,availZone,VOLUME_SIZE);
+              log.debug(String.format("  Generating volume uuid %s\n",volumeUuid));
+              ReportingVolumeEventStore.getInstance().insertCreateEvent(volumeUuid,("vol-" + userNum + "-"+ periodNum),timeMs,userId,availZone,VOLUME_SIZE);
               elasticIpUuid=String.format(UUID_FORMAT,uniqueUserId,elasticIpUuidNum++);
+              log.debug(String.format("  Generating elastic ip uuid %s\n",elasticIpUuid));
               String ip=String.format("%d.%d.%d.%d",(userNum >> 8) % 256,userNum % 256,(periodNum >> 8) % 256,periodNum % 256);
-              ReportingElasticIpEventStore.getInstance().insertCreateEvent(elasticIpUuid,timeMs,user,ip);
+              ReportingElasticIpEventStore.getInstance().insertCreateEvent(elasticIpUuid,timeMs,userId,ip);
             }
             if (periodNum % NUM_PERIODS_PER_SNAPSHOT == 0) {
               String uuid=String.format(UUID_FORMAT,uniqueUserId,snapshotUuidNum++);
-              ReportingVolumeSnapshotEventStore.getInstance().insertCreateEvent(uuid,("snap-" + userNum + "-"+ periodNum),timeMs,user,SNAPSHOT_SIZE);
+              log.debug(String.format("  Generating snapshot uuid %s\n",uuid));
+              ReportingVolumeSnapshotEventStore.getInstance().insertCreateEvent(uuid,volumeUuid,("snap-" + userNum + "-"+ periodNum),timeMs,userId,SNAPSHOT_SIZE);
             }
             if (periodNum % NUM_PERIODS_PER_BUCKET == 0) {
-              bucketUuid=String.format(UUID_FORMAT,uniqueUserId,bucketUuidNum++);
-              ReportingS3BucketEventStore.getInstance().insertS3BucketCreateEvent(bucketUuid,BUCKET_SIZE,user,timeMs);
+              bucketName="bucket-" + bucketUuidNum++;
             }
             if (periodNum % NUM_PERIODS_PER_OBJECT == 0) {
               String uuid=String.format(UUID_FORMAT,uniqueUserId,objectUuidNum++);
-              ReportingS3ObjectEventStore.getInstance().insertS3ObjectCreateEvent(bucketUuid,uuid,OBJECT_SIZE,timeMs,user);
+              log.debug(String.format("  Generating object uuid %s\n",uuid));
+              ReportingS3ObjectEventStore.getInstance().insertS3ObjectCreateEvent(bucketName,uuid,"0",OBJECT_SIZE,timeMs,userId);
             }
+            double oneMB=1024d * 11024d;
             for (long i=INSTANCE_UUID_START; i < instanceUuidNum - 2; i++) {
               String uuid=String.format(UUID_FORMAT,uniqueUserId,i);
-              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,INSTANCE_CUMULATIVE_DISK_USAGE_PER_PERIOD,INSTANCE_CPU_UTILIZATION_PER_PERIOD,INSTANCE_CUMULATIVE_NET_INCOMING_BETWEEN_USAGE_PER_PERIOD,INSTANCE_CUMULATIVE_NET_INCOMING_WITHIN_PER_PERIOD,INSTANCE_CUMULATIVE_NET_INCOMING_PUBLIC_PER_PERIOD,INSTANCE_CUMULATIVE_NET_OUTGOING_BETWEEN_USAGE_PER_PERIOD,INSTANCE_CUMULATIVE_NET_OUTGOING_WITHIN_PER_PERIOD,INSTANCE_CUMULATIVE_NET_OUTGOING_PUBLIC_PER_PERIOD);
+              log.debug(String.format("  Generating instance usage uuid %s\n",uuid));
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","NetworkIn",0,"total",oneMB * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","NetworkIn",0,"internal",oneMB * 2 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","NetworkOut",0,"total",oneMB * 3 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","NetworkOut",0,"internal",oneMB * 4 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","DiskReadBytes",0,"root",oneMB * 5 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","DiskWriteBytes",0,"root",oneMB * 6 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","DiskReadBytes",0,"ephemeral0",oneMB * 7 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","DiskWriteBytes",0,"ephemeral0",oneMB * 8 * periodNum,timeMs);
+              ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"","CPUUtilizationMs",0,"default",(double)(PERIOD_DURATION / 2),timeMs);
             }
             for (long i=VOLUME_UUID_START; i < volumeUuidNum - 2; i++) {
               String uuid=String.format(UUID_FORMAT,uniqueUserId,i);
+              log.debug(String.format("  Generating volume usage uuid %s\n",uuid));
               ReportingVolumeEventStore.getInstance().insertUsageEvent(uuid,timeMs,VOLUME_CUMULATIVE_READ_PER_PERIOD,VOLUME_CUMULATIVE_WRITTEN_PER_PERIOD);
             }
             for (long i=OBJECT_UUID_START; i < objectUuidNum - 2; i++) {
               String uuid=String.format(UUID_FORMAT,uniqueUserId,i);
-              long bucketNum=i / (NUM_PERIODS_PER_OBJECT / NUM_PERIODS_PER_BUCKET);
-              bucketUuid=String.format(UUID_FORMAT,uniqueUserId,bucketNum);
-              ReportingS3ObjectEventStore.getInstance().insertS3ObjectUsageEvent(bucketUuid,uuid,OBJECT_SIZE,timeMs,user);
+              long bucketNum=i / (NUM_PERIODS_PER_BUCKET / NUM_PERIODS_PER_OBJECT);
+              bucketName=String.format(UUID_FORMAT,uniqueUserId,bucketNum);
+              log.debug(String.format("  Generating object usage, bucket uuid %s, object uuid %s\n",bucketName,uuid));
+              ReportingS3ObjectEventStore.getInstance().insertS3ObjectUsageEvent(bucketName,uuid,"0",OBJECT_SIZE,timeMs,userId);
             }
             ReportingVolumeEventStore.getInstance().insertAttachEvent(volumeUuid,instanceUuid,VOLUME_SIZE,timeMs);
             ReportingElasticIpEventStore.getInstance().insertAttachEvent(elasticIpUuid,instanceUuid,timeMs);
+            log.debug(String.format("  Attaching volume %s and ip %s to instance %s\n",volumeUuid,elasticIpUuid,instanceUuid));
             attachments.add(new Attachment(instanceUuid,volumeUuid,elasticIpUuid));
             if (attachments.size() >= ATTACH_PERIODS_DURATION) {
               Attachment attachment=attachments.remove(0);
               ReportingVolumeEventStore.getInstance().insertDetachEvent(attachment.getVolumeUuid(),attachment.getInstanceUuid(),VOLUME_SIZE,timeMs);
               ReportingElasticIpEventStore.getInstance().insertDetachEvent(attachment.getElasticIpUuid(),attachment.getInstanceUuid(),timeMs);
+              log.debug(String.format("  Detaching volume %s and ip %s to instance %s\n",attachment.getVolumeUuid(),attachment.getElasticIpUuid(),attachment.getInstanceUuid()));
             }
           }
         }
