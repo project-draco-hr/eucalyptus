@@ -35,45 +35,38 @@
     }
   }
 );
-  final Map<InstanceMetricDimensionKey,TimestampValueAccumulator> accumulators=new HashMap<InstanceMetricDimensionKey,TimestampValueAccumulator>();
+  final Map<InstanceMetricDimensionKey,MetricPrevData> prevDataMap=new HashMap<InstanceMetricDimensionKey,MetricPrevData>();
   foreachInstanceUsageEvent(report.getBeginMs() - USAGE_SEARCH_PERIOD,report.getEndMs() + USAGE_SEARCH_PERIOD,new Predicate<ReportingInstanceUsageEvent>(){
-    @Override public boolean apply(    final ReportingInstanceUsageEvent usageEvent){
-      InstanceMetricDimensionKey key=new InstanceMetricDimensionKey(usageEvent.getUuid(),usageEvent.getMetric(),usageEvent.getDimension());
-      if (!accumulators.containsKey(key)) {
-        accumulators.put(key,new TimestampValueAccumulator(report.getBeginMs(),report.getEndMs()));
+    @Override public boolean apply(    final ReportingInstanceUsageEvent event){
+      final InstanceMetricDimensionKey key=new InstanceMetricDimensionKey(event.getUuid(),event.getMetric(),event.getDimension());
+      final long eventMs=event.getTimestampMs();
+      if (event.getValue() == null)       return true;
+      final InstanceUsageArtEntity usageEntity=usageEntities.get(event.getUuid());
+      if (usageEntity == null)       return true;
+      if (!prevDataMap.containsKey(key)) {
+        if (instanceStartTimes.containsKey(event.getUuid())) {
+          Double fractionalVal=fractionalUsage(report.getBeginMs(),report.getEndMs(),instanceStartTimes.get(event.getUuid()),eventMs,event.getValue());
+          addMetricValueToUsageEntity(usageEntity,event.getMetric(),event.getDimension(),fractionalVal);
+        }
+        prevDataMap.put(key,new MetricPrevData(eventMs,eventMs,event.getValue()));
       }
-      if (usageEvent.getValue() != null) {
-        TimestampValue tv=new TimestampValue(usageEvent.getTimestampMs(),usageEvent.getValue());
-        accumulators.get(key).addTimestampValue(tv);
-      }
-      if (instanceStartTimes.containsKey(usageEvent.getUuid()) && (accumulators.get(key).lastBeforeBeginning == null || accumulators.get(key).firstAfterBeginning == null)) {
-        accumulators.get(key).addTimestampValue(new TimestampValue(instanceStartTimes.get(usageEvent.getUuid()),0d));
+ else {
+        final MetricPrevData prevData=prevDataMap.get(key);
+        usageEntity.setDurationMs(Math.max(usageEntity.getDurationMs(),overlap(report.getBeginMs(),report.getEndMs(),prevData.firstMs,eventMs)));
+        if (prevData.lastVal < event.getValue()) {
+          Double fractionalVal=fractionalUsage(report.getBeginMs(),report.getEndMs(),prevData.lastMs,eventMs,event.getValue());
+          addMetricValueToUsageEntity(usageEntity,event.getMetric(),event.getDimension(),fractionalVal);
+        }
+ else {
+          Double fractionalVal=fractionalUsage(report.getBeginMs(),report.getEndMs(),prevData.lastMs,eventMs,event.getValue() - prevData.lastVal);
+          addMetricValueToUsageEntity(usageEntity,event.getMetric(),event.getDimension(),fractionalVal);
+        }
+        prevDataMap.put(key,new MetricPrevData(prevData.firstMs,eventMs,event.getValue()));
       }
       return true;
     }
   }
 );
-  for (  InstanceMetricDimensionKey key : accumulators.keySet()) {
-    TimestampValueAccumulator acc=accumulators.get(key);
-    if (acc.firstAfterBeginning == null || acc.lastBeforeEnd == null)     continue;
-    double val=0;
-    val+=(acc.lastBeforeEnd.val - acc.firstAfterBeginning.val);
-    if (acc.lastBeforeBeginning != null) {
-      long durationMs=acc.firstAfterBeginning.timeMs - acc.lastBeforeBeginning.timeMs;
-      double factor=((double)acc.firstAfterBeginning.timeMs - report.getBeginMs()) / durationMs;
-      val+=(acc.firstAfterBeginning.val - acc.lastBeforeBeginning.val) * factor;
-    }
-    if (acc.firstAfterEnd != null) {
-      long durationMs=acc.firstAfterEnd.timeMs - acc.lastBeforeEnd.timeMs;
-      double factor=((double)report.getEndMs() - acc.lastBeforeEnd.timeMs) / durationMs;
-      val+=(acc.firstAfterEnd.val - acc.lastBeforeEnd.val) * factor;
-    }
-    InstanceUsageArtEntity usageEntity=usageEntities.get(key.instanceUuid);
-    addMetricValueToUsageEntity(usageEntity,key.metric,key.dimension,val);
-    long startMs=acc.lastBeforeBeginning != null ? report.getBeginMs() : acc.firstAfterBeginning.timeMs;
-    long endMs=acc.firstAfterEnd != null ? report.getEndMs() : acc.lastBeforeEnd.timeMs;
-    usageEntity.setDurationMs(Math.max(usageEntity.getDurationMs(),endMs - startMs));
-  }
   for (  final AvailabilityZoneArtEntity zone : report.getZones().values()) {
     final UsageTotalsArtEntity zoneUsage=zone.getUsageTotals();
     for (    final AccountArtEntity account : zone.getAccounts().values()) {
