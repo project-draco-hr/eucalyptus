@@ -6,8 +6,9 @@
     }
   }
 );
-  return transactional(new Callable<ReportingExport>(){
-    @Override public ReportingExport call() throws Exception {
+  resetStats();
+  return transactional(new Callable<ImportResult>(){
+    @Override public ImportResult call() throws Exception {
       ReportingExport.setLoadListenerSupplier(Suppliers.<ReportingExportLoadListener>ofInstance(new ReportingExportLoadListener(){
         private final Set<String> userIds=Sets.newHashSet();
         private final Set<String> accountIds=Sets.newHashSet();
@@ -32,6 +33,9 @@
         }
         private <T>void add(        final T item,        final Function<T,ReportingEventSupport> transform){
           final ReportingEventSupport event=transform.apply(item);
+          count++;
+          minTimestamp=Math.min(minTimestamp,event.getTimestampMs());
+          maxTimestamp=Math.max(maxTimestamp,event.getTimestampMs());
           merge(event);
         }
       }
@@ -39,7 +43,8 @@
       final String bindingName="www_eucalyptus_com_ns_reporting_export_2012_08_24";
       BindingManager.seedBinding(bindingName,ReportingExport.class);
       final Binding binding=BindingManager.getBinding(bindingName);
-      return binding.fromStream(ReportingExport.class,new BufferedInputStream(in));
+      binding.fromStream(ReportingExport.class,new BufferedInputStream(in));
+      return getStats();
     }
   }
 );
