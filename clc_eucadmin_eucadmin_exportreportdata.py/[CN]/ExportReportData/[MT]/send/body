@@ -1,0 +1,25 @@
+def send(self, verb='GET', **args):
+    self.process_args(**args)
+    self.process_filters()
+    conn = self.get_connection(**self.connection_args)
+    self.http_response = conn.make_request(self.name(), self.request_params, verb=verb)
+    if (self.http_response.status == 200):
+        if (self.http_response.getheader('Content-Encoding', 'identity') == 'gzip'):
+            source = GzipFile(fileobj=self.http_response)
+        else:
+            source = self.http_response
+        if (self.file is not None):
+            f = open(self.file, 'w')
+            self.body = self.write_export(f, source)
+            f.close()
+        else:
+            self.body = self.write_export(sys.stdout, source)
+        boto.log.debug(self.body)
+        self.aws_response = boto.jsonresponse.Element(list_marker=self.list_markers, item_marker=self.item_markers)
+        h = boto.jsonresponse.XmlHandler(self.aws_response, self)
+        self.parse(h, StringIO(self.body))
+        return self.aws_response
+    else:
+        boto.log.error(('%s %s' % (self.http_response.status, self.http_response.reason)))
+        boto.log.error(('%s' % self.body))
+        raise conn.ResponseError(self.http_response.status, self.http_response.reason, self.body)
