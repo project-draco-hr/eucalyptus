@@ -2,14 +2,18 @@
   if (log.isDebugEnabled()) {
     log.debug("Received instance usage event:" + event);
   }
-  try {
-    final ReportingInstanceEventStore eventStore=getReportingInstanceEventStore();
-    eventStore.insertUsageEvent(event.getUuid(),event.getValueTimestamp(),event.getMetric(),event.getSequenceNum(),event.getDimension(),event.getValue());
+  if (lastEvent.getInstanceId().equals("-1")) {
+    queueEvent(event);
+    lastEvent=new InstanceUsageEvent(event.getUuid(),event.getInstanceId(),event.getMetric(),event.getSequenceNum(),event.getDimension(),event.getValue(),event.getValueTimestamp());
   }
- catch (  ConstraintViolationException ex) {
-    log.debug(ex,ex);
+ else   if (lastEvent.getInstanceId().equals(event.getInstanceId()) && !lastEvent.getMetric().equals(event.getMetric()) && !lastEvent.getDimension().equals(event.getDimension())&& lastEvent.getValue() != event.getValue()) {
+    queueEvent(event);
+    lastEvent=new InstanceUsageEvent("-1","-1","-1",-1L,"-1",-1D,-1L);
   }
-catch (  Exception ex) {
-    log.error(ex,ex);
+ else {
+    log.debug("Instance Usage Event : " + event.getInstanceId() + " : "+ event.getValue()+ "has already been record.");
+  }
+  if (checkEventQueue()) {
+    flushEventQueue();
   }
 }
