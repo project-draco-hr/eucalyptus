@@ -1,61 +1,13 @@
 {
-  if (param == null) {
-    throw new BindingException("Cannot bind null value");
-  }
- else   if (!(param instanceof IMarshallable)) {
-    throw new BindingException("No JiBX <mapping> defined for class " + param.getClass());
-  }
-  final OMFactory factory=HoldMe.getOMFactory();
-  final IMarshallable mrshable=(IMarshallable)param;
-  final String fqName=mrshable.JiBX_getName();
-  if (this.bindingFactory == null) {
-    LOG.error("Binding factory is empty");
-    throw new BindingException("Failed to prepare binding factory for message: " + param.getClass().getCanonicalName() + " with namespace: "+ altNs);
-  }
-  if (this.bindingFactory.getElementNamespaces() == null) {
-    LOG.error("Binding factory's element namespace is empty");
-    throw new BindingException("Failed to prepare binding factory for message: " + param.getClass().getCanonicalName() + " with namespace: "+ altNs);
-  }
-  final String origNs=this.classToNamespaceMap.get(fqName);
-  final String useNs=altNs != null ? altNs : origNs;
   final ByteArrayOutputStream bos=new ByteArrayOutputStream();
+  final String useNs=toStream(bos,param,altNs);
   final OMElement retVal;
   HoldMe.canHas.lock();
   try {
-    final IMarshallingContext mctx=this.bindingFactory.createMarshallingContext();
-    final XMLStreamWriter wrtr=HoldMe.getXMLOutputFactory().createXMLStreamWriter(bos,null);
-    final StAXWriter staxWriter=new StAXWriter(this.bindingFactory.getNamespaces(),wrtr);
-    mctx.setXmlWriter(staxWriter);
-    mctx.marshalDocument(param);
-    mctx.getXmlWriter().flush();
-    final OMNamespace appns=factory.createOMNamespace(origNs,"");
-    final OMDataSource inds=new InputStreamDataSource(new ByteArrayInputStream(bos.toByteArray()),altNs);
-    if (origNs.equals(altNs) || altNs == null) {
-      final StAXOMBuilder stAXOMBuilder=HoldMe.getStAXOMBuilder(HoldMe.getXMLStreamReader(bos.toString()));
-      retVal=stAXOMBuilder.getDocumentElement();
-    }
- else {
-      String retString=bos.toString();
-      retString=retString.replaceAll(origNs,altNs);
-      HoldMe.canHas.lock();
-      try {
-        final StAXOMBuilder stAXOMBuilder=HoldMe.getStAXOMBuilder(HoldMe.getXMLStreamReader(retString));
-        retVal=stAXOMBuilder.getDocumentElement();
-      }
-  finally {
-        HoldMe.canHas.unlock();
-      }
-    }
+    final StAXOMBuilder stAXOMBuilder=HoldMe.getStAXOMBuilder(HoldMe.getXMLStreamReader(bos.toString()));
+    retVal=stAXOMBuilder.getDocumentElement();
   }
  catch (  XMLStreamException e) {
-    LOG.error(e,e);
-    throw new BindingException(this.name + " failed to marshall type " + param.getClass().getCanonicalName()+ " with ns:"+ useNs+ " caused by: "+ e.getMessage(),e);
-  }
-catch (  JiBXException e) {
-    LOG.error(e,e);
-    throw new BindingException(this.name + " failed to marshall type " + param.getClass().getCanonicalName()+ " with ns:"+ useNs+ " caused by: "+ e.getMessage(),e);
-  }
-catch (  IOException e) {
     LOG.error(e,e);
     throw new BindingException(this.name + " failed to marshall type " + param.getClass().getCanonicalName()+ " with ns:"+ useNs+ " caused by: "+ e.getMessage(),e);
   }

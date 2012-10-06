@@ -1,0 +1,33 @@
+{
+  final Context context=Contexts.lookup();
+  final Channel channel=context.getChannel();
+  final RestfulMarshallingHandler handler=channel.getPipeline().get(RestfulMarshallingHandler.class);
+  final DefaultHttpResponse httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.OK);
+  final EncodingWrapper wrapper=getEncodingWrapper();
+  wrapper.writeHeaders(httpResponse);
+  try {
+    httpResponse.addHeader(HttpHeaders.Names.TRANSFER_ENCODING,HttpHeaders.Values.CHUNKED);
+    httpResponse.addHeader(HttpHeaders.Names.CONTENT_TYPE,"application/xml; charset=UTF-8");
+    final OutputStream outputStream=wrapper.wrapOutput(new BufferedOutputStream(new OutputStream(){
+      @Override public void write(      final int b) throws IOException {
+        write(new byte[]{(byte)b},0,1);
+      }
+      @Override public void write(      final byte[] b,      final int off,      final int len) throws IOException {
+        final ChannelFuture future=Channels.write(channel,new DefaultHttpChunk(ChannelBuffers.copiedBuffer(b,off,len)));
+        if (!future.awaitUninterruptibly().isSuccess()) {
+          throw new IOException(future.getCause());
+        }
+      }
+      @Override public void flush() throws IOException {
+      }
+    }
+));
+    Channels.write(channel,httpResponse);
+    handler.binding.toStream(outputStream,message);
+    outputStream.close();
+    Channels.write(channel,HttpChunk.LAST_CHUNK);
+  }
+ catch (  final Exception e) {
+    LOG.error("Error streaming response",e);
+  }
+}

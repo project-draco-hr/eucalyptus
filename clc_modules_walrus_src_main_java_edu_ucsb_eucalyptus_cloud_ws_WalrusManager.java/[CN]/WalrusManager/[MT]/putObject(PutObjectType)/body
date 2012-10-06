@@ -34,6 +34,7 @@
       }
       String objectName=null;
       String versionId=null;
+      Long oldObjectSize=0L;
       ObjectInfo objectInfo=null;
       if (bucket.isVersioningEnabled()) {
         objectInfo=new ObjectInfo(bucketName,objectKey);
@@ -60,6 +61,7 @@
             throw new AccessDeniedException("Key",objectKey,logData);
           }
           objectName=foundObject.getObjectName();
+          oldObjectSize=foundObject.getSize();
         }
  catch (        AccessDeniedException ex) {
           throw ex;
@@ -100,7 +102,7 @@ synchronized (monitor) {
               if (fileIO != null) {
                 fileIO.finish();
               }
-              ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,-1L,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
+              ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,null,null,-1L,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
               Threads.lookup(Walrus.class,WalrusManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
               LOG.info("Transfer interrupted: " + key);
               messenger.removeQueue(key,randomKey);
@@ -140,7 +142,7 @@ synchronized (monitor) {
                 if (fileIO != null) {
                   fileIO.finish();
                 }
-                ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,-1L,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
+                ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,null,null,-1L,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
                 Threads.lookup(Walrus.class,WalrusManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
                 messenger.removeQueue(key,randomKey);
                 LOG.error("ETag did not match for: " + randomKey + " Expected: "+ contentMD5AsHex+ " Computed: "+ md5);
@@ -299,6 +301,7 @@ synchronized (monitor) {
             messenger.clearQueues(key);
             messenger.removeQueue(key,randomKey);
             LOG.info("Transfer complete: " + key);
+            fireObjectCreationEvent(bucketName,objectKey,versionId,ctx.getUser().getUserId(),size,oldObjectSize);
             break;
           }
  else {
