@@ -11,6 +11,9 @@ def post(self):
     self.user_session.session_lifetime_requests += 1
     try:
         action = self.get_argument('Action')
+        if (action.find('Describe') == (-1)):
+            self.user_session.session_last_used = time.time()
+            self.check_xsrf_cookie()
         if (action == 'RunInstances'):
             user_data_file = []
             try:
@@ -21,6 +24,22 @@ def post(self):
                 ret = self.handleRunInstances(action, self.user_session.clc, user_data_file[0].body)
             else:
                 ret = self.handleRunInstances(action, self.user_session.clc, None)
+        elif (action == 'DescribeAvailabilityZones'):
+            ret = self.user_session.clc.get_all_zones()
+        elif (action.find('Image') > (-1)):
+            ret = self.handleImages(action, self.user_session.clc)
+        elif ((action.find('Instance') > (-1)) or (action == 'GetConsoleOutput')):
+            ret = self.handleInstances(action, self.user_session.clc)
+        elif (action.find('Address') > (-1)):
+            ret = self.handleAddresses(action, self.user_session.clc)
+        elif (action.find('KeyPair') > (-1)):
+            ret = self.handleKeypairs(action, self.user_session.clc)
+        elif (action.find('SecurityGroup') > (-1)):
+            ret = self.handleGroups(action, self.user_session.clc)
+        elif (action.find('Volume') > (-1)):
+            ret = self.handleVolumes(action, self.user_session.clc)
+        elif (action.find('Snapshot') > (-1)):
+            ret = self.handleSnapshots(action, self.user_session.clc)
         elif (action == 'GetPassword'):
             instanceid = self.get_argument('InstanceId')
             passwd_data = self.user_session.clc.get_password_data(instanceid)
@@ -28,7 +47,8 @@ def post(self):
             user_priv_key = RSA.load_key_string(priv_key_file[0].body)
             string_to_decrypt = base64.b64decode(passwd_data)
             ret = user_priv_key.private_decrypt(string_to_decrypt, RSA.pkcs1_padding)
-            ret = Response({'instance': instanceid, 'password': ret, })
+            ret = {'instance': instanceid, 'password': ret, }
+        ret = Response(ret)
         data = json.dumps(ret, cls=BotoJsonEncoder, indent=2)
         self.write(data)
     except EC2ResponseError as err:
