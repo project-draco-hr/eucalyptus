@@ -1,31 +1,48 @@
 {
-  VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
-  List<LVMVolumeInfo> volumes=volumeManager.getAllVolumeInfos();
-  for (  LVMVolumeInfo foundLVMVolumeInfo : volumes) {
-    LOG.info("CHECKING VOL: " + foundLVMVolumeInfo.getVolumeId() + " FOR CLEANUP");
-    exportManager.cleanup(foundLVMVolumeInfo);
-    String loDevName=foundLVMVolumeInfo.getLoDevName();
-    String vgName=foundLVMVolumeInfo.getVgName();
-    String lvName=foundLVMVolumeInfo.getLvName();
-    String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
-    LVMVolumeInfo volumeInfo=new LVMVolumeInfo();
-    volumeInfo.setSnapshotOf(foundLVMVolumeInfo.getVolumeId());
-    volumeInfo.setStatus(StorageProperties.Status.pending.toString());
-    LVMVolumeInfo snapshotInfo=volumeManager.getVolumeInfo(volumeInfo);
-    if (snapshotInfo == null) {
-      LOG.info("Detaching loop device: " + loDevName);
-      try {
-        disableLogicalVolume(absoluteLVName);
-        removeLoopback(loDevName);
-        foundLVMVolumeInfo.setLoDevName(null);
-      }
- catch (      EucalyptusCloudException e) {
-        LOG.error(e,e);
-      }
-    }
+  try {
+    VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
+    List<LVMVolumeInfo> volumes=volumeManager.getAllVolumeInfos();
+    volumeManager.abort();
+    for (    LVMVolumeInfo foundLVMVolumeInfo : volumes) {
+      if (foundLVMVolumeInfo.getCleanup()) {
+        try {
+          exportManager.cleanup(foundLVMVolumeInfo);
+        }
+ catch (        EucalyptusCloudException ee) {
+          LOG.error(ee,ee);
+          continue;
+        }
+        String loDevName=foundLVMVolumeInfo.getLoDevName();
+        if (loDevName != null) {
+          String vgName=foundLVMVolumeInfo.getVgName();
+          String lvName=foundLVMVolumeInfo.getLvName();
+          String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
+          LVMVolumeInfo volumeInfo=new LVMVolumeInfo();
+          volumeInfo.setSnapshotOf(foundLVMVolumeInfo.getVolumeId());
+          volumeInfo.setStatus(StorageProperties.Status.pending.toString());
+          volumeManager=new VolumeEntityWrapperManager();
+          LVMVolumeInfo snapshotInfo=volumeManager.getVolumeInfo(volumeInfo);
+          if (snapshotInfo == null) {
+            LOG.info("Detaching loop device: " + loDevName);
+            try {
+              disableLogicalVolume(absoluteLVName);
+              removeLoopback(loDevName);
+              foundLVMVolumeInfo.setLoDevName(null);
+            }
+ catch (            EucalyptusCloudException e) {
+              LOG.error(e,e);
+            }
+          }
  else {
-      LOG.info("Snapshot: " + snapshotInfo.getVolumeId() + " in progress. Not detaching loop device.");
+            LOG.info("Snapshot: " + snapshotInfo.getVolumeId() + " in progress. Not detaching loop device.");
+          }
+          foundLVMVolumeInfo.setCleanup(false);
+          volumeManager.finish();
+        }
+      }
     }
   }
-  volumeManager.finish();
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+  }
 }
