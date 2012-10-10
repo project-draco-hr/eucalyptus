@@ -1,0 +1,45 @@
+{
+  if (param == null) {
+    throw new BindingException("Cannot bind null value");
+  }
+ else   if (!(param instanceof IMarshallable)) {
+    throw new BindingException("No JiBX <mapping> defined for class " + param.getClass());
+  }
+  final IMarshallable mrshable=(IMarshallable)param;
+  final String fqName=mrshable.JiBX_getName();
+  final String origNs=this.classToNamespaceMap.get(fqName);
+  final String useNs=altNs != null ? altNs : origNs;
+  if (this.bindingFactory == null) {
+    LOG.error("Binding factory is empty");
+    throw new BindingException("Failed to prepare binding factory for message: " + param.getClass().getCanonicalName() + " with namespace: "+ useNs);
+  }
+  if (this.bindingFactory.getElementNamespaces() == null) {
+    LOG.error("Binding factory's element namespace is empty");
+    throw new BindingException("Failed to prepare binding factory for message: " + param.getClass().getCanonicalName() + " with namespace: "+ useNs);
+  }
+  HoldMe.canHas.lock();
+  try {
+    final IMarshallingContext mctx=this.bindingFactory.createMarshallingContext();
+    final XMLStreamWriter wrtr=new NamespaceMappingXMLStreamWriter(HoldMe.getXMLOutputFactory().createXMLStreamWriter(outputStream,null),Collections.singletonMap(origNs,useNs));
+    final StAXWriter staxWriter=new StAXWriter(this.bindingFactory.getNamespaces(),wrtr);
+    mctx.setXmlWriter(staxWriter);
+    mctx.marshalDocument(param);
+    mctx.getXmlWriter().flush();
+  }
+ catch (  XMLStreamException e) {
+    LOG.error(e,e);
+    throw new BindingException(this.name + " failed to marshall type " + param.getClass().getCanonicalName()+ " with ns:"+ useNs+ " caused by: "+ e.getMessage(),e);
+  }
+catch (  JiBXException e) {
+    LOG.error(e,e);
+    throw new BindingException(this.name + " failed to marshall type " + param.getClass().getCanonicalName()+ " with ns:"+ useNs+ " caused by: "+ e.getMessage(),e);
+  }
+catch (  IOException e) {
+    LOG.error(e,e);
+    throw new BindingException(this.name + " failed to marshall type " + param.getClass().getCanonicalName()+ " with ns:"+ useNs+ " caused by: "+ e.getMessage(),e);
+  }
+ finally {
+    HoldMe.canHas.unlock();
+  }
+  return useNs;
+}

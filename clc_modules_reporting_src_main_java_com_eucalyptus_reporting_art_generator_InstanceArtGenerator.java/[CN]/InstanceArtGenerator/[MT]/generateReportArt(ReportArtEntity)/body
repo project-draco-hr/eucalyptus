@@ -1,122 +1,84 @@
 {
   log.debug("GENERATING REPORT ART");
-  EntityWrapper wrapper=EntityWrapper.get(ReportingInstanceCreateEvent.class);
-  Map<String,InstanceUsageArtEntity> usageEntities=new HashMap<String,InstanceUsageArtEntity>();
-  Iterator iter=wrapper.scanWithNativeQuery("scanInstanceCreateEvents");
-  while (iter.hasNext()) {
-    ReportingInstanceCreateEvent createEvent=(ReportingInstanceCreateEvent)iter.next();
-    if (!report.getZones().containsKey(createEvent.getAvailabilityZone())) {
-      report.getZones().put(createEvent.getAvailabilityZone(),new AvailabilityZoneArtEntity());
-    }
-    AvailabilityZoneArtEntity zone=report.getZones().get(createEvent.getAvailabilityZone());
-    ReportingUser reportingUser=ReportingUserDao.getInstance().getReportingUser(createEvent.getUserId());
-    if (reportingUser == null) {
-      log.error("No user corresponding to event:" + createEvent.getUserId());
-    }
-    ReportingAccount reportingAccount=ReportingAccountDao.getInstance().getReportingAccount(reportingUser.getAccountId());
-    if (reportingAccount == null) {
-      log.error("No account corresponding to user:" + reportingUser.getAccountId());
-    }
-    if (!zone.getAccounts().containsKey(reportingAccount.getName())) {
-      zone.getAccounts().put(reportingAccount.getName(),new AccountArtEntity());
-    }
-    AccountArtEntity account=zone.getAccounts().get(reportingAccount.getName());
-    if (!account.getUsers().containsKey(reportingUser.getName())) {
-      account.getUsers().put(reportingUser.getName(),new UserArtEntity());
-    }
-    UserArtEntity user=account.getUsers().get(reportingUser.getName());
-    if (!user.getInstances().containsKey(createEvent.getUuid())) {
-      user.getInstances().put(createEvent.getUuid(),new InstanceArtEntity(createEvent.getInstanceType(),createEvent.getInstanceId()));
-    }
-    InstanceArtEntity instance=user.getInstances().get(createEvent.getUuid());
-    instance.getUsage().addInstanceCnt(1);
-    usageEntities.put(createEvent.getUuid(),instance.getUsage());
-  }
-  Map<UsageEventKey,ReportingInstanceUsageEvent> lastEvents=new HashMap<UsageEventKey,ReportingInstanceUsageEvent>();
-  Map<String,StartEndTimes> startEndTimes=new HashMap<String,StartEndTimes>();
-  iter=wrapper.scanWithNativeQuery("scanInstanceUsageEvents");
-  while (iter.hasNext()) {
-    ReportingInstanceUsageEvent usageEvent=(ReportingInstanceUsageEvent)iter.next();
-    if (!startEndTimes.containsKey(usageEvent.getUuid())) {
-      startEndTimes.put(usageEvent.getUuid(),new StartEndTimes(usageEvent.getTimestampMs(),usageEvent.getTimestampMs()));
-    }
- else {
-      StartEndTimes seTime=startEndTimes.get(usageEvent.getUuid());
-      seTime.setStartTime(Math.min(seTime.getStartTime(),usageEvent.getTimestampMs()));
-      seTime.setEndTime(Math.max(seTime.getEndTime(),usageEvent.getTimestampMs()));
-    }
-    UsageEventKey key=new UsageEventKey(usageEvent.getUuid(),usageEvent.getMetric(),usageEvent.getDimension());
-    if (!lastEvents.containsKey(key)) {
-      lastEvents.put(key,usageEvent);
-      continue;
-    }
-    ReportingInstanceUsageEvent lastEvent=lastEvents.get(key);
-    if (!usageEntities.containsKey(usageEvent.getUuid())) {
-      log.error("usage event without corresponding instance:" + usageEvent.getUuid());
-      continue;
-    }
-    InstanceUsageArtEntity usage=usageEntities.get(usageEvent.getUuid());
-    String metric=usageEvent.getMetric();
-    String dim=usageEvent.getDimension();
-    if (usageEvent.getValue() == null || lastEvent.getValue() == null) {
-      log.debug("Null metric values shouldn't occur");
-      continue;
-    }
-    Double value=null;
-    if (usageEvent.getValue() != null && lastEvent.getValue() != null) {
-      value=usageEvent.getValue() - lastEvent.getValue();
-    }
- else     if (usageEvent.getValue() != null) {
-      value=usageEvent.getValue();
-    }
-    Double valueMB=(value == null) ? null : value / 1024 / 1024;
-    if (metric.equals(METRIC_NET_IN_BYTES) && dim.equals(DIM_TOTAL)) {
-      usage.addNetTotalInMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
-    }
- else     if (metric.equals(METRIC_NET_OUT_BYTES) && dim.equals(DIM_TOTAL)) {
-      usage.addNetTotalOutMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
-    }
- else     if (metric.equals(METRIC_NET_IN_BYTES) && dim.equals(DIM_INTERNAL)) {
-      usage.addNetInternalInMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
-    }
- else     if (metric.equals(METRIC_NET_OUT_BYTES) && dim.equals(DIM_INTERNAL)) {
-      usage.addNetTotalInMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
-    }
- else     if (metric.equals(METRIC_DISK_IN_BYTES) && (dim.equals(DIM_ROOT) || dim.startsWith(DIM_EPHEMERAL))) {
-      usage.addDiskInMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
-    }
- else     if (metric.equals(METRIC_DISK_OUT_BYTES) && (dim.equals(DIM_ROOT) || dim.startsWith(DIM_EPHEMERAL))) {
-      usage.addDiskOutMegs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),valueMB).longValue());
-    }
- else     if (metric.equals(METRIC_CPU_USAGE_MS) && (dim.equals(DIM_DEFAULT))) {
-      usage.addCpuUtilizationMs(interpolate(report.getBeginMs(),report.getEndMs(),lastEvent.getTimestampMs(),usageEvent.getTimestampMs(),value).longValue());
-    }
- else {
-      log.debug("Unrecognized metric for report:" + metric + "/"+ dim);
-    }
-    lastEvents.put(key,usageEvent);
-  }
-  for (  String uuid : startEndTimes.keySet()) {
-    StartEndTimes seTime=startEndTimes.get(uuid);
-    if (usageEntities.containsKey(uuid)) {
-      long durationMs=DurationCalculator.boundDuration(report.getBeginMs(),report.getEndMs(),seTime.getStartTime(),seTime.getEndTime());
-      usageEntities.get(uuid).setDurationMs(durationMs);
-    }
- else {
-      log.error("startEndTime without corresponding instance:" + uuid);
-    }
-  }
-  for (  String zoneName : report.getZones().keySet()) {
-    AvailabilityZoneArtEntity zone=report.getZones().get(zoneName);
-    UsageTotalsArtEntity zoneUsage=zone.getUsageTotals();
-    for (    String accountName : zone.getAccounts().keySet()) {
+  final Map<String,ReportingUser> users=Maps.newHashMap();
+  final Map<String,String> accounts=Maps.newHashMap();
+  final Map<String,InstanceUsageArtEntity> usageEntities=new HashMap<String,InstanceUsageArtEntity>();
+  final Map<String,Long> instanceStartTimes=new HashMap<String,Long>();
+  foreachInstanceCreateEvent(report.getEndMs(),new Predicate<ReportingInstanceCreateEvent>(){
+    @Override public boolean apply(    final ReportingInstanceCreateEvent createEvent){
+      if (!report.getZones().containsKey(createEvent.getAvailabilityZone())) {
+        report.getZones().put(createEvent.getAvailabilityZone(),new AvailabilityZoneArtEntity());
+      }
+      AvailabilityZoneArtEntity zone=report.getZones().get(createEvent.getAvailabilityZone());
+      final ReportingUser reportingUser=getUserById(users,createEvent.getUserId());
+      if (reportingUser == null) {
+        log.error("No user corresponding to event:" + createEvent.getUserId());
+        return true;
+      }
+      final String accountName=getAccountNameById(accounts,reportingUser.getAccountId());
+      if (accountName == null) {
+        log.error("No account corresponding to user:" + reportingUser.getAccountId());
+        return true;
+      }
+      if (!zone.getAccounts().containsKey(accountName)) {
+        zone.getAccounts().put(accountName,new AccountArtEntity());
+      }
       AccountArtEntity account=zone.getAccounts().get(accountName);
-      UsageTotalsArtEntity accountUsage=account.getUsageTotals();
-      for (      String userName : account.getUsers().keySet()) {
-        UserArtEntity user=account.getUsers().get(userName);
-        UsageTotalsArtEntity userUsage=user.getUsageTotals();
-        for (        String instanceUuid : user.getInstances().keySet()) {
-          InstanceArtEntity instance=user.getInstances().get(instanceUuid);
+      if (!account.getUsers().containsKey(reportingUser.getName())) {
+        account.getUsers().put(reportingUser.getName(),new UserArtEntity());
+      }
+      UserArtEntity user=account.getUsers().get(reportingUser.getName());
+      if (!user.getInstances().containsKey(createEvent.getUuid())) {
+        user.getInstances().put(createEvent.getUuid(),new InstanceArtEntity(createEvent.getInstanceType(),createEvent.getInstanceId()));
+      }
+      InstanceArtEntity instance=user.getInstances().get(createEvent.getUuid());
+      instance.getUsage().addInstanceCnt(1);
+      usageEntities.put(createEvent.getUuid(),instance.getUsage());
+      instanceStartTimes.put(createEvent.getUuid(),createEvent.getTimestampMs());
+      return true;
+    }
+  }
+);
+  final Map<InstanceMetricDimensionKey,MetricPrevData> prevDataMap=new HashMap<InstanceMetricDimensionKey,MetricPrevData>();
+  foreachInstanceUsageEvent(report.getBeginMs() - USAGE_SEARCH_PERIOD,report.getEndMs() + USAGE_SEARCH_PERIOD,new Predicate<ReportingInstanceUsageEvent>(){
+    @Override public boolean apply(    final ReportingInstanceUsageEvent event){
+      final InstanceMetricDimensionKey key=new InstanceMetricDimensionKey(event.getUuid(),event.getMetric(),event.getDimension());
+      final long eventMs=event.getTimestampMs();
+      if (event.getValue() == null)       return true;
+      final InstanceUsageArtEntity usageEntity=usageEntities.get(event.getUuid());
+      if (usageEntity == null)       return true;
+      if (!prevDataMap.containsKey(key)) {
+        if (instanceStartTimes.containsKey(event.getUuid())) {
+          Double fractionalVal=fractionalUsage(report.getBeginMs(),report.getEndMs(),instanceStartTimes.get(event.getUuid()),eventMs,event.getValue());
+          addMetricValueToUsageEntity(usageEntity,event.getMetric(),event.getDimension(),fractionalVal);
+        }
+        prevDataMap.put(key,new MetricPrevData(eventMs,eventMs,event.getValue()));
+      }
+ else {
+        final MetricPrevData prevData=prevDataMap.get(key);
+        usageEntity.setDurationMs(Math.max(usageEntity.getDurationMs(),overlap(report.getBeginMs(),report.getEndMs(),prevData.firstMs,eventMs)));
+        if (event.getValue() < prevData.lastVal) {
+          Double fractionalVal=fractionalUsage(report.getBeginMs(),report.getEndMs(),prevData.lastMs,eventMs,event.getValue());
+          addMetricValueToUsageEntity(usageEntity,event.getMetric(),event.getDimension(),fractionalVal);
+        }
+ else {
+          Double fractionalVal=fractionalUsage(report.getBeginMs(),report.getEndMs(),prevData.lastMs,eventMs,event.getValue() - prevData.lastVal);
+          log.debug(String.format("event time:%d-%d report:%d-%d uuid:%s metric:%s dim:%s val:%f lastVal:%f fraction:%f",prevData.lastMs,eventMs,report.getBeginMs(),report.getEndMs(),event.getUuid(),event.getMetric(),event.getDimension(),event.getValue(),prevData.lastVal,fractionalVal));
+          addMetricValueToUsageEntity(usageEntity,event.getMetric(),event.getDimension(),fractionalVal);
+        }
+        prevDataMap.put(key,new MetricPrevData(prevData.firstMs,eventMs,event.getValue()));
+      }
+      return true;
+    }
+  }
+);
+  for (  final AvailabilityZoneArtEntity zone : report.getZones().values()) {
+    final UsageTotalsArtEntity zoneUsage=zone.getUsageTotals();
+    for (    final AccountArtEntity account : zone.getAccounts().values()) {
+      final UsageTotalsArtEntity accountUsage=account.getUsageTotals();
+      for (      final UserArtEntity user : account.getUsers().values()) {
+        final UsageTotalsArtEntity userUsage=user.getUsageTotals();
+        for (        final InstanceArtEntity instance : user.getInstances().values()) {
           updateUsageTotals(userUsage,instance);
           updateUsageTotals(accountUsage,instance);
           updateUsageTotals(zoneUsage,instance);

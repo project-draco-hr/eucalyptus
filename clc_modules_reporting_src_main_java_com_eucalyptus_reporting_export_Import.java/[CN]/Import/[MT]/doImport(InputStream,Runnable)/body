@@ -1,0 +1,51 @@
+{
+  final Supplier<Void> callback=Suppliers.memoize(new Supplier<Void>(){
+    @Override public Void get(){
+      if (preImportCallback != null)       preImportCallback.run();
+      return null;
+    }
+  }
+);
+  resetStats();
+  return transactional(new Callable<ImportResult>(){
+    @Override public ImportResult call() throws Exception {
+      ReportingExport.setLoadListenerSupplier(Suppliers.<ReportingExportLoadListener>ofInstance(new ReportingExportLoadListener(){
+        private final Set<String> userIds=Sets.newHashSet();
+        private final Set<String> accountIds=Sets.newHashSet();
+        @Override public void addAction(        final ReportedAction action){
+          callback.get();
+          checkUserAndAccountDependencies(action);
+          add(action,ExportUtils.fromExportAction());
+        }
+        @Override public void addUsage(        final ReportedUsage usage){
+          callback.get();
+          add(usage,ExportUtils.fromExportUsage());
+        }
+        private void checkUserAndAccountDependencies(        final ReportedAction action){
+          if (!Strings.isNullOrEmpty(action.getUserId()) && !Strings.isNullOrEmpty(action.getUserName()) && !Strings.isNullOrEmpty(action.getAccountId())&& !userIds.contains(action.getUserId())) {
+            merge(new ReportingUser(action.getUserId(),action.getAccountId(),action.getUserName()));
+            userIds.add(action.getUserId());
+          }
+          if (!Strings.isNullOrEmpty(action.getAccountId()) && !Strings.isNullOrEmpty(action.getAccountName()) && !accountIds.contains(action.getAccountId())) {
+            merge(new ReportingAccount(action.getAccountId(),action.getAccountName()));
+            accountIds.add(action.getAccountId());
+          }
+        }
+        private <T>void add(        final T item,        final Function<T,ReportingEventSupport> transform){
+          final ReportingEventSupport event=transform.apply(item);
+          count++;
+          minTimestamp=Math.min(minTimestamp,event.getTimestampMs());
+          maxTimestamp=Math.max(maxTimestamp,event.getTimestampMs());
+          merge(event);
+        }
+      }
+));
+      final String bindingName="www_eucalyptus_com_ns_reporting_export_2012_08_24";
+      BindingManager.seedBinding(bindingName,ReportingExport.class);
+      final Binding binding=BindingManager.getBinding(bindingName);
+      binding.fromStream(ReportingExport.class,new BufferedInputStream(in));
+      return getStats();
+    }
+  }
+);
+}

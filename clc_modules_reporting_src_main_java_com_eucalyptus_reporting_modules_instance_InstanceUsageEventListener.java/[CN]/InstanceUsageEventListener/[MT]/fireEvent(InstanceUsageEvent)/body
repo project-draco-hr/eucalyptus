@@ -1,22 +1,19 @@
 {
-  final long receivedEventMs=getCurrentTimeMillis();
-  log.debug("Received instance usage event:" + event);
-  final String uuid=event.getUuid();
-  if (uuid == null) {
-    log.warn("Received null uuid");
-    return;
+  if (log.isDebugEnabled()) {
+    log.debug("Received instance usage event:" + event);
   }
-  if (receivedEventMs > (lastWriteMs.get() + (DEFAULT_WRITE_INTERVAL_SECS * 1000))) {
-    try {
-      log.info("Wrote Reporting Instance:" + uuid);
-      final ReportingInstanceEventStore eventStore=getReportingInstanceEventStore();
-      eventStore.insertUsageEvent(event.getUuid(),receivedEventMs,event.getResourceName(),event.getMetric(),event.getSequenceNum(),event.getDimension(),event.getValue(),event.getValueTimestamp());
-    }
- catch (    ConstraintViolationException ex) {
-      log.debug(ex,ex);
-    }
-catch (    Exception ex) {
-      log.error(ex,ex);
-    }
+  if (lastEvent.getInstanceId().equals("-1")) {
+    queueEvent(event);
+    lastEvent=new InstanceUsageEvent(event.getUuid(),event.getInstanceId(),event.getMetric(),event.getSequenceNum(),event.getDimension(),event.getValue(),event.getValueTimestamp());
+  }
+ else   if (lastEvent.getInstanceId().equals(event.getInstanceId()) && !lastEvent.getMetric().equals(event.getMetric()) && !lastEvent.getDimension().equals(event.getDimension())&& lastEvent.getValue() != event.getValue()) {
+    queueEvent(event);
+    lastEvent=new InstanceUsageEvent("-1","-1","-1",-1L,"-1",-1D,-1L);
+  }
+ else {
+    log.debug("Instance Usage Event : " + event.getInstanceId() + " : "+ event.getValue()+ "has already been record.");
+  }
+  if (checkEventQueue()) {
+    flushEventQueue();
   }
 }
