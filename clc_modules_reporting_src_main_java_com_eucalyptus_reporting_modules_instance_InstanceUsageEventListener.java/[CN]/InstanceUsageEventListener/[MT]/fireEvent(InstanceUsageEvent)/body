@@ -2,18 +2,13 @@
   if (log.isDebugEnabled()) {
     log.debug("Received instance usage event:" + event);
   }
-  if (lastEvent.getInstanceId().equals("-1")) {
-    queueEvent(event);
-    lastEvent=new InstanceUsageEvent(event.getUuid(),event.getInstanceId(),event.getMetric(),event.getSequenceNum(),event.getDimension(),event.getValue(),event.getValueTimestamp());
+  try {
+    eventQueue.offer(event,DEFAULT_WRITE_INTERVAL_MINS + 1,TimeUnit.MINUTES);
   }
- else   if (lastEvent.getInstanceId().equals(event.getInstanceId()) && !lastEvent.getMetric().equals(event.getMetric()) && !lastEvent.getDimension().equals(event.getDimension())&& lastEvent.getValue() != event.getValue()) {
-    queueEvent(event);
-    lastEvent=new InstanceUsageEvent("-1","-1","-1",-1L,"-1",-1D,-1L);
+ catch (  InterruptedException e) {
+    log.debug("Unable to queue usage event " + event,e);
   }
- else {
-    log.debug("Instance Usage Event : " + event.getInstanceId() + " : "+ event.getValue()+ "has already been record.");
-  }
-  if (checkEventQueue()) {
+  if (!busy.get()) {
     flushEventQueue();
   }
 }
