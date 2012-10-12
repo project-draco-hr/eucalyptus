@@ -1,16 +1,22 @@
 {
-  EntityWrapper db=EntityWrapper.get(this.getDefiningClass());
+  EntityTransaction trans=Entities.get(this.getDefiningClass());
   try {
-    Object o=db.getUnique(this.getQueryObject());
+    List<Object> resultList=Entities.query(this.getQueryObject());
     Object prop=this.getTypeParser().apply(s);
+    if (resultList == null || resultList.size() == 0) {
+      throw new NoSuchElementException("no entities found for property");
+    }
     this.fireChange(prop);
-    this.setter.invoke(o,prop);
-    db.commit();
+    LOG.debug("Running setters.");
+    for (    Object obj : resultList) {
+      this.setter.invoke(obj,prop);
+    }
+    trans.commit();
     return s;
   }
  catch (  Exception e) {
     Logs.exhaust().error(e,e);
-    db.rollback();
+    trans.rollback();
     return "Error: " + e.getMessage();
   }
 }

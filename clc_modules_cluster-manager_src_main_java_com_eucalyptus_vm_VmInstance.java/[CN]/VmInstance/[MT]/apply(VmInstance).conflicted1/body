@@ -2,22 +2,25 @@
   final EntityTransaction db=Entities.get(VmInstance.class);
   try {
     final VmInstance vm=Entities.uniqueResult(VmInstance.named(null,v.getInstanceId()));
-    vm.cleanUp();
-    Entities.delete(vm);
+    if (VmStateSet.RUN.apply(vm)) {
+      vm.setState(VmState.STOPPING,Reason.USER_STOPPED);
+    }
+ else     if (VmState.STOPPING.equals(vm.getState())) {
+      vm.setState(VmState.STOPPED,Reason.USER_STOPPED);
+      PrivateNetworkIndex vmIdx=vm.getNetworkIndex();
+      if (vmIdx != null) {
+        vmIdx.release();
+        vmIdx.teardown();
+        vmIdx=null;
+      }
+      vm.setNetworkIndex(null);
+    }
     db.commit();
+    return vm;
   }
  catch (  final Exception ex) {
-    LOG.error(ex);
-    Logs.extreme().error(ex,ex);
+    Logs.extreme().debug(ex,ex);
     db.rollback();
+    throw new NoSuchElementException("Failed to lookup instance: " + v);
   }
-  try {
-    v.cleanUp();
-    v.setState(VmState.TERMINATED);
-  }
- catch (  Exception ex) {
-    LOG.error(ex);
-    Logs.extreme().error(ex,ex);
-  }
-  return v;
 }
