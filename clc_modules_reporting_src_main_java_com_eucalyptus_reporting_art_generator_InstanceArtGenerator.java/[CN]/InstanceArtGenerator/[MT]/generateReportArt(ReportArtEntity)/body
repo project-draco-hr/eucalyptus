@@ -1,72 +1,52 @@
 {
   log.debug("GENERATING REPORT ART");
-  final Map<String,ReportingUser> users=Maps.newHashMap();
-  final Map<String,String> accounts=Maps.newHashMap();
-  final Map<String,InstanceUsageArtEntity> usageEntities=new HashMap<String,InstanceUsageArtEntity>();
-  final Map<String,Long> instanceStartTimes=new HashMap<String,Long>();
+  final Map<String,ReportingInstanceCreateEvent> createEvents=new HashMap<String,ReportingInstanceCreateEvent>();
   foreachInstanceCreateEvent(report.getEndMs(),new Predicate<ReportingInstanceCreateEvent>(){
     @Override public boolean apply(    final ReportingInstanceCreateEvent createEvent){
-      if (!report.getZones().containsKey(createEvent.getAvailabilityZone())) {
-        report.getZones().put(createEvent.getAvailabilityZone(),new AvailabilityZoneArtEntity());
-      }
-      AvailabilityZoneArtEntity zone=report.getZones().get(createEvent.getAvailabilityZone());
-      final ReportingUser reportingUser=getUserById(users,createEvent.getUserId());
-      if (reportingUser == null) {
-        log.error("No user corresponding to event:" + createEvent.getUserId());
-        return true;
-      }
-      final String accountName=getAccountNameById(accounts,reportingUser.getAccountId());
-      if (accountName == null) {
-        log.error("No account corresponding to user:" + reportingUser.getAccountId());
-        return true;
-      }
-      if (!zone.getAccounts().containsKey(accountName)) {
-        zone.getAccounts().put(accountName,new AccountArtEntity());
-      }
-      AccountArtEntity account=zone.getAccounts().get(accountName);
-      if (!account.getUsers().containsKey(reportingUser.getName())) {
-        account.getUsers().put(reportingUser.getName(),new UserArtEntity());
-      }
-      UserArtEntity user=account.getUsers().get(reportingUser.getName());
-      if (!user.getInstances().containsKey(createEvent.getUuid())) {
-        user.getInstances().put(createEvent.getUuid(),new InstanceArtEntity(createEvent.getInstanceType(),createEvent.getInstanceId()));
-      }
-      InstanceArtEntity instance=user.getInstances().get(createEvent.getUuid());
-      instance.getUsage().addInstanceCnt(1);
-      usageEntities.put(createEvent.getUuid(),instance.getUsage());
-      instanceStartTimes.put(createEvent.getUuid(),createEvent.getTimestampMs());
+      createEvents.put(createEvent.getUuid(),createEvent);
       return true;
     }
   }
 );
   final Map<InstanceMetricDimensionKey,MetricPrevData> prevDataMap=new HashMap<InstanceMetricDimensionKey,MetricPrevData>();
+  final Map<String,InstanceUsageArtEntity> usageEntities=new HashMap<String,InstanceUsageArtEntity>();
   foreachInstanceUsageEvent(report.getBeginMs() - USAGE_SEARCH_PERIOD,report.getEndMs() + USAGE_SEARCH_PERIOD,new Predicate<ReportingInstanceUsageEvent>(){
     @Override public boolean apply(    final ReportingInstanceUsageEvent event){
       final InstanceMetricDimensionKey key=new InstanceMetricDimensionKey(event.getUuid(),event.getMetric(),event.getDimension());
       final long eventMs=event.getTimestampMs();
       if (event.getValue() == null)       return true;
+      if (!usageEntities.containsKey(event.getUuid())) {
+        usageEntities.put(event.getUuid(),new InstanceUsageArtEntity());
+      }
       final InstanceUsageArtEntity usageEntity=usageEntities.get(event.getUuid());
-      if (usageEntity == null)       return true;
+      final ReportingInstanceCreateEvent createEvent=createEvents.get(event.getUuid());
+      if (createEvent == null) {
+        log.error("Usage event without create event:" + event.getUuid());
+        return true;
+      }
+      if (eventMs >= report.getBeginMs() || eventMs <= report.getEndMs()) {
+        addParentNodes(report,createEvent,usageEntity);
+      }
       if (!prevDataMap.containsKey(key)) {
-        if (instanceStartTimes.containsKey(event.getUuid())) {
-          Double fractionalVal=fractionalUsage(report.getBeginMs(),report.getEndMs(),instanceStartTimes.get(event.getUuid()),eventMs,event.getValue());
-          addMetricValueToUsageEntity(usageEntity,event.getMetric(),event.getDimension(),fractionalVal);
-        }
-        prevDataMap.put(key,new MetricPrevData(eventMs,eventMs,event.getValue()));
+        Double fractionalVal=fractionalUsage(report.getBeginMs(),report.getEndMs(),createEvent.getTimestampMs(),eventMs,event.getValue());
+        addMetricValueToUsageEntity(usageEntity,event.getMetric(),event.getDimension(),fractionalVal);
+        log.debug(String.format("new metric time:%d-%d report:%d-%d uuid:%s metric:%s dim:%s val:%f fraction:%f",createEvent.getTimestampMs(),eventMs,report.getBeginMs(),report.getEndMs(),event.getUuid(),event.getMetric(),event.getDimension(),event.getValue(),fractionalVal));
+        prevDataMap.put(key,new MetricPrevData(eventMs,eventMs,event.getValue(),event.getSequenceNum()));
       }
  else {
         final MetricPrevData prevData=prevDataMap.get(key);
         usageEntity.setDurationMs(Math.max(usageEntity.getDurationMs(),overlap(report.getBeginMs(),report.getEndMs(),prevData.firstMs,eventMs)));
-        if (event.getValue() < prevData.lastVal) {
+        if (event.getSequenceNum() < prevData.lastSeq) {
           Double fractionalVal=fractionalUsage(report.getBeginMs(),report.getEndMs(),prevData.lastMs,eventMs,event.getValue());
           addMetricValueToUsageEntity(usageEntity,event.getMetric(),event.getDimension(),fractionalVal);
+          log.debug(String.format("reset time:%d-%d report:%d-%d uuid:%s metric:%s dim:%s val:%f fraction:%f",prevData.lastMs,eventMs,report.getBeginMs(),report.getEndMs(),event.getUuid(),event.getMetric(),event.getDimension(),event.getValue(),fractionalVal));
         }
  else {
           Double fractionalVal=fractionalUsage(report.getBeginMs(),report.getEndMs(),prevData.lastMs,eventMs,event.getValue() - prevData.lastVal);
-          log.debug(String.format("event time:%d-%d report:%d-%d uuid:%s metric:%s dim:%s val:%f lastVal:%f fraction:%f",prevData.lastMs,eventMs,report.getBeginMs(),report.getEndMs(),event.getUuid(),event.getMetric(),event.getDimension(),event.getValue(),prevData.lastVal,fractionalVal));
           addMetricValueToUsageEntity(usageEntity,event.getMetric(),event.getDimension(),fractionalVal);
+          log.debug(String.format("event time:%d-%d report:%d-%d uuid:%s metric:%s dim:%s val:%f lastVal:%f fraction:%f",prevData.lastMs,eventMs,report.getBeginMs(),report.getEndMs(),event.getUuid(),event.getMetric(),event.getDimension(),event.getValue(),prevData.lastVal,fractionalVal));
         }
-        prevDataMap.put(key,new MetricPrevData(prevData.firstMs,eventMs,event.getValue()));
+        prevDataMap.put(key,new MetricPrevData(prevData.firstMs,eventMs,event.getValue(),event.getSequenceNum()));
       }
       return true;
     }
