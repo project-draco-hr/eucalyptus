@@ -62,6 +62,7 @@
           }
           objectName=foundObject.getObjectName();
           oldObjectSize=foundObject.getSize();
+          oldBucketSize=-oldObjectSize;
         }
  catch (        AccessDeniedException ex) {
           throw ex;
@@ -142,13 +143,46 @@ synchronized (monitor) {
                 if (fileIO != null) {
                   fileIO.finish();
                 }
-                ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,null,null,-1L,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
-                Threads.lookup(Walrus.class,WalrusManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
+                cleanupTempObject(ctx,bucketName,tempObjectName);
                 messenger.removeQueue(key,randomKey);
                 LOG.error("ETag did not match for: " + randomKey + " Expected: "+ contentMD5AsHex+ " Computed: "+ md5);
                 throw new ContentMismatchException(bucketName + "/" + objectKey);
               }
             }
+            if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
+              cleanupTempObject(ctx,bucketName,tempObjectName);
+              messenger.removeQueue(key,randomKey);
+              LOG.error("Quota exceeded for Walrus putObject");
+              throw new EntityTooLargeException("Key",objectKey);
+            }
+            boolean success=false;
+            int retryCount=0;
+            do {
+              try {
+                incrementBucketSize(bucketName,objectKey,oldBucketSize,size);
+                success=true;
+              }
+ catch (              EntityTooLargeException ex) {
+                cleanupTempObject(ctx,bucketName,tempObjectName);
+                messenger.removeQueue(key,randomKey);
+                throw ex;
+              }
+catch (              NoSuchBucketException ex) {
+                cleanupTempObject(ctx,bucketName,tempObjectName);
+                messenger.removeQueue(key,randomKey);
+                throw ex;
+              }
+catch (              RollbackException ex) {
+                retryCount++;
+                LOG.trace("retrying update: " + bucketName);
+              }
+catch (              EucalyptusCloudException ex) {
+                cleanupTempObject(ctx,bucketName,tempObjectName);
+                messenger.removeQueue(key,randomKey);
+                throw ex;
+              }
+            }
+ while (!success && (retryCount < 5));
             try {
               if (fileIO != null) {
                 fileIO.finish();
@@ -209,37 +243,6 @@ synchronized (monitor) {
             foundObject.setLast(true);
             foundObject.setDeleted(false);
             reply.setSize(size);
-            if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
-              dbObject.rollback();
-              LOG.error("Quota exceeded for Walrus putObject");
-              throw new EntityTooLargeException("Key",objectKey);
-            }
-            boolean success=false;
-            int retryCount=0;
-            do {
-              try {
-                incrementBucketSize(bucketName,objectKey,oldBucketSize,size);
-                success=true;
-              }
- catch (              EntityTooLargeException ex) {
-                messenger.removeQueue(key,randomKey);
-                dbObject.rollback();
-                throw ex;
-              }
-catch (              NoSuchBucketException ex) {
-                dbObject.rollback();
-                throw ex;
-              }
-catch (              RollbackException ex) {
-                retryCount++;
-                LOG.trace("retrying update: " + bucketName);
-              }
-catch (              EucalyptusCloudException ex) {
-                dbObject.rollback();
-                throw ex;
-              }
-            }
- while (!success && (retryCount < 5));
             if (WalrusProperties.trackUsageStatistics) {
               walrusStatistics.updateBytesIn(size);
               walrusStatistics.updateSpaceUsed(size);
@@ -301,7 +304,12 @@ synchronized (monitor) {
             messenger.clearQueues(key);
             messenger.removeQueue(key,randomKey);
             LOG.info("Transfer complete: " + key);
-            fireObjectCreationEvent(bucketName,objectKey,versionId,ctx.getUser().getUserId(),size,oldObjectSize);
+            try {
+              fireObjectCreationEvent(bucketName,objectKey,versionId,ctx.getUser().getUserId(),size,oldObjectSize);
+            }
+ catch (            Exception ex) {
+              LOG.debug("Failed to fire reporting event for walrus PUT object operation",ex);
+            }
             break;
           }
  else {

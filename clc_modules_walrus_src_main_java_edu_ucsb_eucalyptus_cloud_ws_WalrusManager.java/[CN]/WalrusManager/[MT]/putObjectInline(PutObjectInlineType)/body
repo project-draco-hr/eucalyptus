@@ -70,21 +70,7 @@
         }
         byte[] base64Data=Hashes.base64decode(request.getBase64Data()).getBytes();
         foundObject.setObjectName(objectName);
-        try {
-          FileIO fileIO=storageManager.prepareForWrite(bucketName,objectName);
-          if (fileIO != null) {
-            fileIO.write(base64Data);
-            fileIO.finish();
-          }
-        }
- catch (        Exception ex) {
-          db.rollback();
-          throw new EucalyptusCloudException(ex);
-        }
-        md5=Hashes.getHexString(Digest.MD5.get().digest(base64Data));
-        foundObject.setEtag(md5);
         Long size=(long)base64Data.length;
-        foundObject.setSize(size);
         if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
           db.rollback();
           LOG.error("Quota exceeded in Walrus putObject");
@@ -115,6 +101,20 @@ catch (          EucalyptusCloudException ex) {
           }
         }
  while (!success && (retryCount < 5));
+        try {
+          FileIO fileIO=storageManager.prepareForWrite(bucketName,objectName);
+          if (fileIO != null) {
+            fileIO.write(base64Data);
+            fileIO.finish();
+          }
+        }
+ catch (        Exception ex) {
+          db.rollback();
+          throw new EucalyptusCloudException(ex);
+        }
+        md5=Hashes.getHexString(Digest.MD5.get().digest(base64Data));
+        foundObject.setEtag(md5);
+        foundObject.setSize(size);
         if (WalrusProperties.trackUsageStatistics) {
           walrusStatistics.updateBytesIn(size);
           walrusStatistics.updateSpaceUsed(size);
@@ -128,7 +128,12 @@ catch (          EucalyptusCloudException ex) {
           logData.setObjectSize(size);
           reply.setLogData(logData);
         }
-        fireObjectCreationEvent(foundObject.getBucketName(),foundObject.getObjectKey(),foundObject.getVersionId(),ctx.getUser().getUserId(),foundObject.getSize(),oldObjectSize);
+        try {
+          fireObjectCreationEvent(foundObject.getBucketName(),foundObject.getObjectKey(),foundObject.getVersionId(),ctx.getUser().getUserId(),foundObject.getSize(),oldObjectSize);
+        }
+ catch (        Exception ex) {
+          LOG.debug("Failed to fire reporting event for walrus inline PUT object operation",ex);
+        }
       }
  catch (      Exception ex) {
         LOG.error(ex);

@@ -1,17 +1,49 @@
 {
-  List<SearchResultRow> results=Lists.newArrayList();
-  try {
-    Account requestAccount=requestUser.getAccount();
-    for (    ImageInfo image : Images.listAllImages()) {
-      if (requestUser.isSystemAdmin() || ((image.getImagePublic() || image.getOwnerAccountNumber().equals(requestAccount.getAccountNumber()) || image.hasPermission(requestAccount.getAccountNumber(),requestAccount.getName())) && Permissions.isAuthorized(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_IMAGE,image.getDisplayName(),null,PolicySpec.EC2_DESCRIBEIMAGES,requestUser))) {
-        results.add(serializeImage(image));
+  Predicate<ImageInfo> inter_account_permission_filter=new Predicate<ImageInfo>(){
+    @Override public boolean apply(    ImageInfo input){
+      try {
+        if (requestUser.isSystemAdmin()) {
+          return true;
+        }
+ else {
+          if (input.getImagePublic()) {
+            return true;
+          }
+ else           if (input.getOwnerAccountNumber().equals(requestUser.getAccount().getAccountNumber())) {
+            return true;
+          }
+ else           if (input.hasPermission(requestUser.getAccount().getAccountNumber(),requestUser.getUserId())) {
+            return true;
+          }
+ else {
+            for (            AccessKey key : requestUser.getKeys()) {
+              if (input.hasPermission(key.getAccessKey())) {
+                return true;
+              }
+            }
+            return false;
+          }
+        }
+      }
+ catch (      Exception e) {
+        LOG.error(e,e);
+        return false;
       }
     }
   }
- catch (  Exception e) {
-    LOG.error("Failed to get image info",e);
-    LOG.debug(e,e);
-    throw new EucalyptusServiceException("Failed to get image info");
+;
+  Predicate<ImageInfo> intra_account_permission_filter=new Predicate<ImageInfo>(){
+    @Override public boolean apply(    ImageInfo input){
+      return Permissions.isAuthorized(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_IMAGE,input.getDisplayName(),null,PolicySpec.EC2_DESCRIBEIMAGES,requestUser);
+    }
   }
-  return results;
+;
+  try {
+    return Transactions.filteredTransform(new ImageInfo(),Predicates.and(inter_account_permission_filter,intra_account_permission_filter),TO_IMAGE_SEARCH_RESULT);
+  }
+ catch (  Exception e) {
+    LOG.error("Failed to lookup image",e);
+    LOG.debug(e,e);
+    throw new EucalyptusServiceException("Failed to get image info",e);
+  }
 }

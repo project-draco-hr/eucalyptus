@@ -1,31 +1,49 @@
 {
   try {
-    if (SystemUtil.runAndGetCode(new String[]{ROOT_WRAP,"tgtadm","--lld","iscsi","--op","unbind","--mode","target","--tid",String.valueOf(tid),"-I","ALL"}) != 0) {
-      LOG.error("Unable to unbind tid: " + tid);
+    String returnValue=SystemUtil.run(new String[]{ROOT_WRAP,"tgtadm","--lld","iscsi","--op","show","--mode","target","--tid",String.valueOf(tid)});
+    if (returnValue.length() > 0) {
+      LOG.info("Attempting to unexport target: " + tid);
+    }
+ else {
+      LOG.info("Target: " + tid + " not found");
       return;
     }
-    if (SystemUtil.runAndGetCode(new String[]{ROOT_WRAP,"tgtadm","--lld","iscsi","--op","delete","--mode","logicalunit","--tid",String.valueOf(tid),"--lun",String.valueOf(lun)}) != 0) {
-      LOG.error("Unable to delete lun for tid: " + tid);
-      return;
+    if (SystemUtil.runAndGetCode(new String[]{ROOT_WRAP,"tgtadm","--lld","iscsi","--op","unbind","--mode","target","--tid",String.valueOf(tid),"-I","ALL"}) != 0) {
+      LOG.error("Unable to unbind tid: " + tid);
     }
     int retryCount=0;
     do {
-      if (SystemUtil.runAndGetCode(new String[]{ROOT_WRAP,"tgtadm","--lld","iscsi","--op","delete","--mode","target","--tid",String.valueOf(tid)}) != 0) {
-        LOG.warn("Unable to delete target: " + tid);
-        Thread.sleep(300);
+      if (SystemUtil.runAndGetCode(new String[]{ROOT_WRAP,"tgtadm","--lld","iscsi","--op","delete","--mode","logicalunit","--tid",String.valueOf(tid),"--lun",String.valueOf(lun)}) != 0) {
+        LOG.warn("Unable to delete lun for: " + tid);
+        Thread.sleep(1000);
         continue;
-      }
-      String returnValue=SystemUtil.run(new String[]{ROOT_WRAP,"tgtadm","--lld","iscsi","--op","show","--mode","target","--tid",String.valueOf(tid)});
-      if (returnValue.length() > 0) {
-        LOG.warn("Target: " + tid + " still exists...");
-        Thread.sleep(300);
       }
  else {
         break;
       }
     }
- while (retryCount++ < 10);
-    if (retryCount >= 10) {
+ while (retryCount++ < 30);
+    if (retryCount >= 30) {
+      LOG.error("Gave up deleting the lun for: " + tid);
+    }
+    retryCount=0;
+    do {
+      if (SystemUtil.runAndGetCode(new String[]{ROOT_WRAP,"tgtadm","--lld","iscsi","--op","delete","--mode","target","--tid",String.valueOf(tid)}) != 0) {
+        LOG.warn("Unable to delete target: " + tid);
+        Thread.sleep(1000);
+        continue;
+      }
+      returnValue=SystemUtil.run(new String[]{ROOT_WRAP,"tgtadm","--lld","iscsi","--op","show","--mode","target","--tid",String.valueOf(tid)});
+      if (returnValue.length() > 0) {
+        LOG.warn("Target: " + tid + " still exists...");
+        Thread.sleep(1000);
+      }
+ else {
+        break;
+      }
+    }
+ while (retryCount++ < 30);
+    if (retryCount >= 30) {
       LOG.error("Gave up deleting the target: " + tid);
     }
   }
