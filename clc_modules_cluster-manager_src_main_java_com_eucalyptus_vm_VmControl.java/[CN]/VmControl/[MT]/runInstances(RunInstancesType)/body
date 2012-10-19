@@ -1,7 +1,7 @@
 {
   RunInstancesResponseType reply=request.getReply();
   Allocation allocInfo=Allocations.run(request);
-  EntityTransaction db=Entities.get(VmInstance.class);
+  final EntityTransaction db=Entities.get(VmInstance.class);
   try {
     Predicates.and(VerifyMetadata.get(),AdmissionControl.run(),ContractEnforcement.run()).apply(allocInfo);
     allocInfo.commit();
@@ -15,9 +15,11 @@
   }
  catch (  Exception ex) {
     LOG.error(ex,ex);
-    db.rollback();
     allocInfo.abort();
     throw ex;
+  }
+ finally {
+    if (db.isActive())     db.rollback();
   }
   ClusterAllocator.get().apply(allocInfo);
   return reply;
