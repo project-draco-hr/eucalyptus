@@ -1,0 +1,34 @@
+{
+  List<MemoryPoolMXBean> beans=ManagementFactory.getMemoryPoolMXBeans();
+  boolean noOldGenBeans=true;
+  if (null != beans) {
+    boolean alreadyFaulted=false;
+    for (    MemoryPoolMXBean bean : beans) {
+      String name=bean.getName();
+      if (!name.contains("Old Gen"))       continue;
+      if (bean.getType() != MemoryType.HEAP)       continue;
+      noOldGenBeans=false;
+      MemoryPoolMXBean oldGen=bean;
+      String cmsInfo=getConcurrentMarkSweepInfo();
+      MemoryUsage gc=oldGen.getCollectionUsage();
+      MemoryUsage usage=oldGen.getUsage();
+      MemoryUsage peak=oldGen.getPeakUsage();
+      double ogLastMaxRatio=((double)gc.getUsed()) / ((double)usage.getMax());
+      double ogPeakRatio=((double)usage.getUsed()) / ((double)peak.getUsed());
+      double ogLastRatio=((double)gc.getUsed()) / ((double)usage.getUsed());
+      double ogLastPeakRatio=((double)gc.getUsed()) / ((double)peak.getUsed());
+      LOG.debug("Memory info: ogLastMaxRatio = " + ogLastMaxRatio + ", ogPeakRatio = "+ ogLastRatio+ ", ogLastRatio = "+ ogLastMaxRatio+ ", ogLastPeakRatio = "+ ogLastPeakRatio+ ", "+ cmsInfo);
+      if (ogLastMaxRatio > ratio) {
+        if (!alreadyFaulted) {
+          Faults.forComponent(Eucalyptus.class).havingId(OUT_OF_MEMORY_FAULT_ID).withVar("component",Eucalyptus.INSTANCE.getFaultLogPrefix()).log();
+          alreadyFaulted=true;
+        }
+      }
+    }
+  }
+ else {
+  }
+  if (noOldGenBeans) {
+    LOG.warn("Unable to find any mxbeans for Old-Gen usage");
+  }
+}
