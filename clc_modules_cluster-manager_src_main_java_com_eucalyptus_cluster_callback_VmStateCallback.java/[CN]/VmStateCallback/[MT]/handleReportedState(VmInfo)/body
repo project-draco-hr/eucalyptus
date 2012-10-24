@@ -1,9 +1,21 @@
 {
   final VmState runVmState=VmState.Mapper.get(runVm.getStateName());
   try {
-    EntityTransaction db=Entities.get(VmInstance.class);
+    final EntityTransaction db=Entities.get(VmInstance.class);
     try {
-      VmInstance vm=VmInstances.lookup(runVm.getInstanceId());
+      VmInstance vm=VmInstances.cachedLookup(runVm.getInstanceId());
+      if (VmState.TERMINATED.apply(vm)) {
+        db.rollback();
+        if (VmInstance.Reason.EXPIRED.apply(vm)) {
+          if (VmStateCallback.handleRestore(runVm)) {
+            VmInstances.restored(runVm.getInstanceId());
+          }
+        }
+ else {
+          LOG.trace("Ignore state update to terminated instance: " + runVm.getInstanceId());
+        }
+        return;
+      }
       if (VmInstances.Timeout.EXPIRED.apply(vm)) {
         if (vm.isBlockStorage()) {
           VmInstances.stopped(vm);
@@ -22,7 +34,6 @@
         vm.doUpdate().apply(runVm);
       }
  else {
-        db.rollback();
         return;
       }
       Entities.commit(db);
@@ -30,8 +41,10 @@
  catch (    Exception ex) {
       LOG.error(ex);
       Logs.extreme().error(ex,ex);
-      db.rollback();
       throw ex;
+    }
+ finally {
+      if (db.isActive())       db.rollback();
     }
   }
  catch (  TerminatedInstanceException ex1) {
