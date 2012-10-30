@@ -29,7 +29,7 @@
           long objectUuidNum=OBJECT_UUID_START;
           String instanceUuid="(none)";
           String volumeUuid="(none)";
-          String elasticIpUuid="(none)";
+          String elasticIp="(none)";
           String bucketName="(none)";
           int createdInstanceNum=0;
           for (int periodNum=0; periodNum < NUM_PERIODS; periodNum++) {
@@ -45,10 +45,10 @@
               volumeUuid=String.format(UUID_FORMAT,uniqueUserId,volumeUuidNum++);
               log.debug(String.format("  Generating volume uuid %s\n",volumeUuid));
               ReportingVolumeEventStore.getInstance().insertCreateEvent(volumeUuid,("vol-" + userNum + "-"+ periodNum),timeMs,userId,availZone,VOLUME_SIZE);
-              elasticIpUuid=String.format(UUID_FORMAT,uniqueUserId,elasticIpUuidNum++);
-              log.debug(String.format("  Generating elastic ip uuid %s\n",elasticIpUuid));
               String ip=String.format("%d.%d.%d.%d",(userNum >> 8) % 256,userNum % 256,(periodNum >> 8) % 256,periodNum % 256);
-              ReportingElasticIpEventStore.getInstance().insertCreateEvent(elasticIpUuid,timeMs,userId,ip);
+              elasticIp=ip;
+              log.debug(String.format("  Generating elastic ip %s\n",elasticIp));
+              ReportingElasticIpEventStore.getInstance().insertCreateEvent(timeMs,userId,ip);
             }
             if (periodNum % NUM_PERIODS_PER_SNAPSHOT == 0) {
               String uuid=String.format(UUID_FORMAT,uniqueUserId,snapshotUuidNum++);
@@ -84,14 +84,14 @@
               ReportingInstanceEventStore.getInstance().insertUsageEvent(uuid,timeMs,"CPUUtilization",0L,"default",(double)(PERIOD_DURATION / 2) * periodNum);
             }
             ReportingVolumeEventStore.getInstance().insertAttachEvent(volumeUuid,instanceUuid,VOLUME_SIZE,timeMs);
-            ReportingElasticIpEventStore.getInstance().insertAttachEvent(elasticIpUuid,instanceUuid,timeMs);
-            log.debug(String.format("  Attaching volume %s and ip %s to instance %s\n",volumeUuid,elasticIpUuid,instanceUuid));
-            attachments.add(new Attachment(instanceUuid,volumeUuid,elasticIpUuid));
+            ReportingElasticIpEventStore.getInstance().insertAttachEvent(elasticIp,instanceUuid,timeMs);
+            log.debug(String.format("  Attaching volume %s and ip %s to instance %s\n",volumeUuid,elasticIp,instanceUuid));
+            attachments.add(new Attachment(instanceUuid,volumeUuid,elasticIp));
             if (attachments.size() >= ATTACH_PERIODS_DURATION) {
               Attachment attachment=attachments.remove(0);
               ReportingVolumeEventStore.getInstance().insertDetachEvent(attachment.getVolumeUuid(),attachment.getInstanceUuid(),timeMs);
-              ReportingElasticIpEventStore.getInstance().insertDetachEvent(attachment.getElasticIpUuid(),attachment.getInstanceUuid(),timeMs);
-              log.debug(String.format("  Detaching volume %s and ip %s to instance %s\n",attachment.getVolumeUuid(),attachment.getElasticIpUuid(),attachment.getInstanceUuid()));
+              ReportingElasticIpEventStore.getInstance().insertDetachEvent(attachment.getElasticIp(),attachment.getInstanceUuid(),timeMs);
+              log.debug(String.format("  Detaching volume %s and ip %s to instance %s\n",attachment.getVolumeUuid(),attachment.getElasticIp(),attachment.getInstanceUuid()));
             }
           }
         }
