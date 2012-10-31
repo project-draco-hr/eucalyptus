@@ -1,6 +1,6 @@
 {
-  log.debug("GENERATING REPORT ART");
-  final Map<String,ReportingInstanceCreateEvent> createEvents=new HashMap<String,ReportingInstanceCreateEvent>();
+  log.debug("Generating report ART");
+  final Map<String,ReportingInstanceCreateEvent> createEvents=Maps.newHashMap();
   foreachInstanceCreateEvent(report.getEndMs(),new Predicate<ReportingInstanceCreateEvent>(){
     @Override public boolean apply(    final ReportingInstanceCreateEvent createEvent){
       final ReportingInstanceCreateEvent prevEvent=createEvents.put(createEvent.getUuid(),createEvent);
@@ -11,8 +11,8 @@
     }
   }
 );
-  final Map<InstanceMetricDimensionKey,MetricPrevData> prevDataMap=new HashMap<InstanceMetricDimensionKey,MetricPrevData>();
-  final Map<String,InstanceUsageArtEntity> usageEntities=new HashMap<String,InstanceUsageArtEntity>();
+  final Map<InstanceMetricDimensionKey,MetricPrevData> prevDataMap=Maps.newHashMap();
+  final Map<String,InstanceUsageArtEntity> usageEntities=Maps.newHashMap();
   foreachInstanceUsageEvent(report.getBeginMs() - USAGE_SEARCH_PERIOD,report.getEndMs() + USAGE_SEARCH_PERIOD,new Predicate<ReportingInstanceUsageEvent>(){
     @Override public boolean apply(    final ReportingInstanceUsageEvent event){
       final InstanceMetricDimensionKey key=new InstanceMetricDimensionKey(event.getUuid(),event.getMetric(),event.getDimension());
@@ -28,9 +28,12 @@
         return true;
       }
       if (eventMs >= report.getBeginMs() || eventMs <= report.getEndMs()) {
-        addParentNodes(report,createEvent,usageEntity);
+        if (!addParentNodes(report,createEvent,usageEntity)) {
+          return true;
+        }
       }
       if (!prevDataMap.containsKey(key)) {
+        usageEntity.setDurationMs(Math.max(usageEntity.getDurationMs(),overlap(report.getBeginMs(),report.getEndMs(),createEvent.getTimestampMs(),eventMs)));
         Double fractionalVal=fractionalUsage(report.getBeginMs(),report.getEndMs(),createEvent.getTimestampMs(),eventMs,event.getValue());
         addMetricValueToUsageEntity(usageEntity,event.getMetric(),event.getDimension(),fractionalVal);
         log.debug(String.format("new metric time:%d-%d report:%d-%d uuid:%s metric:%s dim:%s val:%f fraction:%f",createEvent.getTimestampMs(),eventMs,report.getBeginMs(),report.getEndMs(),event.getUuid(),event.getMetric(),event.getDimension(),event.getValue(),fractionalVal));
@@ -39,7 +42,7 @@
  else {
         final MetricPrevData prevData=prevDataMap.get(key);
         usageEntity.setDurationMs(Math.max(usageEntity.getDurationMs(),overlap(report.getBeginMs(),report.getEndMs(),prevData.firstMs,eventMs)));
-        if (event.getSequenceNum() < prevData.lastSeq) {
+        if (event.getSequenceNum() < prevData.lastSeq || event.getSequenceNum() == 0) {
           Double fractionalVal=fractionalUsage(report.getBeginMs(),report.getEndMs(),prevData.lastMs,eventMs,event.getValue());
           addMetricValueToUsageEntity(usageEntity,event.getMetric(),event.getDimension(),fractionalVal);
           log.debug(String.format("reset time:%d-%d report:%d-%d uuid:%s metric:%s dim:%s val:%f fraction:%f",prevData.lastMs,eventMs,report.getBeginMs(),report.getEndMs(),event.getUuid(),event.getMetric(),event.getDimension(),event.getValue(),fractionalVal));
