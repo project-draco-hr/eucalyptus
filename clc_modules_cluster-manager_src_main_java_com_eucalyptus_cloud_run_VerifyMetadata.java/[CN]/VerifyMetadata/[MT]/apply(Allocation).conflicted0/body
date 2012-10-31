@@ -1,22 +1,11 @@
 {
-  RunInstancesType request=allocInfo.getRequest();
-  String zoneName=request.getAvailabilityZone();
-  if (Clusters.getInstance().listValues().isEmpty()) {
-    LOG.debug("enabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
-    LOG.debug("disabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
-    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
+  Context ctx=allocInfo.getContext();
+  User user=ctx.getUser();
+  String instanceType=allocInfo.getRequest().getInstanceType();
+  VmType vmType=VmTypes.getVmType(instanceType);
+  if (!ctx.hasAdministrativePrivileges() && !RestrictedTypes.filterPrivileged().apply(vmType)) {
+    throw new IllegalMetadataAccessException("Not authorized to allocate vm type " + instanceType + " for "+ ctx.getUserFullName());
   }
- else   if (Partitions.exists(zoneName)) {
-    Partition partition=Partitions.lookupByName(zoneName);
-    allocInfo.setPartition(partition);
-  }
- else   if ("default".equals(zoneName)) {
-    String defaultZone=Clusters.getInstance().listValues().get(0).getPartition();
-    Partition partition=Partitions.lookupByName(defaultZone);
-    allocInfo.setPartition(partition);
-  }
- else {
-    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
-  }
+  allocInfo.setVmType(vmType);
   return true;
 }
