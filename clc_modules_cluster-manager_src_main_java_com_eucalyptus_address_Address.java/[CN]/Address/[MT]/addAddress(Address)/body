@@ -1,27 +1,22 @@
 {
-  Address addr=address;
-  EntityWrapper<Address> db=EntityWrapper.get(Address.class);
+  final EntityTransaction db=Entities.get(Address.class);
+  String naturalId=address.getNaturalId();
   try {
-    addr=db.getUnique(new Address(){
-{
-        this.setDisplayName(address.getName());
-      }
+    try {
+      Entities.delete(Entities.uniqueResult(forIp(address.getName())));
     }
-);
-    addr.setOwner(address.getOwner());
+ catch (    NoSuchElementException e) {
+    }
+    address.setNaturalId(null);
+    final Address persisted=Entities.mergeDirect(address);
+    naturalId=persisted.getNaturalId();
     db.commit();
   }
- catch (  RuntimeException e) {
-    db.rollback();
+ catch (  Exception e) {
     LOG.error(e,e);
   }
-catch (  EucalyptusCloudException e) {
-    try {
-      db.add(address);
-      db.commit();
-    }
- catch (    Exception e1) {
-      db.rollback();
-    }
+ finally {
+    if (db.isActive())     db.rollback();
+    address.setNaturalId(naturalId);
   }
 }
