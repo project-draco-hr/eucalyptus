@@ -7,35 +7,96 @@
       List<SnapshotInfo> foundSnapshotInfos=db.query(snapshotInfo);
       if (foundSnapshotInfos.size() == 0) {
         db.commit();
-        if (!blockManager.getFromBackend(snapshotId)) {
-          int sizeExpected;
-          if (size <= 0) {
-            sizeExpected=getSnapshotSize(snapshotId);
+        EucaSemaphore semaphore=EucaSemaphoreDirectory.getSolitarySemaphore(snapshotId);
+        try {
+          semaphore.acquire();
+          db=StorageProperties.getEntityWrapper();
+          foundSnapshotInfos=db.query(snapshotInfo);
+          if (foundSnapshotInfos.size() == 0) {
+            db.commit();
+            int walrusSnapSize=getSnapshotSize(snapshotId);
+            if (!blockManager.getFromBackend(snapshotId,walrusSnapSize)) {
+              String tmpSnapshotFileName=null;
+              try {
+                tmpSnapshotFileName=getSnapshot(snapshotId);
+                File snapFile=new File(tmpSnapshotFileName);
+                if (!snapFile.exists()) {
+                  throw new EucalyptusCloudException("Unable to find snapshot " + snapshotId + "on SC");
+                }
+                long actualSnapSizeInMB=(long)Math.ceil((double)snapFile.length() / StorageProperties.MB);
+                try {
+                  String snapDestination=blockManager.prepareSnapshot(snapshotId,walrusSnapSize,actualSnapSizeInMB);
+                  if (snapDestination != null) {
+                    if (snapDestination.startsWith("/dev/")) {
+                      CommandOutput output=SystemUtil.runWithRawOutput(new String[]{StorageProperties.EUCA_ROOT_WRAPPER,"dd","if=" + tmpSnapshotFileName,"of=" + snapDestination,"bs=" + StorageProperties.blockSize});
+                      LOG.debug("Output of dd command: " + output.error);
+                      if (output.returnValue != 0) {
+                        throw new EucalyptusCloudException("Failed to copy the snapshot to the right location due to: " + output.error);
+                      }
+                      cleanupFile(tmpSnapshotFileName);
+                    }
+ else {
+                      if (!snapFile.renameTo(new File(snapDestination))) {
+                        throw new EucalyptusCloudException("Failed to rename the snapshot");
+                      }
+                    }
+                    blockManager.finishVolume(snapshotId);
+                  }
+ else {
+                    LOG.warn("Block Manager replied that " + snapshotId + " not on backend, but snapshot preparation indicated that the snapshot is already present");
+                  }
+                }
+ catch (                Exception ex) {
+                  LOG.error("Failed to prepare the snapshot " + snapshotId + " on SAN. Now cleaning up (snapshot on SAN)",ex);
+                  cleanFailedSnapshot(snapshotId);
+                  throw ex;
+                }
+              }
+ catch (              Exception ex) {
+                LOG.error("Failed to prepare the snapshot " + snapshotId + " on the storage backend. Now cleaning up (snapshot on SC)",ex);
+                cleanupFile(tmpSnapshotFileName);
+                throw ex;
+              }
+            }
+ else {
+            }
+            db=StorageProperties.getEntityWrapper();
+            snapshotInfo=new SnapshotInfo(snapshotId);
+            snapshotInfo.setVolumeId(volumeId);
+            snapshotInfo.setProgress("100");
+            snapshotInfo.setStartTime(new Date());
+            snapshotInfo.setStatus(StorageProperties.Status.available.toString());
+            db.add(snapshotInfo);
+            db.commit();
           }
  else {
-            sizeExpected=size;
-          }
-          String snapDestination=blockManager.prepareSnapshot(snapshotId,sizeExpected);
-          if (snapDestination != null) {
-            getSnapshot(snapshotId,snapDestination);
-          }
+            SnapshotInfo foundSnapshotInfo=foundSnapshotInfos.get(0);
+            if (!StorageProperties.Status.available.toString().equals(foundSnapshotInfo.getStatus())) {
+              success=false;
+              db.rollback();
+              LOG.warn("snapshot " + foundSnapshotInfo.getSnapshotId() + " not available.");
+            }
  else {
-            LOG.warn("Block Manager replied that " + snapshotId + " not on backend, but snapshot preparation indicated that the snapshot is already present");
+              db.commit();
+            }
           }
         }
-        db=StorageProperties.getEntityWrapper();
-        snapshotInfo=new SnapshotInfo(snapshotId);
-        snapshotInfo.setVolumeId(volumeId);
-        snapshotInfo.setProgress("100");
-        snapshotInfo.setStartTime(new Date());
-        snapshotInfo.setStatus(StorageProperties.Status.available.toString());
-        db.add(snapshotInfo);
-        db.commit();
+ catch (        InterruptedException ex) {
+          throw new EucalyptusCloudException("semaphore could not be acquired");
+        }
+ finally {
+          try {
+            semaphore.release();
+          }
+  finally {
+            EucaSemaphoreDirectory.removeSemaphore(snapshotId);
+          }
+        }
         size=blockManager.createVolume(volumeId,snapshotId,size);
       }
  else {
         SnapshotInfo foundSnapshotInfo=foundSnapshotInfos.get(0);
-        if (!foundSnapshotInfo.getStatus().equals(StorageProperties.Status.available.toString())) {
+        if (!StorageProperties.Status.available.toString().equals(foundSnapshotInfo.getStatus())) {
           success=false;
           db.rollback();
           LOG.warn("snapshot " + foundSnapshotInfo.getSnapshotId() + " not available.");
