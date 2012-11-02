@@ -14,7 +14,21 @@
     volumeManager.finish();
     volumeManager=null;
     try {
-      String returnValue=createSnapshotLogicalVolume(absoluteLVName,lvName,size);
+      long absoluteSize;
+      CommandOutput result=SystemUtil.runWithRawOutput(new String[]{EUCA_ROOT_WRAPPER,"blockdev","--getsize64",absoluteLVName});
+      if (null != result && result.returnValue == 0 && StringUtils.isNotBlank(StringUtils.trim(result.output))) {
+        try {
+          absoluteSize=(Long.parseLong(StringUtils.trim(result.output)) / StorageProperties.MB);
+        }
+ catch (        NumberFormatException e) {
+          LOG.debug("Failed to parse size of volume " + volumeId,e);
+          absoluteSize=size * StorageProperties.KB;
+        }
+      }
+ else {
+        absoluteSize=size * StorageProperties.KB;
+      }
+      String returnValue=createSnapshotLogicalVolume(absoluteLVName,lvName,absoluteSize);
       if (returnValue.length() == 0) {
         throw new EucalyptusCloudException("Unable to create snapshot logical volume " + lvName + " for volume "+ lvName);
       }
@@ -26,14 +40,13 @@
         throw new EucalyptusCloudException("Unable to remove logical volume " + absoluteSnapLVName);
       }
       snapshotInfo.setLoFileName(snapRawFileName);
-      snapshotInfo.setStatus(StorageProperties.Status.available.toString());
       snapshotInfo.setSize(size);
       volumeManager=new VolumeEntityWrapperManager();
       volumeManager.add(snapshotInfo);
       returnValues.add(snapRawFileName);
       returnValues.add(String.valueOf(size * WalrusProperties.G));
     }
- catch (    EucalyptusCloudException ex) {
+ catch (    Exception ex) {
       if (volumeManager != null)       volumeManager.abort();
       String error="Unable to run command: " + ex.getMessage();
       LOG.error(error);
