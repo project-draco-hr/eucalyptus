@@ -29,74 +29,28 @@ def post(self):
             except KeyError:
                 pass
             if (len(user_data_file) > 0):
-                ret = self.handleRunInstances(action, self.user_session.clc, user_data_file[0].body)
+                self.handleRunInstances(action, self.user_session.clc, user_data_file[0].body, self.callback)
             else:
-                ret = self.handleRunInstances(action, self.user_session.clc, None)
+                self.handleRunInstances(action, self.user_session.clc, None, self.callback)
         elif (action == 'DescribeAvailabilityZones'):
-            ret = self.user_session.clc.get_all_zones(self.callback)
-            if (ret == None):
-                return
+            self.user_session.clc.get_all_zones(self.callback)
         elif (action.find('Image') > (-1)):
-            ret = self.handleImages(action, self.user_session.clc, self.callback)
-            if (ret == None):
-                return
+            self.handleImages(action, self.user_session.clc, self.callback)
         elif ((action.find('Instance') > (-1)) or (action == 'GetConsoleOutput')):
-            ret = self.handleInstances(action, self.user_session.clc, self.callback)
-            if (ret == None):
-                return
+            self.handleInstances(action, self.user_session.clc, self.callback)
         elif (action.find('Address') > (-1)):
-            ret = self.handleAddresses(action, self.user_session.clc, self.callback)
-            if (ret == None):
-                return
+            self.handleAddresses(action, self.user_session.clc, self.callback)
         elif (action.find('KeyPair') > (-1)):
-            ret = self.handleKeypairs(action, self.user_session.clc, self.callback)
-            if (ret == None):
-                return
+            self.handleKeypairs(action, self.user_session.clc, self.callback)
         elif (action.find('SecurityGroup') > (-1)):
-            ret = self.handleGroups(action, self.user_session.clc, self.callback)
-            if (ret == None):
-                return
+            self.handleGroups(action, self.user_session.clc, self.callback)
         elif (action.find('Volume') > (-1)):
-            ret = self.handleVolumes(action, self.user_session.clc, self.callback)
-            if (ret == None):
-                return
+            self.handleVolumes(action, self.user_session.clc, self.callback)
         elif (action.find('Snapshot') > (-1)):
-            ret = self.handleSnapshots(action, self.user_session.clc, self.callback)
-            if (ret == None):
-                return
+            self.handleSnapshots(action, self.user_session.clc, self.callback)
         elif (action == 'GetPassword'):
-            instanceid = self.get_argument('InstanceId')
-            passwd_data = self.user_session.clc.get_password_data(instanceid)
-            priv_key_file = self.request.files['priv_key']
-            user_priv_key = RSA.load_key_string(priv_key_file[0].body)
-            string_to_decrypt = base64.b64decode(passwd_data)
-            ret = user_priv_key.private_decrypt(string_to_decrypt, RSA.pkcs1_padding)
-            ret = {'instance': instanceid, 'password': ret, }
-        ret = Response(ret)
-        data = json.dumps(ret, cls=BotoJsonEncoder, indent=2)
-        try:
-            if eucaconsole.config.get('test', 'apidelay'):
-                time.sleep((int(eucaconsole.config.get('test', 'apidelay')) / 1000.0))
-        except ConfigParser.NoOptionError:
-            pass
-        self.set_header('Content-Type', 'application/json;charset=UTF-8')
-        self.write(data)
-    except EC2ResponseError as err:
-        print err
-        ret = ClcError(err.status, err.reason, err.errors[0][1])
-        self.set_status(err.status)
-        self.set_header('Content-Type', 'application/json;charset=UTF-8')
-        self.write(json.dumps(ret, cls=BotoJsonEncoder))
+            self.handleGetPassword(self.user_session.clc, self.callback)
     except Exception as ex:
-        if isinstance(ex, socket.timeout):
-            ret = ClcError(504, 'Timed out', None)
-            self.set_status(504)
-            self.set_header('Content-Type', 'application/json;charset=UTF-8')
-            self.write(json.dumps(ret, cls=BotoJsonEncoder))
-        else:
-            logging.error('Could not fullfil request, exception to follow')
-            logging.exception(ex)
-            ret = ClcError(500, ex.message, None)
-            self.set_status(500)
-            self.set_header('Content-Type', 'application/json;charset=UTF-8')
-            self.write(json.dumps(ret, cls=BotoJsonEncoder))
+        logging.error('Could not fullfil request, exception to follow')
+        logging.error('Since we got here, client likelly not notified either!')
+        logging.exception(ex)

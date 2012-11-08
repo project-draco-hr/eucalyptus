@@ -1,17 +1,26 @@
 def callback(self, response):
     if response.error:
-        print response.error
-        ret = ClcError(response.error.status, response.error.reason, response.error.errors[0][1])
-        self.set_status(response.error.status)
+        err = response.error
+        ret = '[]'
+        if isinstance(err, EC2ResponseError):
+            ret = ClcError(err.status, err.reason, err.errors[0][1])
+            self.set_status(err.status)
+        elif issubclass(err.__class__, Exception):
+            if isinstance(err, socket.timeout):
+                ret = ClcError(504, 'Timed out', None)
+                self.set_status(504)
+            else:
+                ret = ClcError(500, err.message, None)
+                self.set_status(500)
         self.set_header('Content-Type', 'application/json;charset=UTF-8')
         self.write(json.dumps(ret, cls=BotoJsonEncoder))
+        self.finish()
     else:
         try:
             ret = Response(response.data)
             data = json.dumps(ret, cls=BotoJsonEncoder, indent=2)
             self.set_header('Content-Type', 'application/json;charset=UTF-8')
             self.write(data)
-            self.flush()
             self.finish()
         except Exception as err:
             print err
