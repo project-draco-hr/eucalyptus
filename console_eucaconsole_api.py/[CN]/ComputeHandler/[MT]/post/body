@@ -6,7 +6,12 @@ def post(self):
         if self.should_use_mock():
             self.user_session.clc = MockClcInterface()
         else:
-            self.user_session.clc = BotoClcInterface(eucaconsole.config.get('server', 'clchost'), self.user_session.access_key, self.user_session.secret_key, self.user_session.session_token)
+            host = eucaconsole.config.get('server', 'clchost')
+            try:
+                host = eucaconsole.config.get('test', 'ec2.endpoint')
+            except ConfigParser.Error:
+                pass
+            self.user_session.clc = BotoClcInterface(host, self.user_session.access_key, self.user_session.secret_key, self.user_session.session_token)
         self.user_session.clc = CachingClcInterface(self.user_session.clc, eucaconsole.config)
     self.user_session.session_lifetime_requests += 1
     try:
@@ -20,6 +25,7 @@ def post(self):
             self.set_header('Content-Type', 'application/x-pem-file;charset=ISO-8859-1')
             self.set_header('Content-Disposition', (('attachment; filename="' + name) + '.pem"'))
             self.write(result)
+            self.finish()
             del self.user_session.keypair_cache[name]
             return
         if (action == 'RunInstances'):
