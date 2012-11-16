@@ -12,9 +12,19 @@
     try {
       if (event.isAsserted(TimeUnit.MINUTES.toSeconds(DEFAULT_POLL_INTERVAL_MINS))) {
         if (Bootstrap.isFinished() && Hosts.isCoordinator()) {
+          List<VmInstance> instList=VmInstances.list(VmState.RUNNING);
+          List<String> instIdList=Lists.newArrayList();
+          for (          final VmInstance inst : instList) {
+            instIdList.add(inst.getInstanceId());
+          }
+          Iterable<List<String>> processInts=Iterables.paddedPartition(instIdList,SENSOR_QUERY_BATCH_SIZE);
           for (          final ServiceConfiguration ccConfig : Topology.enabledServices(ClusterController.class)) {
-            AsyncRequests.newRequest(new DescribeSensorCallback(HISTORY_SIZE,COLLECTION_INTERVAL_TIME_MS)).dispatch(ccConfig);
-            LOG.debug("DecribeSensorCallback has been successfully executed");
+            for (            List<String> instIds : processInts) {
+              ArrayList<String> instanceIds=Lists.newArrayList(instIds);
+              Iterables.removeIf(instanceIds,Predicates.isNull());
+              AsyncRequests.newRequest(new DescribeSensorCallback(HISTORY_SIZE,COLLECTION_INTERVAL_TIME_MS,instanceIds)).dispatch(ccConfig);
+              LOG.debug("DecribeSensorCallback has been successfully executed");
+            }
           }
         }
       }
