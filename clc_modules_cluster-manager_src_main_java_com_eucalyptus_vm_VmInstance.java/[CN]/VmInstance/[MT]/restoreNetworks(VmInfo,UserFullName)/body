@@ -1,5 +1,36 @@
 {
   final List<NetworkGroup> networks=Lists.newArrayList();
   networks.addAll(Lists.transform(input.getGroupNames(),transformNetworkNames(userFullName)));
+  Iterables.removeIf(networks,Predicates.isNull());
+  if (networks.isEmpty()) {
+    final EntityTransaction restore=Entities.get(NetworkGroup.class);
+    int index=input.getGroupNames().get(0).lastIndexOf("-");
+    String truncatedSecGroup=(String)input.getGroupNames().get(0).subSequence(0,index);
+    String orphanedSecGrp=truncatedSecGroup.concat("-orphaned");
+    try {
+      NetworkGroup found=NetworkGroups.lookup(userFullName,orphanedSecGrp);
+      networks.add(found);
+      restore.commit();
+    }
+ catch (    NoSuchMetadataException ex) {
+      try {
+        NetworkGroup restoredGroup=NetworkGroups.create(userFullName,orphanedSecGrp,orphanedSecGrp);
+        networks.add(restoredGroup);
+      }
+ catch (      Exception e) {
+        LOG.debug("Failed to restored security group : " + orphanedSecGrp);
+        restore.rollback();
+      }
+    }
+catch (    Exception e) {
+      LOG.debug("Failed to restore security group : " + orphanedSecGrp);
+      restore.rollback();
+    }
+ finally {
+      if (restore.isActive()) {
+        restore.rollback();
+      }
+    }
+  }
   return networks;
 }
