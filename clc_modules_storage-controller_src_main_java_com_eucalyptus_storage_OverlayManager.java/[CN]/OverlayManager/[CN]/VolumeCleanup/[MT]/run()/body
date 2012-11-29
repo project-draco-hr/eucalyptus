@@ -7,55 +7,60 @@
       if (foundLVMVolumeInfo.getCleanup()) {
         VolumeOpMonitor monitor=getMonitor(foundLVMVolumeInfo.getVolumeId());
 synchronized (monitor) {
-          volumeManager=new VolumeEntityWrapperManager();
-          String volumeId=foundLVMVolumeInfo.getVolumeId();
-          LVMVolumeInfo volInfo=volumeManager.getVolumeInfo(volumeId);
-          if (!volInfo.getCleanup()) {
-            LOG.info("Volume: " + volumeId + " no longer marked for cleanup...aborting");
-            volumeManager.abort();
-            continue;
-          }
-          LOG.info("Cleaning up volume: " + foundLVMVolumeInfo.getVolumeId());
           try {
-            exportManager.cleanup(volInfo);
-            volumeManager.finish();
             volumeManager=new VolumeEntityWrapperManager();
-            volInfo=volumeManager.getVolumeInfo(volumeId);
-          }
- catch (          EucalyptusCloudException ee) {
-            LOG.error(ee,ee);
-            volumeManager.abort();
-            continue;
-          }
-          String loDevName=foundLVMVolumeInfo.getLoDevName();
-          if (loDevName != null) {
-            if (volInfo != null) {
-              String vgName=foundLVMVolumeInfo.getVgName();
-              String lvName=foundLVMVolumeInfo.getLvName();
-              String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
-              if (!volumeManager.areSnapshotsPending(volumeId)) {
-                try {
-                  disableLogicalVolume(absoluteLVName);
-                  LOG.info("Detaching loop device: " + loDevName);
-                  removeLoopback(loDevName);
-                  volInfo.setLoDevName(null);
-                  LOG.info("Done cleaning up: " + volumeId);
-                  volInfo.setCleanup(false);
-                  volumeManager.finish();
+            String volumeId=foundLVMVolumeInfo.getVolumeId();
+            LVMVolumeInfo volInfo=volumeManager.getVolumeInfo(volumeId);
+            if (!volInfo.getCleanup()) {
+              LOG.info("Volume: " + volumeId + " no longer marked for cleanup...aborting");
+              volumeManager.abort();
+              continue;
+            }
+            LOG.info("Cleaning up volume: " + foundLVMVolumeInfo.getVolumeId());
+            try {
+              exportManager.cleanup(volInfo);
+              volumeManager.finish();
+              volumeManager=new VolumeEntityWrapperManager();
+              volInfo=volumeManager.getVolumeInfo(volumeId);
+            }
+ catch (            EucalyptusCloudException ee) {
+              LOG.error(ee,ee);
+              volumeManager.abort();
+              continue;
+            }
+            String loDevName=foundLVMVolumeInfo.getLoDevName();
+            if (loDevName != null) {
+              if (volInfo != null) {
+                String vgName=foundLVMVolumeInfo.getVgName();
+                String lvName=foundLVMVolumeInfo.getLvName();
+                String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
+                if (!volumeManager.areSnapshotsPending(volumeId)) {
+                  try {
+                    disableLogicalVolume(absoluteLVName);
+                    LOG.info("Detaching loop device: " + loDevName);
+                    removeLoopback(loDevName);
+                    volInfo.setLoDevName(null);
+                    LOG.info("Done cleaning up: " + volumeId);
+                    volInfo.setCleanup(false);
+                    volumeManager.finish();
+                  }
+ catch (                  EucalyptusCloudException e) {
+                    LOG.error(e,e);
+                    volumeManager.abort();
+                  }
                 }
- catch (                EucalyptusCloudException e) {
-                  LOG.error(e,e);
+ else {
+                  LOG.info("Snapshot in progress. Not detaching loop device.");
                   volumeManager.abort();
                 }
               }
+            }
  else {
-                LOG.info("Snapshot in progress. Not detaching loop device.");
-                volumeManager.abort();
-              }
+              volumeManager.abort();
             }
           }
- else {
-            volumeManager.abort();
+  finally {
+            monitor.notifyAll();
           }
         }
       }
