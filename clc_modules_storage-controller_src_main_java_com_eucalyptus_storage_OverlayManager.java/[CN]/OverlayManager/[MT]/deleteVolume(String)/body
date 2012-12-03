@@ -2,35 +2,63 @@
   VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
   LVMVolumeInfo foundLVMVolumeInfo=volumeManager.getVolumeInfo(volumeId);
   if (foundLVMVolumeInfo != null) {
-    try {
-      exportManager.cleanup(foundLVMVolumeInfo);
-    }
- catch (    EucalyptusCloudException ee) {
-      LOG.error(ee,ee);
-    }
-    String loDevName=foundLVMVolumeInfo.getLoDevName();
-    if (loDevName != null) {
-      String vgName=foundLVMVolumeInfo.getVgName();
-      String lvName=foundLVMVolumeInfo.getLvName();
-      String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
-      try {
-        disableLogicalVolume(absoluteLVName);
-        removeLoopback(loDevName);
-        foundLVMVolumeInfo.setLoDevName(null);
+    boolean isReadyForDelete=false;
+    int retryCount=0;
+    VolumeOpMonitor monitor=getMonitor(foundLVMVolumeInfo.getVolumeId());
+    LOG.debug("Trying to lock volume " + volumeId);
+synchronized (monitor) {
+      do {
+        try {
+          volumeManager=new VolumeEntityWrapperManager();
+          foundLVMVolumeInfo=volumeManager.getVolumeInfo(volumeId);
+          if (foundLVMVolumeInfo.getCleanup()) {
+            LOG.debug("Volume " + volumeId + " has been marked for cleanup. Will resume after cleanup is complete");
+            monitor.wait(60000);
+          }
+ else {
+            LOG.debug("Volume " + volumeId + " is not marked for cleanup. Checking loop back device status");
+            if (StringUtils.isNotBlank(foundLVMVolumeInfo.getLoDevName()) && StringUtils.isNotBlank(getLoopback(foundLVMVolumeInfo.getLoDevName()))) {
+              foundLVMVolumeInfo.setCleanup(true);
+              volumeManager.finish();
+              LOG.debug("Loop back device for volume " + volumeId + " exists. Marking the volume for cleanup. Will resume after cleanup is complete");
+              monitor.wait(60000);
+            }
+ else {
+              LOG.debug("Volume " + volumeId + " is prepped for deletion");
+              isReadyForDelete=true;
+              break;
+            }
+          }
+        }
+ catch (        Exception e) {
+          LOG.error("Error trying to check volume status",e);
+        }
+        LOG.debug("Lap: " + retryCount++);
       }
- catch (      EucalyptusCloudException e) {
-        LOG.error(e,e);
+ while (!isReadyForDelete && retryCount < 10);
+      if (isReadyForDelete) {
+        LOG.debug("Deleting volume " + volumeId);
+        File volFile=new File(DirectStorageInfo.getStorageInfo().getVolumesDir() + File.separator + volumeId);
+        if (volFile.exists()) {
+          if (!volFile.delete()) {
+            LOG.error("Unable to delete: " + volFile.getAbsolutePath());
+            throw new EucalyptusCloudException("Unable to delete volume file: " + volFile.getAbsolutePath());
+          }
+        }
+        volumeManager.remove(foundLVMVolumeInfo);
+        try {
+          volumeManager.finish();
+        }
+ catch (        Exception e) {
+          LOG.error("Error deleting volume " + volumeId + ", failed to commit DB transaction",e);
+        }
+      }
+ else {
+        LOG.error("All attempts to cleanup volume " + volumeId + " failed");
+        throw new EucalyptusCloudException("Unable to delete volume: " + volumeId + ". All attempts to cleanup the volume failed");
       }
     }
     removeMonitor(volumeId);
-    volumeManager.remove(foundLVMVolumeInfo);
-    volumeManager.finish();
-    File volFile=new File(DirectStorageInfo.getStorageInfo().getVolumesDir() + File.separator + volumeId);
-    if (volFile.exists()) {
-      if (!volFile.delete()) {
-        LOG.error("Unable to delete: " + volFile.getAbsolutePath());
-      }
-    }
   }
  else {
     volumeManager.abort();
