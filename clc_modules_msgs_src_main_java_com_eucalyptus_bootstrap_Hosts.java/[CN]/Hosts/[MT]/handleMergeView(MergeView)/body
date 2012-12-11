@@ -1,0 +1,62 @@
+{
+  final Host preMergeCoordinator=Coordinator.INSTANCE.get();
+  LOG.info("Hosts.viewChange(): merge   : pre-merge-coordinator=" + preMergeCoordinator);
+  Runnable mergeViews=new Runnable(){
+    /** 
+ * Was this host the coordinator when the merge view arrived (i.e., before the partiton has been resolved)?
+ */
+    private final boolean coordinator=preMergeCoordinator.isLocalHost();
+    /** 
+ * Which host was the coordinator for the partition this host belongs to.
+ */
+    private final String coordinatorAddress=preMergeCoordinator != null ? preMergeCoordinator.getDisplayName() : "NONE";
+    private String logPrefix(    View v){
+      return "Hosts.viewChange(): merge   [" + v.getViewId().getId() + ":"+ v.getViewId().getCoordAddress()+ "]=> ";
+    }
+    @Override public void run(){
+      Map<String,View> partitions=Maps.newHashMap();
+      View localView=null;
+      for (      View v : ((MergeView)mergeView).getSubgroups()) {
+        LOG.info(logPrefix(v) + " localhost-member=" + v.containsMember(Hosts.getLocalGroupAddress())+ "coordinator=[ group="+ v.getViewId().getCoordAddress()+ ", system="+ this.coordinatorAddress+ ", localhost="+ this.coordinator+ "]");
+        LOG.info(logPrefix(v) + Joiner.on(", ").join(v.getMembers()));
+        if (!v.containsMember(Hosts.getLocalGroupAddress())) {
+          try {
+            HostManager.getMembershipChannel().getState(v.getMembers().firstElement(),0L);
+          }
+ catch (          Exception e) {
+            LOG.error(logPrefix(v) + " failed to merge partition state: " + e.getMessage());
+            Logs.extreme().error(e,e);
+          }
+        }
+        for (        Address addr : v.getMembers()) {
+          partitions.put(addr.toString(),v);
+        }
+      }
+      if (this.coordinator) {
+        List<View> dbViews=Lists.newArrayList();
+        for (        Host db : Hosts.listDatabases()) {
+          View dbView=partitions.get(db.getDisplayName());
+          dbViews.add(dbView);
+          if (!localView.equals(dbView)) {
+          }
+        }
+        if (dbViews.size() > 1) {
+          LOG.warn(logPrefix(localView) + " found partitioned database views: " + Joiner.on(", ").join(dbViews));
+          Databases.Locks.PARTITIONED.create();
+        }
+        Host newCoordinator=Coordinator.INSTANCE.get();
+        if (!coordinatorAddress.equals(newCoordinator.getDisplayName())) {
+          LOG.warn(logPrefix(localView) + " found different coordinator " + newCoordinator);
+          Databases.Locks.PARTITIONED.create();
+        }
+        if (Hosts.hasCoordinator() && !Hosts.isCoordinator() && BootstrapArgs.isCloudController()) {
+          LOG.fatal("PARTITION FAIL-STOP:  Possibility for inconsistency detected for Host: " + Hosts.localHost());
+          LOG.fatal("PARTITION FAIL-STOP:  Possibility for inconsistency detected for Host: " + Hosts.localHost());
+          Databases.Locks.PARTITIONED.failStop();
+        }
+      }
+    }
+  }
+;
+  Threads.newThread(mergeViews).start();
+}
