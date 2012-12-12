@@ -28,19 +28,26 @@
             Logs.extreme().error(e,e);
           }
         }
+ else {
+          localView=v;
+        }
         for (        Address addr : v.getMembers()) {
           partitions.put(addr.toString(),v);
         }
       }
       if (this.coordinator) {
-        List<View> dbViews=Lists.newArrayList();
+        Set<View> dbViews=Sets.newHashSet();
         for (        Host db : Hosts.listDatabases()) {
           View dbView=partitions.get(db.getDisplayName());
-          dbViews.add(dbView);
-          if (!localView.equals(dbView)) {
+          if (!dbView.equals(localView)) {
+            LOG.warn(logPrefix(localView) + " found partitioned database: " + dbView);
+            Databases.Locks.PARTITIONED.create();
+          }
+ else {
+            dbViews.add(dbView);
           }
         }
-        if (dbViews.size() > 1) {
+        if (!dbViews.isEmpty()) {
           LOG.warn(logPrefix(localView) + " found partitioned database views: " + Joiner.on(", ").join(dbViews));
           Databases.Locks.PARTITIONED.create();
         }
@@ -51,8 +58,10 @@
         }
         if (Hosts.hasCoordinator() && !Hosts.isCoordinator() && BootstrapArgs.isCloudController()) {
           LOG.fatal("PARTITION FAIL-STOP:  Possibility for inconsistency detected for Host: " + Hosts.localHost());
-          LOG.fatal("PARTITION FAIL-STOP:  Possibility for inconsistency detected for Host: " + Hosts.localHost());
           Databases.Locks.PARTITIONED.failStop();
+        }
+ else         if (Hosts.isCoordinator()) {
+          LOG.fatal("PARTITION FAIL-STOP:  Possibility for inconsistency detected for hosts in the following views: " + Joiner.on(", ").join(dbViews));
         }
       }
     }
