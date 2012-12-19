@@ -1,15 +1,17 @@
 {
-  if (Internets.testLocal(addr)) {
+  if (Internets.testLocal(addr) || !Bootstrap.isOperational()) {
     return false;
   }
  else {
     try {
+      Map<ServiceConfiguration,Future<ServiceConfiguration>> disabled=Maps.newHashMap();
       for (      final ComponentId c : ShouldLoadRemote.findDependentComponents(compClass,addr)) {
         try {
           for (          final ServiceConfiguration s : Components.lookup(compClass).services()) {
             try {
               if (s.getHostName().equals(addr.getHostAddress())) {
-                Topology.destroy(s).get();
+                Future<ServiceConfiguration> disable=Topology.disable(s);
+                disabled.put(s,disable);
               }
             }
  catch (            final Exception ex) {
@@ -22,6 +24,7 @@
           Logs.extreme().error(ex,ex);
         }
       }
+      Futures.waitAll(disabled);
     }
  catch (    final Exception ex) {
       LOG.error(ex);

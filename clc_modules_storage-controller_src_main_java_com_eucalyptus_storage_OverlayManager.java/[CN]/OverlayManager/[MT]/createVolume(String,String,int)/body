@@ -23,25 +23,38 @@
           absoluteSize=size * StorageProperties.GB + LVM_HEADER_LENGTH;
         }
         String loDevName=createLoopback(rawFileName,absoluteSize);
+        lvmVolumeInfo.setVolumeId(volumeId);
+        lvmVolumeInfo.setLoDevName(loDevName);
         createLogicalVolume(loDevName,vgName,lvName);
         String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
         duplicateLogicalVolume(loFileName,absoluteLVName);
-        lvmVolumeInfo.setVolumeId(volumeId);
         lvmVolumeInfo.setVgName(vgName);
         lvmVolumeInfo.setLvName(lvName);
         lvmVolumeInfo.setStatus(StorageProperties.Status.available.toString());
         lvmVolumeInfo.setSize(size);
         disableLogicalVolume(absoluteLVName);
         removeLoopback(loDevName);
+        lvmVolumeInfo.setLoDevName(null);
         volumeManager=new VolumeEntityWrapperManager();
         volumeManager.add(lvmVolumeInfo);
-        volumeManager.finish();
       }
  catch (      EucalyptusCloudException ex) {
-        volumeManager.abort();
         String error="Unable to run command: " + ex.getMessage();
         LOG.error(error);
         throw new EucalyptusCloudException(error);
+      }
+ finally {
+        try {
+          if (volumeManager != null) {
+            volumeManager.finish();
+          }
+ else {
+            LOG.error("Cannot commit to db. EntityWrapper is null");
+          }
+        }
+ catch (        final Throwable e) {
+          LOG.error("Volume: " + volumeId + " could not commit db transaction. "+ e.getMessage());
+        }
       }
     }
   }
