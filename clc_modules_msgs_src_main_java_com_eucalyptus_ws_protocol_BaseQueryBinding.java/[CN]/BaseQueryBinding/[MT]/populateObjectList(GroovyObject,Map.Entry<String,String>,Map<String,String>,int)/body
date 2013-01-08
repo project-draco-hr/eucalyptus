@@ -21,17 +21,26 @@
       final HttpEmbedded annoteEmbedded=(HttpEmbedded)declaredField.getAnnotation(HttpEmbedded.class);
       if (annoteEmbedded.multiple()) {
         final List<String> keys=Lists.newArrayList(params.keySet());
-        final Map<String,String> subParams=Maps.newConcurrentMap();
+        final Map<String,Map<String,String>> subParamMaps=new TreeMap<String,Map<String,String>>(Ordering.natural().onResultOf(FunctionToInteger.INSTANCE));
         for (        final String k : keys) {
-          if (k.contains(paramFieldPair.getKey())) {
+          if (k.startsWith(paramFieldPair.getKey() + ".")) {
             final String currentValue=params.remove(k);
-            final String newKey=k.replaceAll(paramFieldPair.getKey() + "\\.\\d\\.","");
-            subParams.put(newKey,currentValue);
+            final String setKey=k.replaceAll(paramFieldPair.getKey() + "\\.(\\d+)\\..*","$1");
+            final String subKey=k.replaceAll(paramFieldPair.getKey() + "\\.\\d+\\.","");
+            Map<String,String> subMap=subParamMaps.get(setKey);
+            if (subMap == null) {
+              subParamMaps.put(setKey,subMap=Maps.newHashMap());
+            }
+            subMap.put(subKey,currentValue);
           }
         }
-        failedMappings.addAll(this.populateEmbedded(genericType,subParams,theList));
+        for (        final Map<String,String> subParams : subParamMaps.values()) {
+          failedMappings.addAll(this.populateEmbedded(genericType,subParams,theList));
+        }
       }
- else       failedMappings.addAll(this.populateEmbedded(genericType,params,theList));
+ else {
+        failedMappings.addAll(this.populateEmbedded(genericType,params,theList));
+      }
     }
   }
  catch (  final Exception e1) {
