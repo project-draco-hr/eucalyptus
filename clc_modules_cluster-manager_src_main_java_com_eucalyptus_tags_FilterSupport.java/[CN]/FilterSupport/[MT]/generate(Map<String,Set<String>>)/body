@@ -1,0 +1,32 @@
+{
+  final List<Predicate<Object>> and=Lists.newArrayList();
+  for (  final Map.Entry<String,Set<String>> filter : filters.entrySet()) {
+    final List<Predicate<Object>> or=Lists.newArrayList();
+    for (    final String value : filter.getValue()) {
+      final Function<? super String,Predicate<? super RT>> predicateFunction=predicateFunctions.get(filter.getKey());
+      final Predicate<? super RT> valuePredicate=predicateFunction == null ? null : predicateFunction.apply(value);
+      or.add(typedPredicate(valuePredicate));
+    }
+    and.add(Predicates.or(or));
+  }
+  final Junction conjunction=Restrictions.conjunction();
+  final Map<String,String> aliases=Maps.newHashMap();
+  for (  final Map.Entry<String,Set<String>> filter : filters.entrySet()) {
+    final Junction disjunction=Restrictions.disjunction();
+    for (    final String value : filter.getValue()) {
+      final PersistenceFilter persistenceFilter=persistenceFilters.get(filter.getKey());
+      if (persistenceFilter != null) {
+        final Object persistentValue=persistenceFilter.value(value);
+        if (persistentValue != null) {
+          for (          final String alias : persistenceFilter.getAliases())           aliases.put(alias,this.aliases.get(alias));
+          disjunction.add(buildRestriction(persistenceFilter,persistentValue));
+        }
+ else {
+          disjunction.add(Restrictions.not(Restrictions.conjunction()));
+        }
+      }
+    }
+    conjunction.add(disjunction);
+  }
+  return new Filter(aliases,conjunction,Predicates.and(and));
+}
