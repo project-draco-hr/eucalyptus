@@ -1,37 +1,57 @@
 {
-  VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
-  LVMVolumeInfo lvmVolumeInfo=volumeManager.getVolumeInfo(volumeId);
+  LVMVolumeInfo lvmVolumeInfo=null;
+{
+    final VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
+    try {
+      lvmVolumeInfo=volumeManager.getVolumeInfo(volumeId);
+    }
+  finally {
+      volumeManager.finish();
+    }
+  }
   if (lvmVolumeInfo != null) {
     String rawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId;
-    try {
-      VolumeOpMonitor monitor=getMonitor(volumeId);
+    VolumeOpMonitor monitor=getMonitor(volumeId);
 synchronized (monitor) {
+      final VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
+      try {
+        lvmVolumeInfo=volumeManager.getVolumeInfo(volumeId);
         String loDevName=lvmVolumeInfo.getLoDevName();
         if (loDevName == null) {
-          loDevName=createLoopback(rawFileName);
+          try {
+            loDevName=createLoopback(rawFileName);
+            lvmVolumeInfo.setLoDevName(loDevName);
+          }
+ catch (          EucalyptusCloudException ex) {
+            LOG.error("Unable to create loop back device for " + volumeId,ex);
+            throw ex;
+          }
         }
         String vgName=lvmVolumeInfo.getVgName();
         String lvName=lvmVolumeInfo.getLvName();
         String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
-        lvmVolumeInfo.setLoDevName(loDevName);
         enableLogicalVolume(absoluteLVName);
         try {
           volumeManager.exportVolume(lvmVolumeInfo,vgName,lvName);
+          lvmVolumeInfo.setCleanup(false);
         }
  catch (        EucalyptusCloudException ex) {
-          LOG.error(ex);
+          LOG.error("Unable to export volume " + volumeId,ex);
           throw ex;
         }
-        lvmVolumeInfo.setCleanup(false);
-        volumeManager.finish();
       }
-    }
- catch (    EucalyptusCloudException ex) {
-      String error="Unable to run command: " + ex.getMessage();
-      volumeManager.abort();
-      LOG.debug(error);
-      LOG.error(ex,ex);
-      throw new EucalyptusCloudException(error);
+ catch (      Exception ex) {
+        LOG.error("Failed to attach volume " + volumeId,ex);
+        throw new EucalyptusCloudException("Failed to attach volume " + volumeId,ex);
+      }
+ finally {
+        try {
+          volumeManager.finish();
+        }
+ catch (        Exception e) {
+          LOG.error("Unable to commit the database transaction after an attempt to attach volume " + volumeId,e);
+        }
+      }
     }
   }
   return getVolumeProperty(volumeId);

@@ -15,6 +15,7 @@
       assert(parentVolumeFile.exists());
       long absoluteSize=parentVolumeFile.length();
       String loDevName=createLoopback(rawFileName,absoluteSize);
+      lvmVolumeInfo.setLoDevName(loDevName);
       createLogicalVolume(loDevName,vgName,lvName);
       String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
       String absoluteParentLVName=lvmRootDirectory + PATH_SEPARATOR + parentVgName+ PATH_SEPARATOR+ parentLvName;
@@ -27,10 +28,10 @@
         returnValue=removeVolumeGroup(vgName);
         returnValue=removePhysicalVolume(loDevName);
         removeLoopback(loDevName);
+        lvmVolumeInfo.setLoDevName(null);
         throw ex;
       }
       lvmVolumeInfo.setVolumeId(volumeId);
-      lvmVolumeInfo.setLoDevName(loDevName);
       lvmVolumeInfo.setPvName(loDevName);
       lvmVolumeInfo.setVgName(vgName);
       lvmVolumeInfo.setLvName(lvName);
@@ -38,13 +39,22 @@
       lvmVolumeInfo.setSize(size);
       volumeManager=new VolumeEntityWrapperManager();
       volumeManager.add(lvmVolumeInfo);
-      volumeManager.finish();
     }
  catch (    EucalyptusCloudException ex) {
       volumeManager.abort();
       String error="Unable to run command: " + ex.getMessage();
       LOG.error(error);
       throw new EucalyptusCloudException(error);
+    }
+ finally {
+      if (null != volumeManager) {
+        try {
+          volumeManager.finish();
+        }
+ catch (        final Throwable e) {
+          LOG.error("Error committing to db.",e);
+        }
+      }
     }
   }
  else {
