@@ -1,38 +1,30 @@
 {
   if (event.getMessage() instanceof MappingHttpRequest) {
-    MappingHttpRequest httpRequest=(MappingHttpRequest)event.getMessage();
-    Map<String,String> parameters=httpRequest.getParameters();
-    if (!parameters.containsKey(SecurityParameter.Timestamp.toString()) && !parameters.containsKey(SecurityParameter.Expires.toString())) {
-      throw new AuthenticationException("One of the following parameters must be specified: " + SecurityParameter.Timestamp + " OR "+ SecurityParameter.Expires);
+    final MappingHttpRequest httpRequest=(MappingHttpRequest)event.getMessage();
+    final Map<String,String> parameters=httpRequest.getParameters();
+    final Function<String,List<String>> headerLookup=SignatureHandlerUtils.headerLookup(httpRequest);
+    final Function<String,List<String>> parameterLookup=SignatureHandlerUtils.parameterLookup(httpRequest);
+    final boolean hasSignatureDate=HmacUtils.hasSignatureDate(SIGNATURE_VERSIONS,headerLookup,parameterLookup);
+    if (!hasSignatureDate && !parameters.containsKey(SecurityParameter.Expires.parameter())) {
+      throw new AuthenticationException("One of the following parameters must be specified: " + SecurityParameter.Timestamp.parameter() + " OR "+ SecurityParameter.Expires.parameter()+ " OR "+ SecurityParameter.X_Amz_Date.parameter()+ " OR "+ SecurityHeader.Date.header());
     }
-    Calendar now=null;
-    Calendar expires=null;
+    final Calendar now=Calendar.getInstance();
+    final Calendar expires=Calendar.getInstance();
     String timestamp=null;
     String exp=null;
     try {
-      now=Calendar.getInstance();
-      expires=null;
-      if (parameters.containsKey(SecurityParameter.Timestamp.toString())) {
-        timestamp=parameters.remove(SecurityParameter.Timestamp.toString());
-        try {
-          expires=Timestamps.parseTimestamp(timestamp);
-        }
- catch (        Exception e) {
-          expires=Timestamps.parseTimestamp(URLDecoder.decode(timestamp));
-        }
-        now.add(Calendar.SECOND,StackConfiguration.CLOCK_SKEW_SEC);
-        if (now.before(expires)) {
-          throw new AuthenticationException("Message was generated in the future (times in UTC): Timestamp=" + timestamp);
-        }
-        expires.add(Calendar.SECOND,900 + StackConfiguration.CLOCK_SKEW_SEC);
+      if (hasSignatureDate) {
+        final Date date=HmacUtils.getSignatureDate(SIGNATURE_VERSIONS,headerLookup,parameterLookup);
+        parameters.keySet().removeAll(HmacUtils.detectSignatureVariant(headerLookup,parameterLookup).getDateParametersToRemove());
+        expires.setTimeInMillis(verifyTimestampAndCalculateExpiry(now.getTimeInMillis(),date));
       }
  else {
-        exp=parameters.remove(SecurityParameter.Expires.toString());
+        exp=parameters.remove(SecurityParameter.Expires.parameter());
         try {
-          expires=Timestamps.parseTimestamp(exp);
+          expires.setTime(Timestamps.parseIso8601Timestamp(exp));
         }
  catch (        Exception e) {
-          expires=Timestamps.parseTimestamp(URLDecoder.decode(exp));
+          expires.setTime(Timestamps.parseIso8601Timestamp(URLDecoder.decode(exp)));
         }
         Calendar cacheExpire=(Calendar)now.clone();
         cacheExpire.add(Calendar.MINUTE,15);

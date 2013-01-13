@@ -1,0 +1,58 @@
+{
+  final File tempZipFile=File.createTempFile("aws4_testsuite",".zip");
+  tempZipFile.deleteOnExit();
+  Files.copy(Resources.newInputStreamSupplier(HmacLoginModuleTest.class.getResource("aws4_testsuite.zip")),tempZipFile);
+  final ZipFile testSuiteZip=new ZipFile(tempZipFile);
+  final Set<String> testNames=Sets.newTreeSet();
+  final Splitter nameSplit=Splitter.on(Pattern.compile("aws4_testsuite/|\\.[a-z]{3,5}$"));
+  for (  final ZipEntry entry : Collections.list(testSuiteZip.entries())) {
+    testNames.add(Iterables.get(nameSplit.split(entry.getName()),1,""));
+  }
+  System.out.println(testNames);
+  assertTrue("No tests found!",!testNames.isEmpty());
+  testNames.removeAll(Lists.newArrayList("get-vanilla-ut8-query","get-vanilla-query-unreserved","post-vanilla-query-nonunreserved"));
+  for (  final String testName : testNames) {
+    System.out.println(testName);
+    final String authz=slurpTestFile(testSuiteZip,testName + ".authz");
+    final String sreq=slurpTestFile(testSuiteZip,testName + ".sreq");
+    if (authz == null || sreq == null) {
+      System.out.println("Skipping test with missing files: " + testName);
+      continue;
+    }
+    final String pathWithQuery=Iterables.get(Splitter.on(" ").limit(3).split(sreq),1);
+    final HmacCredentials creds=new HmacCredentials("1234567890",HmacUtils.SignatureVariant.SignatureV4Standard,Maps.transformValues(Multimaps.index(Splitter.on("&").omitEmptyStrings().split(Iterables.get(Splitter.on("?").limit(2).split(pathWithQuery),1,"")),new Function<String,String>(){
+      @Override public String apply(      final String nvp){
+        return Iterables.get(Splitter.on("=").limit(2).split(nvp),0);
+      }
+    }
+).asMap(),new Function<Collection<String>,List<String>>(){
+      @Override public List<String> apply(      final Collection<String> values){
+        return Lists.transform(Lists.newArrayList(values),new Function<String,String>(){
+          @Override public String apply(          final String value){
+            return Iterables.get(Splitter.on("=").limit(2).split(value),1,"");
+          }
+        }
+);
+      }
+    }
+),Maps.transformValues(Multimaps.index(Iterables.filter(Splitter.on("\r\n").split(sreq),Predicates.containsPattern(":")),new Function<String,String>(){
+      @Override public String apply(      final String line){
+        return Iterables.get(Splitter.on(":").limit(2).split(line),0).toLowerCase();
+      }
+    }
+).asMap(),new Function<Collection<String>,List<String>>(){
+      @Override public List<String> apply(      final Collection<String> values){
+        return Lists.transform(Lists.newArrayList(values),new Function<String,String>(){
+          @Override public String apply(          final String value){
+            return Iterables.get(Splitter.on(":").limit(2).split(value),1);
+          }
+        }
+);
+      }
+    }
+),Iterables.get(Splitter.on(" ").limit(2).split(sreq),0),Iterables.get(Splitter.on("?").limit(2).split(pathWithQuery),0),Iterables.get(Splitter.on("\r\n\r\n").limit(2).split(sreq),1,""));
+    assertTrue("Authentication successful " + testName,hmacV4LoginModule().authenticate(creds));
+  }
+  assertTrue("Deleted temp zip file",tempZipFile.delete());
+  testSuiteZip.close();
+}
