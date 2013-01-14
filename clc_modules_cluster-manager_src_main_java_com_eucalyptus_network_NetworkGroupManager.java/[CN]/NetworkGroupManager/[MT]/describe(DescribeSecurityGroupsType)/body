@@ -3,29 +3,30 @@
   final Context ctx=Contexts.lookup();
   boolean showAll=request.getSecurityGroupSet().remove("verbose");
   NetworkGroups.createDefault(ctx.getUserFullName());
-  final Filter filter=Filters.generate(request.getFilterSet(),NetworkGroup.class);
-  final CloudMetadatas.FilterBuilder<NetworkGroup> filterBuilder=CloudMetadatas.filteringFor(NetworkGroup.class).byId(request.getSecurityGroupSet()).byPredicate(filter.asPredicate());
+  final List<String> groupNames=request.getSecurityGroupSet();
+  final Predicate<NetworkGroup> argListFilter=new Predicate<NetworkGroup>(){
+    @Override public boolean apply(    final NetworkGroup arg0){
+      return groupNames.isEmpty() || groupNames.contains(arg0.getDisplayName()) || groupNames.contains(arg0.getGroupId());
+    }
+  }
+;
+  Predicate<NetworkGroup> netFilter=Predicates.and(argListFilter,RestrictedTypes.filterPrivileged());
   OwnerFullName ownerFn=AccountFullName.getInstance(ctx.getAccount());
   if (Contexts.lookup().hasAdministrativePrivileges()) {
     if (showAll) {
       ownerFn=null;
     }
+    netFilter=argListFilter;
   }
- else {
-    filterBuilder.byPrivileges();
-  }
-  final Predicate<? super NetworkGroup> netFilter=filterBuilder.buildPredicate();
   final EntityTransaction db=Entities.get(NetworkGroup.class);
   try {
-    final List<NetworkGroup> networks=Entities.query(NetworkGroup.named(ownerFn,null),true,filter.asCriterion(),filter.getAliases());
+    final List<NetworkGroup> networks=Entities.query(NetworkGroup.named(ownerFn,null));
     final Iterable<NetworkGroup> matches=Iterables.filter(networks,netFilter);
     final Iterable<SecurityGroupItemType> transformed=Iterables.transform(matches,TypeMappers.lookup(NetworkGroup.class,SecurityGroupItemType.class));
     Iterables.addAll(reply.getSecurityGroupInfo(),transformed);
+    db.commit();
   }
  catch (  final Exception ex) {
-    LOG.error(ex,ex);
-  }
- finally {
     db.rollback();
   }
   return reply;
