@@ -1,0 +1,35 @@
+{
+  final DeleteTagsResponseType reply=request.getReply();
+  reply.set_return(false);
+  final Context context=Contexts.lookup();
+  final OwnerFullName ownerFullName=context.getUserFullName().asAccountFullName();
+  final List<String> resourceIds=Objects.firstNonNull(request.getResourcesSet(),Collections.<String>emptyList());
+  final List<DeleteResourceTag> resourceTags=Objects.firstNonNull(request.getTagSet(),Collections.<DeleteResourceTag>emptyList());
+  if (resourceIds.size() > 0 && resourceIds.size() > 0) {
+    final Predicate<Void> delete=new Predicate<Void>(){
+      @Override public boolean apply(      final Void v){
+        final Iterable<CloudMetadata> resources=Iterables.filter(Iterables.transform(resourceIds,resourceLookup()),Predicates.notNull());
+        for (        final CloudMetadata resource : resources) {
+          for (          final DeleteResourceTag resourceTag : resourceTags) {
+            try {
+              final Tag example=TagSupport.fromResource(resource).example(resource,ownerFullName,resourceTag.getKey(),resourceTag.getValue());
+              if (example != null && Permissions.isAuthorized(PolicySpec.VENDOR_EC2,PolicySpec.EC2_RESOURCE_TAG,example.getResourceType() + ":" + example.getResourceId()+ ":"+ example.getKey(),context.getAccount(),PolicySpec.EC2_DELETETAGS,context.getUser())) {
+                Tags.delete(example);
+              }
+            }
+ catch (            NoSuchMetadataException e) {
+              log.debug(e,e);
+            }
+catch (            MetadataException e) {
+              throw Exceptions.toUndeclared(e);
+            }
+          }
+        }
+        return true;
+      }
+    }
+;
+    reply.set_return(Entities.asTransaction(Tag.class,delete).apply(null));
+  }
+  return reply;
+}

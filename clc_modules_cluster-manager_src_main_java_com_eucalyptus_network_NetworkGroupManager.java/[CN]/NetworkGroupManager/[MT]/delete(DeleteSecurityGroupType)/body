@@ -1,10 +1,24 @@
 {
   final Context ctx=Contexts.lookup();
   final DeleteSecurityGroupResponseType reply=(DeleteSecurityGroupResponseType)request.getReply();
-  if (!RestrictedTypes.filterPrivileged().apply(NetworkGroups.lookup(ctx.getUserFullName().asAccountFullName(),request.getGroupName()))) {
-    throw new EucalyptusCloudException("Not authorized to delete network group " + request.getGroupName() + " for "+ ctx.getUser());
+  String lookUpGroup=request.getGroupName() != null ? request.getGroupName() : request.getGroupId();
+  AccountFullName lookUpGroupAccount=ctx.getUserFullName().asAccountFullName();
+  NetworkGroup group;
+  try {
+    group=NetworkGroups.lookup(lookUpGroupAccount,lookUpGroup);
   }
-  NetworkGroups.delete(ctx.getUserFullName(),request.getGroupName());
+ catch (  MetadataException ex) {
+    try {
+      group=NetworkGroups.lookupByGroupId(lookUpGroupAccount,lookUpGroup);
+    }
+ catch (    NoSuchMetadataException ex1) {
+      throw ex1;
+    }
+  }
+  if (!RestrictedTypes.filterPrivileged().apply(group)) {
+    throw new EucalyptusCloudException("Not authorized to delete network group " + group.getDisplayName() + " for "+ ctx.getUser());
+  }
+  NetworkGroups.delete(ctx.getUserFullName(),group.getDisplayName());
   reply.set_return(true);
   return reply;
 }

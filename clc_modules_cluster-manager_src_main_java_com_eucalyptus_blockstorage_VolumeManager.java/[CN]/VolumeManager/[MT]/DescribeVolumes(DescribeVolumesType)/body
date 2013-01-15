@@ -7,28 +7,14 @@
   if (!request.getVolumeSet().isEmpty()) {
     volumeIds.addAll(request.getVolumeSet());
   }
+  final Filter filter=Filters.generate(request.getFilterSet(),Volume.class);
+  final Predicate<? super Volume> requestedAndAccessible=CloudMetadatas.filteringFor(Volume.class).byId(volumeIds).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
   final Function<Set<String>,Set<String>> lookupVolumeIds=new Function<Set<String>,Set<String>>(){
     public Set<String> apply(    final Set<String> input){
+      final List<Volume> volumes=Entities.query(Volume.named(ownerFullName,null),true,filter.asCriterion(),filter.getAliases());
       Set<String> res=Sets.newHashSet();
-      if (input.isEmpty()) {
-        for (        Volume foundVol : Collections2.filter(Entities.query(Volume.named(ownerFullName,null)),RestrictedTypes.filterPrivileged())) {
-          res.add(foundVol.getDisplayName());
-        }
-      }
- else {
-        for (        String s : input) {
-          try {
-            Volume foundVol=Entities.uniqueResult(Volume.named(ownerFullName,s));
-            if (RestrictedTypes.filterPrivileged().apply(foundVol)) {
-              res.add(foundVol.getDisplayName());
-            }
-          }
- catch (          NoSuchElementException ex) {
-          }
-catch (          TransactionException ex) {
-            throw Exceptions.toUndeclared(ex);
-          }
-        }
+      for (      final Volume foundVol : Iterables.filter(volumes,requestedAndAccessible)) {
+        res.add(foundVol.getDisplayName());
       }
       return res;
     }
