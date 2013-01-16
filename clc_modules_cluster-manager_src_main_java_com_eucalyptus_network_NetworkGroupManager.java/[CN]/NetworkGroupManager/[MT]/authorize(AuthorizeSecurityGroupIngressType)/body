@@ -3,9 +3,22 @@
   final AuthorizeSecurityGroupIngressResponseType reply=request.getReply();
   EntityTransaction db=Entities.get(NetworkGroup.class);
   try {
-    final NetworkGroup ruleGroup=NetworkGroups.lookup(ctx.getUserFullName().asAccountFullName(),request.getGroupName());
+    String lookUpGroup=request.getGroupName() != null ? request.getGroupName() : request.getGroupId();
+    AccountFullName lookUpGroupAccount=ctx.getUserFullName().asAccountFullName();
+    NetworkGroup ruleGroup;
+    try {
+      ruleGroup=NetworkGroups.lookup(lookUpGroupAccount,lookUpGroup);
+    }
+ catch (    MetadataException ex) {
+      try {
+        ruleGroup=NetworkGroups.lookupByGroupId(lookUpGroupAccount,lookUpGroup);
+      }
+ catch (      NoSuchMetadataException ex1) {
+        throw ex1;
+      }
+    }
     if (!RestrictedTypes.filterPrivileged().apply(ruleGroup)) {
-      throw new EucalyptusCloudException("Not authorized to authorize network group " + request.getGroupName() + " for "+ ctx.getUser());
+      throw new EucalyptusCloudException("Not authorized to authorize network group " + ruleGroup.getDisplayName() + " for "+ ctx.getUser());
     }
     final List<NetworkRule> ruleList=Lists.newArrayList();
     for (    final IpPermissionType ipPerm : request.getIpPermissions()) {

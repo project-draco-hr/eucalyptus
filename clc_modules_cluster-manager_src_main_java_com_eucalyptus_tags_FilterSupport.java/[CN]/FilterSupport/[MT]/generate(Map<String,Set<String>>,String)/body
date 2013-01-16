@@ -1,0 +1,55 @@
+{
+  final List<Predicate<Object>> and=Lists.newArrayList();
+  for (  final Map.Entry<String,Set<String>> filter : Iterables.filter(filters.entrySet(),Predicates.not(isTagFilter()))) {
+    final List<Predicate<Object>> or=Lists.newArrayList();
+    for (    final String value : filter.getValue()) {
+      final Function<? super String,Predicate<? super RT>> predicateFunction=predicateFunctions.get(filter.getKey());
+      if (predicateFunction == null) {
+        throw InvalidFilterException.forName(filter.getKey());
+      }
+      final Predicate<? super RT> valuePredicate=predicateFunction.apply(value);
+      or.add(typedPredicate(valuePredicate));
+    }
+    and.add(Predicates.or(or));
+  }
+  final Junction conjunction=Restrictions.conjunction();
+  final Map<String,String> aliases=Maps.newHashMap();
+  for (  final Map.Entry<String,Set<String>> filter : Iterables.filter(filters.entrySet(),Predicates.not(isTagFilter()))) {
+    final Junction disjunction=Restrictions.disjunction();
+    for (    final String value : filter.getValue()) {
+      final PersistenceFilter persistenceFilter=persistenceFilters.get(filter.getKey());
+      if (persistenceFilter != null) {
+        final Object persistentValue=persistenceFilter.value(value);
+        if (persistentValue != null) {
+          for (          final String alias : persistenceFilter.getAliases())           aliases.put(alias,this.aliases.get(alias));
+          disjunction.add(buildRestriction(persistenceFilter.getProperty(),persistentValue));
+        }
+ else {
+          disjunction.add(Restrictions.not(Restrictions.conjunction()));
+        }
+      }
+    }
+    conjunction.add(disjunction);
+  }
+  boolean tagPresent=false;
+  final Junction tagConjunction=Restrictions.conjunction();
+  for (  final Map.Entry<String,Set<String>> filter : Iterables.filter(filters.entrySet(),isTagFilter())) {
+    tagPresent=true;
+    final Junction disjunction=Restrictions.disjunction();
+    final String filterName=filter.getKey();
+    for (    final String value : filter.getValue()) {
+      if ("tag-key".equals(filterName)) {
+        disjunction.add(buildTagRestriction(value,null,true));
+      }
+ else       if ("tag-value".equals(filterName)) {
+        disjunction.add(buildTagRestriction(null,value,true));
+      }
+ else {
+        disjunction.add(buildTagRestriction(filterName.substring(4),value,false));
+      }
+    }
+    tagConjunction.add(disjunction);
+  }
+  if (tagPresent)   conjunction.add(tagCriterion(accountId,tagConjunction));
+  return new Filter(aliases,conjunction,Predicates.and(and),tagPresent);
+}

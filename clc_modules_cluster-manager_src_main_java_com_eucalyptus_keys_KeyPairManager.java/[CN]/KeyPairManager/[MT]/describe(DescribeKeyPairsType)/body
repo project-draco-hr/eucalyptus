@@ -1,11 +1,12 @@
 {
-  DescribeKeyPairsResponseType reply=request.getReply();
-  Context ctx=Contexts.lookup();
-  boolean showAll=request.getKeySet().remove("verbose");
-  for (  SshKeyPair kp : Iterables.filter(KeyPairs.list((ctx.hasAdministrativePrivileges() && showAll) ? null : Contexts.lookup().getUserFullName().asAccountFullName()),RestrictedTypes.filterPrivileged())) {
-    if (request.getKeySet().isEmpty() || request.getKeySet().contains(kp.getDisplayName())) {
-      reply.getKeySet().add(new DescribeKeyPairsResponseItemType(kp.getDisplayName(),kp.getFingerPrint()));
-    }
+  final DescribeKeyPairsResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final boolean showAll=request.getKeySet().remove("verbose");
+  final OwnerFullName ownerFullName=ctx.hasAdministrativePrivileges() && showAll ? null : Contexts.lookup().getUserFullName().asAccountFullName();
+  final Filter filter=Filters.generate(request.getFilterSet(),SshKeyPair.class);
+  final Predicate<? super SshKeyPair> requestedAndAccessible=CloudMetadatas.filteringFor(SshKeyPair.class).byId(request.getKeySet()).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
+  for (  final SshKeyPair kp : KeyPairs.list(ownerFullName,requestedAndAccessible,filter.asCriterion(),filter.getAliases())) {
+    reply.getKeySet().add(new DescribeKeyPairsResponseItemType(kp.getDisplayName(),kp.getFingerPrint()));
   }
   return reply;
 }

@@ -1,24 +1,11 @@
 {
   final DescribeBundleTasksResponseType reply=request.getReply();
+  final Filter filter=Filters.generate(request.getFilterSet(),VmBundleTask.class);
   final EntityTransaction db=Entities.get(VmInstance.class);
   try {
-    Predicate<VmInstance> filter=Predicates.and(VmInstance.Filters.BUNDLING,RestrictedTypes.filterPrivileged());
-    if (request.getBundleIds().isEmpty()) {
-      for (      final VmInstance v : VmInstances.list(filter)) {
-        reply.getBundleTasks().add(Bundles.transform(v.getRuntimeState().getBundleTask()));
-      }
-    }
- else {
-      for (      final String bundleId : request.getBundleIds()) {
-        try {
-          final VmInstance v=VmInstances.lookupByBundleId(bundleId);
-          if (RestrictedTypes.filterPrivileged().apply(v)) {
-            reply.getBundleTasks().add(Bundles.transform(v.getRuntimeState().getBundleTask()));
-          }
-        }
- catch (        final NoSuchElementException e) {
-        }
-      }
+    final Predicate<? super VmInstance> requestedAndAccessible=CloudMetadatas.filteringFor(VmInstance.class).byId(toInstanceIds(request.getBundleIds())).byPredicate(Predicates.compose(filter.asPredicate(),VmInstances.bundleTask())).byPredicate(VmInstance.Filters.BUNDLING).byPrivileges().buildPredicate();
+    for (    final VmInstance v : VmInstances.list(null,filter.asCriterion(),filter.getAliases(),requestedAndAccessible)) {
+      reply.getBundleTasks().add(Bundles.transform(v.getRuntimeState().getBundleTask()));
     }
   }
  catch (  Exception ex) {

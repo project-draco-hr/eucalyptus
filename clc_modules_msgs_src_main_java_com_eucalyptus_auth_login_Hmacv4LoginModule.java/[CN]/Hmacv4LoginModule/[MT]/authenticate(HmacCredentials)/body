@@ -1,0 +1,28 @@
+{
+  if (credentials.getSignatureMethod() != Hmac.HmacSHA256) {
+    throw new AuthenticationException("Invalid signature method for v4: " + credentials.getSignatureMethod());
+  }
+  final String sig=credentials.getSignature();
+  checkForReplay(sig);
+  final Function<String,List<String>> headerLookup=headerLookup(credentials.getHeaders());
+  final Function<String,List<String>> parameterLookup=parameterLookup(credentials.getParameters());
+  final Map<String,String> authorizationParameters=credentials.getVariant().getAuthorizationParameters(headerLookup,parameterLookup);
+  final SignatureCredential signatureCredential=new SignatureCredential(authorizationParameters.get("Credential"));
+  final AccessKey accessKey=lookupAccessKey(signatureCredential.getAccessKeyId(),credentials.getParameters());
+  final Date date=HmacUtils.getSignatureDate(EnumSet.of(HmacUtils.SignatureVersion.SignatureV4),headerLookup,parameterLookup);
+  signatureCredential.verify(date,null,null,V4_TERMINATOR);
+  final User user=accessKey.getUser();
+  final String secretKey=accessKey.getSecretKey();
+  final byte[] signatureKey=getSignatureKey(secretKey,signatureCredential);
+  final String canonicalString=this.makeSubjectString(credentials,signatureCredential,authorizationParameters,date,false);
+  final byte[] computedSig=this.getHmacSHA256(signatureKey,canonicalString);
+  final byte[] providedSig=Hex.decode(sig);
+  if (!MessageDigest.isEqual(computedSig,providedSig)) {
+    final String canonicalStringNoPath=this.makeSubjectString(credentials,signatureCredential,authorizationParameters,date,true);
+    final byte[] computedSigNoPath=this.getHmacSHA256(signatureKey,canonicalStringNoPath);
+    return MessageDigest.isEqual(computedSigNoPath,providedSig);
+  }
+  super.setCredential(credentials.getQueryIdCredential());
+  super.setPrincipal(user);
+  return true;
+}
