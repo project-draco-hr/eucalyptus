@@ -10,8 +10,13 @@
     Boolean shouldTransferSnapshots=true;
     List<String> returnValues=null;
     try {
-      shouldTransferSnapshots=StorageInfo.getStorageInfo().getShouldTransferSnapshots();
-      returnValues=blockManager.createSnapshot(volumeId,snapshotId,shouldTransferSnapshots);
+      if (!isSnapshotMarkedFailed(snapshotId)) {
+        shouldTransferSnapshots=StorageInfo.getStorageInfo().getShouldTransferSnapshots();
+        returnValues=blockManager.createSnapshot(this.volumeId,this.snapshotId,this.snapPointId,shouldTransferSnapshots);
+      }
+ else {
+        throw new EucalyptusCloudException("Snapshot " + this.snapshotId + " marked as failed by another thread");
+      }
     }
   finally {
       semaphore.release();
@@ -24,23 +29,27 @@
       String snapshotSize=returnValues.get(1);
       int retry=StorageInfo.getStorageInfo().getMaxSnapTransferRetries();
       boolean transferSuccess=false;
-      int backoffTime=0;
-      Random r=new Random(System.currentTimeMillis());
+      int backoffTime=1;
       while (!transferSuccess) {
-        try {
-          transferSnapshot(snapshotSize);
-          transferSuccess=true;
-        }
- catch (        Exception e) {
-          LOG.warn("Transfer failed. Retrying");
-          if (retry > 0) {
-            retry--;
-            backoffTime=r.nextInt(10);
-            Thread.sleep(backoffTime * 5000);
+        if (!isSnapshotMarkedFailed(snapshotId)) {
+          try {
+            transferSnapshot(snapshotSize);
+            transferSuccess=true;
           }
+ catch (          Exception e) {
+            LOG.warn("Transfer failed. Retrying");
+            if (retry > 0) {
+              retry--;
+              Thread.sleep(backoffTime * 1000);
+              backoffTime=backoffTime * 2;
+            }
  else {
-            throw new EucalyptusCloudException("Snapshot transfer failed",e);
+              throw new EucalyptusCloudException("Snapshot transfer failed",e);
+            }
           }
+        }
+ else {
+          throw new EucalyptusCloudException("Snapshot " + this.snapshotId + " marked as failed by another thread");
         }
       }
       try {
@@ -58,6 +67,7 @@
       snapshotInfo=db.getUnique(snapInfo);
       snapshotInfo.setStatus(StorageProperties.Status.available.toString());
       snapshotInfo.setProgress("100");
+      snapshotInfo.setSnapPointId(null);
     }
  catch (    EucalyptusCloudException e) {
       LOG.error(e);
