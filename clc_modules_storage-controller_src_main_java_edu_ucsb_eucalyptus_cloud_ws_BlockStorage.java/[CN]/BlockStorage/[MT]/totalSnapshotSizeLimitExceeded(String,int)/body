@@ -1,0 +1,30 @@
+{
+  int totalSnapshotSize=0;
+  EntityTransaction dbTrans=Entities.get(SnapshotInfo.class);
+  Criteria query=Entities.createCriteria(SnapshotInfo.class);
+  query.setReadOnly(true);
+  query.add(Restrictions.not(Restrictions.and(Restrictions.eq("status",StorageProperties.Status.failed.toString()),Restrictions.eq("status",StorageProperties.Status.error.toString()))));
+  try {
+    List<SnapshotInfo> snapInfos=(List<SnapshotInfo>)query.list();
+    for (    SnapshotInfo sInfo : snapInfos) {
+      try {
+        totalSnapshotSize+=blockManager.getSnapshotSize(sInfo.getSnapshotId());
+      }
+ catch (      EucalyptusCloudException e) {
+        LOG.error(e);
+      }
+    }
+    int sizeLimitGB=WalrusInfo.getWalrusInfo().getStorageMaxTotalSnapshotSizeInGb();
+    LOG.debug("Snapshot " + snapshotId + " checking snapshot total size of  "+ totalSnapshotSize+ " against limit of "+ sizeLimitGB);
+    return (totalSnapshotSize + volSize) > sizeLimitGB;
+  }
+ catch (  final Throwable e) {
+    LOG.error("Error finding total snapshot used size " + e.getMessage());
+    throw new EucalyptusCloudException("Failed to check snapshot total size limit",e);
+  }
+ finally {
+    if (dbTrans.isActive()) {
+      dbTrans.rollback();
+    }
+  }
+}

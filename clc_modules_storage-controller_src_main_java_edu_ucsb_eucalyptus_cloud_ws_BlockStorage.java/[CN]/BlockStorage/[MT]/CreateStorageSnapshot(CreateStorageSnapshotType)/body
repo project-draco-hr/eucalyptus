@@ -7,60 +7,110 @@
   }
   String volumeId=request.getVolumeId();
   String snapshotId=request.getSnapshotId();
-  EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
-  VolumeInfo volumeInfo=new VolumeInfo(volumeId);
-  List<VolumeInfo> volumeInfos=db.query(volumeInfo);
-  if (volumeInfos.size() > 0) {
-    VolumeInfo foundVolumeInfo=volumeInfos.get(0);
-    if (foundVolumeInfo.getStatus().equals(StorageProperties.Status.available.toString())) {
-      if (StorageProperties.shouldEnforceUsageLimits) {
-        int volSize=foundVolumeInfo.getSize();
-        int totalSnapshotSize=0;
-        SnapshotInfo snapInfo=new SnapshotInfo();
-        snapInfo.setStatus(StorageProperties.Status.available.toString());
-        EntityWrapper<SnapshotInfo> dbSnap=db.recast(SnapshotInfo.class);
-        List<SnapshotInfo> snapInfos=dbSnap.query(snapInfo);
-        for (        SnapshotInfo sInfo : snapInfos) {
-          try {
-            totalSnapshotSize+=blockManager.getSnapshotSize(sInfo.getSnapshotId());
-          }
- catch (          EucalyptusCloudException e) {
-            LOG.error(e);
-          }
-        }
-        if ((totalSnapshotSize + volSize) > WalrusInfo.getWalrusInfo().getStorageMaxTotalSnapshotSizeInGb()) {
-          db.rollback();
-          throw new EntityTooLargeException(snapshotId);
-        }
-      }
-      EntityWrapper<SnapshotInfo> db2=StorageProperties.getEntityWrapper();
-      SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
-      snapshotInfo.setUserName(foundVolumeInfo.getUserName());
-      snapshotInfo.setVolumeId(volumeId);
-      Date startTime=new Date();
-      snapshotInfo.setStartTime(startTime);
-      snapshotInfo.setProgress("0");
-      snapshotInfo.setStatus(StorageProperties.Status.creating.toString());
-      db2.add(snapshotInfo);
-      String snapshotSet="snapset-" + UUID.randomUUID();
-      Snapshotter snapshotter=new Snapshotter(snapshotSet,volumeId,snapshotId);
-      snapshotService.add(snapshotter);
-      db2.commit();
-      db.commit();
-      reply.setSnapshotId(snapshotId);
-      reply.setVolumeId(volumeId);
-      reply.setStatus(snapshotInfo.getStatus());
-      reply.setStartTime(DateUtils.format(startTime.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
-      reply.setProgress(snapshotInfo.getProgress());
+  EntityTransaction dbTrans=Entities.get(VolumeInfo.class);
+  VolumeInfo sourceVolumeInfo=null;
+  try {
+    VolumeInfo volumeInfo=new VolumeInfo(volumeId);
+    sourceVolumeInfo=Entities.uniqueResult(volumeInfo);
+    dbTrans.commit();
+  }
+ catch (  NoSuchElementException e) {
+    LOG.debug("Volume " + volumeId + " not found in db");
+    throw new NoSuchVolumeException(volumeId);
+  }
+catch (  final Throwable e) {
+    LOG.warn("Volume " + volumeId + " error getting info from db. May not exist. "+ e.getMessage());
+    throw new EucalyptusCloudException("Could not get volume information for volume " + volumeId,e);
+  }
+ finally {
+    if (dbTrans.isActive()) {
+      dbTrans.rollback();
     }
- else {
-      db.rollback();
-      throw new VolumeNotReadyException(volumeId);
-    }
+    dbTrans=null;
+  }
+  if (sourceVolumeInfo == null) {
+    throw new NoSuchVolumeException(volumeId);
   }
  else {
-    db.rollback();
-    throw new NoSuchVolumeException(volumeId);
+    if (!sourceVolumeInfo.getStatus().equals(StorageProperties.Status.available.toString())) {
+      throw new VolumeNotReadyException(volumeId);
+    }
+ else {
+      if (StorageProperties.shouldEnforceUsageLimits && totalSnapshotSizeLimitExceeded(snapshotId,sourceVolumeInfo.getSize())) {
+        LOG.info("Snapshot " + snapshotId + " exceeds total snapshot size limit of "+ WalrusInfo.getWalrusInfo().getStorageMaxTotalSnapshotSizeInGb());
+        throw new EntityTooLargeException(snapshotId);
+      }
+      SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
+      EntityTransaction snapTrans=Entities.get(SnapshotInfo.class);
+      Date startTime=new Date();
+      try {
+        snapshotInfo.setUserName(sourceVolumeInfo.getUserName());
+        snapshotInfo.setVolumeId(volumeId);
+        snapshotInfo.setStartTime(startTime);
+        snapshotInfo.setProgress("0");
+        snapshotInfo.setStatus(StorageProperties.Status.creating.toString());
+        String snapPointId=null;
+        try {
+          snapPointId=blockManager.createSnapshotPoint(volumeId,snapshotId);
+          if (snapPointId == null) {
+            LOG.debug("Synchronous snap point not supported for this backend. Cleanly skipped.");
+          }
+ else {
+            snapshotInfo.setSnapPointId(snapPointId);
+          }
+          snapshotInfo.setStatus(StorageProperties.Status.creating.toString());
+          Context ctx=null;
+          try {
+            ctx=Contexts.lookup(request.getCorrelationId());
+            if (!ctx.getChannel().isOpen()) {
+              throw new NoSuchContextException("Channel is closed");
+            }
+          }
+ catch (          NoSuchContextException e) {
+            if (snapPointId != null) {
+              throw new EucalyptusCloudException("Channel closed, aborting snapshot.");
+            }
+          }
+        }
+ catch (        EucalyptusCloudException e) {
+          try {
+            blockManager.deleteSnapshotPoint(volumeId,snapshotId,snapPointId);
+          }
+ catch (          Exception ex) {
+            LOG.error("Snapshot " + snapshotId + " exception on snap point cleanup after failure: "+ e.getMessage());
+          }
+          LOG.error("Snapshot " + snapshotId + " failed to create snap point successfully: "+ e.getMessage());
+          throw e;
+        }
+ finally {
+          Entities.persist(snapshotInfo);
+        }
+        String snapshotSet="snapset-" + UUID.randomUUID();
+        Snapshotter snapshotter=new Snapshotter(snapshotSet,volumeId,snapshotId,snapPointId);
+        snapshotService.add(snapshotter);
+        reply.setSnapshotId(snapshotId);
+        reply.setVolumeId(volumeId);
+        reply.setStartTime(DateUtils.format(startTime.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+        reply.setProgress(snapshotInfo.getProgress());
+      }
+ catch (      EucalyptusCloudException cloudEx) {
+        snapshotInfo.setStatus(StorageProperties.Status.failed.toString());
+        LOG.error("Snapshot " + snapshotId + " creation failed with exception ",cloudEx);
+        throw cloudEx;
+      }
+catch (      final Throwable e) {
+        snapshotInfo.setStatus(StorageProperties.Status.failed.toString());
+        LOG.error("Snapshot " + snapshotId + " Error committing state update to failed",e);
+        throw new EucalyptusCloudException("Snapshot " + snapshotId + " unexpected throwable exception caught",e);
+      }
+ finally {
+        if (snapTrans.isActive()) {
+          snapTrans.commit();
+        }
+        snapTrans=null;
+      }
+      reply.setStatus(snapshotInfo.getStatus());
+    }
   }
   return reply;
 }
