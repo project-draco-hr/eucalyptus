@@ -1,4 +1,24 @@
 {
-  ExecutePolicyResponseType reply=request.getReply();
+  final ExecutePolicyResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  try {
+    final ScalingPolicy scalingPolicy;
+    try {
+      scalingPolicy=scalingPolicies.lookup(accountFullName,request.getAutoScalingGroupName(),request.getPolicyName());
+    }
+ catch (    AutoScalingMetadataNotFoundException e) {
+      throw new InvalidParameterValueException("Scaling policy not found: " + request.getPolicyName());
+    }
+    autoScalingGroups.update(accountFullName,request.getAutoScalingGroupName(),new Callback<AutoScalingGroup>(){
+      @Override public void fire(      final AutoScalingGroup autoScalingGroup){
+        autoScalingGroup.setDesiredCapacity(scalingPolicy.getAdjustmentType().adjustCapacity(autoScalingGroup.getDesiredCapacity(),scalingPolicy.getScalingAdjustment(),Objects.firstNonNull(scalingPolicy.getMinAdjustmentStep(),0),Objects.firstNonNull(autoScalingGroup.getMinSize(),0),Objects.firstNonNull(autoScalingGroup.getMaxSize(),Integer.MAX_VALUE)));
+      }
+    }
+);
+  }
+ catch (  Exception e) {
+    handleException(e);
+  }
   return reply;
 }
