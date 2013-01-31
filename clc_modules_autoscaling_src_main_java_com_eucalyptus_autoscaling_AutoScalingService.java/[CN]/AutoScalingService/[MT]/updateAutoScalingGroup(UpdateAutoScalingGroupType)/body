@@ -1,4 +1,39 @@
 {
-  UpdateAutoScalingGroupResponseType reply=request.getReply();
+  final UpdateAutoScalingGroupResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  try {
+    final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+    final Callback<AutoScalingGroup> groupCallback=new Callback<AutoScalingGroup>(){
+      @Override public void fire(      final AutoScalingGroup autoScalingGroup){
+        if (RestrictedTypes.filterPrivileged().apply(autoScalingGroup)) {
+          if (request.availabilityZones() != null && !request.availabilityZones().isEmpty())           autoScalingGroup.setAvailabilityZones(Sets.newHashSet(request.availabilityZones()));
+          if (request.getDefaultCooldown() != null)           autoScalingGroup.setDefaultCooldown(Numbers.intValue(request.getDefaultCooldown()));
+          if (request.getDesiredCapacity() != null)           autoScalingGroup.setDesiredCapacity(Numbers.intValue(request.getDesiredCapacity()));
+          if (request.getHealthCheckGracePeriod() != null)           autoScalingGroup.setHealthCheckGracePeriod(Numbers.intValue(request.getHealthCheckGracePeriod()));
+          if (request.getHealthCheckType() != null)           autoScalingGroup.setHealthCheckType(Enums.valueOfFunction(HealthCheckType.class).apply(request.getHealthCheckType()));
+          if (request.getLaunchConfigurationName() != null)           try {
+            autoScalingGroup.setLaunchConfiguration(launchConfigurations.lookup(accountFullName,request.getLaunchConfigurationName()));
+          }
+ catch (          AutoScalingMetadataNotFoundException e) {
+            throw Exceptions.toUndeclared(new InvalidParameterValueException("Launch configuration not found: " + request.getLaunchConfigurationName()));
+          }
+catch (          AutoScalingMetadataException e) {
+            throw Exceptions.toUndeclared(e);
+          }
+          if (request.getMaxSize() != null)           autoScalingGroup.setMaxSize(Numbers.intValue(request.getMaxSize()));
+          if (request.getMinSize() != null)           autoScalingGroup.setMinSize(Numbers.intValue(request.getMinSize()));
+          if (request.terminationPolicies() != null && !request.terminationPolicies().isEmpty())           autoScalingGroup.setTerminationPolicies(Sets.newHashSet(Iterables.filter(Iterables.transform(request.terminationPolicies(),Enums.valueOfFunction(TerminationPolicyType.class)),Predicates.not(Predicates.isNull()))));
+        }
+      }
+    }
+;
+    autoScalingGroups.update(accountFullName,request.getAutoScalingGroupName(),groupCallback);
+  }
+ catch (  AutoScalingMetadataNotFoundException e) {
+    throw new InvalidParameterValueException("Auto scaling group not found: " + request.getAutoScalingGroupName());
+  }
+catch (  Exception e) {
+    handleException(e);
+  }
   return reply;
 }
