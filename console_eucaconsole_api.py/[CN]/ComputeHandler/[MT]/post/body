@@ -7,10 +7,8 @@ def post(self):
             self.user_session.clc = MockClcInterface()
         else:
             host = eucaconsole.config.get('server', 'clchost')
-            try:
-                host = eucaconsole.config.get('test', 'ec2.endpoint')
-            except ConfigParser.Error:
-                pass
+            if self.user_session.host_override:
+                host = self.user_session.host_override
             self.user_session.clc = BotoClcInterface(host, self.user_session.access_key, self.user_session.secret_key, self.user_session.session_token)
         self.user_session.clc = CachingClcInterface(self.user_session.clc, eucaconsole.config)
     self.user_session.session_lifetime_requests += 1
@@ -45,7 +43,8 @@ def post(self):
             else:
                 self.handleRunInstances(action, self.user_session.clc, None, self.callback)
         elif (action == 'DescribeAvailabilityZones'):
-            self.user_session.clc.get_all_zones(self.callback)
+            filters = self.get_filter_args()
+            self.user_session.clc.get_all_zones(filters, self.callback)
         elif (action.find('Image') > (-1)):
             self.handleImages(action, self.user_session.clc, self.callback)
         elif ((action.find('Instance') > (-1)) or (action == 'GetConsoleOutput')):
@@ -60,9 +59,11 @@ def post(self):
             self.handleVolumes(action, self.user_session.clc, self.callback)
         elif (action.find('Snapshot') > (-1)):
             self.handleSnapshots(action, self.user_session.clc, self.callback)
+        elif (action.find('Tags') > (-1)):
+            self.handleTags(action, self.user_session.clc, self.callback)
         elif (action == 'GetPassword'):
             self.handleGetPassword(self.user_session.clc, self.callback)
     except Exception as ex:
-        logging.error('Could not fullfil request, exception to follow')
-        logging.error('Since we got here, client likelly not notified either!')
+        logging.error('Could not fulfill request, exception to follow')
+        logging.error('Since we got here, client likely not notified either!')
         logging.exception(ex)

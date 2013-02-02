@@ -1,0 +1,81 @@
+{
+  final Host preMergeCoordinator=Coordinator.INSTANCE.get();
+  LOG.info("Hosts.viewChange(): merge   : pre-merge-coordinator=" + preMergeCoordinator);
+  Runnable mergeViews=new Runnable(){
+    /** 
+ * Was this host the coordinator when the merge view arrived (i.e., before the partiton has been resolved)?
+ */
+    private final boolean coordinator=preMergeCoordinator.isLocalHost();
+    /** 
+ * Which host was the coordinator for the partition this host belongs to.
+ */
+    private final String coordinatorAddress=preMergeCoordinator != null ? preMergeCoordinator.getDisplayName() : "NONE";
+    private String logPrefix(    View v){
+      return "Hosts.viewChange(): merge   [" + v.getViewId().getId() + ":"+ v.getViewId().getCoordAddress()+ "]=> ";
+    }
+    @Override public void run(){
+      Map<String,View> partitions=Maps.newHashMap();
+      View localView=null;
+      for (      View v : ((MergeView)mergeView).getSubgroups()) {
+        LOG.info(logPrefix(v) + " localhost-member=" + v.containsMember(Hosts.getLocalGroupAddress())+ "coordinator=[ group="+ v.getViewId().getCoordAddress()+ ", system="+ this.coordinatorAddress+ ", localhost="+ this.coordinator+ "]");
+        LOG.info(logPrefix(v) + Joiner.on(", ").join(v.getMembers()));
+        if (!v.containsMember(Hosts.getLocalGroupAddress())) {
+          try {
+            HostManager.getMembershipChannel().getState(v.getMembers().firstElement(),0L);
+          }
+ catch (          Exception e) {
+            LOG.error(logPrefix(v) + " failed to merge partition state: " + e.getMessage());
+            Logs.extreme().error(e,e);
+          }
+        }
+ else {
+          localView=v;
+        }
+        for (        Address addr : v.getMembers()) {
+          partitions.put(addr.toString(),v);
+        }
+      }
+      if (BootstrapArgs.isCloudController()) {
+        boolean partitioned=false;
+        Set<View> dbViews=Sets.newHashSet();
+        for (        Host db : Hosts.listDatabases()) {
+          View dbView=partitions.get(db.getDisplayName());
+          if (!dbView.equals(localView)) {
+            partitioned=true;
+          }
+          dbViews.add(dbView);
+        }
+        Host newCoordinator=Coordinator.INSTANCE.get();
+        if (!coordinatorAddress.equals(newCoordinator.getDisplayName())) {
+          partitioned=true;
+        }
+        if (!partitioned) {
+          return;
+        }
+ else         if (!newCoordinator.isLocalHost() && this.coordinator) {
+          LOG.error("PARTITION FAIL-STOP:  Possibility for inconsistency detected for Host: " + Hosts.localHost());
+          LOG.error("PARTITION FAIL-STOP: " + printMap());
+          Databases.Locks.PARTITIONED.create(logPrefix(localView) + " found partitioned database in subgroup views: " + Joiner.on(", ").join(dbViews));
+          Databases.Locks.PARTITIONED.failStop();
+        }
+ else         if (newCoordinator.isLocalHost() && this.coordinator) {
+          LOG.error("PARTITION CONTINUE:  Possibility for inconsistency detected for hosts in the following views: " + Joiner.on(", ").join(dbViews));
+        }
+ else         if (!newCoordinator.isLocalHost() && !this.coordinator) {
+          LOG.error("PARTITION RESTART:  Possibility for stale data copy detected for Host: " + Hosts.localHost());
+          LOG.error("PARTITION RESTART: " + printMap());
+          Databases.Locks.PARTITIONED.create(logPrefix(localView) + " found different coordinator " + newCoordinator);
+          Databases.Locks.PARTITIONED.failStop();
+        }
+ else         if (newCoordinator.isLocalHost() && !this.coordinator) {
+          LOG.error("PARTITION FAIL-STOP:  Possibility for inconsistency detected for Host: " + Hosts.localHost());
+          LOG.error("PARTITION FAIL-STOP: " + printMap());
+          Databases.Locks.PARTITIONED.create(logPrefix(localView) + " found partitioned database in subgroup views: " + Joiner.on(", ").join(dbViews));
+          Databases.Locks.PARTITIONED.failStop();
+        }
+      }
+    }
+  }
+;
+  Threads.newThread(mergeViews).start();
+}
