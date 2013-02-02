@@ -1,0 +1,50 @@
+{
+  final PutScalingPolicyResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  try {
+    final ScalingPolicy scalingPolicy=scalingPolicies.update(accountFullName,request.getAutoScalingGroupName(),request.getPolicyName(),new Callback<ScalingPolicy>(){
+      @Override public void fire(      final ScalingPolicy scalingPolicy){
+        if (RestrictedTypes.filterPrivileged().apply(scalingPolicy)) {
+          if (request.getAdjustmentType() != null)           scalingPolicy.setAdjustmentType(Enums.valueOfFunction(AdjustmentType.class).apply(request.getAdjustmentType()));
+          if (request.getScalingAdjustment() != null)           scalingPolicy.setScalingAdjustment(request.getScalingAdjustment());
+          if (request.getCooldown() != null)           scalingPolicy.setCooldown(request.getCooldown());
+          if (request.getMinAdjustmentStep() != null)           scalingPolicy.setMinAdjustmentStep(request.getMinAdjustmentStep());
+        }
+      }
+    }
+);
+    reply.getPutScalingPolicyResult().setPolicyARN(scalingPolicy.getArn());
+  }
+ catch (  AutoScalingMetadataNotFoundException e) {
+    final Supplier<ScalingPolicy> allocator=new Supplier<ScalingPolicy>(){
+      @Override public ScalingPolicy get(){
+        try {
+          final ScalingPolicies.PersistingBuilder builder=scalingPolicies.create(ctx.getUserFullName(),autoScalingGroups.lookup(accountFullName,request.getAutoScalingGroupName()),request.getPolicyName(),Enums.valueOfFunction(AdjustmentType.class).apply(request.getAdjustmentType()),request.getScalingAdjustment()).withCooldown(request.getCooldown()).withMinAdjustmentStep(request.getMinAdjustmentStep());
+          return builder.persist();
+        }
+ catch (        AutoScalingMetadataNotFoundException e) {
+          throw Exceptions.toUndeclared(new InvalidParameterValueException("Auto scaling group not found: " + request.getAutoScalingGroupName()));
+        }
+catch (        IllegalArgumentException e) {
+          throw Exceptions.toUndeclared(new InvalidParameterValueException("Invalid adjustment type: " + request.getAdjustmentType()));
+        }
+catch (        Exception ex) {
+          throw new RuntimeException(ex);
+        }
+      }
+    }
+;
+    try {
+      final ScalingPolicy scalingPolicy=RestrictedTypes.allocateUnitlessResource(allocator);
+      reply.getPutScalingPolicyResult().setPolicyARN(scalingPolicy.getArn());
+    }
+ catch (    Exception exception) {
+      handleException(exception);
+    }
+  }
+catch (  Exception e) {
+    handleException(e);
+  }
+  return reply;
+}
