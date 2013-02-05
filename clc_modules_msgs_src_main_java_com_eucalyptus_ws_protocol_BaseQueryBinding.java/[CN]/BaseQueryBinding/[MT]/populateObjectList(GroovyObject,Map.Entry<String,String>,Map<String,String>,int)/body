@@ -4,21 +4,25 @@
     final Field declaredField=getRecursiveField(obj.getClass(),paramFieldPair.getValue());
     final ArrayList theList=(ArrayList)obj.getProperty(paramFieldPair.getValue());
     final Class genericType=(Class)((ParameterizedType)declaredField.getGenericType()).getActualTypeArguments()[0];
-    if (String.class.equals(genericType)) {
+    if (String.class.equals(genericType) || Boolean.class.equals(genericType) || Integer.class.equals(genericType)|| Long.class.equals(genericType)|| Double.class.equals(genericType)|| Date.class.equals(genericType)) {
       if (params.containsKey(paramFieldPair.getKey())) {
-        theList.add(params.remove(paramFieldPair.getKey()));
+        theList.add(convertToType(Suppliers.ofInstance(params.remove(paramFieldPair.getKey())),genericType));
       }
  else {
         final List<String> keys=Lists.newArrayList(params.keySet());
+        final Pattern paramPattern=Pattern.compile(Pattern.quote(paramFieldPair.getKey()) + "\\.([1-9][0-9]*)");
+        final Map<String,Object> indexToValueMap=new TreeMap<String,Object>(Ordering.natural().onResultOf(FunctionToInteger.INSTANCE));
         for (        final String k : keys) {
-          if (k.matches(paramFieldPair.getKey() + "\\.\\d*")) {
-            theList.add(params.remove(k));
+          final Matcher matcher=paramPattern.matcher(k);
+          if (matcher.matches()) {
+            indexToValueMap.put(matcher.group(1),convertToType(Suppliers.ofInstance(params.remove(k)),genericType));
           }
         }
+        theList.addAll(indexToValueMap.values());
       }
     }
  else     if (declaredField.isAnnotationPresent(HttpEmbedded.class)) {
-      final HttpEmbedded annoteEmbedded=(HttpEmbedded)declaredField.getAnnotation(HttpEmbedded.class);
+      final HttpEmbedded annoteEmbedded=declaredField.getAnnotation(HttpEmbedded.class);
       if (annoteEmbedded.multiple()) {
         final List<String> keys=Lists.newArrayList(params.keySet());
         final Map<String,Map<String,String>> subParamMaps=new TreeMap<String,Map<String,String>>(Ordering.natural().onResultOf(FunctionToInteger.INSTANCE));
