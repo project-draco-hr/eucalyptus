@@ -1,0 +1,81 @@
+{
+  DeregisterInstancesFromLoadBalancerResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final UserFullName ownerFullName=ctx.getUserFullName();
+  final String lbName=request.getLoadBalancerName();
+  final Collection<Instance> instances=request.getInstances().getMember();
+  final Function<Void,Collection<String>> filter=new Function<Void,Collection<String>>(){
+    @Override public Collection<String> apply(    Void v){
+      LoadBalancer lb=null;
+      try {
+        lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
+      }
+ catch (      Exception ex) {
+        LOG.warn("No loadbalancer is found with name=" + lbName);
+        return null;
+      }
+      Collection<String> filtered=Sets.newHashSet();
+      for (      Instance inst : instances) {
+        if (lb.hasBackendInstance(inst.getInstanceId()))         filtered.add(inst.getInstanceId());
+      }
+      return filtered;
+    }
+  }
+;
+  final Collection<String> instancesToRemove=Entities.asTransaction(LoadBalancer.class,filter).apply(null);
+  if (instancesToRemove == null) {
+    reply.set_return(false);
+    return reply;
+  }
+  final Predicate<Void> remover=new Predicate<Void>(){
+    @Override public boolean apply(    Void v){
+      for (      String instanceId : instancesToRemove) {
+        LoadBalancerBackendInstance toDelete=null;
+        try {
+          toDelete=Entities.uniqueResult(LoadBalancerBackendInstance.named(ownerFullName,instanceId));
+        }
+ catch (        NoSuchElementException ex) {
+          toDelete=null;
+        }
+catch (        Exception ex) {
+          LOG.error("Can't query loadbalancer backend instance for " + instanceId);
+          toDelete=null;
+        }
+        if (toDelete == null)         continue;
+        Entities.delete(toDelete);
+      }
+      return true;
+    }
+  }
+;
+  final Function<Void,ArrayList<Instance>> finder=new Function<Void,ArrayList<Instance>>(){
+    @Override public ArrayList<Instance> apply(    Void v){
+      LoadBalancer lb=null;
+      try {
+        lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
+      }
+ catch (      Exception ex) {
+        LOG.warn("No loadbalancer is found with name=" + lbName);
+        return Lists.newArrayList();
+      }
+      Entities.refresh(lb);
+      ArrayList<Instance> result=new ArrayList<Instance>(Collections2.transform(lb.getBackendInstances(),new Function<LoadBalancerBackendInstance,Instance>(){
+        @Override public Instance apply(        final LoadBalancerBackendInstance input){
+          final Instance newInst=new Instance();
+          newInst.setInstanceId(input.getInstanceId());
+          return newInst;
+        }
+      }
+));
+      return result;
+    }
+  }
+;
+  reply.set_return(Entities.asTransaction(LoadBalancerBackendInstance.class,remover).apply(null));
+  DeregisterInstancesFromLoadBalancerResult result=new DeregisterInstancesFromLoadBalancerResult();
+  Instances returnInstances=new Instances();
+  returnInstances.setMember(Entities.asTransaction(LoadBalancer.class,finder).apply(null));
+  result.setInstances(returnInstances);
+  reply.setDeregisterInstancesFromLoadBalancerResult(result);
+  return reply;
+}
