@@ -1,0 +1,66 @@
+{
+  final String arn=group.getArn();
+  return new TaskWithBackOff(arn,"Launch"){
+    @Override void runTask(){
+      logger.info("Running launch instances activity for " + group.getArn());
+      final int attemptToLaunch=Math.min(maxLaunchIncrement,launchCount);
+      boolean processInitiated=false;
+      try {
+        final String userId=Accounts.lookupAccountById(group.getOwnerAccountNumber()).lookupUserByName(User.ACCOUNT_ADMIN).getUserId();
+        final EucalyptusClient client=new EucalyptusClient(userId);
+        final ScalingActivity activity=ScalingActivity.create(group,"Launch");
+        scalingActivities.save(activity);
+        processInitiated=true;
+        client.dispatch(runInstances(group,attemptToLaunch),new Callback.Checked<RunInstancesResponseType>(){
+          @Override public void fireException(          final Throwable e){
+            failure();
+            logger.error("Error launching instances",e);
+            setScalingActivityFinalStatus(ActivityStatusCode.Failed,activity);
+          }
+          @Override public void fire(          final RunInstancesResponseType response){
+            success();
+            final List<String> instanceIds=Lists.newArrayList();
+            for (            final RunningInstancesItemType item : response.getRsvInfo().getInstancesSet()) {
+              instanceIds.add(item.getInstanceId());
+              final AutoScalingInstance instance=AutoScalingInstance.create(group.getOwner(),item.getInstanceId(),item.getPlacement(),group);
+              try {
+                autoScalingInstances.save(instance);
+              }
+ catch (              AutoScalingMetadataException e) {
+                logger.error(e,e);
+              }
+            }
+            try {
+              autoScalingGroups.update(group.getOwner(),group.getAutoScalingGroupName(),new Callback<AutoScalingGroup>(){
+                @Override public void fire(                final AutoScalingGroup autoScalingGroup){
+                  autoScalingGroup.setCapacity(autoScalingGroup.getCapacity() + instanceIds.size());
+                }
+              }
+);
+            }
+ catch (            AutoScalingMetadataException e) {
+              logger.error(e,e);
+            }
+            setScalingActivityFinalStatus(ActivityStatusCode.Successful,activity);
+            client.dispatch(tagInstances(instanceIds,group.getAutoScalingGroupName()),new Failure<CreateTagsResponseType>(){
+              @Override public void fireException(              final Throwable e){
+                logger.error(e,e);
+              }
+            }
+);
+          }
+        }
+);
+      }
+ catch (      final Exception e) {
+        logger.error(e,e);
+      }
+ finally {
+        if (!processInitiated) {
+          failure();
+        }
+      }
+    }
+  }
+;
+}
