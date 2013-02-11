@@ -1,0 +1,58 @@
+{
+  RegisterInstancesWithLoadBalancerResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final UserFullName ownerFullName=ctx.getUserFullName();
+  final String lbName=request.getLoadBalancerName();
+  final Collection<Instance> instances=request.getInstances().getMember();
+  final Predicate<Void> creator=new Predicate<Void>(){
+    @Override public boolean apply(    Void v){
+      LoadBalancer lb=null;
+      try {
+        lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
+      }
+ catch (      Exception ex) {
+        LOG.warn("No loadbalancer is found with name=" + lbName);
+        return false;
+      }
+      for (      Instance vm : instances) {
+        if (lb.hasBackendInstance(vm.getInstanceId()))         continue;
+        final LoadBalancerBackendInstance beInstance=LoadBalancerBackendInstance.newInstance(ownerFullName,lb,vm.getInstanceId());
+        Entities.persist(beInstance);
+      }
+      return true;
+    }
+  }
+;
+  final Function<Void,ArrayList<Instance>> finder=new Function<Void,ArrayList<Instance>>(){
+    @Override public ArrayList<Instance> apply(    Void v){
+      LoadBalancer lb=null;
+      try {
+        lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
+      }
+ catch (      Exception ex) {
+        LOG.warn("No loadbalancer is found with name=" + lbName);
+        return Lists.newArrayList();
+      }
+      Entities.refresh(lb);
+      ArrayList<Instance> result=new ArrayList<Instance>(Collections2.transform(lb.getBackendInstances(),new Function<LoadBalancerBackendInstance,Instance>(){
+        @Override public Instance apply(        final LoadBalancerBackendInstance input){
+          final Instance newInst=new Instance();
+          newInst.setInstanceId(input.getInstanceId());
+          return newInst;
+        }
+      }
+));
+      return result;
+    }
+  }
+;
+  if (instances != null) {
+    reply.set_return(Entities.asTransaction(LoadBalancerBackendInstance.class,creator).apply(null));
+  }
+  RegisterInstancesWithLoadBalancerResult result=new RegisterInstancesWithLoadBalancerResult();
+  Instances returnInstances=new Instances();
+  returnInstances.setMember(Entities.asTransaction(LoadBalancer.class,finder).apply(null));
+  result.setInstances(returnInstances);
+  reply.setRegisterInstancesWithLoadBalancerResult(result);
+  return reply;
+}

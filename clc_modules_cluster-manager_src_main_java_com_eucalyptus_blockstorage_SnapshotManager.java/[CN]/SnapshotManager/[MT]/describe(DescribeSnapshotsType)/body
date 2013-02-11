@@ -6,11 +6,14 @@
   final Filter filter=Filters.generate(request.getFilterSet(),Snapshot.class);
   final EntityTransaction db=Entities.get(Snapshot.class);
   try {
-    final List<Snapshot> snapshots=Entities.query(Snapshot.named(ownerFullName,null),true,filter.asCriterion(),filter.getAliases());
+    final List<Snapshot> unfilteredSnapshots=Entities.query(Snapshot.named(ownerFullName,null),true,filter.asCriterion(),filter.getAliases());
     final Predicate<? super Snapshot> requestedAndAccessible=CloudMetadatas.filteringFor(Snapshot.class).byId(request.getSnapshotSet()).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
-    for (    final Snapshot snap : Iterables.filter(snapshots,requestedAndAccessible)) {
+    final Iterable<Snapshot> snapshots=Iterables.filter(unfilteredSnapshots,requestedAndAccessible);
+    final Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(Snapshot.class).getResourceTagMap(AccountFullName.getInstance(ctx.getAccount()),Iterables.transform(snapshots,CloudMetadatas.toDisplayName()));
+    for (    final Snapshot snap : snapshots) {
       try {
         final edu.ucsb.eucalyptus.msgs.Snapshot snapReply=snap.morph(new edu.ucsb.eucalyptus.msgs.Snapshot());
+        Tags.addFromTags(snapReply.getTagSet(),ResourceTag.class,tagsMap.get(snapReply.getSnapshotId()));
         snapReply.setVolumeId(snap.getParentVolume());
         snapReply.setOwnerId(snap.getOwnerAccountNumber());
         reply.getSnapshotSet().add(snapReply);

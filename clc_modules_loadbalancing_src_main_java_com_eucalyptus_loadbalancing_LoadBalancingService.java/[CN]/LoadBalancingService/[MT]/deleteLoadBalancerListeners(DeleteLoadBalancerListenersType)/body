@@ -1,0 +1,61 @@
+{
+  final DeleteLoadBalancerListenersResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final UserFullName ownerFullName=ctx.getUserFullName();
+  final String lbName=request.getLoadBalancerName();
+  final Collection<Integer> listenerPorts;
+  try {
+    listenerPorts=Collections2.transform(request.getLoadBalancerPorts().getMember(),new Function<String,Integer>(){
+      @Override public Integer apply(      final String input){
+        return new Integer(input);
+      }
+    }
+);
+  }
+ catch (  Exception ex) {
+    throw new LoadBalancingException("invalid port number",ex);
+  }
+  final LoadBalancer lb;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
+  }
+ catch (  NoSuchElementException ex) {
+    throw new AccessPointNotFoundException();
+  }
+catch (  Exception ex) {
+    LOG.error("Failed to find the loadbalancer=" + lbName);
+    throw new LoadBalancingException("failed to retrieve the loadbalancer",ex);
+  }
+  final Function<Void,Collection<Integer>> filter=new Function<Void,Collection<Integer>>(){
+    @Override public Collection<Integer> apply(    Void v){
+      final Collection<Integer> filtered=Sets.newHashSet();
+      for (      Integer port : listenerPorts) {
+        final LoadBalancerListener found=lb.findListener(port.intValue());
+        if (found != null)         filtered.add(port);
+      }
+      return filtered;
+    }
+  }
+;
+  final Collection<Integer> toDelete=Entities.asTransaction(LoadBalancer.class,filter).apply(null);
+  final Predicate<Collection<Integer>> remover=new Predicate<Collection<Integer>>(){
+    @Override public boolean apply(    Collection<Integer> listeners){
+      for (      Integer port : listenerPorts) {
+        try {
+          final LoadBalancerListener exist=Entities.uniqueResult(LoadBalancerListener.named(lb,port.intValue()));
+          Entities.delete(exist);
+        }
+ catch (        NoSuchElementException ex) {
+          ;
+        }
+catch (        Exception ex) {
+          LOG.error("Failed to delete the listener",ex);
+        }
+      }
+      return true;
+    }
+  }
+;
+  reply.set_return(Entities.asTransaction(LoadBalancerListener.class,remover).apply(toDelete));
+  return reply;
+}

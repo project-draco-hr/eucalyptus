@@ -1,0 +1,40 @@
+{
+  DescribeLoadBalancersResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName ownerFullName=ctx.getUserFullName().asAccountFullName();
+  final Set<String> requestedNames=Sets.newHashSet();
+  if (!request.getLoadBalancerNames().getMember().isEmpty()) {
+    requestedNames.addAll(request.getLoadBalancerNames().getMember());
+  }
+  final Function<Set<String>,Set<String>> lookupLBNames=new Function<Set<String>,Set<String>>(){
+    public Set<String> apply(    final Set<String> input){
+      final Predicate<? super LoadBalancer> requestedAndAccessible=CloudMetadatas.filteringFor(LoadBalancer.class).byId(input).byPrivileges().buildPredicate();
+      final List<LoadBalancer> lbs=Entities.query(LoadBalancer.named(ownerFullName,null),true);
+      Set<String> res=Sets.newHashSet();
+      for (      final LoadBalancer foundLB : Iterables.filter(lbs,requestedAndAccessible))       res.add(foundLB.getDisplayName());
+      return res;
+    }
+  }
+;
+  Set<String> allowedLBNames=Entities.asTransaction(LoadBalancer.class,lookupLBNames).apply(requestedNames);
+  final Function<Set<String>,Set<LoadBalancerDescription>> lookupLBDescriptions=new Function<Set<String>,Set<LoadBalancerDescription>>(){
+    public Set<LoadBalancerDescription> apply(    final Set<String> input){
+      final Set<LoadBalancerDescription> descs=Sets.newHashSet();
+      for (      String lbName : input) {
+        LoadBalancerDescription desc=new LoadBalancerDescription();
+        desc.setLoadBalancerName(lbName);
+        descs.add(desc);
+      }
+      return descs;
+    }
+  }
+;
+  Set<LoadBalancerDescription> descs=lookupLBDescriptions.apply(allowedLBNames);
+  DescribeLoadBalancersResult descResult=new DescribeLoadBalancersResult();
+  LoadBalancerDescriptions lbDescs=new LoadBalancerDescriptions();
+  lbDescs.setMember(new ArrayList<LoadBalancerDescription>(descs));
+  descResult.setLoadBalancerDescriptions(lbDescs);
+  reply.setDescribeLoadBalancersResult(descResult);
+  reply.set_return(true);
+  return reply;
+}
