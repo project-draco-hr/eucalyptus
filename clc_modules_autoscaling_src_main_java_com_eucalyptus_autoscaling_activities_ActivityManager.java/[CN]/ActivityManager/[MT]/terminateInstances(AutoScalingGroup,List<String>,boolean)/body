@@ -1,0 +1,75 @@
+{
+  final String arn=group.getArn();
+  return new TaskWithBackOff(arn,"Terminate"){
+    private final AtomicInteger terminated=new AtomicInteger(0);
+    @Override TaskWithBackOff onSuccess(){
+      return replace ? perhapsLaunchInstances(group,terminated.get()) : null;
+    }
+    @Override void runTask(){
+      if (instanceIds.isEmpty()) {
+        success();
+      }
+      logger.info("Running terminate instances activity for " + group.getArn());
+      boolean processInitiated=false;
+      try {
+        final String userId=Accounts.lookupAccountById(group.getOwnerAccountNumber()).lookupUserByName(User.ACCOUNT_ADMIN).getUserId();
+        final List<AutoScalingInstance> currentInstances=autoScalingInstances.listByGroup(group.getOwner(),group.getAutoScalingGroupName());
+        final EucalyptusClient client=new EucalyptusClient(userId);
+        final ScalingActivity activity=ScalingActivity.create(group,"Terminate");
+        scalingActivities.save(activity);
+        processInitiated=true;
+        final AtomicInteger terminated=this.terminated;
+        client.dispatch(terminateInstances(instanceIds),new Callback.Checked<TerminateInstancesResponseType>(){
+          @Override public void fireException(          final Throwable e){
+            failure();
+            logger.error("Error terminating instances",e);
+            setScalingActivityFinalStatus(ActivityStatusCode.Failed,activity);
+          }
+          @Override public void fire(          final TerminateInstancesResponseType response){
+            try {
+              int terminatedCount=0;
+              for (              final TerminateInstancesItemType item : response.getInstancesSet()) {
+                terminatedCount++;
+                try {
+                  final AutoScalingInstance instance=autoScalingInstances.lookup(group.getOwner(),item.getInstanceId());
+                  autoScalingInstances.delete(instance);
+                }
+ catch (                AutoScalingMetadataNotFoundException e) {
+                }
+catch (                AutoScalingMetadataException e) {
+                  logger.error(e,e);
+                }
+              }
+              try {
+                terminated.set(terminatedCount);
+                autoScalingGroups.update(group.getOwner(),group.getAutoScalingGroupName(),new Callback<AutoScalingGroup>(){
+                  @Override public void fire(                  final AutoScalingGroup autoScalingGroup){
+                    autoScalingGroup.setCapacity(currentInstances.size() - terminated.get());
+                  }
+                }
+);
+              }
+ catch (              AutoScalingMetadataException e) {
+                logger.error(e,e);
+              }
+              setScalingActivityFinalStatus(ActivityStatusCode.Successful,activity);
+            }
+  finally {
+              success();
+            }
+          }
+        }
+);
+      }
+ catch (      final Exception e) {
+        logger.error(e,e);
+      }
+ finally {
+        if (!processInitiated) {
+          failure();
+        }
+      }
+    }
+  }
+;
+}

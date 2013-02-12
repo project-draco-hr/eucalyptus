@@ -1,63 +1,21 @@
 {
-  final String arn=group.getArn();
-  return new TaskWithBackOff(arn,"Terminate"){
-    @Override void runTask(){
-      logger.info("Running terminate instances activity for " + group.getArn());
-      boolean processInitiated=false;
-      try {
-        final String userId=Accounts.lookupAccountById(group.getOwnerAccountNumber()).lookupUserByName(User.ACCOUNT_ADMIN).getUserId();
-        final List<AutoScalingInstance> currentInstances=autoScalingInstances.listByGroup(group.getOwner(),group.getAutoScalingGroupName());
-        final EucalyptusClient client=new EucalyptusClient(userId);
-        final ScalingActivity activity=ScalingActivity.create(group,"Terminate");
-        scalingActivities.save(activity);
-        processInitiated=true;
-        client.dispatch(terminateInstances(group,terminateCount,currentInstances),new Callback.Checked<TerminateInstancesResponseType>(){
-          @Override public void fireException(          final Throwable e){
-            failure();
-            logger.error("Error terminating instances",e);
-            setScalingActivityFinalStatus(ActivityStatusCode.Failed,activity);
-          }
-          @Override public void fire(          final TerminateInstancesResponseType response){
-            success();
-            int terminatedCount=0;
-            for (            final TerminateInstancesItemType item : response.getInstancesSet()) {
-              terminatedCount++;
-              try {
-                final AutoScalingInstance instance=autoScalingInstances.lookup(group.getOwner(),item.getInstanceId());
-                autoScalingInstances.delete(instance);
-              }
- catch (              AutoScalingMetadataNotFoundException e) {
-              }
-catch (              AutoScalingMetadataException e) {
-                logger.error(e,e);
-              }
-            }
-            try {
-              final int terminated=terminatedCount;
-              autoScalingGroups.update(group.getOwner(),group.getAutoScalingGroupName(),new Callback<AutoScalingGroup>(){
-                @Override public void fire(                final AutoScalingGroup autoScalingGroup){
-                  autoScalingGroup.setCapacity(currentInstances.size() - terminated);
-                }
-              }
-);
-            }
- catch (            AutoScalingMetadataException e) {
-              logger.error(e,e);
-            }
-            setScalingActivityFinalStatus(ActivityStatusCode.Successful,activity);
-          }
-        }
-);
-      }
- catch (      final Exception e) {
-        logger.error(e,e);
-      }
- finally {
-        if (!processInitiated) {
-          failure();
-        }
+  final List<String> instancesToTerminate=Lists.newArrayList();
+  try {
+    final List<AutoScalingInstance> currentInstances=autoScalingInstances.listByGroup(group.getOwner(),group.getAutoScalingGroupName());
+    if (currentInstances.size() == terminateCount) {
+      Iterables.addAll(instancesToTerminate,Iterables.transform(currentInstances,AutoScalingInstances.instanceId()));
+    }
+ else {
+      final List<AutoScalingInstance> remainingInstances=Lists.newArrayList(currentInstances);
+      for (int i=0; i < terminateCount && remainingInstances.size() >= 1; i++) {
+        final AutoScalingInstance instanceForTermination=TerminationPolicyType.selectForTermination(group.getTerminationPolicies(),remainingInstances);
+        remainingInstances.remove(instanceForTermination);
+        instancesToTerminate.add(instanceForTermination.getInstanceId());
       }
     }
   }
-;
+ catch (  final Exception e) {
+    logger.error(e,e);
+  }
+  return terminateInstances(group,instancesToTerminate,false);
 }
