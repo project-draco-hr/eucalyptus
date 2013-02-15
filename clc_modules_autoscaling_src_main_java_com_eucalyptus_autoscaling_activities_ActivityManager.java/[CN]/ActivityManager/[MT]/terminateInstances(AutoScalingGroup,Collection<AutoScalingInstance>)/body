@@ -4,45 +4,9 @@
   if (arnSet.size() != 1 || !arnSet.iterator().next().equals(arn)) {
     throw new IllegalArgumentException("Instances for termination must belong to the given group.");
   }
-  final ScalingActivity[] activityHolder=new ScalingActivity[1];
-  runner.runTask(new TaskWithBackOff(arn,"UserTermination"){
-    @Override boolean isScalingTask(){
-      return false;
-    }
-    @Override void runTask(){
-      logger.info("Running user terminate instances activity for " + group.getArn());
-      boolean processInitiated=false;
-      try {
-        final String userId=Accounts.lookupAccountById(group.getOwnerAccountNumber()).lookupUserByName(User.ACCOUNT_ADMIN).getUserId();
-        final EucalyptusClient client=new EucalyptusClient(userId);
-        final ScalingActivity activity=ScalingActivity.create(group,"UserTerminate");
-        activityHolder[0]=scalingActivities.save(activity);
-        processInitiated=true;
-        final List<String> instancesToTerminate=Lists.newArrayList();
-        Iterables.addAll(instancesToTerminate,Iterables.transform(instances,AutoScalingInstances.instanceId()));
-        client.dispatch(terminateInstances(instancesToTerminate),new Callback.Checked<TerminateInstancesResponseType>(){
-          @Override public void fireException(          final Throwable e){
-            failure();
-            logger.error("Error terminating instances",e);
-            setScalingActivityFinalStatus(ActivityStatusCode.Failed,activity);
-          }
-          @Override public void fire(          final TerminateInstancesResponseType response){
-            success();
-            setScalingActivityFinalStatus(ActivityStatusCode.Successful,activity);
-          }
-        }
-);
-      }
- catch (      final Exception e) {
-        logger.error(e,e);
-      }
- finally {
-        if (!processInitiated) {
-          failure();
-        }
-      }
-    }
-  }
-);
-  return activityHolder[0];
+  final List<String> instancesToTerminate=Lists.newArrayList();
+  Iterables.addAll(instancesToTerminate,Iterables.transform(instances,AutoScalingInstances.instanceId()));
+  final UserTerminateInstancesScalingProcessTask task=new UserTerminateInstancesScalingProcessTask(group,instancesToTerminate);
+  runTask(task);
+  return task.getActivities();
 }
