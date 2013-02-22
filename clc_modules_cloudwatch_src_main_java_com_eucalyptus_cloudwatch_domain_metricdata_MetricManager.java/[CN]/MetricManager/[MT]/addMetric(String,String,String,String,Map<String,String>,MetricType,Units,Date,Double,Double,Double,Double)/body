@@ -1,0 +1,52 @@
+{
+  if (dimensionMap == null) {
+    dimensionMap=new HashMap<String,String>();
+  }
+ else   if (dimensionMap.size() > ListMetric.MAX_DIM_NUM) {
+    throw new IllegalArgumentException("Too many dimensions for metric, " + dimensionMap.size());
+  }
+  timestamp=stripSeconds(timestamp);
+  TreeSet<DimensionEntity> dimensions=new TreeSet<DimensionEntity>();
+  for (  Map.Entry<String,String> entry : dimensionMap.entrySet()) {
+    DimensionEntity d=new DimensionEntity();
+    d.setName(entry.getKey());
+    d.setValue(entry.getValue());
+    dimensions.add(d);
+  }
+  EntityTransaction db=Entities.get(MetricEntity.class);
+  Set<Set<DimensionEntity>> permutations=null;
+  if (metricType == MetricType.System) {
+    permutations=Sets.powerSet(dimensions);
+  }
+ else {
+    permutations=Sets.newHashSet();
+    permutations.add(dimensions);
+  }
+  try {
+    for (    Set<DimensionEntity> dimensionsPermutation : permutations) {
+      MetricEntity metric=new MetricEntity();
+      metric.setAccountId(accountId);
+      metric.setUserId(userId);
+      metric.setMetricName(metricName);
+      metric.setNamespace(namespace);
+      metric.setDimensions(dimensions);
+      metric.setDimensionHash(hash(dimensionsPermutation));
+      metric.setMetricType(metricType);
+      metric.setUnits(units);
+      metric.setTimestamp(timestamp);
+      metric.setSampleMax(sampleMax);
+      metric.setSampleMin(sampleMin);
+      metric.setSampleSum(sampleSum);
+      metric.setSampleSize(sampleSize);
+      Entities.persist(metric);
+    }
+    db.commit();
+  }
+ catch (  RuntimeException ex) {
+    Logs.extreme().error(ex,ex);
+    throw ex;
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+}
