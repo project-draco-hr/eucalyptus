@@ -9,11 +9,24 @@
     log.debug(e,e);
     throw new AuthException("Invalid security token");
   }
-  final AccessKey key=lookupAccessKeyById(encryptedToken.getOriginatingAccessKeyId());
-  final String secretKey=encryptedToken.getSecretKey(key.getSecretKey());
+  final String originatingAccessKeyId=encryptedToken.getOriginatingAccessKeyId();
+  final boolean active;
+  final String secretKey;
+  final User user;
+  if (originatingAccessKeyId != null) {
+    final AccessKey key=lookupAccessKeyById(originatingAccessKeyId);
+    active=key.isActive();
+    secretKey=encryptedToken.getSecretKey(key.getSecretKey());
+    user=key.getUser();
+  }
+ else {
+    user=lookupUserById(encryptedToken.getUserId());
+    active=user.isEnabled();
+    secretKey=encryptedToken.getSecretKey(Objects.firstNonNull(user.getToken(),""));
+  }
   return new AccessKey(){
     @Override public Boolean isActive(){
-      return key.isActive() && encryptedToken.isValid();
+      return active && encryptedToken.isValid();
     }
     @Override public String getAccessKey(){
       return encryptedToken.getAccessKeyId();
@@ -25,7 +38,7 @@
       return new Date(encryptedToken.getCreated());
     }
     @Override public User getUser() throws AuthException {
-      return key.getUser();
+      return user;
     }
     @Override public void setActive(    final Boolean active) throws AuthException {
     }

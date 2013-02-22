@@ -1,0 +1,14 @@
+{
+  Preconditions.checkNotNull(user,"User is required");
+  final AccessKey key=accessKey != null || accessToken != null ? accessKey : Iterables.find(Objects.firstNonNull(user.getKeys(),Collections.<AccessKey>emptyList()),AccessKeys.isActive(),null);
+  if (key == null && accessToken == null)   throw new AuthException("Key not found for user");
+  final long restrictedDurationMillis=Math.max(Math.min(durationSeconds == 0 ? TimeUnit.HOURS.toMillis(12) : TimeUnit.SECONDS.toMillis(durationSeconds),TimeUnit.HOURS.toMillis(user.isAccountAdmin() ? 1 : 36)),TimeUnit.HOURS.toMillis(1));
+  if (key != null && !key.getUser().getUserId().equals(user.getUserId())) {
+    throw new AuthException("Key not valid for user");
+  }
+ else   if (key == null && accessToken.length() < 30) {
+    throw new AuthException("Cannot generate token for user");
+  }
+  final EncryptedSecurityToken encryptedToken=new EncryptedSecurityToken(key != null ? key.getAccessKey() : null,user.getUserId(),getCurrentTimeMillis(),restrictedDurationMillis);
+  return new SecurityToken(encryptedToken.getAccessKeyId(),encryptedToken.getSecretKey(key == null ? accessToken : key.getSecretKey()),encryptedToken.encrypt(getEncryptionKey(encryptedToken.getAccessKeyId())),encryptedToken.getExpires());
+}
