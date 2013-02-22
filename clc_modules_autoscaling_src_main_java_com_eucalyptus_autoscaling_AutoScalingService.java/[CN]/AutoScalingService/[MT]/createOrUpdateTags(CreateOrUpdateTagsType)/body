@@ -1,4 +1,51 @@
 {
-  CreateOrUpdateTagsResponseType reply=request.getReply();
+  final CreateOrUpdateTagsResponseType reply=request.getReply();
+  final Context context=Contexts.lookup();
+  final UserFullName ownerFullName=context.getUserFullName();
+  final AccountFullName accountFullName=ownerFullName.asAccountFullName();
+  for (  final TagType tagType : request.getTags().getMember()) {
+    final String key=tagType.getKey();
+    final String value=com.google.common.base.Strings.nullToEmpty(tagType.getValue()).trim();
+    if (com.google.common.base.Strings.isNullOrEmpty(key) || key.trim().length() > 128 || isReserved(key)) {
+      throw new InvalidParameterValueException("Invalid key (max length 128, must not be empty, reserved prefixes " + reservedPrefixes + "): "+ key);
+    }
+    if (value.length() > 256 || isReserved(key)) {
+      throw new InvalidParameterValueException("Invalid value (max length 256, reserved prefixes " + reservedPrefixes + "): "+ value);
+    }
+  }
+  if (request.getTags().getMember().size() > 0) {
+    final Predicate<Void> creator=new Predicate<Void>(){
+      @Override public boolean apply(      final Void v){
+        try {
+          for (          final TagType tagType : request.getTags().getMember()) {
+            final TagSupport tagSupport=TagSupport.fromResourceType(tagType.getResourceType());
+            AutoScalingMetadata resource=tagSupport.lookup(accountFullName,tagType.getResourceId());
+            if (!RestrictedTypes.filterPrivileged().apply(resource)) {
+              throw Exceptions.toUndeclared(new InvalidParameterValueException("Resource not found " + tagType.getResourceId()));
+            }
+            final Tag example=tagSupport.example(resource,accountFullName,null,null);
+            if (Entities.count(example) >= MAX_TAGS_PER_RESOURCE) {
+              throw Exceptions.toUndeclared(new LimitExceededException("Tag limit exceeded for resource '" + resource.getDisplayName() + "'"));
+            }
+            final String key=com.google.common.base.Strings.nullToEmpty(tagType.getKey()).trim();
+            final String value=com.google.common.base.Strings.nullToEmpty(tagType.getValue()).trim();
+            final Boolean propagateAtLaunch=Objects.firstNonNull(tagType.getPropagateAtLaunch(),Boolean.FALSE);
+            tagSupport.createOrUpdate(resource,ownerFullName,key,value,propagateAtLaunch);
+          }
+          return true;
+        }
+ catch (        Exception e) {
+          throw Exceptions.toUndeclared(e);
+        }
+      }
+    }
+;
+    try {
+      Entities.asTransaction(Tag.class,creator).apply(null);
+    }
+ catch (    Exception e) {
+      handleException(e,true);
+    }
+  }
   return reply;
 }

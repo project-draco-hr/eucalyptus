@@ -1,4 +1,43 @@
 {
-  DeleteTagsResponseType reply=request.getReply();
+  final DeleteTagsResponseType reply=request.getReply();
+  final Context context=Contexts.lookup();
+  final OwnerFullName ownerFullName=context.getUserFullName().asAccountFullName();
+  final List<TagType> tagTypes=Objects.firstNonNull(request.getTags().getMember(),Collections.<TagType>emptyList());
+  for (  final TagType tagType : tagTypes) {
+    final String key=tagType.getKey();
+    if (com.google.common.base.Strings.isNullOrEmpty(key) || key.trim().length() > 128 || isReserved(key)) {
+      throw new InvalidParameterValueException("Invalid key (max length 128, must not be empty, reserved prefixes " + reservedPrefixes + "): "+ key);
+    }
+  }
+  if (tagTypes.size() > 0) {
+    final Predicate<Void> delete=new Predicate<Void>(){
+      @Override public boolean apply(      final Void v){
+        for (        final TagType tagType : tagTypes) {
+          try {
+            final TagSupport tagSupport=TagSupport.fromResourceType(tagType.getResourceType());
+            final AutoScalingMetadata resource=tagSupport.lookup(ownerFullName,tagType.getResourceId());
+            final Tag example=tagSupport.example(resource,ownerFullName,tagType.getKey(),tagType.getValue());
+            if (example != null && Permissions.isAuthorized(PolicySpec.VENDOR_AUTOSCALING,PolicySpec.AUTOSCALING_RESOURCE_TAG,example.getResourceType() + ":" + example.getResourceId()+ ":"+ example.getKey(),context.getAccount(),PolicySpec.AUTOSCALING_DELETETAGS,context.getUser())) {
+              Tags.delete(example);
+            }
+          }
+ catch (          NoSuchMetadataException e) {
+            logger.debug(e,e);
+          }
+catch (          TransactionException e) {
+            throw Exceptions.toUndeclared(e);
+          }
+        }
+        return true;
+      }
+    }
+;
+    try {
+      Entities.asTransaction(Tag.class,delete).apply(null);
+    }
+ catch (    Exception e) {
+      handleException(e);
+    }
+  }
   return reply;
 }
