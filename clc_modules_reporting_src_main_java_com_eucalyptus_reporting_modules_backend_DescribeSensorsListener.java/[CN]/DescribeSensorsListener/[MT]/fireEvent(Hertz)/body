@@ -1,39 +1,44 @@
 {
-  if (DEFAULT_POLL_INTERVAL_MINS >= 1) {
-    COLLECTION_INTERVAL_TIME_MS=((int)TimeUnit.MINUTES.toMillis(DEFAULT_POLL_INTERVAL_MINS) / 2);
+  if (!Bootstrap.isOperational() || !BootstrapArgs.isCloudController() || !event.isAsserted(DEFAULT_POLL_INTERVAL_MINS)) {
+    return;
   }
  else {
-    COLLECTION_INTERVAL_TIME_MS=0;
-  }
-  if (COLLECTION_INTERVAL_TIME_MS == 0) {
-    LOG.debug("The instance usage report is disabled");
-  }
- else   if (COLLECTION_INTERVAL_TIME_MS <= MAX_WRITE_INTERVAL_MS) {
-    try {
-      if (event.isAsserted(TimeUnit.MINUTES.toSeconds(DEFAULT_POLL_INTERVAL_MINS))) {
-        if (Bootstrap.isFinished() && Hosts.isCoordinator()) {
-          List<VmInstance> instList=VmInstances.list(VmState.RUNNING);
-          List<String> instIdList=Lists.newArrayList();
-          for (          final VmInstance inst : instList) {
-            instIdList.add(inst.getInstanceId());
-          }
-          Iterable<List<String>> processInts=Iterables.paddedPartition(instIdList,SENSOR_QUERY_BATCH_SIZE);
-          for (          final ServiceConfiguration ccConfig : Topology.enabledServices(ClusterController.class)) {
-            for (            List<String> instIds : processInts) {
-              ArrayList<String> instanceIds=Lists.newArrayList(instIds);
-              Iterables.removeIf(instanceIds,Predicates.isNull());
-              AsyncRequests.newRequest(new DescribeSensorCallback(HISTORY_SIZE,COLLECTION_INTERVAL_TIME_MS,instanceIds)).dispatch(ccConfig);
-              LOG.debug("DecribeSensorCallback has been successfully executed");
+    if (DEFAULT_POLL_INTERVAL_MINS >= 1) {
+      COLLECTION_INTERVAL_TIME_MS=((int)TimeUnit.MINUTES.toMillis(DEFAULT_POLL_INTERVAL_MINS) / 2);
+    }
+ else {
+      COLLECTION_INTERVAL_TIME_MS=0;
+    }
+    if (COLLECTION_INTERVAL_TIME_MS == 0) {
+      LOG.debug("The instance usage report is disabled");
+    }
+ else     if (COLLECTION_INTERVAL_TIME_MS <= MAX_WRITE_INTERVAL_MS) {
+      try {
+        if (event.isAsserted(TimeUnit.MINUTES.toSeconds(DEFAULT_POLL_INTERVAL_MINS))) {
+          if (Bootstrap.isFinished() && Hosts.isCoordinator()) {
+            List<VmInstance> instList=VmInstances.list(VmState.RUNNING);
+            List<String> instIdList=Lists.newArrayList();
+            for (            final VmInstance inst : instList) {
+              instIdList.add(inst.getInstanceId());
+            }
+            Iterable<List<String>> processInts=Iterables.paddedPartition(instIdList,SENSOR_QUERY_BATCH_SIZE);
+            for (            final ServiceConfiguration ccConfig : Topology.enabledServices(ClusterController.class)) {
+              for (              List<String> instIds : processInts) {
+                ArrayList<String> instanceIds=Lists.newArrayList(instIds);
+                Iterables.removeIf(instanceIds,Predicates.isNull());
+                AsyncRequests.newRequest(new DescribeSensorCallback(HISTORY_SIZE,COLLECTION_INTERVAL_TIME_MS,instanceIds)).dispatch(ccConfig);
+                LOG.debug("DecribeSensorCallback has been successfully executed");
+              }
             }
           }
         }
       }
+ catch (      Exception ex) {
+        LOG.error("Unable to listen for describe sensors events",ex);
+      }
     }
- catch (    Exception ex) {
-      LOG.error("Unable to listen for describe sensors events",ex);
-    }
-  }
  else {
-    LOG.error("DEFAULT_POLL_INTERVAL_MINS : " + DEFAULT_POLL_INTERVAL_MINS + " must be less than 1440 minutes");
+      LOG.error("DEFAULT_POLL_INTERVAL_MINS : " + DEFAULT_POLL_INTERVAL_MINS + " must be less than 1440 minutes");
+    }
   }
 }
