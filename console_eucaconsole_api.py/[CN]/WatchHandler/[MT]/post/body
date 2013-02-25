@@ -1,0 +1,42 @@
+@tornado.web.asynchronous
+def post(self):
+    if (not self.authorized()):
+        raise tornado.web.HTTPError(401, 'not authorized')
+    if (not self.user_session.cw):
+        if self.should_use_mock():
+            self.user_session.walrus = MockWatchInterface()
+        else:
+            host = eucaconsole.config.get('server', 'clchost')
+            if self.user_session.host_override:
+                host = self.user_session.host_override
+            self.user_session.cw = BotoWatchInterface(host, self.user_session.access_key, self.user_session.secret_key, self.user_session.session_token)
+        self.user_session.cw = CachingWatchInterface(self.user_session.cw, eucaconsole.config)
+    self.user_session.session_lifetime_requests += 1
+    try:
+        action = self.get_argument('Action')
+        if (action.find('Get') == (-1)):
+            self.user_session.session_last_used = time.time()
+            self.check_xsrf_cookie()
+        if (action == 'GetMetricStatistics'):
+            period = self.get_argument('Period')
+            start_time = datetime.strptime(self.get_argument('StartTime'), self.ISO_FORMAT)
+            end_time = datetime.strptime(self.get_argument('EndTime'), self.ISO_FORMAT)
+            metric_name = self.get_argument('MetricName')
+            namespace = self.get_argument('Namespace')
+            statistics = self.get_argument_list('Statistics.member')
+            dimensions = self.get_argument_list('Dimensions.member')
+            unit = self.get_argument('Unit')
+            self.user_session.cw.get_metric_statistics(period, start_time, end_time, metric_name, namespace, statistics, dimensions, unit, self.callback)
+        elif (action == 'ListMetrics'):
+            dimensions = self.get_argument_list('Dimensions.member')
+            metric_name = self.get_argument('MetricName', None)
+            namespace = self.get_argument('Namespace', None)
+            next_token = self.get_argument('NextToken', None)
+            self.user_session.cw.list_metrics(next_token, dimensions, metric_name, namespace, self.callback)
+        elif (action == 'PutMetricData'):
+            namespace = self.get_argument('Namespace')
+            self.user_session.cw.put_metric_data(namespace, name, value, timestamp, unit, dimensions, statistics, self.callback)
+    except Exception as ex:
+        logging.error('Could not fulfill request, exception to follow')
+        logging.error('Since we got here, client likely not notified either!')
+        logging.exception(ex)
