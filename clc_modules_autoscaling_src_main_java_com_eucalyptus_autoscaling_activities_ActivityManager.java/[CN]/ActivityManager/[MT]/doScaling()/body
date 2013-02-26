@@ -1,6 +1,17 @@
 {
   timeoutScalingActivities();
   try {
+    final List<AutoScalingInstance> failedToTerminate=autoScalingInstances.listByState(LifecycleState.Terminating);
+    final Iterable<String> groupArns=Iterables.transform(failedToTerminate,AutoScalingInstances.groupArn());
+    for (    final String groupArn : groupArns) {
+      final Iterable<AutoScalingInstance> groupInstances=Iterables.filter(failedToTerminate,CollectionUtils.propertyPredicate(groupArn,AutoScalingInstances.groupArn()));
+      runTask(terminateInstancesTask(groupInstances));
+    }
+  }
+ catch (  Exception e) {
+    logger.error(e,e);
+  }
+  try {
     for (    final AutoScalingGroup group : autoScalingGroups.listRequiringScaling()) {
       int compareResult=group.getCapacity().compareTo(group.getDesiredCapacity());
       if (compareResult < 0) {
@@ -24,7 +35,8 @@
   }
   try {
     for (    final AutoScalingGroup group : autoScalingGroups.listRequiringMonitoring(10000L)) {
-      runTask(new MonitoringScalingProcessTask(group,Lists.newArrayList(Iterables.transform(autoScalingInstances.listByGroup(group),instanceId()))));
+      final List<AutoScalingInstance> groupInstances=autoScalingInstances.listByGroup(group);
+      runTask(new MonitoringScalingProcessTask(group,Lists.newArrayList(Iterables.transform(Iterables.filter(groupInstances,LifecycleState.Pending),instanceId())),Lists.newArrayList(Iterables.transform(Iterables.filter(groupInstances,LifecycleState.InService),instanceId()))));
     }
   }
  catch (  Exception e) {
