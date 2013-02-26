@@ -4,6 +4,19 @@
   try {
     final AutoScalingGroup autoScalingGroup=autoScalingGroups.lookup(ctx.getUserFullName().asAccountFullName(),request.getAutoScalingGroupName());
     if (RestrictedTypes.filterPrivileged().apply(autoScalingGroup)) {
+      if (Objects.firstNonNull(request.getForceDelete(),Boolean.FALSE)) {
+        final List<AutoScalingInstance> instances=autoScalingInstances.listByGroup(autoScalingGroup);
+        if (!instances.isEmpty()) {
+          final List<ScalingActivity> activities=activityManager.terminateInstances(autoScalingGroup,instances);
+          if (activities == null || activities.isEmpty()) {
+            throw new ScalingActivityInProgressException("Scaling activity in progress");
+          }
+          autoScalingInstances.deleteByGroup(autoScalingGroup);
+        }
+      }
+ else {
+        failIfScaling(activityManager,autoScalingGroup);
+      }
       autoScalingGroups.delete(autoScalingGroup);
     }
   }

@@ -1,4 +1,33 @@
 {
-  TerminateInstanceInAutoScalingGroupResponseType reply=request.getReply();
+  final TerminateInstanceInAutoScalingGroupResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final OwnerFullName ownerFullName=ctx.hasAdministrativePrivileges() ? null : ctx.getUserFullName().asAccountFullName();
+  try {
+    final AutoScalingInstance instance=autoScalingInstances.lookup(ownerFullName,request.getInstanceId());
+    if (!RestrictedTypes.filterPrivileged().apply(instance)) {
+      throw new AutoScalingMetadataNotFoundException("Instance not found");
+    }
+    final List<ScalingActivity> activities=activityManager.terminateInstances(instance.getAutoScalingGroup(),Lists.newArrayList(instance));
+    if (activities == null || activities.isEmpty()) {
+      throw new ScalingActivityInProgressException("Scaling activity in progress");
+    }
+    reply.getTerminateInstanceInAutoScalingGroupResult().setActivity(TypeMappers.transform(activities.get(0),Activity.class));
+    if (Objects.firstNonNull(request.getShouldDecrementDesiredCapacity(),Boolean.FALSE)) {
+      final String groupArn=instance.getAutoScalingGroup().getArn();
+      final Callback<AutoScalingGroup> groupCallback=new Callback<AutoScalingGroup>(){
+        @Override public void fire(        final AutoScalingGroup autoScalingGroup){
+          autoScalingGroup.setDesiredCapacity(autoScalingGroup.getDesiredCapacity() - 1);
+        }
+      }
+;
+      autoScalingGroups.update(ctx.getUserFullName().asAccountFullName(),groupArn,groupCallback);
+    }
+  }
+ catch (  AutoScalingMetadataNotFoundException e) {
+    throw new InvalidParameterValueException("Auto scaling instance not found: " + request.getInstanceId());
+  }
+catch (  Exception e) {
+    handleException(e);
+  }
   return reply;
 }

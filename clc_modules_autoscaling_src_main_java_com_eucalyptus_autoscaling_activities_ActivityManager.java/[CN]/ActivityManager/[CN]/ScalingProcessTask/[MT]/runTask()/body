@@ -1,0 +1,50 @@
+{
+  if (!shouldRun()) {
+    success();
+    return;
+  }
+  final List<CheckedListenableFuture<Boolean>> dispatchFutures=Lists.newArrayList();
+  final List<AT> activities=Lists.newArrayList();
+  final List<ScalingActivity> scalingActivities=Lists.newArrayList();
+  try {
+    activities.addAll(buildActivityTasks());
+    for (    final ScalingActivityTask<?> activity : activities) {
+      dispatchFutures.add(activity.dispatch(this));
+      scalingActivities.add(activity.getActivity());
+    }
+    this.activities.set(ImmutableList.copyOf(scalingActivities));
+  }
+ catch (  final Exception e) {
+    logger.error(e,e);
+  }
+ finally {
+    if (dispatchFutures.isEmpty()) {
+      failure();
+    }
+ else {
+      taskFuture=Futures.newGenericeFuture();
+      final CheckedListenableFuture<List<Boolean>> resultFuture=dispatchFuture=Futures.allAsList(dispatchFutures);
+      resultFuture.addListener(new Runnable(){
+        @Override public void run(){
+          boolean success=false;
+          try {
+            success=resultFuture.get().contains(true);
+          }
+ catch (          Exception e) {
+            logger.error(e,e);
+          }
+          if (success) {
+            partialSuccess(activities);
+            success();
+            taskFuture.set(true);
+          }
+ else {
+            failure();
+            taskFuture.set(false);
+          }
+        }
+      }
+);
+    }
+  }
+}

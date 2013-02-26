@@ -1,4 +1,59 @@
 {
   GetMetricStatisticsResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  if (!hasActionPermission(PolicySpec.CLOUDWATCH_GETMETRICSTATISTICS,ctx)) {
+    throw new EucalyptusCloudException();
+  }
+  Statistics statistics=request.getStatistics();
+  if (statistics == null || statistics.getMember() == null) {
+    throw new EucalyptusCloudException("Statistics is a required field");
+  }
+  final OwnerFullName ownerFullName=ctx.getUserFullName();
+  final String namespace=request.getNamespace();
+  final String metricName=request.getMetricName();
+  final Date startTime=request.getStartTime();
+  final Date endTime=request.getEndTime();
+  final Integer period=request.getPeriod();
+  LOG.debug("namespace=" + namespace);
+  LOG.debug("metricName=" + metricName);
+  LOG.debug("startTime=" + startTime);
+  LOG.debug("endTime=" + endTime);
+  LOG.debug("period=" + period);
+  final Units units=(request.getUnit() != null) ? Units.fromValue(request.getUnit()) : null;
+  final Map<String,String> dimensionMap=transform(request.getDimensions());
+  boolean wantsAverage=statistics.getMember().contains("Average");
+  boolean wantsSum=statistics.getMember().contains("Sum");
+  boolean wantsSampleCount=statistics.getMember().contains("SampleCount");
+  boolean wantsMaximum=statistics.getMember().contains("Maximum");
+  boolean wantsMinimum=statistics.getMember().contains("Minimum");
+  Collection<MetricStatistics> metrics=MetricManager.getMetricStatistics(ownerFullName.getAccountNumber(),ownerFullName.getUserId(),metricName,namespace,dimensionMap,MetricType.Custom,units,startTime,endTime,period);
+  reply.getGetMetricStatisticsResult().setLabel(metricName);
+  ArrayList<Datapoint> datapoints=Lists.newArrayList();
+  for (  MetricStatistics metricStatistics : metrics) {
+    Datapoint datapoint=new Datapoint();
+    datapoint.setTimestamp(metricStatistics.getTimestamp());
+    datapoint.setUnit(metricStatistics.getUnits().toString());
+    if (wantsSum) {
+      datapoint.setSum(metricStatistics.getSampleSum());
+    }
+    if (wantsSampleCount) {
+      datapoint.setSampleCount(metricStatistics.getSampleSize());
+    }
+    if (wantsMaximum) {
+      datapoint.setMaximum(metricStatistics.getSampleMax());
+    }
+    if (wantsMinimum) {
+      datapoint.setMinimum(metricStatistics.getSampleMin());
+    }
+    if (wantsAverage) {
+      datapoint.setAverage(average(metricStatistics.getSampleSum(),metricStatistics.getSampleSize()));
+    }
+    datapoints.add(datapoint);
+  }
+  if (datapoints.size() > 0) {
+    Datapoints datapointsReply=new Datapoints();
+    datapointsReply.setMember(datapoints);
+    reply.getGetMetricStatisticsResult().setDatapoints(datapointsReply);
+  }
   return reply;
 }
