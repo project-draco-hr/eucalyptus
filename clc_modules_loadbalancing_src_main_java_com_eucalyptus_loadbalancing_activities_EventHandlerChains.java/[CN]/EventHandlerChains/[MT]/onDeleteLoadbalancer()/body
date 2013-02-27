@@ -8,22 +8,25 @@
           }
         }
 );
-        this.insert(new LoadbalancerInstanceTerminator());
+        final LoadbalancerInstanceTerminator instTerm=new LoadbalancerInstanceTerminator();
+        this.insert(instTerm);
         this.insert(new EventHandler<DeleteLoadbalancerEvent>(){
           @Override public void apply(          DeleteLoadbalancerEvent evt) throws EventHandlerException {
-            final EntityTransaction db=Entities.get(LoadBalancer.class);
-            try {
-              final LoadBalancer lb=Entities.uniqueResult(LoadBalancer.named(user,lbName));
-              Entities.delete(lb);
-              db.commit();
-            }
- catch (            NoSuchElementException e) {
-              throw new LoadBalancingException("No loadbalancer is found with name = " + lbName,e);
-            }
-catch (            Exception e) {
-              db.rollback();
-              LOG.error("failed to delete a loadbalancer",e);
-              throw new LoadBalancingException("Failed to delete the loadbalancer " + lbName,e);
+            final EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
+            for (            String terminated : instTerm.getTerminatedInstances()) {
+              try {
+                final LoadBalancerServoInstance instance=Entities.uniqueResult(LoadBalancerServoInstance.named(terminated));
+                Entities.delete(instance);
+                db.commit();
+              }
+ catch (              NoSuchElementException e) {
+                LOG.error("No servo instance named " + terminated + " found in DB");
+              }
+catch (              Exception e) {
+                db.rollback();
+                LOG.error("failed to delete a servo instance from DB",e);
+                throw new EventHandlerException("Failed to delete the servo instance " + terminated,e);
+              }
             }
           }
         }
