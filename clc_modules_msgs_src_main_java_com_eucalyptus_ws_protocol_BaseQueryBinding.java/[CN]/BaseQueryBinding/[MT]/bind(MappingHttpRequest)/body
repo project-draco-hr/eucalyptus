@@ -3,36 +3,17 @@
   final String operationNameType=operationName + "Type";
   for (  final T op : this.possibleParams)   httpRequest.getParameters().remove(op.name());
   final Map<String,String> params=httpRequest.getParameters();
-  BaseMessage eucaMsg=null;
-  Map<String,String> fieldMap=null;
-  Class<?> targetType=null;
-  Binding currentBinding=null;
+  BaseMessage eucaMsg;
+  Map<String,String> fieldMap;
+  Binding currentBinding;
   try {
-    if (this.getBinding().hasElementClass(operationName)) {
-      currentBinding=this.getBinding();
-      targetType=currentBinding.getElementClass(operationName);
+    currentBinding=getBindingWithElementClass(operationName);
+    Class<?> targetType=currentBinding == null ? null : currentBinding.getElementClass(operationName);
+    if (currentBinding == null) {
+      currentBinding=getBindingWithElementClass(operationNameType);
+      targetType=currentBinding == null ? null : currentBinding.getElementClass(operationNameType);
     }
- else     if (this.getBinding().hasElementClass(operationNameType)) {
-      currentBinding=this.getBinding();
-      targetType=currentBinding.getElementClass(operationNameType);
-    }
- else     if (this.getDefaultBinding().hasElementClass(operationName)) {
-      currentBinding=this.getDefaultBinding();
-      targetType=currentBinding.getElementClass(operationName);
-    }
- else     if (this.getDefaultBinding().hasElementClass(operationNameType)) {
-      currentBinding=this.getDefaultBinding();
-      targetType=currentBinding.getElementClass(operationNameType);
-    }
- else     if (BindingManager.getDefaultBinding().hasElementClass(operationName)) {
-      currentBinding=BindingManager.getDefaultBinding();
-      targetType=currentBinding.getElementClass(operationName);
-    }
- else     if (BindingManager.getDefaultBinding().hasElementClass(operationNameType)) {
-      currentBinding=BindingManager.getDefaultBinding();
-      targetType=currentBinding.getElementClass(operationNameType);
-    }
- else {
+    if (currentBinding == null) {
       try {
         targetType=this.getBinding().getElementClass(operationName);
       }
@@ -59,18 +40,6 @@ catch (  final Exception e) {
     for (    final Map.Entry<String,String> f : params.entrySet())     errMsg.append(f.getKey()).append(" = ").append(f.getValue()).append('\n');
     throw new BindingException(errMsg.toString());
   }
-  try {
-    currentBinding.toOM(eucaMsg,this.getNamespace());
-  }
- catch (  final RuntimeException e) {
-    LOG.error("Falling back to default (unvalidated) binding for: " + operationName + " with params="+ params);
-    LOG.error("Failed to build a valid message: " + e.getMessage(),e);
-    try {
-      BindingManager.getDefaultBinding().toOM(eucaMsg,BindingManager.defaultBindingNamespace());
-    }
- catch (    final RuntimeException ex) {
-      throw new BindingException("Default binding failed to build a valid message: " + ex.getMessage(),ex);
-    }
-  }
+  validateBinding(currentBinding,operationName,params,eucaMsg);
   return eucaMsg;
 }
