@@ -1,0 +1,23 @@
+{
+  if (!authMap.get(AuthorizationField.Type).equals(AWS_AUTH_TYPE)) {
+    throw new AuthenticationException("Mismatch between expected and found authentication types");
+  }
+  String verb=httpRequest.getMethod().getName();
+  String date=getDate(httpRequest);
+  String addrString=getS3AddressString(httpRequest);
+  String content_md5=httpRequest.getHeader("Content-MD5");
+  content_md5=content_md5 == null ? "" : content_md5;
+  String content_type=httpRequest.getHeader(WalrusProperties.CONTENT_TYPE);
+  content_type=content_type == null ? "" : content_type;
+  String securityToken=httpRequest.getHeader(WalrusProperties.X_AMZ_SECURITY_TOKEN);
+  String data=verb + "\n" + content_md5+ "\n"+ content_type+ "\n"+ date+ "\n"+ getCanonicalizedAmzHeaders(httpRequest)+ addrString;
+  String accessKeyId=authMap.get(AuthorizationField.AccessKeyId);
+  String signature=authMap.get(AuthorizationField.Signature);
+  try {
+    SecurityContext.getLoginContext(new WalrusWrappedCredentials(httpRequest.getCorrelationId(),data,accessKeyId,signature,securityToken)).login();
+  }
+ catch (  Exception ex) {
+    LOG.error(ex);
+    throw new AuthenticationException(ex);
+  }
+}
