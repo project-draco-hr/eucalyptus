@@ -1,0 +1,37 @@
+{
+  final CreateRoleResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final User requestUser=ctx.getUser();
+  final Account account=getRealAccount(ctx,request.getDelegateAccount());
+  try {
+    final Role newRole=Privileged.createRole(requestUser,account,request.getRoleName(),sanitizePath(request.getPath()),request.getAssumeRolePolicyDocument());
+    reply.getCreateRoleResult().setRole(fillRoleResult(new RoleType(),newRole,account));
+  }
+ catch (  PolicyParseException e) {
+    LOG.error(e,e);
+    throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.MALFORMED_POLICY_DOCUMENT,"Error in uploaded policy: " + request.getAssumeRolePolicyDocument(),e);
+  }
+catch (  Exception e) {
+    LOG.error(e,e);
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to create role by " + requestUser.getName());
+      }
+ else       if (AuthException.QUOTA_EXCEEDED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.LIMIT_EXCEEDED,"Role quota exceeded");
+      }
+ else       if (AuthException.ROLE_ALREADY_EXISTS.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.CONFLICT,EuareException.ENTITY_ALREADY_EXISTS,"Role " + request.getRoleName() + " already exists.");
+      }
+ else       if (AuthException.INVALID_NAME.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_NAME,"Invalid role name " + request.getRoleName());
+      }
+ else       if (AuthException.INVALID_PATH.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_PATH,"Invalid role path " + request.getPath());
+      }
+    }
+    throw new EucalyptusCloudException(e);
+  }
+  return reply;
+}

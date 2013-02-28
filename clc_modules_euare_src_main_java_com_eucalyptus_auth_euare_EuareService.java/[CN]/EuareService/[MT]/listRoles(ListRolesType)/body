@@ -1,0 +1,27 @@
+{
+  final ListRolesResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final User requestUser=ctx.getUser();
+  final Account account=getRealAccount(ctx,request.getDelegateAccount());
+  String path="/";
+  if (!Strings.isNullOrEmpty(request.getPathPrefix())) {
+    path=request.getPathPrefix();
+  }
+  reply.getListRolesResult().setIsTruncated(false);
+  final ArrayList<RoleType> roles=reply.getListRolesResult().getRoles().getMember();
+  try {
+    for (    final Role role : account.getRoles()) {
+      if (role.getPath().startsWith(path)) {
+        if (Privileged.allowListRole(requestUser,account,role)) {
+          roles.add(fillRoleResult(new RoleType(),role,account));
+        }
+      }
+    }
+  }
+ catch (  Exception e) {
+    LOG.error(e,e);
+    throw new EucalyptusCloudException(e);
+  }
+  return reply;
+}
