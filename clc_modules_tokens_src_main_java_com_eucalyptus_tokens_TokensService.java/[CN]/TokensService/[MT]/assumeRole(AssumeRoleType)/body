@@ -1,31 +1,17 @@
 {
   final AssumeRoleResponseType reply=request.getReply();
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
-  final Context ctx=Contexts.lookup();
-  final User requestUser=ctx.getUser();
-  final String accountId;
-  final String roleName;
+  final Role role=lookupRole(request.getRoleArn());
   try {
-    final Ern roleArn=Ern.parse(request.getRoleArn());
-    if (!(roleArn instanceof EuareResourceName) || !PolicySpec.IAM_RESOURCE_ROLE.equals(((EuareResourceName)roleArn).getUserOrGroup()))     throw new IllegalArgumentException();
-    accountId=roleArn.getNamespace();
-    roleName=((EuareResourceName)roleArn).getName();
-  }
- catch (  Exception e) {
-    throw new TokensException(HttpResponseStatus.BAD_REQUEST,TokensException.INVALID_PARAMETER,"Invalid role: " + request.getRoleArn());
-  }
-  final Role role;
-  try {
-    final Account account=Accounts.lookupAccountById(accountId);
-    role=account.lookupRoleByName(roleName);
-  }
- catch (  AuthException e) {
-    throw new TokensException(HttpResponseStatus.BAD_REQUEST,TokensException.INVALID_PARAMETER,"Invalid role: " + request.getRoleArn());
-  }
-  try {
+    RestrictedIdentity.checkAuthorized(role.getAccount(),PolicySpec.qualifiedName(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_ROLE),Accounts.getRoleFullName(role),role.getAssumeRolePolicy(),new Supplier<TokensException>(){
+      @Override public TokensException get(){
+        return new TokensException(HttpResponseStatus.FORBIDDEN,TokensException.NOT_AUTHORIZED,"Not permitted to assume role.");
+      }
+    }
+);
     final SecurityToken token=SecurityTokenManager.issueSecurityToken(role,Objects.firstNonNull(request.getDurationSeconds(),(int)TimeUnit.HOURS.toSeconds(1)));
     reply.getAssumeRoleResult().setCredentials(new CredentialsType(token.getAccessKeyId(),token.getSecretKey(),token.getToken(),token.getExpires()));
-    reply.getAssumeRoleResult().setAssumedRoleUser(new AssumedRoleUserType(role.getRoleId() + ":" + request.getRoleSessionName(),"arn:aws:sts::" + accountId + ":assumed-role"+ (Accounts.getRoleFullName(role))+ "/"+ request.getRoleSessionName()));
+    reply.getAssumeRoleResult().setAssumedRoleUser(new AssumedRoleUserType(role.getRoleId() + ":" + request.getRoleSessionName(),assumedRoleArn(role,request.getRoleSessionName())));
   }
  catch (  final AuthException e) {
     throw new EucalyptusCloudException(e.getMessage(),e);

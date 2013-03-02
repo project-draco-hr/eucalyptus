@@ -1,0 +1,26 @@
+{
+  final Context ctx=Contexts.lookup();
+  final Class<? extends BaseMessage> msgType=ctx.getRequest().getClass();
+  final String vendor=findPolicyVendor(msgType);
+  final String action=RestrictedTypes.getIamActionByMessageType();
+  final User requestUser=ctx.getUser();
+  try {
+    final Principal.PrincipalType principalType;
+    final String principalName;
+    if (Principals.isSameUser(requestUser,Principals.systemUser())) {
+      principalType=Principal.PrincipalType.Service;
+      principalName="ec2.amazon.com";
+    }
+ else {
+      principalType=Principal.PrincipalType.AWS;
+      principalName=Accounts.getUserArn(requestUser);
+    }
+    if (!Permissions.isAuthorized(vendor,principalType,principalName,resourcePolicy,resourceType,resourceName,resourceAccount,action,requestUser)) {
+      throw exceptionSupplier.get();
+    }
+  }
+ catch (  AuthException e) {
+    LOG.error(e,e);
+    throw exceptionSupplier.get();
+  }
+}
