@@ -18,13 +18,27 @@
     }
     String securityToken=parameters.get(SecurityParameter.SecurityToken.toString());
     if (checkExpires(expires)) {
-      String stringToSign=verb + "\n" + content_md5+ "\n"+ content_type+ "\n"+ Long.parseLong(expires)+ "\n"+ getCanonicalizedAmzHeaders(httpRequest)+ addrString;
+      String canonicalizedAmzHeaders=getCanonicalizedAmzHeaders(httpRequest);
+      String stringToSign=verb + "\n" + content_md5+ "\n"+ content_type+ "\n"+ Long.parseLong(expires)+ "\n"+ canonicalizedAmzHeaders+ addrString;
       try {
         SecurityContext.getLoginContext(new WalrusWrappedCredentials(httpRequest.getCorrelationId(),stringToSign,accesskeyid,signature,securityToken)).login();
       }
  catch (      Exception ex) {
-        LOG.error(ex);
-        throw new AuthenticationException(ex);
+        if (addrString.startsWith("/services/Walrus")) {
+          try {
+            String modifiedAddrString=addrString.replaceFirst("/services/Walrus","");
+            stringToSign=verb + "\n" + content_md5+ "\n"+ content_type+ "\n"+ Long.parseLong(expires)+ "\n"+ canonicalizedAmzHeaders+ modifiedAddrString;
+            SecurityContext.getLoginContext(new WalrusWrappedCredentials(httpRequest.getCorrelationId(),stringToSign,accesskeyid,signature,securityToken)).login();
+          }
+ catch (          Exception ex2) {
+            LOG.error(ex2);
+            throw new AuthenticationException(ex2);
+          }
+        }
+ else {
+          LOG.error(ex);
+          throw new AuthenticationException(ex);
+        }
       }
     }
  else {
