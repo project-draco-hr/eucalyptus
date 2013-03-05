@@ -1,0 +1,34 @@
+{
+  StringBuilder canonicalRequest=new StringBuilder();
+  String canonicalURI=null;
+  String verb=httpBaseRequest.getName();
+  canonicalURI=httpBaseRequest.getPath();
+  String canonicalQuery=calcCanonicalQuery(httpBaseRequest);
+  String[] processedHeaders=getCanonicalAndSignedHeaders(httpBaseRequest);
+  String canonicalHeaders=processedHeaders[0];
+  String signedHeaders=processedHeaders[1];
+  canonicalRequest.append(verb).append('\n');
+  canonicalRequest.append(canonicalURI).append('\n');
+  canonicalRequest.append(canonicalQuery).append('\n');
+  canonicalRequest.append(canonicalHeaders).append('\n');
+  canonicalRequest.append(signedHeaders);
+  StringBuilder authHeader=new StringBuilder(EUCA2_AUTH_ID);
+  String signature=null;
+  String fingerprint=null;
+  try {
+    Credentials ccCreds=SystemCredentials.lookup(Storage.class);
+    PrivateKey ccPrivateKey=ccCreds.getPrivateKey();
+    fingerprint=ccCreds.getCertFingerprint();
+    Signature sign=Signature.getInstance("SHA256withRSA");
+    sign.initSign(ccPrivateKey);
+    LOG.debug("Signing canonical request: " + canonicalRequest.toString());
+    sign.update(canonicalRequest.toString().getBytes());
+    byte[] sig=sign.sign();
+    signature=new String(Base64.encode(sig));
+  }
+ catch (  Exception ex) {
+    LOG.error("Signing error while signing request",ex);
+  }
+  authHeader.append(" ").append(fingerprint.toLowerCase()).append(" ").append(signedHeaders.toString()).append(" ").append(signature);
+  httpBaseRequest.addRequestHeader(EUCA2_AUTH_HEADER_NAME,authHeader.toString());
+}
