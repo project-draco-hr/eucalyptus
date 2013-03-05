@@ -1,9 +1,10 @@
 {
-  String date=new Date().toString();
+  String date=DateUtil.formatDate(new Date(),ISO_8601_FORMAT);
   String httpVerb=verb;
-  String addrPath;
+  String addrPath=null;
+  java.net.URI addrUri=null;
   try {
-    java.net.URI addrUri=new URL(addr).toURI();
+    addrUri=new URL(addr).toURI();
     addrPath=addrUri.getPath().toString();
     String query=addrUri.getQuery();
     if (query != null) {
@@ -14,7 +15,6 @@
     LOG.error(ex,ex);
     return null;
   }
-  String data=httpVerb + "\n" + date+ "\n"+ addrPath+ "\n";
   HttpMethodBase method=null;
   if (httpVerb.equals("PUT")) {
     method=new PutMethodWithProgress(addr);
@@ -25,22 +25,13 @@
  else {
     method=new GetMethod(addr);
   }
-  method.setRequestHeader("Authorization","Euca");
   method.setRequestHeader("Date",date);
   method.setRequestHeader(StorageProperties.EUCALYPTUS_OPERATION,eucaOperation);
   if (eucaHeader != null) {
     method.setRequestHeader(StorageProperties.EUCALYPTUS_HEADER,eucaHeader);
   }
-  try {
-    PrivateKey ccPrivateKey=SystemCredentials.lookup(Storage.class).getPrivateKey();
-    Signature sign=Signature.getInstance("SHA1withRSA");
-    sign.initSign(ccPrivateKey);
-    sign.update(data.getBytes());
-    byte[] sig=sign.sign();
-    method.setRequestHeader("EucaSignature",new String(Base64.encode(sig)));
-  }
- catch (  Exception ex) {
-    LOG.error(ex,ex);
+  if (signRequest) {
+    signEucaInternal(method);
   }
   return method;
 }
