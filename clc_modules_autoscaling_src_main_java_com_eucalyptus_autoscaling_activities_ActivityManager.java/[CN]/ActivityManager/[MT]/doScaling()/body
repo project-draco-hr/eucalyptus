@@ -1,11 +1,33 @@
 {
   timeoutScalingActivities();
   try {
-    final List<AutoScalingInstance> failedToTerminate=autoScalingInstances.listByState(LifecycleState.Terminating);
-    final Iterable<String> groupArns=Iterables.transform(failedToTerminate,AutoScalingInstances.groupArn());
+    final List<AutoScalingInstance> instancesToTerminate=autoScalingInstances.listByState(LifecycleState.Terminating,ConfigurationState.Instantiated);
+    final Set<String> groupArns=Sets.newHashSet(Iterables.transform(instancesToTerminate,AutoScalingInstances.groupArn()));
     for (    final String groupArn : groupArns) {
-      final Iterable<AutoScalingInstance> groupInstances=Iterables.filter(failedToTerminate,CollectionUtils.propertyPredicate(groupArn,AutoScalingInstances.groupArn()));
+      final Iterable<AutoScalingInstance> groupInstances=Iterables.filter(instancesToTerminate,CollectionUtils.propertyPredicate(groupArn,AutoScalingInstances.groupArn()));
       runTask(terminateInstancesTask(groupInstances));
+    }
+  }
+ catch (  Exception e) {
+    logger.error(e,e);
+  }
+  try {
+    final List<AutoScalingInstance> instancesToDeregister=autoScalingInstances.listByState(LifecycleState.Terminating,ConfigurationState.Registered);
+    final Set<String> groupArns=Sets.newHashSet(Iterables.transform(instancesToDeregister,AutoScalingInstances.groupArn()));
+    for (    final String groupArn : groupArns) {
+      final Iterable<AutoScalingInstance> groupInstances=Iterables.filter(instancesToDeregister,CollectionUtils.propertyPredicate(groupArn,AutoScalingInstances.groupArn()));
+      runTask(removeFromLoadBalancerOrTerminate(Iterables.get(groupInstances,0).getAutoScalingGroup(),Lists.newArrayList(Iterables.transform(groupInstances,AutoScalingInstances.instanceId()))));
+    }
+  }
+ catch (  Exception e) {
+    logger.error(e,e);
+  }
+  try {
+    final List<AutoScalingInstance> unregisteredInstances=autoScalingInstances.listByState(LifecycleState.InService,ConfigurationState.Instantiated);
+    final Set<String> groupArns=Sets.newHashSet(Iterables.transform(unregisteredInstances,AutoScalingInstances.groupArn()));
+    for (    final String groupArn : groupArns) {
+      final Iterable<AutoScalingInstance> groupInstances=Iterables.filter(unregisteredInstances,CollectionUtils.propertyPredicate(groupArn,AutoScalingInstances.groupArn()));
+      runTask(addToLoadBalancer(groupInstances));
     }
   }
  catch (  Exception e) {
