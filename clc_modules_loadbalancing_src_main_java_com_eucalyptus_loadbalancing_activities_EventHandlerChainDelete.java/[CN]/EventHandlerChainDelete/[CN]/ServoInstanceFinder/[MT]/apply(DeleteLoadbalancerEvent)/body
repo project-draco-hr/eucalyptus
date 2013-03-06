@@ -1,0 +1,35 @@
+{
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
+  }
+ catch (  NoSuchElementException ex) {
+    throw new EventHandlerException("No such loadbalancer found");
+  }
+catch (  Exception ex) {
+    throw new EventHandlerException("Failed to find the loadbalancer");
+  }
+  final EntityTransaction db=Entities.get(LoadBalancerZone.class);
+  final List<LoadBalancerServoInstance> members=Lists.newArrayList();
+  try {
+    final Collection<LoadBalancerZone> zones=lb.getZones();
+    if (zones == null || zones.size() == 0)     return;
+    for (    LoadBalancerZone z : zones) {
+      final LoadBalancerZone zone=Entities.uniqueResult(z);
+      members.addAll(zone.getServoInstances());
+    }
+  }
+ catch (  Exception ex) {
+    throw new EventHandlerException("Failed to find the loadbalancer VMs",ex);
+  }
+ finally {
+    db.commit();
+  }
+  instances.addAll(Collections2.transform(members,new Function<LoadBalancerServoInstance,String>(){
+    @Override public String apply(    @Nullable LoadBalancerServoInstance arg0){
+      return arg0.getInstanceId();
+    }
+  }
+));
+  LOG.debug("found " + instances.size() + " loadbalancer VMs to terminate");
+}
