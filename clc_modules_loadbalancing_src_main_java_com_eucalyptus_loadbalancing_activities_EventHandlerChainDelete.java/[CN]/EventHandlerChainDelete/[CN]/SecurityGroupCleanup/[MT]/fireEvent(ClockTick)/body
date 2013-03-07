@@ -1,0 +1,44 @@
+{
+  final EntityTransaction db=Entities.get(LoadBalancerSecurityGroup.class);
+  List<LoadBalancerSecurityGroup> allGroups=null;
+  try {
+    allGroups=Entities.query(LoadBalancerSecurityGroup.named());
+    db.commit();
+  }
+ catch (  NoSuchElementException ex) {
+    db.rollback();
+  }
+catch (  Exception ex) {
+    db.rollback();
+  }
+  if (allGroups == null || allGroups.size() <= 0)   return;
+  final List<String> toDelete=Lists.newArrayList();
+  for (  LoadBalancerSecurityGroup group : allGroups) {
+    Collection<LoadBalancerServoInstance> instances=group.getServoInstances();
+    if (instances == null || instances.size() <= 0)     toDelete.add(group.getName());
+  }
+  for (  String groupName : toDelete) {
+    try {
+      EucalyptusActivityTasks.getInstance().deleteSecurityGroup(groupName);
+      LOG.info("deleted security group: " + groupName);
+    }
+ catch (    Exception ex) {
+      LOG.warn("failed to delete the security group from eucalyptus",ex);
+    }
+  }
+  final EntityTransaction db2=Entities.get(LoadBalancerSecurityGroup.class);
+  try {
+    for (    String groupName : toDelete) {
+      LoadBalancerSecurityGroup g=Entities.uniqueResult(LoadBalancerSecurityGroup.named(groupName));
+      Entities.delete(g);
+    }
+    db2.commit();
+  }
+ catch (  NoSuchElementException ex) {
+    db2.rollback();
+  }
+catch (  Exception ex) {
+    LOG.warn("failed to delete the securty group from entity",ex);
+    db2.rollback();
+  }
+}
