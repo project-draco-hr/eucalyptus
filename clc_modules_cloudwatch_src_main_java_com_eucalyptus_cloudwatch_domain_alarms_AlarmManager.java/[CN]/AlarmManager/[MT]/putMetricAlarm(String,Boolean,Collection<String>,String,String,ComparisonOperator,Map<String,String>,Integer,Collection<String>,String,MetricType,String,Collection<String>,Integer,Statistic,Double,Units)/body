@@ -1,0 +1,65 @@
+{
+  if (dimensionMap == null) {
+    dimensionMap=new HashMap<String,String>();
+  }
+ else   if (dimensionMap.size() > AlarmEntity.MAX_DIM_NUM) {
+    throw new IllegalArgumentException("Too many dimensions for metric, " + dimensionMap.size());
+  }
+  AlarmEntity alarmEntity=new AlarmEntity();
+  alarmEntity.setAccountId(accountId);
+  alarmEntity.setAlarmName(alarmName);
+  EntityTransaction db=Entities.get(AlarmEntity.class);
+  boolean inDb=false;
+  try {
+    Criteria criteria=Entities.createCriteria(AlarmEntity.class).add(Restrictions.eq("accountId",accountId)).add(Restrictions.eq("alarmName",alarmName));
+    AlarmEntity inDbAlarm=(AlarmEntity)criteria.uniqueResult();
+    if (inDbAlarm != null) {
+      inDb=true;
+      alarmEntity=inDbAlarm;
+    }
+    alarmEntity.setActionsEnabled(actionsEnabled);
+    alarmEntity.setAlarmActions(alarmActions);
+    alarmEntity.setAlarmDescription(alarmDescription);
+    alarmEntity.setComparisionOperator(comparisonOperator);
+    TreeSet<DimensionEntity> dimensions=new TreeSet<DimensionEntity>();
+    for (    Map.Entry<String,String> entry : dimensionMap.entrySet()) {
+      DimensionEntity d=new DimensionEntity();
+      d.setName(entry.getKey());
+      d.setValue(entry.getValue());
+      dimensions.add(d);
+    }
+    alarmEntity.setDimensions(dimensions);
+    alarmEntity.setEvaluationPeriods(evaluationPeriods);
+    alarmEntity.setInsufficientDataActions(insufficientDataActions);
+    alarmEntity.setMetricName(metricName);
+    alarmEntity.setMetricType(metricType);
+    alarmEntity.setNamespace(namespace);
+    alarmEntity.setOkActions(okActions);
+    alarmEntity.setPeriod(period);
+    alarmEntity.setStatistic(statistic);
+    alarmEntity.setThreshold(threshold);
+    alarmEntity.setUnit(unit);
+    Date now=new Date();
+    alarmEntity.setAlarmConfigurationUpdatedTimestamp(now);
+    if (!inDb) {
+      alarmEntity.setStateValue(StateValue.INSUFFICIENT_DATA);
+      alarmEntity.setStateReason("Unchecked: Initial alarm creation");
+      alarmEntity.setStateUpdatedTimestamp(now);
+      String historyData="JSON DATA (TODO)";
+      AlarmManager.addAlarmHistoryItem(accountId,alarmName,historyData,HistoryItemType.ConfigurationUpdate,"Alarm \"" + alarmName + "\" created",now);
+      Entities.persist(alarmEntity);
+    }
+ else {
+      String historyData="JSON DATA (TODO)";
+      AlarmManager.addAlarmHistoryItem(accountId,alarmName,historyData,HistoryItemType.ConfigurationUpdate,"Alarm \"" + alarmName + "\" updated",now);
+    }
+    db.commit();
+  }
+ catch (  RuntimeException ex) {
+    Logs.extreme().error(ex,ex);
+    throw ex;
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+}
