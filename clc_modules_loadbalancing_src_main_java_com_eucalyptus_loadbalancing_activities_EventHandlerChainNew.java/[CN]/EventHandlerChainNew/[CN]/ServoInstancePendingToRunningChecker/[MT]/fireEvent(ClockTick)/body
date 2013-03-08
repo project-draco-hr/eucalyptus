@@ -1,0 +1,66 @@
+{
+  if (Bootstrap.isFinished() && Topology.isEnabledLocally(LoadBalancing.class) && Topology.isEnabled(Eucalyptus.class)) {
+    final EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
+    final LoadBalancerServoInstance sample=LoadBalancerServoInstance.withState(LoadBalancerServoInstance.STATE.Pending.name());
+    List<LoadBalancerServoInstance> instances=null;
+    try {
+      instances=Entities.query(sample);
+    }
+ catch (    NoSuchElementException ex) {
+      ;
+    }
+catch (    Exception ex) {
+      LOG.warn("Loadbalancer: failed to query servo instances");
+    }
+ finally {
+      db.commit();
+    }
+    if (instances == null || instances.size() == 0)     return;
+    final List<String> param=Lists.newArrayList();
+    final Map<String,String> latestState=Maps.newHashMap();
+    for (    final LoadBalancerServoInstance instance : instances) {
+      String instanceId=instance.getInstanceId();
+      if (instanceId == null)       continue;
+      param.clear();
+      param.add(instanceId);
+      String instanceState=null;
+      try {
+        final List<RunningInstancesItemType> result=EucalyptusActivityTasks.getInstance().describeInstances(param);
+        if (result.isEmpty())         throw new Exception("Describe instances returned no result");
+        instanceState=result.get(0).getStateName();
+      }
+ catch (      final Exception ex) {
+        LOG.warn("failed to query instances",ex);
+        continue;
+      }
+      if (instanceState.equals("running")) {
+        latestState.put(instanceId,LoadBalancerServoInstance.STATE.InService.name());
+      }
+ else       if (instanceState.equals("pending")) {
+        latestState.put(instanceId,LoadBalancerServoInstance.STATE.Pending.name());
+      }
+ else {
+        latestState.put(instanceId,LoadBalancerServoInstance.STATE.Error.name());
+      }
+    }
+    for (    final String instanceId : latestState.keySet()) {
+      String nextState=latestState.get(instanceId);
+      if (nextState == "pending")       continue;
+      final EntityTransaction dbUpdate=Entities.get(LoadBalancerServoInstance.class);
+      try {
+        final LoadBalancerServoInstance instance=Entities.uniqueResult(LoadBalancerServoInstance.named(instanceId));
+        instance.setState(Enum.valueOf(LoadBalancerServoInstance.STATE.class,nextState));
+        Entities.persist(instance);
+        dbUpdate.commit();
+      }
+ catch (      NoSuchElementException ex) {
+        dbUpdate.rollback();
+        LOG.error("could not find the servo instance with id=" + instanceId,ex);
+      }
+catch (      Exception ex) {
+        dbUpdate.rollback();
+        LOG.error("unknown error occured during the servo instance update (" + instanceId + ")",ex);
+      }
+    }
+  }
+}

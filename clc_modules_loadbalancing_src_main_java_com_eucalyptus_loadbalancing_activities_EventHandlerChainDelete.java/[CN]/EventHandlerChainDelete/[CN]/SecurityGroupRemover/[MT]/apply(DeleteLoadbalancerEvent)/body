@@ -1,0 +1,30 @@
+{
+  LoadBalancer lb=null;
+  LoadBalancerSecurityGroup group=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
+    if (lb.getGroups().size() > 0) {
+      List<LoadBalancerSecurityGroup> groups=Lists.newArrayList(lb.getGroups());
+      group=groups.get(0);
+    }
+  }
+ catch (  NoSuchElementException ex) {
+    throw new EventHandlerException("Could not find the loadbalancer with name=" + evt.getLoadBalancer(),ex);
+  }
+catch (  Exception ex) {
+    throw new EventHandlerException("Error while looking for loadbalancer with name=" + evt.getLoadBalancer(),ex);
+  }
+  if (group != null) {
+    final EntityTransaction db=Entities.get(LoadBalancerSecurityGroup.class);
+    try {
+      final LoadBalancerSecurityGroup exist=Entities.uniqueResult(group);
+      exist.setLoadBalancer(null);
+      Entities.persist(exist);
+      db.commit();
+    }
+ catch (    Exception ex) {
+      db.rollback();
+      LOG.warn("Could not disassociate the group from loadbalancer");
+    }
+  }
+}
