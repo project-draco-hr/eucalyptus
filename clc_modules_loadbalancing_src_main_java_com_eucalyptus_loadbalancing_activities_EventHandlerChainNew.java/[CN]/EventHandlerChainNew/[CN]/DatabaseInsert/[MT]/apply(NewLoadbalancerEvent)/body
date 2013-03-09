@@ -9,30 +9,31 @@
 catch (  Exception ex) {
     throw new EventHandlerException("can't query the loadbalancer due to unknown reason",ex);
   }
-  final EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
-  try {
-    for (    String zoneName : evt.getZones()) {
-      LoadBalancerZone lbZone=null;
-      try {
-        lbZone=LoadBalancers.findZone(lb,zoneName);
-      }
- catch (      NoSuchElementException ex) {
-        throw new EventHandlerException("Can't find the zone in user's loadbalancer (" + zoneName + ")",ex);
-      }
-catch (      Exception ex) {
-        throw new EventHandlerException("Can't find the zone due to unknown reason");
-      }
-      final LoadBalancerServoInstance instance=LoadBalancerServoInstance.named(lbZone);
+  List<LoadBalancerZone> zones=Lists.newArrayList();
+  for (  String zoneName : evt.getZones()) {
+    LoadBalancerZone lbZone=null;
+    try {
+      lbZone=LoadBalancers.findZone(lb,zoneName);
+      zones.add(lbZone);
+    }
+ catch (    NoSuchElementException ex) {
+      throw new EventHandlerException("Can't find the zone in user's loadbalancer (" + zoneName + ")",ex);
+    }
+catch (    Exception ex) {
+      throw new EventHandlerException("Can't find the zone due to unknown reason");
+    }
+  }
+  final Function<LoadBalancerZone,LoadBalancerServoInstance> persistInstance=new Function<LoadBalancerZone,LoadBalancerServoInstance>(){
+    public LoadBalancerServoInstance apply(    final LoadBalancerZone zone){
+      final LoadBalancerServoInstance instance=LoadBalancerServoInstance.named(zone);
       instance.setState(LoadBalancerServoInstance.STATE.Pending);
       instance.generateUniqueName();
-      this.uniqueEntries.add(instance.getUniqueName());
-      Entities.persist(instance);
+      LoadBalancerServoInstance written=Entities.persist(instance);
+      return written;
     }
-    db.commit();
   }
- catch (  Exception ex) {
-    db.rollback();
-    this.uniqueEntries.clear();
-    throw new EventHandlerException("failed to persist the new loadbalancer VMs");
+;
+  for (  LoadBalancerZone zone : zones) {
+    Entities.asTransaction(LoadBalancerServoInstance.class,persistInstance).apply(zone);
   }
 }
