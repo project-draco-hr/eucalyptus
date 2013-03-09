@@ -30,13 +30,14 @@
           if (imageCacheInfo.getInCache() && (!storageManager.objectExists(bucketName,imageCacheInfo.getImageName()))) {
             db2.delete(imageCacheInfo);
             db2.commit();
+            LOG.info("Deleted cache entry: " + bucketName + "/"+ objectKey);
             db2=EntityWrapper.get(ImageCacheInfo.class);
             foundImageCacheInfos=db2.queryEscape(searchImageCacheInfo);
           }
         }
         if ((foundImageCacheInfos.size() == 0) || (!imageCachers.containsKey(bucketName + objectKey))) {
           db2.commit();
-          LOG.info("Image " + bucketName + "/"+ objectKey+ " not found in cache. Issuing cache request (might take a while...)");
+          LOG.info("Checking if image " + bucketName + "/"+ objectKey+ " should be cached...");
           cacheImage(bucketName,objectKey,account,ctx.hasAdministrativePrivileges());
           db2=EntityWrapper.get(ImageCacheInfo.class);
           foundImageCacheInfos=db2.queryEscape(searchImageCacheInfo);
@@ -79,7 +80,19 @@ synchronized (monitor) {
             LOG.error("Tired of waiting to cache image: " + bucketName + "/"+ objectKey+ " giving up");
             imageMessenger.removeMonitor(bucketName + "/" + objectKey);
             semaphore.release();
-            throw new WalrusException("caching failure");
+            if (!imageCachers.containsKey(bucketName + objectKey)) {
+              LOG.info("Deleting Image Cache Info: " + bucketName + "/"+ objectKey);
+              db2=EntityWrapper.get(ImageCacheInfo.class);
+              foundImageCacheInfos=db2.queryEscape(searchImageCacheInfo);
+              if (foundImageCacheInfos.size() > 0) {
+                db2.delete(foundImageCacheInfos.get(0));
+              }
+              db2.commit();
+            }
+ else {
+              LOG.info("Caching in progress: " + bucketName + "/"+ objectKey+ " . Try run instances request again in a while...");
+            }
+            throw new NoSuchEntityException("Caching failure: " + bucketName + "/"+ objectKey);
           }
           db2=EntityWrapper.get(ImageCacheInfo.class);
           foundImageCacheInfos=db2.queryEscape(searchImageCacheInfo);
