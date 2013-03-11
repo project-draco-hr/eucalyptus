@@ -1,6 +1,16 @@
 {
   final List<String> uniqueEntries=insert.getResult();
   final List<String> newInstances=launcher.getResult();
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
+  }
+ catch (  NoSuchElementException ex) {
+    throw new EventHandlerException("can't find the specified loadbalancer user owns",ex);
+  }
+catch (  Exception ex) {
+    throw new EventHandlerException("can't query the loadbalancer due to unknown reason",ex);
+  }
   String groupName=null;
   LoadBalancerSecurityGroup group=null;
   try {
@@ -12,7 +22,7 @@
     if (groupName != null) {
       final EntityTransaction db=Entities.get(LoadBalancerSecurityGroup.class);
       try {
-        group=Entities.uniqueResult(LoadBalancerSecurityGroup.named(groupName));
+        group=Entities.uniqueResult(LoadBalancerSecurityGroup.named(lb,groupName));
         db.commit();
       }
  catch (      Exception ex) {
@@ -29,7 +39,7 @@
   try {
     for (    String uniqueId : uniqueEntries) {
       String instanceId=newInstances.remove(0);
-      final LoadBalancerServoInstance exist=Entities.uniqueResult(LoadBalancerServoInstance.fromUniqueName(uniqueId));
+      final LoadBalancerServoInstance exist=Entities.uniqueResult(LoadBalancerServoInstance.named(uniqueId));
       exist.setInstanceId(instanceId);
       if (group != null)       exist.setSecurityGroup(group);
       Entities.persist(exist);
