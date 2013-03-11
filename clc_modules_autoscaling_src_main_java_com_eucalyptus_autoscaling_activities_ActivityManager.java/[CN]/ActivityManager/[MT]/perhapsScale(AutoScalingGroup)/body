@@ -17,7 +17,7 @@
     final List<String> zones=Lists.transform(currentInstances,AutoScalingInstances.availabilityZone());
     final Set<String> groupZones=Sets.newLinkedHashSet(group.getAvailabilityZones());
     groupZones.removeAll(zoneMonitor.getUnavailableZones(zoneFailureThreshold));
-    final int expectedInstancesPerZone=group.getCapacity() / groupZones.size();
+    final int expectedInstancesPerZone=group.getCapacity() / Math.max(1,groupZones.size());
     int requiredInstances=0;
     for (    final String zone : groupZones) {
       int instanceCount=CollectionUtils.reduce(zones,0,CollectionUtils.count(Predicates.equalTo(zone)));
@@ -34,6 +34,9 @@
     }
     if (requiredInstances == 0) {
       setScalingNotRequired(group);
+    }
+ else     if (!ScalingProcessType.AZRebalance.apply(group) && group.getCapacity().equals(group.getDesiredCapacity())) {
+      requiredInstances=0;
     }
     return new LaunchInstancesScalingProcessTask(group,requiredInstances);
   }
