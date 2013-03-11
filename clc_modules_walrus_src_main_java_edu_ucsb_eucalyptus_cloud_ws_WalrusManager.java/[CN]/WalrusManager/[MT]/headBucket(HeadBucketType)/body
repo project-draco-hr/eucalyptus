@@ -1,0 +1,27 @@
+{
+  HeadBucketResponseType reply=(HeadBucketResponseType)request.getReply();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
+  String bucketName=request.getBucket();
+  EntityTransaction db=Entities.get(BucketInfo.class);
+  try {
+    BucketInfo bucket=Entities.uniqueResult(new BucketInfo(bucketName));
+    if (ctx.hasAdministrativePrivileges() || (bucket.canRead(account.getAccountNumber()) && (bucket.isGlobalRead() || Lookups.checkPrivilege(PolicySpec.S3_LISTBUCKET,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
+      return reply;
+    }
+ else {
+      throw new HeadAccessDeniedException(bucketName);
+    }
+  }
+ catch (  NoSuchElementException e) {
+    throw new HeadNoSuchBucketException(bucketName);
+  }
+catch (  TransactionException e) {
+    LOG.error("DB transaction error looking up bucket " + bucketName + ": "+ e.getMessage());
+    LOG.debug("DB tranction exception looking up bucket " + bucketName,e);
+    throw new EucalyptusCloudException("Internal error doing db lookup for " + bucketName,e);
+  }
+ finally {
+    db.rollback();
+  }
+}
