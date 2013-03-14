@@ -5,29 +5,64 @@
   final String lbName=request.getLoadBalancerName();
   final LoadBalancer lb=LoadBalancers.addLoadbalancer(ownerFullName,lbName);
   if (lb == null)   throw new LoadBalancingException(String.format("Requested loadbalancer %s cannot be created",lbName));
-  Collection<Listener> listeners=request.getListeners().getMember();
-  if (listeners != null && listeners.size() > 0) {
-    LoadBalancers.createLoadbalancerListener(lbName,ownerFullName,listeners);
+  final LoadBalancerDnsRecord dns=LoadBalancers.getDnsRecord(lb);
+  if (dns == null || dns.getName() == null)   throw new LoadBalancingException("New dns name could not be created");
+  Function<String,Boolean> rollback=new Function<String,Boolean>(){
+    @Override public Boolean apply(    String lbName){
+      try {
+        LoadBalancers.deleteDnsRecord(dns);
+      }
+ catch (      LoadBalancingException ex) {
+        LOG.error("failed to rollback the dns records",ex);
+      }
+      try {
+        LoadBalancers.deleteLoadbalancer(ownerFullName,lbName);
+      }
+ catch (      LoadBalancingException ex) {
+        LOG.error("failed to rollback the loadbalancer: " + lbName,ex);
+        return false;
+      }
+      return true;
+    }
   }
+;
   Collection<String> zones=request.getAvailabilityZones().getMember();
   if (zones != null && zones.size() > 0) {
     LoadBalancers.addZone(lbName,ownerFullName,zones);
   }
-  final CreateLoadBalancerResult result=new CreateLoadBalancerResult();
-  if (lb != null && lb.getDnsAddress() == null) {
-    LOG.warn("No DNS name is assigned to a loadblancer " + lbName);
-  }
   try {
-    ActivityManager.getInstance();
     NewLoadbalancerEvent evt=new NewLoadbalancerEvent();
     evt.setLoadBalancer(lbName);
     evt.setContext(ctx);
-    ListenerRegistry.getInstance().fireEvent(evt);
+    evt.setZones(zones);
+    ActivityManager.getInstance().fire(evt);
   }
- catch (  Exception e) {
+ catch (  EventFailedException e) {
     LOG.error("failed to fire new loadbalancer event",e);
+    rollback.apply(lbName);
+    throw new LoadBalancingException(String.format("Faild to create the requested loadblanacer: %s",lbName),e);
   }
-  result.setDnsName(lb != null ? lb.getDnsAddress() : null);
+  Collection<Listener> listeners=request.getListeners().getMember();
+  if (listeners != null && listeners.size() > 0) {
+    LoadBalancers.createLoadbalancerListener(lbName,ownerFullName,listeners);
+    try {
+      CreateListenerEvent evt=new CreateListenerEvent();
+      evt.setLoadBalancer(lbName);
+      evt.setListeners(listeners);
+      evt.setContext(ctx);
+      ActivityManager.getInstance().fire(evt);
+    }
+ catch (    EventFailedException e) {
+      LOG.error("failed to fire createListener event",e);
+      rollback.apply(lbName);
+      throw new LoadBalancingException(String.format("Faild to create the requested loadblanacer: %s",lbName),e);
+    }
+  }
+  final CreateLoadBalancerResult result=new CreateLoadBalancerResult();
+  if (dns == null || dns.getDnsName() == null) {
+    LOG.warn("No DNS name is assigned to a loadblancer " + lbName);
+  }
+  result.setDnsName(dns.getDnsName());
   reply.setCreateLoadBalancerResult(result);
   reply.set_return(true);
   return reply;

@@ -1,0 +1,40 @@
+{
+  final StoredResult<String> instances=this.getChain().findHandler(ServoInstanceFinder.class);
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
+  }
+ catch (  NoSuchElementException ex) {
+    return;
+  }
+catch (  Exception ex) {
+    LOG.warn("Failed to find the loadbalancer",ex);
+    return;
+  }
+  final LoadBalancerDnsRecord dns=lb.getDns();
+  for (  String instanceId : instances.getResult()) {
+    final EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
+    String address=null;
+    try {
+      LoadBalancerServoInstance sample=LoadBalancerServoInstance.named(instanceId);
+      LoadBalancerServoInstance instance=Entities.uniqueResult(sample);
+      address=instance.getAddress();
+    }
+ catch (    NoSuchElementException ex) {
+      ;
+    }
+catch (    Exception ex) {
+      LOG.warn("failed to query loadbalancer servo instance",ex);
+    }
+ finally {
+      db.commit();
+    }
+    if (address == null)     continue;
+    try {
+      EucalyptusActivityTasks.getInstance().removeARecord(dns.getZone(),dns.getName(),address);
+    }
+ catch (    Exception ex) {
+      LOG.error(String.format("failed to remove dns a record (zone=%s, name=%s, address=%s",dns.getZone(),dns.getName(),address),ex);
+    }
+  }
+}

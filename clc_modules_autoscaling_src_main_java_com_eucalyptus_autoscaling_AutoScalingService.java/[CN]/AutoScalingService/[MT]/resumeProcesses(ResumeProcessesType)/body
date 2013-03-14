@@ -1,4 +1,30 @@
 {
-  ResumeProcessesResponseType reply=request.getReply();
+  final ResumeProcessesResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  try {
+    final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+    final Callback<AutoScalingGroup> groupCallback=new Callback<AutoScalingGroup>(){
+      @Override public void fire(      final AutoScalingGroup autoScalingGroup){
+        if (RestrictedTypes.filterPrivileged().apply(autoScalingGroup)) {
+          final Set<ScalingProcessType> processesToResume=EnumSet.allOf(ScalingProcessType.class);
+          if (request.getScalingProcesses() != null && !request.getScalingProcesses().getMember().isEmpty()) {
+            processesToResume.clear();
+            Iterables.addAll(processesToResume,Iterables.transform(request.getScalingProcesses().getMember(),Enums.valueOfFunction(ScalingProcessType.class)));
+          }
+          for (          final ScalingProcessType scalingProcessType : processesToResume) {
+            autoScalingGroup.getSuspendedProcesses().remove(SuspendedProcess.createManual(scalingProcessType));
+          }
+        }
+      }
+    }
+;
+    autoScalingGroups.update(accountFullName,request.getAutoScalingGroupName(),groupCallback);
+  }
+ catch (  AutoScalingMetadataNotFoundException e) {
+    throw new InvalidParameterValueException("Auto scaling group not found: " + request.getAutoScalingGroupName());
+  }
+catch (  Exception e) {
+    handleException(e);
+  }
   return reply;
 }

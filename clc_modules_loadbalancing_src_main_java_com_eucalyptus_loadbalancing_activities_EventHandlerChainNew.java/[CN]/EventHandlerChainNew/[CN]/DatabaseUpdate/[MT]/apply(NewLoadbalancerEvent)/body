@@ -1,0 +1,57 @@
+{
+  final List<String> uniqueEntries=insert.getResult();
+  final List<String> newInstances=launcher.getResult();
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
+  }
+ catch (  NoSuchElementException ex) {
+    throw new EventHandlerException("can't find the specified loadbalancer user owns",ex);
+  }
+catch (  Exception ex) {
+    throw new EventHandlerException("can't query the loadbalancer due to unknown reason",ex);
+  }
+  String groupName=null;
+  LoadBalancerSecurityGroup group=null;
+  try {
+    StoredResult<String> sgroupResult=this.getChain().findHandler(SecurityGroupSetup.class);
+    if (sgroupResult != null) {
+      List<String> result=sgroupResult.getResult();
+      if (result != null && result.size() > 0)       groupName=result.get(0);
+    }
+    if (groupName != null) {
+      final EntityTransaction db=Entities.get(LoadBalancerSecurityGroup.class);
+      try {
+        group=Entities.uniqueResult(LoadBalancerSecurityGroup.named(lb,groupName));
+        db.commit();
+      }
+ catch (      Exception ex) {
+        db.rollback();
+        throw ex;
+      }
+    }
+  }
+ catch (  Exception ex) {
+    ;
+  }
+  if (uniqueEntries.size() != newInstances.size())   throw new EventHandlerException("Number of launched instances doesn't match with the database record");
+  final EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
+  try {
+    for (    String uniqueId : uniqueEntries) {
+      String instanceId=newInstances.remove(0);
+      final LoadBalancerServoInstance exist=Entities.uniqueResult(LoadBalancerServoInstance.named(uniqueId));
+      exist.setInstanceId(instanceId);
+      if (group != null)       exist.setSecurityGroup(group);
+      Entities.persist(exist);
+    }
+    db.commit();
+  }
+ catch (  NoSuchElementException ex) {
+    db.rollback();
+    throw new EventHandlerException("can't find the loadbalancer VM from the db",ex);
+  }
+catch (  Exception ex) {
+    db.rollback();
+    throw new EventHandlerException("failed to update the loadbalancer VM entries",ex);
+  }
+}

@@ -1,22 +1,26 @@
 {
-  final UserFullName ownerFullName=evt.getContext().getUserFullName();
-  LoadBalancer lb=null;
-  try {
-    lb=LoadBalancers.getLoadbalancer(ownerFullName,evt.getLoadBalancer());
-    Entities.refresh(lb);
-  }
- catch (  Exception ex) {
-    LOG.warn("No loadbalancer is found with name=" + evt.getLoadBalancer());
-  }
-  final Collection<LoadBalancerZone> zones=lb.getZones();
-  String zoneToLaunch="PARTI00";
-  if (zones.size() > 0) {
-    zoneToLaunch=new ArrayList<LoadBalancerZone>(zones).get(0).getName();
-  }
-  try {
-    EucalyptusActivityTasks.getInstnace().launchInstance(zoneToLaunch,LOADBALANCER_EMI,LOADBALANCER_INSTANCE_TYPE);
-  }
- catch (  Exception e) {
-    LOG.error("failed to launch instance",e);
+  StoredResult<String> sgroupSetup=this.getChain().findHandler(SecurityGroupSetup.class);
+  final List<String> group=sgroupSetup.getResult();
+  final String groupName=group.size() > 0 ? group.get(0) : null;
+  final Collection<String> zones=evt.getZones();
+  for (  String zoneToLaunch : zones) {
+    InstanceUserDataBuilder userDataBuilder=null;
+    try {
+      userDataBuilder=new InstanceUserDataWithCredential(evt.getContext().getUserFullName(),zoneToLaunch);
+    }
+ catch (    Exception ex) {
+      throw new EventHandlerException("failed to create service parameters",ex);
+    }
+    List<String> instanceIds=null;
+    try {
+      instanceIds=EucalyptusActivityTasks.getInstance().launchInstances(zoneToLaunch,LOADBALANCER_EMI,LOADBALANCER_INSTANCE_TYPE,groupName,this.numInstancesToLaunch,userDataBuilder.build());
+      StringBuilder sb=new StringBuilder();
+      for (      String id : instanceIds)       sb.append(id + " ");
+      LOG.info("new servo instance launched: " + sb.toString());
+    }
+ catch (    Exception ex) {
+      throw new EventHandlerException("failed to launch the servo instance",ex);
+    }
+    launchedInstances.addAll(instanceIds);
   }
 }

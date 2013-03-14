@@ -6,17 +6,36 @@
   if (!request.getLoadBalancerNames().getMember().isEmpty()) {
     requestedNames.addAll(request.getLoadBalancerNames().getMember());
   }
-  final Function<Set<String>,Set<String>> lookupLBNames=new Function<Set<String>,Set<String>>(){
-    public Set<String> apply(    final Set<String> input){
-      final Predicate<? super LoadBalancer> requestedAndAccessible=CloudMetadatas.filteringFor(LoadBalancer.class).byId(input).byPrivileges().buildPredicate();
-      final List<LoadBalancer> lbs=Entities.query(LoadBalancer.named(ownerFullName,null),true);
-      Set<String> res=Sets.newHashSet();
-      for (      final LoadBalancer foundLB : Iterables.filter(lbs,requestedAndAccessible))       res.add(foundLB.getDisplayName());
-      return res;
+  Set<String> allowedLBNames=null;
+  String marker=request.getMarker();
+  if (marker != null && marker.startsWith("servo")) {
+    String instanceId=marker.replace("servo:","");
+    allowedLBNames=Sets.newHashSet();
+    try {
+      final LoadBalancerServoInstance instance=LoadBalancers.lookupServoInstance(instanceId);
+      final LoadBalancer lb=instance.getAvailabilityZone().getLoadbalancer();
+      allowedLBNames.add(lb.getDisplayName());
+    }
+ catch (    NoSuchElementException ex) {
+      ;
+    }
+catch (    Exception ex) {
+      LOG.warn("failed to query loadbalancer for servo instance: " + instanceId);
     }
   }
+ else {
+    final Function<Set<String>,Set<String>> lookupLBNames=new Function<Set<String>,Set<String>>(){
+      public Set<String> apply(      final Set<String> input){
+        final Predicate<? super LoadBalancer> requestedAndAccessible=CloudMetadatas.filteringFor(LoadBalancer.class).byId(input).byPrivileges().buildPredicate();
+        final List<LoadBalancer> lbs=Entities.query(LoadBalancer.named(ownerFullName,null),true);
+        Set<String> res=Sets.newHashSet();
+        for (        final LoadBalancer foundLB : Iterables.filter(lbs,requestedAndAccessible))         res.add(foundLB.getDisplayName());
+        return res;
+      }
+    }
 ;
-  Set<String> allowedLBNames=Entities.asTransaction(LoadBalancer.class,lookupLBNames).apply(requestedNames);
+    allowedLBNames=Entities.asTransaction(LoadBalancer.class,lookupLBNames).apply(requestedNames);
+  }
   final Function<String,LoadBalancer> getLoadBalancer=new Function<String,LoadBalancer>(){
     @Override public LoadBalancer apply(    final String lbName){
       try {
@@ -41,7 +60,8 @@ catch (      Exception ex) {
         if (lb == null)         continue;
         desc.setLoadBalancerName(lbName);
         desc.setCreatedTime(lb.getCreationTimestamp());
-        desc.setDnsName(lb.getDnsAddress());
+        final LoadBalancerDnsRecord dns=lb.getDns();
+        desc.setDnsName(dns.getDnsName());
         if (lb.getBackendInstances().size() > 0) {
           desc.setInstances(new Instances());
           desc.getInstances().setMember(new ArrayList<Instance>(Collections2.transform(lb.getBackendInstances(),new Function<LoadBalancerBackendInstance,Instance>(){
@@ -78,6 +98,26 @@ catch (      Exception ex) {
             }
           }
 )));
+        }
+        try {
+          int interval=lb.getHealthCheckInterval();
+          String target=lb.getHealthCheckTarget();
+          int timeout=lb.getHealthCheckTimeout();
+          int healthyThresholds=lb.getHealthyThreshold();
+          int unhealthyThresholds=lb.getHealthCheckUnhealthyThreshold();
+          final HealthCheck hc=new HealthCheck();
+          hc.setInterval(interval);
+          hc.setHealthyThreshold(healthyThresholds);
+          hc.setTarget(target);
+          hc.setTimeout(timeout);
+          hc.setUnhealthyThreshold(unhealthyThresholds);
+          desc.setHealthCheck(hc);
+        }
+ catch (        IllegalStateException ex) {
+          ;
+        }
+catch (        Exception ex) {
+          ;
         }
         descs.add(desc);
       }
