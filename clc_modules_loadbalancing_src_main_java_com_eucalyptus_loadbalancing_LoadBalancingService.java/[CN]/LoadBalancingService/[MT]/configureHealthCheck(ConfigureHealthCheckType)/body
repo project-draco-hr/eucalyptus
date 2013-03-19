@@ -1,4 +1,43 @@
 {
   ConfigureHealthCheckResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final UserFullName ownerFullName=ctx.getUserFullName();
+  final String lbName=request.getLoadBalancerName();
+  final HealthCheck hc=request.getHealthCheck();
+  Integer healthyThreshold=hc.getHealthyThreshold();
+  if (healthyThreshold == null)   throw new LoadBalancingException("healthy tresholds must be specified");
+  Integer interval=hc.getInterval();
+  if (interval == null)   throw new LoadBalancingException("interval must be specified");
+  String target=hc.getTarget();
+  if (target == null)   throw new LoadBalancingException("target must be specified");
+  Integer timeout=hc.getTimeout();
+  if (timeout == null)   throw new LoadBalancingException("timeout must be specified");
+  Integer unhealthyThreshold=hc.getUnhealthyThreshold();
+  if (unhealthyThreshold == null)   throw new LoadBalancingException("unhealthy tresholds must be specified");
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
+  }
+ catch (  NoSuchElementException ex) {
+    throw new AccessPointNotFoundException();
+  }
+catch (  Exception ex) {
+    throw new LoadBalancingException("failed to find the loadbalancer due to unknown reason");
+  }
+  final EntityTransaction db=Entities.get(LoadBalancer.class);
+  try {
+    final LoadBalancer update=Entities.uniqueResult(lb);
+    update.setHealthCheck(healthyThreshold,interval,target,timeout,unhealthyThreshold);
+    Entities.persist(update);
+    db.commit();
+  }
+ catch (  Exception ex) {
+    db.rollback();
+    LOG.error("failed to persist health check config",ex);
+    throw new LoadBalancingException("failed to persist the health check request",ex);
+  }
+  ConfigureHealthCheckResult result=new ConfigureHealthCheckResult();
+  result.setHealthCheck(hc);
+  reply.setConfigureHealthCheckResult(result);
   return reply;
 }

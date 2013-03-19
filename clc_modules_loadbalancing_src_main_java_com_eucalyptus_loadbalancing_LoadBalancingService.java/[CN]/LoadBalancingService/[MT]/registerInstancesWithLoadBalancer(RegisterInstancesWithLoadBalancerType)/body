@@ -17,6 +17,7 @@
       for (      Instance vm : instances) {
         if (lb.hasBackendInstance(vm.getInstanceId()))         continue;
         final LoadBalancerBackendInstance beInstance=LoadBalancerBackendInstance.newInstance(ownerFullName,lb,vm.getInstanceId());
+        beInstance.setState(LoadBalancerBackendInstance.STATE.OutOfService);
         Entities.persist(beInstance);
       }
       return true;
@@ -46,6 +47,17 @@
     }
   }
 ;
+  try {
+    RegisterInstancesEvent evt=new RegisterInstancesEvent();
+    evt.setLoadBalancer(lbName);
+    evt.setContext(ctx);
+    evt.setInstances(instances);
+    ActivityManager.getInstance().fire(evt);
+  }
+ catch (  EventFailedException e) {
+    LOG.error("failed to fire RegisterInstances event",e);
+    throw new LoadBalancingException("failed to register instances: internal error",e);
+  }
   if (instances != null) {
     reply.set_return(Entities.asTransaction(LoadBalancerBackendInstance.class,creator).apply(null));
   }

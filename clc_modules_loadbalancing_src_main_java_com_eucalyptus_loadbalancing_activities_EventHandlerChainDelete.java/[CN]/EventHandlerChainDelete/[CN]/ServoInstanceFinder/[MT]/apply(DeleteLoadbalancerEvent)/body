@@ -1,0 +1,51 @@
+{
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
+  }
+ catch (  NoSuchElementException ex) {
+    return;
+  }
+catch (  Exception ex) {
+    LOG.warn("Failed to find the loadbalancer");
+    return;
+  }
+  final EntityTransaction db=Entities.get(LoadBalancerZone.class);
+  final List<LoadBalancerServoInstance> members=Lists.newArrayList();
+  try {
+    final Collection<LoadBalancerZone> zones=lb.getZones();
+    if (zones == null || zones.size() == 0)     return;
+    for (    LoadBalancerZone z : zones) {
+      final LoadBalancerZone zone=Entities.uniqueResult(z);
+      members.addAll(zone.getServoInstances());
+    }
+  }
+ catch (  Exception ex) {
+    LOG.warn("Failed to find the loadbalancer VMs",ex);
+    return;
+  }
+ finally {
+    db.commit();
+  }
+  final EntityTransaction db2=Entities.get(LoadBalancerServoInstance.class);
+  try {
+    for (    final LoadBalancerServoInstance instance : members) {
+      final LoadBalancerServoInstance exist=Entities.uniqueResult(instance);
+      exist.leaveZone();
+      exist.unmapDns();
+      exist.setState(LoadBalancerServoInstance.STATE.OutOfService);
+      Entities.persist(exist);
+    }
+    db2.commit();
+  }
+ catch (  Exception ex) {
+    db2.rollback();
+  }
+  instances.addAll(Collections2.transform(members,new Function<LoadBalancerServoInstance,String>(){
+    @Override public String apply(    @Nullable LoadBalancerServoInstance arg0){
+      return arg0.getInstanceId();
+    }
+  }
+));
+  LOG.debug("found " + instances.size() + " loadbalancer VMs to terminate");
+}

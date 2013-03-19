@@ -53,8 +53,18 @@ catch (  Exception ex) {
   }
   request.setRemoteDevice(scAttachResponse.getRemoteDeviceString());
   AttachedVolume attachVol=new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice(),request.getRemoteDevice());
-  vm.addTransientVolume(deviceName,scAttachResponse.getRemoteDeviceString(),volume);
-  AsyncRequests.newRequest(new VolumeAttachCallback(request)).dispatch(ccConfig);
+  if ("/dev/sda1".equals(deviceName) && vm.getBootRecord().isBlockStorage()) {
+    if (this.getDeleteOnTerminate(vm)) {
+      vm.addPersistentVolume(deviceName,volume);
+    }
+ else {
+      vm.addPermanentVolume(deviceName,volume);
+    }
+  }
+ else {
+    vm.addTransientVolume(deviceName,scAttachResponse.getRemoteDeviceString(),volume);
+    AsyncRequests.newRequest(new VolumeAttachCallback(request)).dispatch(ccConfig);
+  }
   EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getOwner().toString(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("partition",vm.getPartition().toString()).info();
   reply.setAttachedVolume(attachVol);
   Volumes.fireUsageEvent(volume,VolumeEvent.forVolumeAttach(vm.getInstanceUuid(),volume.getDisplayName()));

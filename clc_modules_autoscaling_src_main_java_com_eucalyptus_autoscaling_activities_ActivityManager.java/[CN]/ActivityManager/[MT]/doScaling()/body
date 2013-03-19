@@ -1,14 +1,53 @@
 {
   timeoutScalingActivities();
+  final Set<String> unavailableZones=zoneMonitor.getUnavailableZones(zoneFailureThreshold);
+  try {
+    zoneAvailabilityMarkers.updateUnavailableZones(unavailableZones,new ZoneCallback(){
+      @Override public void notifyChangedZones(      final Set<String> zones) throws AutoScalingMetadataException {
+        autoScalingGroups.markScalingRequiredForZones(zones);
+      }
+    }
+);
+  }
+ catch (  Exception e) {
+    logger.error(e,e);
+  }
+  try {
+    final List<AutoScalingInstance> instancesToTerminate=autoScalingInstances.listByState(LifecycleState.Terminating,ConfigurationState.Instantiated);
+    final Set<String> groupArns=Sets.newHashSet(Iterables.transform(instancesToTerminate,AutoScalingInstances.groupArn()));
+    for (    final String groupArn : groupArns) {
+      final Iterable<AutoScalingInstance> groupInstances=Iterables.filter(instancesToTerminate,CollectionUtils.propertyPredicate(groupArn,AutoScalingInstances.groupArn()));
+      runTask(terminateInstancesTask(groupInstances));
+    }
+  }
+ catch (  Exception e) {
+    logger.error(e,e);
+  }
+  try {
+    final List<AutoScalingInstance> instancesToDeregister=autoScalingInstances.listByState(LifecycleState.Terminating,ConfigurationState.Registered);
+    final Set<String> groupArns=Sets.newHashSet(Iterables.transform(instancesToDeregister,AutoScalingInstances.groupArn()));
+    for (    final String groupArn : groupArns) {
+      final Iterable<AutoScalingInstance> groupInstances=Iterables.filter(instancesToDeregister,CollectionUtils.propertyPredicate(groupArn,AutoScalingInstances.groupArn()));
+      runTask(removeFromLoadBalancerOrTerminate(Iterables.get(groupInstances,0).getAutoScalingGroup(),Lists.newArrayList(Iterables.transform(groupInstances,AutoScalingInstances.instanceId()))));
+    }
+  }
+ catch (  Exception e) {
+    logger.error(e,e);
+  }
+  try {
+    final List<AutoScalingInstance> unregisteredInstances=autoScalingInstances.listByState(LifecycleState.InService,ConfigurationState.Instantiated);
+    final Set<String> groupArns=Sets.newHashSet(Iterables.transform(unregisteredInstances,AutoScalingInstances.groupArn()));
+    for (    final String groupArn : groupArns) {
+      final Iterable<AutoScalingInstance> groupInstances=Iterables.filter(unregisteredInstances,CollectionUtils.propertyPredicate(groupArn,AutoScalingInstances.groupArn()));
+      runTask(addToLoadBalancer(groupInstances));
+    }
+  }
+ catch (  Exception e) {
+    logger.error(e,e);
+  }
   try {
     for (    final AutoScalingGroup group : autoScalingGroups.listRequiringScaling()) {
-      int compareResult=group.getCapacity().compareTo(group.getDesiredCapacity());
-      if (compareResult < 0) {
-        runTask(new LaunchInstancesScalingProcessTask(group));
-      }
- else       if (compareResult > 0) {
-        runTask(perhapsTerminateInstances(group,group.getCapacity() - group.getDesiredCapacity()));
-      }
+      runTask(perhapsScale(group));
     }
   }
  catch (  Exception e) {
@@ -22,9 +61,20 @@
  catch (  Exception e) {
     logger.error(e,e);
   }
+  final Map<String,AutoScalingGroup> autoScalingAccounts=Maps.newHashMap();
   try {
     for (    final AutoScalingGroup group : autoScalingGroups.listRequiringMonitoring(10000L)) {
-      runTask(new MonitoringScalingProcessTask(group,Lists.newArrayList(Iterables.transform(autoScalingInstances.listByGroup(group),instanceId()))));
+      autoScalingAccounts.put(group.getOwnerAccountNumber(),group);
+      final List<AutoScalingInstance> groupInstances=autoScalingInstances.listByGroup(group);
+      if (!groupInstances.isEmpty())       runTask(new MonitoringScalingProcessTask(group,Lists.newArrayList(Iterables.transform(Iterables.filter(groupInstances,LifecycleState.Pending),instanceId())),Lists.newArrayList(Iterables.transform(Iterables.filter(groupInstances,LifecycleState.InService),instanceId()))));
+    }
+  }
+ catch (  Exception e) {
+    logger.error(e,e);
+  }
+  try {
+    for (    final AutoScalingGroup group : autoScalingAccounts.values()) {
+      runTask(new UntrackedInstanceTerminationScalingProcessTask(group));
     }
   }
  catch (  Exception e) {

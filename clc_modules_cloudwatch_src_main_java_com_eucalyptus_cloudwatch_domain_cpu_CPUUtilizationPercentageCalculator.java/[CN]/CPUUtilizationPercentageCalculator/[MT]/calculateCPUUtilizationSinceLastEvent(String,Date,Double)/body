@@ -1,0 +1,38 @@
+{
+  Long newUsageTimeMillis=(newUsageTimeMillisDouble == null) ? null : Long.valueOf((long)newUsageTimeMillisDouble.longValue());
+  Double returnValue=null;
+  EntityTransaction db=Entities.get(CPUUtilizationEntity.class);
+  try {
+    Criteria criteria=Entities.createCriteria(CPUUtilizationEntity.class).add(Restrictions.eq("instanceId",instanceId));
+    CPUUtilizationEntity cpuUtilizationEntity=(CPUUtilizationEntity)criteria.uniqueResult();
+    if (cpuUtilizationEntity == null) {
+      cpuUtilizationEntity=new CPUUtilizationEntity();
+      cpuUtilizationEntity.setInstanceId(instanceId);
+      cpuUtilizationEntity.setTimestamp(newTimestamp);
+      cpuUtilizationEntity.setMachineUsageMilliseconds(newUsageTimeMillis);
+      Entities.persist(cpuUtilizationEntity);
+      returnValue=null;
+    }
+ else {
+      long elapsedTime=Math.abs(newTimestamp.getTime() - cpuUtilizationEntity.getTimestamp().getTime());
+      long elapsedMachineTime=Math.abs(newUsageTimeMillis - cpuUtilizationEntity.getMachineUsageMilliseconds());
+      cpuUtilizationEntity.setTimestamp(newTimestamp);
+      cpuUtilizationEntity.setMachineUsageMilliseconds(newUsageTimeMillis);
+      if (elapsedTime == 0L) {
+        returnValue=0.0;
+      }
+ else {
+        returnValue=100.0 * ((double)elapsedMachineTime / (double)elapsedTime);
+      }
+    }
+    db.commit();
+  }
+ catch (  RuntimeException ex) {
+    Logs.extreme().error(ex,ex);
+    throw ex;
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+  return returnValue;
+}
