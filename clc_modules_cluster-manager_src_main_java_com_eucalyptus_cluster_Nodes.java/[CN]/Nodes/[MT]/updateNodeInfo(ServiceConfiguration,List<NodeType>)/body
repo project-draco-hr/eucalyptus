@@ -1,0 +1,30 @@
+{
+  ConcurrentNavigableMap<String,NodeInfo> clusterNodeMap=Clusters.lookup(ccConfig).getNodeMap();
+  Set<String> knownTags=Sets.newHashSet(clusterNodeMap.keySet());
+  Set<String> reportedTags=Sets.newHashSet();
+  for (  final NodeType node : nodes) {
+    reportedTags.add(node.getServiceTag());
+  }
+  Set<String> unreportedTags=Sets.difference(knownTags,reportedTags);
+  Set<String> newTags=Sets.difference(reportedTags,knownTags);
+  Set<String> stillKnownTags=Sets.intersection(knownTags,reportedTags);
+  for (  String unreportedTag : unreportedTags) {
+    NodeInfo unreportedNode=clusterNodeMap.get(unreportedTag);
+    if (unreportedNode != null && (System.currentTimeMillis() - unreportedNode.getLastSeen().getTime()) > Nodes.REFRESH_TIMEOUT) {
+      clusterNodeMap.remove(unreportedTag);
+    }
+  }
+  for (  NodeType node : nodes) {
+    String serviceTag=node.getServiceTag();
+    if (newTags.contains(serviceTag)) {
+      clusterNodeMap.putIfAbsent(serviceTag,new NodeInfo(ccConfig.getPartition(),node));
+      NodeInfo nodeInfo=clusterNodeMap.get(serviceTag);
+      Nodes.updateServiceConfiguration(ccConfig,nodeInfo);
+    }
+ else     if (stillKnownTags.contains(serviceTag)) {
+      NodeInfo nodeInfo=clusterNodeMap.get(serviceTag);
+      nodeInfo.touch();
+      nodeInfo.setIqn(serviceTag);
+    }
+  }
+}
