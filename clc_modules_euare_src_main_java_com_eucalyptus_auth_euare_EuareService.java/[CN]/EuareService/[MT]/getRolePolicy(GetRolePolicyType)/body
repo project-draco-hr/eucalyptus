@@ -1,0 +1,37 @@
+{
+  final GetRolePolicyResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final User requestUser=ctx.getUser();
+  final Account account=getRealAccount(ctx,request.getDelegateAccount());
+  final Role roleFound=lookupRoleByName(account,request.getRoleName());
+  try {
+    final Policy policy=Privileged.getRolePolicy(requestUser,account,roleFound,request.getPolicyName());
+    if (policy != null) {
+      GetRolePolicyResult result=reply.getGetRolePolicyResult();
+      result.setRoleName(request.getRoleName());
+      result.setPolicyName(request.getPolicyName());
+      result.setPolicyDocument(policy.getText());
+    }
+ else {
+      throw new EuareException(HttpResponseStatus.NOT_FOUND,EuareException.NO_SUCH_ENTITY,"Can not find policy " + request.getPolicyName());
+    }
+  }
+ catch (  EuareException e) {
+    LOG.error(e,e);
+    throw e;
+  }
+catch (  Exception e) {
+    LOG.error(e,e);
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to get role policy for " + request.getRoleName() + " by "+ requestUser.getName());
+      }
+ else       if (AuthException.EMPTY_POLICY_NAME.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_NAME,"Empty policy name");
+      }
+    }
+    throw new EucalyptusCloudException(e);
+  }
+  return reply;
+}
