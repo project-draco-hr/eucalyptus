@@ -1,15 +1,17 @@
 {
   final List<AutoScalingInstance> instances=autoScalingInstances.listByGroup(getGroup());
   final Set<String> zonesToUse=Sets.newHashSet(getGroup().getAvailabilityZones());
-  zonesToUse.removeAll(zoneMonitor.getUnavailableZones(zoneFailureThreshold));
+  zonesToUse.removeAll(zoneMonitor.getUnavailableZones(AutoScalingConfiguration.getZoneFailureThresholdMillis()));
   final Map<String,Integer> zoneCounts=buildAvailabilityZoneInstanceCounts(instances,zonesToUse);
-  final int attemptToLaunch=Math.min(maxLaunchIncrement,launchCount);
+  final int attemptToLaunch=Math.min(AutoScalingConfiguration.getMaxLaunchIncrement(),launchCount);
   final List<LaunchInstanceScalingActivityTask> activities=Lists.newArrayList();
   for (int i=0; i < attemptToLaunch; i++) {
     final Map.Entry<String,Integer> entry=selectEntry(zoneCounts,Ordering.natural());
     if (entry != null) {
+      final String zone=entry.getKey();
+      final String clientToken=String.format("%1$s_%2$s_1",UUID.randomUUID().toString(),Iterables.getFirst(Splitter.fixedLength(24).split(zone),""));
       entry.setValue(entry.getValue() + 1);
-      activities.add(new LaunchInstanceScalingActivityTask(newActivity(),entry.getKey()));
+      activities.add(new LaunchInstanceScalingActivityTask(newActivity("Launching a new EC2 instance",30,clientToken,Lists.newArrayList(cause(cause)),ActivityStatusCode.PreInService),zone,clientToken));
     }
   }
   return activities;
