@@ -1,0 +1,53 @@
+{
+  Date now=new Date();
+  for (  final MetricDatum datum : metricDatum) {
+    if (("CPUUtilizationMS".equals(datum.getMetricName())) && (metricType == MetricType.System) && ("AWS/EC2".equals(nameSpace))&& (datum.getValue() != null)) {
+      String instanceId=null;
+      if ((datum.getDimensions() != null) && (datum.getDimensions().getMember() != null)) {
+        for (        Dimension dimension : datum.getDimensions().getMember()) {
+          if ("InstanceId".equals(dimension.getName())) {
+            instanceId=dimension.getValue();
+          }
+        }
+      }
+      if (instanceId != null) {
+        Double percentValue=CPUUtilizationPercentageCalculator.calculateCPUUtilizationSinceLastEvent(instanceId,datum.getTimestamp(),datum.getValue());
+        if (percentValue == null)         continue;
+        datum.setMetricName("CPUUtilization");
+        datum.setValue(percentValue);
+        datum.setUnit(Units.Percent.toString());
+      }
+    }
+    scrub(datum,now);
+    final ArrayList<Dimension> dimensions=datum.getDimensions().getMember();
+    queue(new Supplier<MetricQueueItem>(){
+      @Override public MetricQueueItem get(){
+        MetricQueueItem metricMetadata=new MetricQueueItem();
+        metricMetadata.setAccountId(ownerAccountId);
+        metricMetadata.setMetricName(datum.getMetricName());
+        metricMetadata.setNamespace(nameSpace);
+        metricMetadata.setDimensionMap(makeDimensionMap(dimensions));
+        metricMetadata.setMetricType(metricType);
+        metricMetadata.setUnits(Units.fromValue(datum.getUnit()));
+        metricMetadata.setTimestamp(datum.getTimestamp());
+        if (datum.getValue() != null) {
+          metricMetadata.setSampleMax(datum.getValue());
+          metricMetadata.setSampleMin(datum.getValue());
+          metricMetadata.setSampleSum(datum.getValue());
+          metricMetadata.setSampleSize(1.0);
+        }
+ else         if ((datum.getStatisticValues() != null) && (datum.getStatisticValues().getMaximum() != null) && (datum.getStatisticValues().getMinimum() != null)&& (datum.getStatisticValues().getSum() != null)&& (datum.getStatisticValues().getSampleCount() != null)) {
+          metricMetadata.setSampleMax(datum.getStatisticValues().getMaximum());
+          metricMetadata.setSampleMin(datum.getStatisticValues().getMinimum());
+          metricMetadata.setSampleSum(datum.getStatisticValues().getSum());
+          metricMetadata.setSampleSize(datum.getStatisticValues().getSampleCount());
+        }
+ else {
+          throw new RuntimeException("Statistics set (all values) or Value must be set");
+        }
+        return metricMetadata;
+      }
+    }
+);
+  }
+}

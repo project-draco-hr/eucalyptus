@@ -1,19 +1,27 @@
 {
   DescribeAlarmHistoryResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  if (!hasActionPermission(PolicySpec.CLOUDWATCH_DESCRIBEALARMHISTORY,ctx)) {
-    throw new EucalyptusCloudException();
+  try {
+    checkActionPermission(PolicySpec.CLOUDWATCH_DESCRIBEALARMHISTORY,ctx);
+    final OwnerFullName ownerFullName=ctx.getUserFullName();
+    final String accountId=ownerFullName.getAccountNumber();
+    final String alarmName=validateAlarmName(request.getAlarmName(),false);
+    final Date endDate=validateEndDate(request.getEndDate(),false);
+    final Date startDate=validateStartDate(request.getStartDate(),false);
+    validateDateOrder(startDate,endDate,"StartDate","EndDate",false,false);
+    final HistoryItemType historyItemType=validateHistoryItemType(request.getHistoryItemType(),false);
+    final Integer maxRecords=validateMaxRecords(request.getMaxRecords());
+    final String nextToken=request.getNextToken();
+    List<AlarmHistory> results=AlarmManager.describeAlarmHistory(accountId,alarmName,endDate,historyItemType,maxRecords,startDate,nextToken);
+    if (maxRecords != null && results.size() == maxRecords) {
+      reply.getDescribeAlarmHistoryResult().setNextToken(results.get(results.size() - 1).getNaturalId());
+    }
+    AlarmHistoryItems alarmHistoryItems=new AlarmHistoryItems();
+    alarmHistoryItems.setMember(Lists.newArrayList(Collections2.<AlarmHistory,AlarmHistoryItem>transform(results,TransformationFunctions.AlarmHistoryToAlarmHistoryItem.INSTANCE)));
+    reply.getDescribeAlarmHistoryResult().setAlarmHistoryItems(alarmHistoryItems);
   }
-  final OwnerFullName ownerFullName=ctx.getUserFullName();
-  final String accountId=ownerFullName.getAccountNumber();
-  final String alarmName=request.getAlarmName();
-  final Date endDate=request.getEndDate();
-  final HistoryItemType historyItemType=request.getHistoryItemType() == null ? null : HistoryItemType.valueOf(request.getHistoryItemType());
-  final Integer maxRecords=request.getMaxRecords();
-  final Date startDate=request.getStartDate();
-  Collection<AlarmHistory> results=AlarmManager.describeAlarmHistory(accountId,alarmName,endDate,historyItemType,maxRecords,startDate);
-  AlarmHistoryItems alarmHistoryItems=new AlarmHistoryItems();
-  alarmHistoryItems.setMember(Lists.newArrayList(Collections2.<AlarmHistory,AlarmHistoryItem>transform(results,AlarmHistoryFunction.INSTANCE)));
-  reply.getDescribeAlarmHistoryResult().setAlarmHistoryItems(alarmHistoryItems);
+ catch (  Exception ex) {
+    handleException(ex);
+  }
   return reply;
 }
