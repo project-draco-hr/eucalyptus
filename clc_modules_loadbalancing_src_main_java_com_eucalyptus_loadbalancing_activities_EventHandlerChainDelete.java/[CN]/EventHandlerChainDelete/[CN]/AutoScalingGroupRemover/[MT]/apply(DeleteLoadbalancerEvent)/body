@@ -1,0 +1,51 @@
+{
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
+  }
+ catch (  NoSuchElementException ex) {
+    return;
+  }
+catch (  Exception ex) {
+    LOG.warn("Failed to find the loadbalancer named " + evt.getLoadBalancer(),ex);
+    return;
+  }
+  LoadBalancerAutoScalingGroup group=lb.getAutoScaleGroup();
+  if (group == null) {
+    LOG.warn(String.format("Loadbalancer %s had no autoscale group associated with it",lb.getDisplayName()));
+    return;
+  }
+  final String groupName=group.getName();
+  final String launchConfigName=group.getLaunchConfigName();
+  boolean error=false;
+  try {
+    EucalyptusActivityTasks.getInstance().deleteAutoScalingGroup(groupName,true);
+  }
+ catch (  Exception ex) {
+    LOG.warn("Failed to delete autoscale group " + groupName,ex);
+    error=true;
+  }
+  try {
+    EucalyptusActivityTasks.getInstance().deleteLaunchConfiguration(launchConfigName);
+  }
+ catch (  Exception ex) {
+    LOG.warn("Failed to delete launch configuration " + launchConfigName,ex);
+    error=true;
+  }
+  EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
+  try {
+    for (    LoadBalancerServoInstance instance : lb.getAutoScaleGroup().getServos()) {
+      final LoadBalancerServoInstance found=Entities.uniqueResult(instance);
+      found.setDns(null);
+      found.setAvailabilityZone(null);
+      found.setAutoScalingGroup(null);
+      found.setState(LoadBalancerServoInstance.STATE.Retired);
+      Entities.persist(found);
+    }
+    db.commit();
+  }
+ catch (  Exception ex) {
+    db.rollback();
+    LOG.error("Failed to update servo instance record",ex);
+  }
+}
