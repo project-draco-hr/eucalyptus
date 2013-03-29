@@ -3,6 +3,44 @@
   Component component=Components.lookup(NodeController.class);
   if (!component.hasService(ncConfig)) {
     component.setup(ncConfig);
-    Topology.disable(ncConfig);
+    try {
+      Topology.disable(ncConfig).get();
+    }
+ catch (    Exception e) {
+      LOG.debug(e,e);
+    }
+  }
+ else   if (Component.State.STOPPED.apply(ncConfig)) {
+    Component.State ncState=ncConfig.lookupState();
+    Component.State nextState=ncState;
+    DescribeServicesResponseType reply=Nodes.send(ncConfig,new DescribeServicesType());
+    for (    ServiceStatusType status : reply.getServiceStatuses()) {
+      if (ncConfig.getName().equals(status.getServiceId().getName())) {
+        Component.State reportedState=Component.State.ENABLED;
+        try {
+          reportedState=Component.State.valueOf(Strings.nullToEmpty(status.getLocalState()).toUpperCase());
+          LOG.debug("Found service status for " + ncConfig.getName() + ": "+ reportedState);
+        }
+ catch (        IllegalArgumentException e) {
+          LOG.debug("Failed to get service status for " + ncConfig.getName() + "; got "+ status.getLocalState());
+          reportedState=Component.State.DISABLED;
+        }
+        try {
+          if (!Component.State.ENABLED.apply(ncConfig) && Component.State.ENABLED.equals(reportedState)) {
+            Topology.enable(ncConfig);
+          }
+ else           if (Component.State.STOPPED.apply(ncConfig) && !Component.State.ENABLED.equals(reportedState)) {
+          }
+ else           if (!Component.State.ENABLED.apply(ncConfig) && Component.State.ENABLED.equals(reportedState)) {
+          }
+ else {
+            Topology.stop(ncConfig);
+          }
+        }
+ catch (        Exception e) {
+          LOG.debug(e,e);
+        }
+      }
+    }
   }
 }
