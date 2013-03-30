@@ -1,0 +1,37 @@
+{
+  try {
+    USER_GROUP_NAME_CHECKER.check(instanceProfileName);
+  }
+ catch (  InvalidValueException e) {
+    Debugging.logError(LOG,e,"Invalid instance profile name " + instanceProfileName);
+    throw new AuthException(AuthException.INVALID_NAME,e);
+  }
+  try {
+    PATH_CHECKER.check(path);
+  }
+ catch (  InvalidValueException e) {
+    Debugging.logError(LOG,e,"Invalid path " + path);
+    throw new AuthException(AuthException.INVALID_PATH,e);
+  }
+  if (DatabaseAuthUtils.checkInstanceProfileExists(instanceProfileName,this.delegate.getName())) {
+    throw new AuthException(AuthException.INSTANCE_PROFILE_ALREADY_EXISTS);
+  }
+  final EntityWrapper<AccountEntity> db=EntityWrapper.get(AccountEntity.class);
+  try {
+    final AccountEntity account=DatabaseAuthUtils.getUnique(db,AccountEntity.class,"name",this.delegate.getName());
+    final InstanceProfileEntity newInstanceProfile=new InstanceProfileEntity(instanceProfileName);
+    newInstanceProfile.setInstanceProfileId(Crypto.generateQueryId());
+    newInstanceProfile.setPath(path);
+    newInstanceProfile.setAccount(account);
+    final InstanceProfileEntity persistedInstanceProfile=db.recast(InstanceProfileEntity.class).persist(newInstanceProfile);
+    db.commit();
+    return new DatabaseInstanceProfileProxy(persistedInstanceProfile);
+  }
+ catch (  Exception e) {
+    Debugging.logError(LOG,e,"Failed to add instance profile: " + instanceProfileName + " in "+ this.delegate.getName());
+    throw new AuthException(AuthException.INSTANCE_PROFILE_CREATE_FAILURE,e);
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+}

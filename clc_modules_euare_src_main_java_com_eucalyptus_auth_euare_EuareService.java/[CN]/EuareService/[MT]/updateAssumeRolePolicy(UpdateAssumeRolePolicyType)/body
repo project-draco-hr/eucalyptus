@@ -1,0 +1,25 @@
+{
+  final UpdateAssumeRolePolicyResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final User requestUser=ctx.getUser();
+  final Account account=getRealAccount(ctx,request.getDelegateAccount());
+  final Role roleFound=lookupRoleByName(account,request.getRoleName());
+  try {
+    Privileged.updateAssumeRolePolicy(requestUser,account,roleFound,request.getPolicyDocument());
+  }
+ catch (  PolicyParseException e) {
+    LOG.error(e,e);
+    throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.MALFORMED_POLICY_DOCUMENT,"Error in uploaded policy: " + request.getPolicyDocument(),e);
+  }
+catch (  Exception e) {
+    LOG.error(e,e);
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to update role " + roleFound.getName() + " by "+ requestUser.getName());
+      }
+    }
+    throw new EucalyptusCloudException(e);
+  }
+  return reply;
+}
