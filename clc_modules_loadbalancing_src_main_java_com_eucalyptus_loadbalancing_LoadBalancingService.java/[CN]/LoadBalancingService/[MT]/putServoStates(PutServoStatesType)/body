@@ -16,6 +16,7 @@ catch (    Exception ex) {
       LOG.warn("failed to query servo instance");
     }
   }
+  final Collection<LoadBalancerBackendInstance> lbInstances=lb.getBackendInstances();
   if (lb != null && instances.getMember() != null && instances.getMember().size() > 0) {
     for (    Instance instance : instances.getMember()) {
       String instanceId=instance.getInstanceId();
@@ -26,22 +27,30 @@ catch (    Exception ex) {
       }
       instanceId=parts[0];
       String state=parts[1];
-      final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
-      try {
-        LoadBalancerBackendInstance sample=LoadBalancerBackendInstance.named(lb,instanceId);
-        LoadBalancerBackendInstance found=Entities.uniqueResult(sample);
-        if (state.equals(LoadBalancerBackendInstance.STATE.InService.name()) || state.equals(LoadBalancerBackendInstance.STATE.OutOfService.name())) {
-          found.setState(Enum.valueOf(LoadBalancerBackendInstance.STATE.class,state));
-          Entities.persist(found);
+      LoadBalancerBackendInstance found=null;
+      for (      final LoadBalancerBackendInstance lbInstance : lbInstances) {
+        if (instanceId.equals(lbInstance.getInstanceId())) {
+          found=lbInstance;
+          break;
         }
-        db.commit();
       }
- catch (      NoSuchElementException ex) {
-        db.rollback();
-      }
-catch (      Exception ex) {
-        db.rollback();
-        LOG.warn("Failed to query loadbalancer backend instance: " + instanceId,ex);
+      if (found != null) {
+        final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
+        try {
+          found=Entities.uniqueResult(found);
+          if (state.equals(LoadBalancerBackendInstance.STATE.InService.name()) || state.equals(LoadBalancerBackendInstance.STATE.OutOfService.name())) {
+            found.setState(Enum.valueOf(LoadBalancerBackendInstance.STATE.class,state));
+            Entities.persist(found);
+          }
+          db.commit();
+        }
+ catch (        NoSuchElementException ex) {
+          db.rollback();
+        }
+catch (        Exception ex) {
+          db.rollback();
+          LOG.warn("Failed to query loadbalancer backend instance: " + instanceId,ex);
+        }
       }
     }
   }

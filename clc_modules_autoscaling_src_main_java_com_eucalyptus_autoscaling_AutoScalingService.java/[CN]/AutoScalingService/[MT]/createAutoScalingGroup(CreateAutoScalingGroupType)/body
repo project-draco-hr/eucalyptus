@@ -5,7 +5,7 @@
     for (    final TagType tagType : request.getTags().getMember()) {
       final String key=tagType.getKey();
       if (com.google.common.base.Strings.isNullOrEmpty(key) || key.trim().length() > 128 || isReserved(key)) {
-        throw new InvalidParameterValueException("Invalid key (max length 128, must not be empty, reserved prefixes " + reservedPrefixes + "): "+ key);
+        throw new ValidationErrorException("Invalid key (max length 128, must not be empty, reserved prefixes " + reservedPrefixes + "): "+ key);
       }
     }
     if (request.getTags().getMember().size() >= MAX_TAGS_PER_RESOURCE) {
@@ -15,18 +15,28 @@
   final Supplier<AutoScalingGroup> allocator=new Supplier<AutoScalingGroup>(){
     @Override public AutoScalingGroup get(){
       try {
-        final AutoScalingGroups.PersistingBuilder builder=autoScalingGroups.create(ctx.getUserFullName(),request.getAutoScalingGroupName(),launchConfigurations.lookup(ctx.getUserFullName().asAccountFullName(),request.getLaunchConfigurationName()),Numbers.intValue(request.getMinSize()),Numbers.intValue(request.getMaxSize())).withAvailabilityZones(request.availabilityZones()).withDefaultCooldown(Numbers.intValue(request.getDefaultCooldown())).withDesiredCapacity(Numbers.intValue(request.getDesiredCapacity())).withHealthCheckGracePeriod(Numbers.intValue(request.getHealthCheckGracePeriod())).withHealthCheckType(request.getHealthCheckType() == null ? null : HealthCheckType.valueOf(request.getHealthCheckType())).withLoadBalancerNames(request.loadBalancerNames()).withTerminationPolicyTypes(request.terminationPolicies() == null ? null : Collections2.filter(Collections2.transform(request.terminationPolicies(),Enums.valueOfFunction(TerminationPolicyType.class)),Predicates.not(Predicates.isNull()))).withTags(request.getTags() == null ? null : Iterables.transform(request.getTags().getMember(),TypeMappers.lookup(TagType.class,AutoScalingGroupTag.class)));
-        final List<String> referenceErrors=activityManager.validateReferences(ctx.getUserFullName(),request.availabilityZones(),request.loadBalancerNames());
-        if (!referenceErrors.isEmpty()) {
-          throw Exceptions.toUndeclared(new InvalidParameterValueException("Invalid parameters " + referenceErrors));
+        final Integer minSize=Numbers.intValue(request.getMinSize());
+        final Integer maxSize=Numbers.intValue(request.getMaxSize());
+        final Integer desiredCapacity=Numbers.intValue(request.getDesiredCapacity());
+        if (desiredCapacity != null && desiredCapacity < minSize) {
+          throw Exceptions.toUndeclared(new ValidationErrorException("DesiredCapacity must not be less than MinSize"));
         }
+        if (desiredCapacity != null && desiredCapacity > maxSize) {
+          throw Exceptions.toUndeclared(new ValidationErrorException("DesiredCapacity must not be greater than MaxSize"));
+        }
+        final List<String> referenceErrors=activityManager.validateReferences(ctx.getUserFullName(),request.availabilityZones(),request.loadBalancerNames());
+        verifyUnsupportedReferences(referenceErrors,request.getPlacementGroup(),request.getVpcZoneIdentifier());
+        if (!referenceErrors.isEmpty()) {
+          throw Exceptions.toUndeclared(new ValidationErrorException("Invalid parameters " + referenceErrors));
+        }
+        final AutoScalingGroups.PersistingBuilder builder=autoScalingGroups.create(ctx.getUserFullName(),request.getAutoScalingGroupName(),launchConfigurations.lookup(ctx.getUserFullName().asAccountFullName(),request.getLaunchConfigurationName()),minSize,maxSize).withAvailabilityZones(request.availabilityZones()).withDefaultCooldown(Numbers.intValue(request.getDefaultCooldown())).withDesiredCapacity(desiredCapacity).withHealthCheckGracePeriod(Numbers.intValue(request.getHealthCheckGracePeriod())).withHealthCheckType(request.getHealthCheckType() == null ? null : HealthCheckType.valueOf(request.getHealthCheckType())).withLoadBalancerNames(request.loadBalancerNames()).withTerminationPolicyTypes(request.terminationPolicies() == null ? null : Collections2.filter(Collections2.transform(request.terminationPolicies(),Enums.valueOfFunction(TerminationPolicyType.class)),Predicates.not(Predicates.isNull()))).withTags(request.getTags() == null ? null : Iterables.transform(request.getTags().getMember(),TypeMappers.lookup(TagType.class,AutoScalingGroupTag.class)));
         return builder.persist();
       }
  catch (      AutoScalingMetadataNotFoundException e) {
-        throw Exceptions.toUndeclared(new InvalidParameterValueException("Launch configuration not found: " + request.getLaunchConfigurationName()));
+        throw Exceptions.toUndeclared(new ValidationErrorException("Launch configuration not found: " + request.getLaunchConfigurationName()));
       }
 catch (      IllegalArgumentException e) {
-        throw Exceptions.toUndeclared(new InvalidParameterValueException("Invalid health check type: " + request.getHealthCheckType()));
+        throw Exceptions.toUndeclared(new ValidationErrorException("Invalid health check type: " + request.getHealthCheckType()));
       }
 catch (      Exception ex) {
         throw new RuntimeException(ex);

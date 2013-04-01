@@ -1,0 +1,21 @@
+{
+  final DeleteInstanceProfileResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final User requestUser=ctx.getUser();
+  final Account account=getRealAccount(ctx,request.getDelegateAccount());
+  final InstanceProfile instanceProfileFound=lookupInstanceProfileByName(account,request.getInstanceProfileName());
+  try {
+    Privileged.deleteInstanceProfile(requestUser,account,instanceProfileFound);
+  }
+ catch (  Exception e) {
+    LOG.error(e,e);
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to delete instance profile by " + requestUser.getName());
+      }
+    }
+    throw new EucalyptusCloudException(e);
+  }
+  return reply;
+}
