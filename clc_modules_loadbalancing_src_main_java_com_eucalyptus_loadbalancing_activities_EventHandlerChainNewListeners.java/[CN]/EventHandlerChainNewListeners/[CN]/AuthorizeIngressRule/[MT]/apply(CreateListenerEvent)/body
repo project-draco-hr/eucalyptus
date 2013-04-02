@@ -1,0 +1,25 @@
+{
+  this.event=evt;
+  final Collection<Listener> listeners=evt.getListeners();
+  LoadBalancer lb=null;
+  String groupName=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
+    Collection<LoadBalancerSecurityGroup> groups=lb.getGroups();
+    if (groups.size() > 0)     groupName=groups.toArray(new LoadBalancerSecurityGroup[groups.size()])[0].getName();
+  }
+ catch (  Exception ex) {
+    throw new EventHandlerException("could not find the loadbalancer",ex);
+  }
+  if (groupName == null)   throw new EventHandlerException("Group name is not found");
+  for (  Listener listener : listeners) {
+    int port=listener.getLoadBalancerPort();
+    String protocol="tcp";
+    try {
+      EucalyptusActivityTasks.getInstance().authorizeSecurityGroup(groupName,protocol,port);
+    }
+ catch (    Exception ex) {
+      throw new EventHandlerException(String.format("failed to authorize %s, %s, %d",groupName,protocol,port),ex);
+    }
+  }
+}

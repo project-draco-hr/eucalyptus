@@ -3,6 +3,16 @@
   Allocation allocInfo=Allocations.run(request);
   final EntityTransaction db=Entities.get(VmInstance.class);
   try {
+    if (!Strings.isNullOrEmpty(allocInfo.getClientToken())) {
+      final List<VmInstance> instances=VmInstances.listByClientToken(allocInfo.getOwnerFullName().asAccountFullName(),allocInfo.getClientToken(),RestrictedTypes.filterPrivileged());
+      if (!instances.isEmpty()) {
+        final VmInstance vm=instances.get(0);
+        final ReservationInfoType reservationInfoType=TypeMappers.transform(vm,ReservationInfoType.class);
+        Iterables.addAll(reservationInfoType.getInstancesSet(),Iterables.transform(instances,TypeMappers.lookup(VmInstance.class,RunningInstancesItemType.class)));
+        reply.setRsvInfo(reservationInfoType);
+        return reply;
+      }
+    }
     Predicates.and(VerifyMetadata.get(),AdmissionControl.run(),ContractEnforcement.run()).apply(allocInfo);
     allocInfo.commit();
     ReservationInfoType reservation=new ReservationInfoType(allocInfo.getReservationId(),allocInfo.getOwnerFullName().getAccountNumber(),Lists.transform(allocInfo.getNetworkGroups(),CloudMetadatas.toDisplayName()));

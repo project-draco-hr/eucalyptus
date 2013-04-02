@@ -1,0 +1,37 @@
+{
+  this.event=evt;
+  String groupName=String.format("euca-lb-%s-%s",evt.getLoadBalancer(),UUID.randomUUID().toString().substring(0,5));
+  String groupDesc=String.format("group for loadbalancer %s",evt.getLoadBalancer());
+  try {
+    EucalyptusActivityTasks.getInstance().createSecurityGroup(groupName,groupDesc);
+    createdGroup=groupName;
+  }
+ catch (  Exception ex) {
+    throw new EventHandlerException("Failed to create the security group for loadbalancer",ex);
+  }
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
+  }
+ catch (  NoSuchElementException ex) {
+    throw new EventHandlerException("Could not find the loadbalancer with name=" + evt.getLoadBalancer(),ex);
+  }
+catch (  Exception ex) {
+    throw new EventHandlerException("Error while looking for loadbalancer with name=" + evt.getLoadBalancer(),ex);
+  }
+  final EntityTransaction db=Entities.get(LoadBalancerSecurityGroup.class);
+  try {
+    Entities.uniqueResult(LoadBalancerSecurityGroup.named(lb,groupName));
+    db.commit();
+  }
+ catch (  NoSuchElementException ex) {
+    final LoadBalancerSecurityGroup newGroup=LoadBalancerSecurityGroup.named(lb,groupName);
+    LoadBalancerSecurityGroup written=Entities.persist(newGroup);
+    Entities.flush(written);
+    db.commit();
+  }
+catch (  Exception ex) {
+    db.rollback();
+    throw new EventHandlerException("Error while persisting security group",ex);
+  }
+}

@@ -1,4 +1,33 @@
 {
-  SuspendProcessesResponseType reply=request.getReply();
+  final SuspendProcessesResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  try {
+    final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+    final Callback<AutoScalingGroup> groupCallback=new Callback<AutoScalingGroup>(){
+      @Override public void fire(      final AutoScalingGroup autoScalingGroup){
+        if (RestrictedTypes.filterPrivileged().apply(autoScalingGroup)) {
+          final boolean isAdminSuspension=ctx.hasAdministrativePrivileges() && !autoScalingGroup.getOwnerAccountNumber().equals(accountFullName.getAccountNumber());
+          final Set<ScalingProcessType> processesToSuspend=EnumSet.allOf(ScalingProcessType.class);
+          if (request.getScalingProcesses() != null && !request.getScalingProcesses().getMember().isEmpty()) {
+            processesToSuspend.clear();
+            Iterables.addAll(processesToSuspend,Iterables.transform(request.getScalingProcesses().getMember(),Enums.valueOfFunction(ScalingProcessType.class)));
+          }
+          for (          final ScalingProcessType scalingProcessType : processesToSuspend) {
+            if (scalingProcessType.apply(autoScalingGroup)) {
+              autoScalingGroup.getSuspendedProcesses().add(isAdminSuspension ? SuspendedProcess.createAdministrative(scalingProcessType) : SuspendedProcess.createManual(scalingProcessType));
+            }
+          }
+        }
+      }
+    }
+;
+    autoScalingGroups.update(accountFullName,request.getAutoScalingGroupName(),groupCallback);
+  }
+ catch (  AutoScalingMetadataNotFoundException e) {
+    throw new ValidationErrorException("Auto scaling group not found: " + request.getAutoScalingGroupName());
+  }
+catch (  Exception e) {
+    handleException(e);
+  }
   return reply;
 }

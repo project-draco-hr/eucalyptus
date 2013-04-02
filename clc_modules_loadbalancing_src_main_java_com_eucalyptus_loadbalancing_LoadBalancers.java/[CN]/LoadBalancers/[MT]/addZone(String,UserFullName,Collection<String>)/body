@@ -1,4 +1,21 @@
 {
+  List<ClusterInfoType> clusters=null;
+  try {
+    clusters=EucalyptusActivityTasks.getInstance().describeAvailabilityZones();
+  }
+ catch (  Exception ex) {
+    throw new LoadBalancingException("Failed to check the requested zones");
+  }
+  for (  String zone : zones) {
+    boolean found=false;
+    for (    ClusterInfoType cluster : clusters) {
+      if (zone.equals(cluster.getZoneName())) {
+        found=true;
+        break;
+      }
+    }
+    if (!found)     throw new LoadBalancingException("No cluster named " + zone + " is available");
+  }
   LoadBalancer lb=null;
   try {
     lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
@@ -6,19 +23,27 @@
  catch (  Exception ex) {
     throw new AccessPointNotFoundException();
   }
-  final EntityTransaction db=Entities.get(LoadBalancerZone.class);
-  for (  String zone : zones) {
-    try {
-      Entities.uniqueResult(LoadBalancerZone.named(lb,zone));
+  try {
+    for (    String zone : zones) {
+      final EntityTransaction db=Entities.get(LoadBalancerZone.class);
+      try {
+        final LoadBalancerZone sample=LoadBalancerZone.named(lb,zone);
+        final LoadBalancerZone exist=Entities.uniqueResult(sample);
+        LOG.warn("existing zone is found: " + exist);
+        db.commit();
+      }
+ catch (      NoSuchElementException ex) {
+        final LoadBalancerZone newZone=LoadBalancerZone.named(lb,zone);
+        Entities.persist(newZone);
+        db.commit();
+      }
+catch (      Exception ex) {
+        db.rollback();
+        LOG.error("failed to persist the zone " + zone,ex);
+      }
     }
- catch (    NoSuchElementException ex) {
-      final LoadBalancerZone newZone=LoadBalancerZone.newInstance(lb,zone);
-      Entities.persist(newZone);
-      db.commit();
-    }
-catch (    Exception ex) {
-      LOG.error("failed to persist the zone " + zone,ex);
-      db.rollback();
-    }
+  }
+ catch (  Exception ex) {
+    throw new LoadBalancingException("Failed to add zone",ex);
   }
 }

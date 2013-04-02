@@ -1,0 +1,33 @@
+{
+  if (this.createdGroup == null)   return;
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(this.event.getContext().getUserFullName(),this.event.getLoadBalancer());
+  }
+ catch (  NoSuchElementException ex) {
+    return;
+  }
+catch (  Exception ex) {
+    return;
+  }
+  try {
+    EucalyptusActivityTasks.getInstance().deleteSecurityGroup(this.createdGroup);
+  }
+ catch (  Exception ex) {
+    throw new EventHandlerException("Failed to delete the security group in rollback",ex);
+  }
+  final EntityTransaction db=Entities.get(LoadBalancerSecurityGroup.class);
+  try {
+    final LoadBalancerSecurityGroup sample=LoadBalancerSecurityGroup.named(lb,this.createdGroup);
+    final LoadBalancerSecurityGroup toDelete=Entities.uniqueResult(sample);
+    Entities.delete(toDelete);
+    db.commit();
+  }
+ catch (  NoSuchElementException ex) {
+    db.rollback();
+  }
+catch (  Exception ex) {
+    db.rollback();
+    throw new EventHandlerException("Error while deleting security group record in rollback",ex);
+  }
+}
