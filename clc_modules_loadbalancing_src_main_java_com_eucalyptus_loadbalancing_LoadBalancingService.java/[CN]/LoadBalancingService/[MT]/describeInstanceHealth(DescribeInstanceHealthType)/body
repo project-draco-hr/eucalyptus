@@ -1,4 +1,48 @@
 {
   DescribeInstanceHealthResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final UserFullName ownerFullName=ctx.getUserFullName();
+  final String lbName=request.getLoadBalancerName();
+  Instances instances=request.getInstances();
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
+  }
+ catch (  NoSuchElementException ex) {
+    throw new AccessPointNotFoundException();
+  }
+catch (  Exception ex) {
+    throw new LoadBalancingException("failed to query loadbalancer due to unknown reason");
+  }
+  List<LoadBalancerBackendInstance> lbInstances=Lists.newArrayList(lb.getBackendInstances());
+  List<LoadBalancerBackendInstance> instancesFound=null;
+  if (instances != null && instances.getMember() != null && instances.getMember().size() > 0) {
+    instancesFound=Lists.newArrayList();
+    for (    Instance inst : instances.getMember()) {
+      String instId=inst.getInstanceId();
+      for (      final LoadBalancerBackendInstance lbInstance : lbInstances) {
+        if (instId.equals(lbInstance.getInstanceId())) {
+          instancesFound.add(lbInstance);
+          break;
+        }
+      }
+    }
+  }
+ else {
+    instancesFound=Lists.newArrayList(lb.getBackendInstances());
+  }
+  final ArrayList<InstanceState> stateList=Lists.newArrayList();
+  for (  final LoadBalancerBackendInstance instance : instancesFound) {
+    InstanceState state=new InstanceState();
+    state.setInstanceId(instance.getDisplayName());
+    state.setState(instance.getState().name());
+    if (instance.getState().equals(LoadBalancerBackendInstance.STATE.OutOfService) && instance.getReasonCode() != null)     state.setReasonCode(instance.getReasonCode());
+    stateList.add(state);
+  }
+  final InstanceStates states=new InstanceStates();
+  states.setMember(stateList);
+  final DescribeInstanceHealthResult result=new DescribeInstanceHealthResult();
+  result.setInstanceStates(states);
+  reply.setDescribeInstanceHealthResult(result);
   return reply;
 }

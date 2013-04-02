@@ -8,8 +8,10 @@
       Iterables.addAll(instancesToTerminate,Iterables.transform(currentInstances,AutoScalingInstances.instanceId()));
     }
  else {
+      final Set<String> groupZones=Sets.newLinkedHashSet(group.getAvailabilityZones());
+      groupZones.removeAll(zoneMonitor.getUnavailableZones(zoneFailureThreshold));
       final Set<String> unwantedZones=Sets.newHashSet(Iterables.transform(currentInstances,availabilityZone()));
-      unwantedZones.removeAll(group.getAvailabilityZones());
+      unwantedZones.removeAll(groupZones);
       final Set<String> targetZones;
       final List<AutoScalingInstance> remainingInstances=Lists.newArrayList(currentInstances);
       if (!unwantedZones.isEmpty()) {
@@ -18,14 +20,14 @@
           Iterable<AutoScalingInstance> unwantedInstances=Iterables.filter(currentInstances,withAvailabilityZone(unwantedZones));
           Iterables.addAll(instancesToTerminate,Iterables.transform(unwantedInstances,instanceId()));
           Iterables.removeAll(remainingInstances,Lists.newArrayList(unwantedInstances));
-          targetZones=Sets.newLinkedHashSet(group.getAvailabilityZones());
+          targetZones=groupZones;
         }
  else {
           targetZones=unwantedZones;
         }
       }
  else {
-        targetZones=Sets.newLinkedHashSet(group.getAvailabilityZones());
+        targetZones=groupZones;
       }
       final Map<String,Integer> zoneCounts=buildAvailabilityZoneInstanceCounts(currentInstances,targetZones);
       for (int i=instancesToTerminate.size(); i < terminateCount && remainingInstances.size() >= 1; i++) {
@@ -40,5 +42,5 @@
  catch (  final Exception e) {
     logger.error(e,e);
   }
-  return new TerminateInstancesScalingProcessTask(group,currentCapacity,instancesToTerminate,false);
+  return removeFromLoadBalancerOrTerminate(group,currentCapacity,instancesToTerminate,false);
 }
