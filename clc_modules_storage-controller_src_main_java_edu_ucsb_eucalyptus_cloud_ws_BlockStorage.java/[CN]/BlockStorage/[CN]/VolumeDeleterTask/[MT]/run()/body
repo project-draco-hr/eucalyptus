@@ -1,0 +1,29 @@
+{
+  EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
+  VolumeInfo searchVolume=new VolumeInfo();
+  searchVolume.setStatus(StorageProperties.Status.deleting.toString());
+  List<VolumeInfo> volumes=db.query(searchVolume);
+  db.commit();
+  for (  VolumeInfo vol : volumes) {
+    String volumeId=vol.getVolumeId();
+    LOG.info("Volume: " + volumeId + " was marked for deletion. Cleaning up...");
+    try {
+      blockManager.deleteVolume(volumeId);
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error(e,e);
+      continue;
+    }
+    db=StorageProperties.getEntityWrapper();
+    VolumeInfo foundVolume;
+    try {
+      foundVolume=db.getUnique(new VolumeInfo(volumeId));
+      db.delete(foundVolume);
+      db.commit();
+      EucaSemaphoreDirectory.removeSemaphore(volumeId);
+    }
+ catch (    EucalyptusCloudException e) {
+      db.rollback();
+    }
+  }
+}
