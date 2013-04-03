@@ -1,0 +1,33 @@
+{
+  final EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
+  LoadBalancer lb=null;
+  LoadBalancerZone lbZone=null;
+  try {
+    LoadBalancerServoInstance servo=Entities.uniqueResult(LoadBalancerServoInstance.named(servoId));
+    lbZone=servo.getAvailabilityZone();
+    lb=lbZone.getLoadbalancer();
+    db.commit();
+  }
+ catch (  NoSuchElementException ex) {
+    db.rollback();
+    throw Exceptions.toUndeclared("Failed to find the servo instance " + servoId);
+  }
+catch (  Exception ex) {
+    db.rollback();
+    throw Exceptions.toUndeclared("database error while querying " + servoId);
+  }
+  final String userId=lb.getOwnerUserId();
+  final String lbName=lb.getDisplayName();
+  final String zoneName=lbZone.getName();
+  ElbDimension dim=new ElbDimension(userId,lbName,zoneName);
+synchronized (lock) {
+    if (!metricsMap.containsKey(dim))     metricsMap.put(dim,new ElbAggregate(lbName,zoneName));
+    metricsMap.get(dim).addMetric(metric);
+  }
+  try {
+    maybeReport(lb.getOwnerUserId());
+  }
+ catch (  Exception ex) {
+    LOG.error(String.format("Failed to report cloudwatch metrics: %s-%s",lb.getOwnerUserName(),lb.getDisplayName()));
+  }
+}

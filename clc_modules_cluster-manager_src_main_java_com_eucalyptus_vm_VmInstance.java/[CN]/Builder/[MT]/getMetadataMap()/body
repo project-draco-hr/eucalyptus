@@ -41,6 +41,54 @@
   m.put("block-device-mapping/ephemeral0","sda2");
   m.put("block-device-mapping/swap","sda3");
   m.put("block-device-mapping/root","/dev/sda1");
+  if (!this.getNameOrArn().equals("")) {
+    AssumeRoleType assumeRoleType=new AssumeRoleType();
+    Account userAccount;
+    String roleArn=null;
+    InstanceProfile profile=null;
+    String roleName=null;
+    try {
+      userAccount=Accounts.lookupAccountByName(Account.SYSTEM_ACCOUNT);
+      profile=userAccount.lookupInstanceProfileByName(this.getNameOrArn());
+      Role role=profile.getRole();
+      roleArn=Accounts.getRoleArn(role);
+      role.getRoleId();
+      roleName=role.getName();
+    }
+ catch (    AuthException e) {
+      LOG.debug(e);
+    }
+    assumeRoleType.setRoleArn(roleArn);
+    assumeRoleType.setRoleSessionName("2JETSAA0QB8PGZOCA5FJI");
+    assumeRoleType.setEffectiveUserId(this.ownerUserId);
+    AssumeRoleResponseType assumeRoleResponseType=null;
+    ServiceConfiguration serviceConfiguration=ServiceConfigurations.createEphemeral(ComponentIds.lookup(Tokens.class));
+    try {
+      assumeRoleResponseType=(AssumeRoleResponseType)AsyncRequests.sendSync(serviceConfiguration,assumeRoleType);
+    }
+ catch (    Exception e) {
+      LOG.debug("Unable to send assume role request to token service",e);
+    }
+    final String accessKey=(assumeRoleResponseType != null ? assumeRoleResponseType.getAssumeRoleResult() : null).getCredentials().getAccessKeyId();
+    final Date expiration=(assumeRoleResponseType != null ? assumeRoleResponseType.getAssumeRoleResult() : null).getCredentials().getExpiration();
+    final String secretKey=(assumeRoleResponseType != null ? assumeRoleResponseType.getAssumeRoleResult() : null).getCredentials().getSecretAccessKey();
+    final String sessionToken=(assumeRoleResponseType != null ? assumeRoleResponseType.getAssumeRoleResult() : null).getCredentials().getSessionToken();
+    if (profile != null) {
+      m.put("iam/info/","last-updated-date\ninstance-profile-arn\ninstance-profile-id");
+      m.put("iam/info/last-updated-date",profile.getCreationTimestamp().toString());
+      m.put("iam/info/instance-profile-arn",roleArn);
+      m.put("iam/info/instance-profile-id",profile.getInstanceProfileId());
+    }
+    if (roleName != null || accessKey != null || expiration != null || secretKey != null || sessionToken != null) {
+      m.put("iam/","security-credentials/");
+      m.put("iam/security-credentials/",roleName + "/");
+      m.put("iam/security-credentials/" + roleName + "/","AccessKeyId\nExpiration\nSecretAccessKey\nToken");
+      m.put("iam/security-credentials/" + roleName + "/AccessKeyId/",accessKey);
+      m.put("iam/security-credentials/" + roleName + "/Expiration/",Timestamps.formatIso8601Timestamp(expiration));
+      m.put("iam/security-credentials/" + roleName + "/SecretAccessKey/",secretKey);
+      m.put("iam/security-credentials/" + roleName + "/Token/",sessionToken);
+    }
+  }
   if (this.bootRecord.getSshKeyPair() != null) {
     m.put("public-keys/","0=" + this.bootRecord.getSshKeyPair().getName());
     m.put("public-keys/0","openssh-key");

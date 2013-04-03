@@ -1,0 +1,100 @@
+{
+  InstanceUsageEvent event=null;
+  event=cloudWatchSupplier.get();
+  final VmInstance instance=VmInstances.lookup(event.getInstanceId());
+  if (!instance.getInstanceId().equals(event.getInstanceId()) || !instance.getBootRecord().isMonitoring()) {
+    throw new NoSuchElementException("Instance : " + event.getInstanceId() + " monitoring is not enabled");
+  }
+  if (instance.getInstanceId().equals(event.getInstanceId()) && instance.getBootRecord().isMonitoring()) {
+    PutMetricDataType putMetricData=new PutMetricDataType();
+    MetricDatum metricDatum=new MetricDatum();
+    ArrayList<Dimension> dimArray=Lists.newArrayList();
+    if (event.getDimension() != null && event.getValue() != null) {
+      if (event.getDimension().startsWith("vol-")) {
+        putMetricData.setNamespace("AWS/EBS");
+        Dimension volDim=new Dimension();
+        volDim.setName("VolumeId");
+        volDim.setValue(event.getDimension());
+        dimArray.add(volDim);
+        if (event.getMetric().startsWith("Disk")) {
+          final String convertedEBSMetricName=event.getMetric().replace("Disk","Volume");
+          metricDatum.setMetricName(convertedEBSMetricName);
+        }
+ else {
+          metricDatum.setMetricName(event.getMetric());
+        }
+      }
+ else {
+        putMetricData.setNamespace("AWS/EC2");
+        Dimension instanceIdDim=new Dimension();
+        instanceIdDim.setName("InstanceId");
+        instanceIdDim.setValue(instance.getInstanceId());
+        dimArray.add(instanceIdDim);
+        Dimension imageIdDim=new Dimension();
+        imageIdDim.setName("ImageId");
+        imageIdDim.setValue(instance.getImageId());
+        dimArray.add(imageIdDim);
+        Dimension instanceTypeDim=new Dimension();
+        instanceTypeDim.setName("InstanceType");
+        instanceTypeDim.setValue(instance.getVmType().getDisplayName());
+        dimArray.add(instanceTypeDim);
+        if (event.getMetric().equals("VolumeTotalReadTime")) {
+          metricDatum.setMetricName("DiskReadBytes");
+        }
+ else         if (event.getMetric().endsWith("External")) {
+          final String convertedEC2NetworkMetricName=event.getMetric().replace("External","");
+          metricDatum.setMetricName(convertedEC2NetworkMetricName);
+        }
+ else         if (event.getMetric().equals("VolumeTotalWriteTime")) {
+          metricDatum.setMetricName("DiskWriteBytes");
+        }
+ else {
+          metricDatum.setMetricName(event.getMetric());
+        }
+      }
+    }
+ else {
+      LOG.debug("Event does not contain a dimension");
+      throw new Exception();
+    }
+    Dimensions dims=new Dimensions();
+    dims.setMember(dimArray);
+    MetricData metricData=new MetricData();
+    metricDatum.setTimestamp(new Date(event.getValueTimestamp()));
+    metricDatum.setDimensions(dims);
+    metricDatum.setValue(event.getValue());
+    final String unitType=containsUnitType(metricDatum.getMetricName());
+    metricDatum.setUnit(unitType);
+    if (metricDatum.getMetricName().equals("CPUUtilization")) {
+      metricDatum.setMetricName("CPUUtilizationMS");
+    }
+    if (metricDatum.getMetricName().equals("VolumeReadOps")) {
+      metricDatum.setMetricName("VolumeReadOpsTotal");
+    }
+    if (metricDatum.getMetricName().equals("VolumeWriteOps")) {
+      metricDatum.setMetricName("VolumeWriteOpsTotal");
+    }
+    if (metricDatum.getMetricName().equals("VolumeReadBytes")) {
+      metricDatum.setMetricName("VolumeReadBytesTotal");
+    }
+    if (metricDatum.getMetricName().equals("VolumeWriteBytes")) {
+      metricDatum.setMetricName("VolumeWriteBytesTotal");
+    }
+    if (metricDatum.getMetricName().equals("VolumeTotalReadTime")) {
+      metricDatum.setMetricName("VolumeTotalReadTimeTotal");
+    }
+    if (metricDatum.getMetricName().equals("VolumeTotalWriteTime")) {
+      metricDatum.setMetricName("VolumeTotalWriteTimeTotal");
+    }
+    metricData.setMember(Lists.newArrayList(metricDatum));
+    putMetricData.setMetricData(metricData);
+    Account account=Accounts.getAccountProvider().lookupAccountById(instance.getOwnerAccountNumber());
+    User user=account.lookupUserByName(User.ACCOUNT_ADMIN);
+    putMetricData.setEffectiveUserId(user.getUserId());
+    ServiceConfiguration serviceConfiguration=ServiceConfigurations.createEphemeral(ComponentIds.lookup(CloudWatch.class));
+    BaseMessage reply=(BaseMessage)AsyncRequests.dispatch(serviceConfiguration,putMetricData).get();
+    if (!(reply instanceof PutMetricDataResponseType)) {
+      throw new EucalyptusCloudException("Unable to send put metric data to cloud watch");
+    }
+  }
+}
