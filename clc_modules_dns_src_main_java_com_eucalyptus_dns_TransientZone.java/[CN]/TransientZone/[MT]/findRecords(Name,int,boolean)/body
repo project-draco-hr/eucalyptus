@@ -1,0 +1,128 @@
+{
+  if (!name.toString().endsWith(this.getOrigin().toString())) {
+    return super.findRecords(name,type);
+  }
+  if (internal) {
+    LOG.debug("Processing internal request for " + name.toString() + " in Zone "+ getOrigin().toString());
+  }
+ else {
+    LOG.debug("Processing external request for " + name.toString() + " in Zone "+ getOrigin().toString());
+  }
+  if (StackConfiguration.USE_INSTANCE_DNS && name.toString().matches("euca-.+{3}-.+{3}-.+{3}-.+{3}\\..*")) {
+    try {
+      if (type == Type.AAAA)       return (SetResponse.ofType(SetResponse.SUCCESSFUL));
+      String[] tryIp=name.toString().replaceAll("euca-","").replaceAll(VmInstances.INSTANCE_SUBDOMAIN + ".*","").split("-");
+      if (tryIp.length < 4)       return super.findRecords(name,type);
+      String ipCandidate=new StringBuffer().append(tryIp[0]).append(".").append(tryIp[1]).append(".").append(tryIp[2]).append(".").append(tryIp[3]).toString();
+      if (getExternalName().subdomain(getOrigin())) {
+        try {
+          VmInstance vmInst=VmInstances.lookupByPublicIp(ipCandidate);
+          LOG.debug("Found public record for IP " + ipCandidate);
+          if (internal) {
+            ipCandidate=vmInst.getPrivateAddress();
+            LOG.debug("Translating to internal IP " + ipCandidate);
+          }
+        }
+ catch (        Exception e) {
+          return super.findRecords(name,type);
+        }
+      }
+ else       if (internal && getInternalName().subdomain(getOrigin())) {
+        try {
+          VmInstances.lookupByPrivateIp(ipCandidate);
+          LOG.debug("Found private record for IP " + ipCandidate);
+        }
+ catch (        Exception e1) {
+          return super.findRecords(name,type);
+        }
+      }
+ else {
+        return super.findRecords(name,type);
+      }
+      InetAddress ip=InetAddress.getByName(ipCandidate);
+      SetResponse resp=new SetResponse(SetResponse.SUCCESSFUL);
+      resp.addRRset(new RRset(new ARecord(name,1,ttl,ip)));
+      return resp;
+    }
+ catch (    Exception e) {
+      return super.findRecords(name,type);
+    }
+  }
+ else   if (name.toString().startsWith("eucalyptus.") || (name.toString().startsWith("euare."))) {
+    SetResponse resp=new SetResponse(SetResponse.SUCCESSFUL);
+    try {
+      InetAddress cloudIp=Topology.lookup(Eucalyptus.class).getInetAddress();
+      if (cloudIp != null) {
+        resp.addRRset(new RRset(new ARecord(name,1,20,cloudIp)));
+      }
+      return resp;
+    }
+ catch (    Exception e) {
+      return super.findRecords(name,type);
+    }
+  }
+ else   if (StackConfiguration.USE_INSTANCE_DNS && name.toString().endsWith(".in-addr.arpa.")) {
+    int index=name.toString().indexOf(".in-addr.arpa.");
+    Name target;
+    if (index > 0) {
+      String ipString=name.toString().substring(0,index);
+      String[] parts=ipString.split("\\.");
+      String ipCandidate;
+      if (parts.length == 4) {
+        ipCandidate=new StringBuffer().append(parts[3]).append(".").append(parts[2]).append(".").append(parts[1]).append(".").append(parts[0]).toString();
+      }
+ else {
+        return super.findRecords(name,type);
+      }
+      try {
+        VmInstance instance=VmInstances.lookupByPublicIp(ipCandidate);
+        target=new Name(instance.getPublicDnsName() + ".");
+      }
+ catch (      Exception e) {
+        try {
+          VmInstance instance=VmInstances.lookupByPrivateIp(ipCandidate);
+          target=new Name(instance.getPrivateDnsName() + ".");
+        }
+ catch (        Exception e1) {
+          return super.findRecords(name,type);
+        }
+      }
+      SetResponse resp=new SetResponse(SetResponse.SUCCESSFUL);
+      resp.addRRset(new RRset(new PTRRecord(name,DClass.IN,ttl,target)));
+      return resp;
+    }
+ else {
+      return super.findRecords(name,type);
+    }
+  }
+ else   if (name.toString().matches(".*\\.walrus\\..*")) {
+    String bucket=name.toString().substring(0,name.toString().indexOf(".walrus"));
+    InetAddress ip;
+    try {
+      ip=WalrusManager.getBucketIp(bucket);
+    }
+ catch (    EucalyptusCloudException e1) {
+      LOG.error(e1);
+      return super.findRecords(name,type);
+    }
+    SetResponse resp=new SetResponse(SetResponse.SUCCESSFUL);
+    resp.addRRset(new RRset(new ARecord(name,1,ttl,ip)));
+    return resp;
+  }
+ else   if (name.toString().startsWith("walrus.")) {
+    SetResponse resp=new SetResponse(SetResponse.SUCCESSFUL);
+    InetAddress walrusIp=null;
+    try {
+      walrusIp=WalrusProperties.getWalrusAddress();
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error(e);
+      return super.findRecords(name,type);
+    }
+    resp.addRRset(new RRset(new ARecord(name,1,20,walrusIp)));
+    return resp;
+  }
+ else {
+    return super.findRecords(name,type);
+  }
+}
