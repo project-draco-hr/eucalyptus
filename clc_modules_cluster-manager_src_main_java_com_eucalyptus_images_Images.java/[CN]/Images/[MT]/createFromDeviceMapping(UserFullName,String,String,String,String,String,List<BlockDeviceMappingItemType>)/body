@@ -10,20 +10,17 @@
   try {
     Snapshot snap=Transactions.find(Snapshot.named(userFullName,snapshotId));
     if (!userFullName.getUserId().equals(snap.getOwnerUserId())) {
-      throw new EucalyptusCloudException("Failed to create image from specified block device mapping: " + rootBlockDevice + " because of: you must the owner of the source snapshot.");
+      throw new EucalyptusCloudException("Failed to create image from specified block device mapping: " + rootBlockDevice + " because of: you must be the owner of the source snapshot.");
     }
-    Integer snapVolumeSize=snap.getVolumeSize();
-    Integer suppliedVolumeSize=(rootBlockDevice.getEbs().getVolumeSize() != null) ? rootBlockDevice.getEbs().getVolumeSize() : -1;
-    suppliedVolumeSize=(suppliedVolumeSize == null) ? rootBlockDevice.getSize() : suppliedVolumeSize;
-    Integer targetVolumeSizeGB=(snapVolumeSize <= suppliedVolumeSize) ? suppliedVolumeSize : snapVolumeSize;
-    Long imageSizeBytes=targetVolumeSizeGB * 1024l * 1024l* 1024l;
+    Integer suppliedVolumeSize=rootBlockDevice.getEbs().getVolumeSize() != null ? rootBlockDevice.getEbs().getVolumeSize() : snap.getVolumeSize();
+    Long imageSizeBytes=suppliedVolumeSize * 1024l * 1024l* 1024l;
     Boolean targetDeleteOnTermination=Boolean.TRUE.equals(rootBlockDevice.getEbs().getDeleteOnTermination());
     String imageId=Crypto.generateId(snapshotId,ImageMetadata.Type.machine.getTypePrefix());
-    BlockStorageImageInfo ret=new BlockStorageImageInfo(userFullName,imageId,imageName,imageDescription,imageSizeBytes,imageArch,imagePlatform,eki,eri,snap.getDisplayName(),targetDeleteOnTermination);
+    BlockStorageImageInfo ret=new BlockStorageImageInfo(userFullName,imageId,imageName,imageDescription,imageSizeBytes,imageArch,imagePlatform,eki,eri,snap.getDisplayName(),targetDeleteOnTermination,rootDeviceName);
     EntityWrapper<BlockStorageImageInfo> db=EntityWrapper.get(BlockStorageImageInfo.class);
     try {
       ret=db.merge(ret);
-      ret.getDeviceMappings().addAll(Lists.transform(blockDeviceMappings,Images.deviceMappingGenerator(ret)));
+      ret.getDeviceMappings().addAll(Lists.transform(blockDeviceMappings,Images.deviceMappingGenerator(ret,suppliedVolumeSize)));
       ret.setState(ImageMetadata.State.available);
       db.commit();
       LOG.info("Registering image pk=" + ret.getDisplayName() + " ownerId="+ userFullName);

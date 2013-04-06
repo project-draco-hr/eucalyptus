@@ -34,13 +34,42 @@
     m.put("ramdisk-id",this.bootRecord.getRamdisk().getDisplayName());
   }
   m.put("security-groups",this.getNetworkNames().toString().replaceAll("[\\Q[]\\E]","").replaceAll(", ","\n"));
-  m.put("block-device-mapping/","emi\nephemeral\nephemeral0\nroot\nswap");
-  m.put("block-device-mapping/emi","sda1");
-  m.put("block-device-mapping/ami","sda1");
-  m.put("block-device-mapping/ephemeral","sda2");
-  m.put("block-device-mapping/ephemeral0","sda2");
-  m.put("block-device-mapping/swap","sda3");
-  m.put("block-device-mapping/root","/dev/sda1");
+  if (this.bootRecord.getMachine() instanceof BlockStorageImageInfo) {
+    Set<VmVolumeAttachment> volAttachments=new TreeSet<VmVolumeAttachment>(VolumeAttachmentComparator.INSTANCE);
+    volAttachments.addAll(this.bootRecord.getPersistentVolumes());
+    String ebsKeys=new String();
+    int ebsCount=0;
+    for (    VmVolumeAttachment attachment : volAttachments) {
+      if (attachment.getIsRootDevice()) {
+        m.put("block-device-mapping/ami",attachment.getDevice());
+        m.put("block-device-mapping/emi",attachment.getDevice());
+        m.put("block-device-mapping/root",attachment.getDevice());
+      }
+      m.put("block-device-mapping/ebs" + String.valueOf(++ebsCount),attachment.getDevice());
+      ebsKeys+="\nebs" + String.valueOf(ebsCount);
+    }
+    Set<VmEphemeralAttachment> ephemeralAttachments=new TreeSet<VmEphemeralAttachment>(this.bootRecord.getEphmeralStorage());
+    String ephemeralKeys=new String();
+    if (!ephemeralAttachments.isEmpty()) {
+      for (      VmEphemeralAttachment attachment : ephemeralAttachments) {
+        m.put("block-device-mapping/" + attachment.getEphemeralId(),attachment.getDevice());
+        ephemeralKeys+="\n" + attachment.getEphemeralId();
+      }
+      m.put("block-device-mapping/","emi\nroot" + ebsKeys + ephemeralKeys);
+    }
+ else {
+      m.put("block-device-mapping/","emi\nroot" + ebsKeys);
+    }
+  }
+ else {
+    m.put("block-device-mapping/","emi\nephemeral\nephemeral0\nroot\nswap");
+    m.put("block-device-mapping/emi","sda1");
+    m.put("block-device-mapping/ami","sda1");
+    m.put("block-device-mapping/ephemeral","sda2");
+    m.put("block-device-mapping/ephemeral0","sda2");
+    m.put("block-device-mapping/swap","sda3");
+    m.put("block-device-mapping/root","/dev/sda1");
+  }
   if (!this.getNameOrArn().equals("")) {
     AssumeRoleType assumeRoleType=new AssumeRoleType();
     Account userAccount;
