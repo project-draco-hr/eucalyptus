@@ -1,7 +1,7 @@
 {
   DescribeLoadBalancersResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  final AccountFullName ownerFullName=ctx.getUserFullName().asAccountFullName();
+  final UserFullName ownerFullName=ctx.getUserFullName();
   final Set<String> requestedNames=Sets.newHashSet();
   if (!request.getLoadBalancerNames().getMember().isEmpty()) {
     requestedNames.addAll(request.getLoadBalancerNames().getMember());
@@ -14,12 +14,10 @@
   }
  else {
     final Function<Set<String>,Set<String>> lookupLBNames=new Function<Set<String>,Set<String>>(){
-      public Set<String> apply(      final Set<String> input){
-        final Predicate<? super LoadBalancer> requestedAndAccessible=CloudMetadatas.filteringFor(LoadBalancer.class).byId(input).byPrivileges().buildPredicate();
-        final List<LoadBalancer> lbs=Entities.query(LoadBalancer.named(ownerFullName,null),true);
-        Set<String> res=Sets.newHashSet();
-        for (        final LoadBalancer foundLB : Iterables.filter(lbs,requestedAndAccessible))         res.add(foundLB.getDisplayName());
-        return res;
+      @Override public Set<String> apply(      final Set<String> identifiers){
+        final Predicate<? super LoadBalancer> requestedAndAccessible=LoadBalancingMetadatas.filteringFor(LoadBalancer.class).byId(identifiers).byPrivileges().buildPredicate();
+        final List<LoadBalancer> lbs=Entities.query(LoadBalancer.named(ownerFullName.getAccountName(),null),true);
+        return Sets.newHashSet(Iterables.transform(Iterables.filter(lbs,requestedAndAccessible),LoadBalancingMetadatas.toDisplayName()));
       }
     }
 ;
@@ -28,7 +26,7 @@
   final Function<String,LoadBalancer> getLoadBalancer=new Function<String,LoadBalancer>(){
     @Override public LoadBalancer apply(    final String lbName){
       try {
-        return Entities.uniqueResult(LoadBalancer.named(ownerFullName,lbName));
+        return Entities.uniqueResult(LoadBalancer.named(ownerFullName.getAccountName(),lbName));
       }
  catch (      NoSuchElementException ex) {
         return null;
