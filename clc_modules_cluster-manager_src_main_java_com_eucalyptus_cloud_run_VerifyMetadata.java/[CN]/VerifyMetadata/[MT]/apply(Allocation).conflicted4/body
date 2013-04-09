@@ -1,24 +1,11 @@
 {
   Context ctx=allocInfo.getContext();
-  NetworkGroups.lookup(ctx.getUserFullName().asAccountFullName(),NetworkGroups.defaultNetworkName());
-  Set<String> networkNames=Sets.newHashSet(allocInfo.getRequest().getGroupSet());
-  if (networkNames.isEmpty()) {
-    networkNames.add(NetworkGroups.defaultNetworkName());
+  User user=ctx.getUser();
+  String instanceType=allocInfo.getRequest().getInstanceType();
+  VmType vmType=VmTypes.lookup(instanceType);
+  if (!ctx.hasAdministrativePrivileges() && !RestrictedTypes.filterPrivileged().apply(vmType)) {
+    throw new IllegalMetadataAccessException("Not authorized to allocate vm type " + instanceType + " for "+ ctx.getUserFullName());
   }
-  Map<String,NetworkGroup> networkRuleGroups=Maps.newHashMap();
-  for (  String groupName : networkNames) {
-    NetworkGroup group=NetworkGroups.lookup(ctx.getUserFullName().asAccountFullName(),groupName);
-    if (!ctx.hasAdministrativePrivileges() && !RestrictedTypes.filterPrivileged().apply(group)) {
-      throw new IllegalMetadataAccessException("Not authorized to use network group " + groupName + " for "+ ctx.getUser().getName());
-    }
-    networkRuleGroups.put(groupName,group);
-  }
-  Set<String> missingNets=Sets.difference(networkNames,networkRuleGroups.keySet());
-  if (!missingNets.isEmpty()) {
-    throw new NoSuchMetadataException("Failed to find security group info for: " + missingNets);
-  }
- else {
-    allocInfo.setNetworkRules(networkRuleGroups);
-  }
+  allocInfo.setVmType(vmType);
   return true;
 }

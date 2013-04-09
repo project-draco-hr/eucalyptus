@@ -1,10 +1,19 @@
 {
   final DescribeTagsResponseType reply=request.getReply();
+  final Collection<Predicate<Tag>> tagFilters=Lists.newArrayList();
+  for (  final Filter filter : request.filters()) {
+    final Function<Tag,String> extractor=tagFilterExtractors.get(filter.getName());
+    if (extractor == null) {
+      throw new ValidationErrorException("Filter type " + filter.getName() + " is not correct. Allowed Filter types are: auto-scaling-group key value propagate-at-launch");
+    }
+    final Function<String,String> tagValueConverter=Objects.firstNonNull(tagValuePreProcessors.get(filter.getName()),Functions.<String>identity());
+    tagFilters.add(Predicates.compose(Predicates.in(Collections2.transform(filter.values(),tagValueConverter)),extractor));
+  }
   final Context context=Contexts.lookup();
   final Ordering<Tag> ordering=Ordering.natural().onResultOf(Tags.resourceId()).compound(Ordering.natural().onResultOf(Tags.key())).compound(Ordering.natural().onResultOf(Tags.value()));
   try {
     final TagDescriptionList tagDescriptions=new TagDescriptionList();
-    for (    final Tag tag : ordering.sortedCopy(Tags.list(context.getUserFullName().asAccountFullName(),Predicates.alwaysTrue(),Restrictions.conjunction(),Collections.<String,String>emptyMap()))) {
+    for (    final Tag tag : ordering.sortedCopy(Tags.list(context.getUserFullName().asAccountFullName(),Predicates.and(tagFilters),Restrictions.conjunction(),Collections.<String,String>emptyMap()))) {
       if (Permissions.isAuthorized(PolicySpec.VENDOR_AUTOSCALING,tag.getResourceType(),tag.getKey(),context.getAccount(),PolicySpec.describeAction(PolicySpec.VENDOR_AUTOSCALING,tag.getResourceType()),context.getUser())) {
         tagDescriptions.getMember().add(TypeMappers.transform(tag,TagDescription.class));
       }

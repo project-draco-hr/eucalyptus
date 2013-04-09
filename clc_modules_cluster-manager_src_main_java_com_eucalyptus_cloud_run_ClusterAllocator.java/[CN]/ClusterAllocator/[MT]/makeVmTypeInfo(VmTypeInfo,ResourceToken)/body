@@ -1,0 +1,52 @@
+{
+  VmTypeInfo childVmInfo=vmInfo.child();
+  if (this.allocInfo.getBootSet().getMachine() instanceof BlockStorageImageInfo) {
+    final VmInstance vm=VmInstances.lookup(token.getInstanceId());
+    Set<VmVolumeAttachment> volumeAttachments=vm.getBootRecord().getPersistentVolumes();
+    Set<VmEphemeralAttachment> ephemeralAttachments=vm.getBootRecord().getEphmeralStorage();
+    VirtualBootRecord root=childVmInfo.lookupRoot();
+    for (    final VmVolumeAttachment volumeAttachment : volumeAttachments) {
+      String volumeId=volumeAttachment.getVolumeId();
+      VirtualBootRecord vbr=null;
+      String remoteDeviceString=null;
+      Volume volume=null;
+      if (volumeAttachment.getIsRootDevice()) {
+        volume=token.getRootVolume();
+        vbr=root;
+        vbr.setGuestDeviceName(volumeAttachment.getDevice());
+        vbr.setSize(volume.getSize() * 1024l * 1024l);
+      }
+ else {
+        volume=Volumes.lookup(this.allocInfo.getOwnerFullName(),volumeId);
+        vbr=new VirtualBootRecord(volumeId,null,"ebs",volumeAttachment.getDevice(),volume.getSize() * 1024l * 1024l,"none");
+        childVmInfo.getVirtualBootRecord().add(vbr);
+      }
+      LOG.debug("Wait for volume " + volume.getDisplayName() + " to become available");
+      final ServiceConfiguration scConfig=waitForVolume(volume);
+      try {
+        LOG.debug("About to attach volume " + volume.getDisplayName() + " to instance "+ vm.getDisplayName());
+        AttachStorageVolumeType attachMsg=new AttachStorageVolumeType(Nodes.lookupIqns(this.cluster.getConfiguration()),volumeId);
+        final AttachStorageVolumeResponseType scAttachResponse=AsyncRequests.sendSync(scConfig,attachMsg);
+        LOG.debug(volume.getDisplayName() + ", " + vm.getDisplayName()+ ": Attach response from SC: "+ scAttachResponse);
+        remoteDeviceString=scAttachResponse.getRemoteDeviceString();
+        if (remoteDeviceString == null) {
+          throw new EucalyptusCloudException("Failed to get remote device string for " + volumeId + " while running instance "+ token.getInstanceId());
+        }
+ else {
+          vbr.setResourceLocation(remoteDeviceString);
+          vm.updatePersistantVolume(remoteDeviceString,volume,volumeAttachment);
+        }
+      }
+ catch (      final Exception ex) {
+        LOG.error(ex);
+        Logs.extreme().error(ex,ex);
+        throw ex;
+      }
+    }
+    for (    VmEphemeralAttachment ephemeral : ephemeralAttachments) {
+      childVmInfo.setEphemeral(0,ephemeral.getDevice(),(this.allocInfo.getVmType().getDisk()) * 1024l * 1024l* 1024l,"none");
+    }
+    LOG.debug("Instance information: " + childVmInfo.dump());
+  }
+  return childVmInfo;
+}

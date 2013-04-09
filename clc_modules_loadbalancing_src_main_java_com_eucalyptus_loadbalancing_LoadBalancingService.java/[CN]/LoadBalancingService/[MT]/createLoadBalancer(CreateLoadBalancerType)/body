@@ -3,8 +3,24 @@
   final Context ctx=Contexts.lookup();
   final UserFullName ownerFullName=ctx.getUserFullName();
   final String lbName=request.getLoadBalancerName();
-  final LoadBalancer lb=LoadBalancers.addLoadbalancer(ownerFullName,lbName);
-  if (lb == null)   throw new LoadBalancingException(String.format("Requested loadbalancer %s cannot be created",lbName));
+  final Supplier<LoadBalancer> allocator=new Supplier<LoadBalancer>(){
+    @Override public LoadBalancer get(){
+      try {
+        return LoadBalancers.addLoadbalancer(ownerFullName,lbName);
+      }
+ catch (      LoadBalancingException e) {
+        throw Exceptions.toUndeclared(e);
+      }
+    }
+  }
+;
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancingMetadatas.allocateUnitlessResource(allocator);
+  }
+ catch (  Exception e) {
+    handleException(e);
+  }
   final LoadBalancerDnsRecord dns=LoadBalancers.getDnsRecord(lb);
   if (dns == null || dns.getName() == null)   throw new LoadBalancingException("New dns name could not be created");
   Function<String,Boolean> rollback=new Function<String,Boolean>(){
@@ -28,7 +44,17 @@
 ;
   Collection<String> zones=request.getAvailabilityZones().getMember();
   if (zones != null && zones.size() > 0) {
-    LoadBalancers.addZone(lbName,ownerFullName,zones);
+    try {
+      LoadBalancers.addZone(lbName,ownerFullName,zones);
+    }
+ catch (    LoadBalancingException ex) {
+      rollback.apply(lbName);
+      throw ex;
+    }
+catch (    Exception ex) {
+      rollback.apply(lbName);
+      throw new LoadBalancingException("failed to create the loadbalancer",ex);
+    }
   }
   try {
     NewLoadbalancerEvent evt=new NewLoadbalancerEvent();
