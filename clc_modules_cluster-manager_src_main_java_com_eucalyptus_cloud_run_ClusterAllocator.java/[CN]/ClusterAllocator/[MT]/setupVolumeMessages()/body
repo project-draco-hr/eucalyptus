@@ -28,21 +28,34 @@
             if (isRootDevice) {
               token.setRootVolume(volume);
             }
+ else {
+              token.getEbsVolumes().put(mapping.getDeviceName(),volume);
+            }
           }
  else           if (mapping.getVirtualName() != null) {
             vm.addEphemeralAttachment(mapping.getDeviceName(),mapping.getVirtualName());
+            token.getEphemeralDisks().put(mapping.getDeviceName(),mapping.getVirtualName());
           }
         }
       }
  else {
-        final VmVolumeAttachment rootVolAttachment=Iterables.find(vm.getBootRecord().getPersistentVolumes(),Images.findEbsRootVolumeAttachment(rootDevName),null);
-        if (null == rootVolAttachment) {
+        boolean foundRoot=false;
+        for (        VmVolumeAttachment attachment : vm.getBootRecord().getPersistentVolumes()) {
+          final Volume volume=Volumes.lookup(null,attachment.getVolumeId());
+          if (attachment.getIsRootDevice() || attachment.getDevice().equals(rootDevName)) {
+            token.setRootVolume(volume);
+            foundRoot=true;
+          }
+ else {
+            token.getEbsVolumes().put(attachment.getDevice(),volume);
+          }
+        }
+        if (!foundRoot) {
           LOG.error("No volume attachment found for root device. Attach a volume to root device and retry");
           throw new MetadataException("No volume attachment found for root device. Attach a volume to root device and retry");
         }
- else {
-          final Volume volume=Volumes.lookup(null,rootVolAttachment.getVolumeId());
-          token.setRootVolume(volume);
+        for (        VmEphemeralAttachment attachment : vm.getBootRecord().getEphmeralStorage()) {
+          token.getEphemeralDisks().put(attachment.getDevice(),attachment.getEphemeralId());
         }
       }
     }
