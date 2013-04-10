@@ -6,18 +6,36 @@
   final Collection<String> zones=request.getAvailabilityZones().getMember();
   if (zones != null && zones.size() > 0) {
     try {
-      DisabledZoneEvent evt=new DisabledZoneEvent();
+      final DisabledZoneEvent evt=new DisabledZoneEvent();
       evt.setLoadBalancer(lbName);
       evt.setContext(ctx);
       evt.setZones(zones);
       ActivityManager.getInstance().fire(evt);
     }
  catch (    EventFailedException e) {
-      LOG.error("failed to fire DisabledZone event",e);
+      LOG.error("failed to execute DisabledZone event",e);
       throw new LoadBalancingException("failed to disable zones: internal error",e);
     }
-    LoadBalancers.removeZone(lbName,ownerFullName,zones);
   }
+  List<String> availableZones=Lists.newArrayList();
+  try {
+    LoadBalancer lb=null;
+    lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
+    availableZones=Lists.transform(LoadBalancers.findZonesInService(lb),new Function<LoadBalancerZone,String>(){
+      @Override public String apply(      @Nullable LoadBalancerZone arg0){
+        return arg0.getName();
+      }
+    }
+);
+  }
+ catch (  Exception ex) {
+    ;
+  }
+  final DisableAvailabilityZonesForLoadBalancerResult result=new DisableAvailabilityZonesForLoadBalancerResult();
+  final AvailabilityZones availZones=new AvailabilityZones();
+  availZones.setMember(Lists.newArrayList(availableZones));
+  result.setAvailabilityZones(availZones);
+  reply.setDisableAvailabilityZonesForLoadBalancerResult(result);
   reply.set_return(true);
   return reply;
 }
