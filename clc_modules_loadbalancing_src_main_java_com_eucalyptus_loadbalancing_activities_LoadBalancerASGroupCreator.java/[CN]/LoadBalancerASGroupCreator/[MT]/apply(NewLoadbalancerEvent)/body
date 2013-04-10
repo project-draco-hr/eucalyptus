@@ -1,0 +1,68 @@
+{
+  if (LOADBALANCER_EMI == null)   throw new EventHandlerException("Loadbalancer's EMI is not configured");
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
+    this.loadbalancer=lb;
+  }
+ catch (  NoSuchElementException ex) {
+    throw new EventHandlerException("Failed to find the loadbalancer " + evt.getLoadBalancer(),ex);
+  }
+catch (  Exception ex) {
+    throw new EventHandlerException("Failed due to query exception",ex);
+  }
+  InstanceUserDataBuilder userDataBuilder=null;
+  try {
+    userDataBuilder=new InstanceUserDataWithCredential(evt.getContext().getUserFullName());
+  }
+ catch (  Exception ex) {
+    throw new EventHandlerException("failed to create service parameters",ex);
+  }
+  String launchConfigName=String.format("lc-euca-internal-elb-%s-%s",lb.getOwnerAccountNumber(),lb.getDisplayName());
+  if (launchConfigName.length() > 255)   launchConfigName=launchConfigName.substring(0,255);
+  String groupName=String.format("asg-euca-internal-elb-%s-%s",lb.getOwnerAccountNumber(),lb.getDisplayName());
+  if (groupName.length() > 255)   groupName=groupName.substring(0,255);
+  String instanceProfileName=null;
+  try {
+    List<String> result=this.chain.findHandler(InstanceProfileSetup.class).getResult();
+    instanceProfileName=result.get(0);
+  }
+ catch (  Exception ex) {
+    ;
+  }
+  try {
+    StoredResult<String> sgroupSetup=this.getChain().findHandler(SecurityGroupSetup.class);
+    final List<String> group=sgroupSetup.getResult();
+    final String sgroupName=group.size() > 0 ? group.get(0) : null;
+    EucalyptusActivityTasks.getInstance().createLaunchConfiguration(LOADBALANCER_EMI,LOADBALANCER_INSTANCE_TYPE,instanceProfileName,launchConfigName,sgroupName,userDataBuilder.build());
+    this.launchConfigName=launchConfigName;
+  }
+ catch (  Exception ex) {
+    throw new EventHandlerException("Failed to create launch configuration",ex);
+  }
+  int capacity=1;
+  try {
+    final List<String> availabilityZones=Lists.newArrayList(evt.getZones());
+    capacity=availabilityZones.size() * this.capacityPerZone;
+    EucalyptusActivityTasks.getInstance().createAutoScalingGroup(groupName,availabilityZones,capacity,launchConfigName);
+    this.asgName=groupName;
+  }
+ catch (  Exception ex) {
+    throw new EventHandlerException("Failed to create autoscaling group",ex);
+  }
+  final EntityTransaction db=Entities.get(LoadBalancerAutoScalingGroup.class);
+  try {
+    Entities.uniqueResult(LoadBalancerAutoScalingGroup.named(lb));
+    db.commit();
+  }
+ catch (  NoSuchElementException ex) {
+    final LoadBalancerAutoScalingGroup group=LoadBalancerAutoScalingGroup.newInstance(lb,launchConfigName,groupName);
+    group.setCapacity(capacity);
+    Entities.persist(group);
+    db.commit();
+  }
+catch (  Exception ex) {
+    db.rollback();
+    throw new EventHandlerException("Failed to commit the database",ex);
+  }
+}

@@ -1,0 +1,50 @@
+{
+  final MetricData data=new MetricData();
+  data.setMember(Lists.<MetricDatum>newArrayList());
+  final List<ElbDimension> toCleanup=Lists.newArrayList();
+synchronized (lock) {
+    for (    final ElbDimension dim : this.metricsMap.keySet()) {
+      if (!dim.getUserId().equals(userId))       continue;
+      final ElbAggregate aggr=this.metricsMap.get(dim);
+      final List<MetricDatum> datumList=aggr.toELBStatistics();
+      Dimensions dims=new Dimensions();
+      Dimension lb=new Dimension();
+      lb.setName("LoadBalancerName");
+      lb.setValue(dim.getLoadbalancer());
+      Dimension az=new Dimension();
+      az.setName("AvailabilityZone");
+      az.setValue(dim.getAvailabilityZone());
+      dims.setMember(Lists.newArrayList(lb,az));
+      if (this.healthyCountMap.containsKey(dim)) {
+        int numHealthy=this.healthyCountMap.get(dim);
+        if (numHealthy > 0) {
+          MetricDatum datum=new MetricDatum();
+          datum.setDimensions(dims);
+          datum.setMetricName("HealthyHostCount");
+          datum.setUnit("Count");
+          datum.setValue((double)numHealthy);
+          datumList.add(datum);
+        }
+      }
+      if (this.unhealthyCountMap.containsKey(dim)) {
+        int numUnhealthy=this.unhealthyCountMap.get(dim);
+        if (numUnhealthy > 0) {
+          MetricDatum datum=new MetricDatum();
+          datum.setDimensions(dims);
+          datum.setMetricName("UnHealthyHostCount");
+          datum.setUnit("Count");
+          datum.setValue((double)numUnhealthy);
+          datumList.add(datum);
+        }
+      }
+      if (datumList.size() > 0)       data.getMember().addAll(datumList);
+      toCleanup.add(dim);
+    }
+    for (    ElbDimension cleanup : toCleanup) {
+      this.metricsMap.remove(cleanup);
+      this.healthyCountMap.remove(cleanup);
+      this.unhealthyCountMap.remove(cleanup);
+    }
+  }
+  return data;
+}
