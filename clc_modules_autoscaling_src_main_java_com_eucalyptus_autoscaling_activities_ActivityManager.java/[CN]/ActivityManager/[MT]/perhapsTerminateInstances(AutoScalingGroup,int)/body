@@ -9,7 +9,7 @@
     }
  else {
       final Set<String> groupZones=Sets.newLinkedHashSet(group.getAvailabilityZones());
-      groupZones.removeAll(zoneMonitor.getUnavailableZones(zoneFailureThreshold));
+      groupZones.removeAll(zoneMonitor.getUnavailableZones(AutoScalingConfiguration.getZoneFailureThresholdMillis()));
       final Set<String> unwantedZones=Sets.newHashSet(Iterables.transform(currentInstances,availabilityZone()));
       unwantedZones.removeAll(groupZones);
       final Set<String> targetZones;
@@ -42,5 +42,10 @@
  catch (  final Exception e) {
     logger.error(e,e);
   }
-  return removeFromLoadBalancerOrTerminate(group,currentCapacity,instancesToTerminate,false);
+  final List<ActivityCause> causes=Lists.newArrayList();
+  causes.add(new ActivityCause(String.format("an instance was taken out of service in response to a difference between desired and actual capacity, shrinking the capacity from %1$d to %2$d",group.getCapacity(),group.getCapacity() - instancesToTerminate.size())));
+  for (  final String instanceId : instancesToTerminate) {
+    causes.add(new ActivityCause(String.format("instance %1$s was selected for termination",instanceId)));
+  }
+  return removeFromLoadBalancerOrTerminate(group,currentCapacity,instancesToTerminate,causes,false);
 }
