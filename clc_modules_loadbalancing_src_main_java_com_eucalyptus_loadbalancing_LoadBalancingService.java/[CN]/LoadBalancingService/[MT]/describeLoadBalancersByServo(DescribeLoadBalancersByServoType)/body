@@ -1,0 +1,94 @@
+{
+  final DescribeLoadBalancersByServoResponseType reply=request.getReply();
+  final String instanceId=request.getInstanceId();
+  LoadBalancerZone zone=null;
+  try {
+    if (isValidServoRequest(instanceId)) {
+      final LoadBalancerServoInstance instance=LoadBalancers.lookupServoInstance(instanceId);
+      zone=instance.getAvailabilityZone();
+    }
+  }
+ catch (  NoSuchElementException ex) {
+    ;
+  }
+catch (  Exception ex) {
+    LOG.warn("failed to query loadbalancer for servo instance: " + instanceId);
+  }
+  final Function<LoadBalancerZone,Set<LoadBalancerDescription>> lookupLBDescriptions=new Function<LoadBalancerZone,Set<LoadBalancerDescription>>(){
+    @Override public Set<LoadBalancerDescription> apply(    LoadBalancerZone zone){
+      final Set<LoadBalancerDescription> descs=Sets.newHashSet();
+      final LoadBalancer lb=zone.getLoadbalancer();
+      final String lbName=lb.getDisplayName();
+      LoadBalancerDescription desc=new LoadBalancerDescription();
+      desc.setLoadBalancerName(lbName);
+      desc.setCreatedTime(lb.getCreationTimestamp());
+      final LoadBalancerDnsRecord dns=lb.getDns();
+      desc.setDnsName(dns.getDnsName());
+      if (zone.getBackendInstances().size() > 0) {
+        desc.setInstances(new Instances());
+        desc.getInstances().setMember(new ArrayList<Instance>(Collections2.transform(zone.getBackendInstances(),new Function<LoadBalancerBackendInstance,Instance>(){
+          @Override public Instance apply(          final LoadBalancerBackendInstance be){
+            Instance instance=new Instance();
+            instance.setInstanceId(be.getInstanceId() + ":" + be.getIpAddress());
+            return instance;
+          }
+        }
+)));
+      }
+      desc.setAvailabilityZones(new AvailabilityZones());
+      desc.getAvailabilityZones().setMember(Lists.newArrayList(zone.getName()));
+      if (lb.getListeners().size() > 0) {
+        desc.setListenerDescriptions(new ListenerDescriptions());
+        desc.getListenerDescriptions().setMember(new ArrayList<ListenerDescription>(Collections2.transform(lb.getListeners(),new Function<LoadBalancerListener,ListenerDescription>(){
+          @Override public ListenerDescription apply(          final LoadBalancerListener input){
+            ListenerDescription desc=new ListenerDescription();
+            Listener listener=new Listener();
+            listener.setLoadBalancerPort(input.getLoadbalancerPort());
+            listener.setInstancePort(input.getInstancePort());
+            if (input.getInstanceProtocol() != PROTOCOL.NONE)             listener.setInstanceProtocol(input.getInstanceProtocol().name());
+            listener.setProtocol(input.getProtocol().name());
+            if (input.getCertificateId() != null)             listener.setSslCertificateId(input.getCertificateId());
+            desc.setListener(listener);
+            return desc;
+          }
+        }
+)));
+      }
+      try {
+        int interval=lb.getHealthCheckInterval();
+        String target=lb.getHealthCheckTarget();
+        int timeout=lb.getHealthCheckTimeout();
+        int healthyThresholds=lb.getHealthyThreshold();
+        int unhealthyThresholds=lb.getHealthCheckUnhealthyThreshold();
+        final HealthCheck hc=new HealthCheck();
+        hc.setInterval(interval);
+        hc.setHealthyThreshold(healthyThresholds);
+        hc.setTarget(target);
+        hc.setTimeout(timeout);
+        hc.setUnhealthyThreshold(unhealthyThresholds);
+        desc.setHealthCheck(hc);
+      }
+ catch (      IllegalStateException ex) {
+        ;
+      }
+catch (      Exception ex) {
+        ;
+      }
+      descs.add(desc);
+      return descs;
+    }
+  }
+;
+  Set<LoadBalancerDescription> descs=null;
+  if (zone != null && zone.getState().equals(LoadBalancerZone.STATE.InService)) {
+    descs=lookupLBDescriptions.apply(zone);
+  }
+ else   descs=Sets.<LoadBalancerDescription>newHashSet();
+  DescribeLoadBalancersResult descResult=new DescribeLoadBalancersResult();
+  LoadBalancerDescriptions lbDescs=new LoadBalancerDescriptions();
+  lbDescs.setMember(new ArrayList<LoadBalancerDescription>(descs));
+  descResult.setLoadBalancerDescriptions(lbDescs);
+  reply.setDescribeLoadBalancersResult(descResult);
+  reply.set_return(true);
+  return reply;
+}

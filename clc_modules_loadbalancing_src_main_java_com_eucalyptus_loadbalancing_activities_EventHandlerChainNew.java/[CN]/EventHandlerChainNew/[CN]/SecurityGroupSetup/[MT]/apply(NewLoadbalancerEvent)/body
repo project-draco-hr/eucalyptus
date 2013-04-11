@@ -12,18 +12,28 @@ catch (  Exception ex) {
   }
   String groupName=String.format("euca-internal-%s-%s",lb.getOwnerAccountNumber(),lb.getDisplayName());
   String groupDesc=String.format("group for loadbalancer %s",evt.getLoadBalancer());
+  boolean groupFound=false;
   try {
-    EucalyptusActivityTasks.getInstance().deleteSecurityGroup(groupName);
+    List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeSecurityGroups(Lists.newArrayList(groupName));
+    if (groups != null && groups.size() > 0) {
+      final SecurityGroupItemType current=groups.get(0);
+      if (groupName.equals(current.getGroupName()))       groupFound=true;
+    }
   }
  catch (  Exception ex) {
-    ;
+    groupFound=false;
   }
-  try {
-    EucalyptusActivityTasks.getInstance().createSecurityGroup(groupName,groupDesc);
+  if (!groupFound) {
+    try {
+      EucalyptusActivityTasks.getInstance().createSecurityGroup(groupName,groupDesc);
+      createdGroup=groupName;
+    }
+ catch (    Exception ex) {
+      throw new EventHandlerException("Failed to create the security group for loadbalancer",ex);
+    }
+  }
+ else {
     createdGroup=groupName;
-  }
- catch (  Exception ex) {
-    throw new EventHandlerException("Failed to create the security group for loadbalancer",ex);
   }
   final EntityTransaction db=Entities.get(LoadBalancerSecurityGroup.class);
   try {
