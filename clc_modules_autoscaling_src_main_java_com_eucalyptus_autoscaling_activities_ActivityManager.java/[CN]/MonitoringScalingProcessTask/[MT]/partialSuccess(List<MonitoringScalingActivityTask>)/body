@@ -1,18 +1,31 @@
 {
-  final Set<String> transitionToHealthy=Sets.newHashSet(pendingInstanceIds);
+  final Set<String> transitionToInService=Sets.newHashSet(pendingInstanceIds);
+  final Set<String> transitionToUnhealthy=Sets.newHashSet(pendingInstanceIds);
+  final Set<String> transitionToUnhealthyIfExpired=Sets.newHashSet(pendingInstanceIds);
   final Set<String> healthyInstanceIds=Sets.newHashSet();
+  final Set<String> knownInstanceIds=Sets.newHashSet();
   for (  final MonitoringScalingActivityTask task : tasks) {
+    knownInstanceIds.addAll(task.getKnownInstanceIds());
     healthyInstanceIds.addAll(task.getHealthyInstanceIds());
   }
-  transitionToHealthy.retainAll(healthyInstanceIds);
+  transitionToInService.retainAll(healthyInstanceIds);
+  transitionToUnhealthy.removeAll(knownInstanceIds);
+  transitionToUnhealthyIfExpired.removeAll(healthyInstanceIds);
   if (scalingProcessEnabled(ScalingProcessType.HealthCheck,getGroup()))   try {
     autoScalingInstances.markMissingInstancesUnhealthy(getGroup(),healthyInstanceIds);
   }
  catch (  AutoScalingMetadataException e) {
     logger.error(e,e);
   }
-  if (!transitionToHealthy.isEmpty())   try {
-    autoScalingInstances.transitionState(getGroup(),LifecycleState.Pending,LifecycleState.InService,transitionToHealthy);
+  try {
+    autoScalingInstances.markExpiredPendingUnhealthy(getGroup(),transitionToUnhealthy,timestamp());
+    autoScalingInstances.markExpiredPendingUnhealthy(getGroup(),transitionToUnhealthyIfExpired,timestamp() - AutoScalingConfiguration.getPendingInstanceTimeoutMillis());
+  }
+ catch (  AutoScalingMetadataException e) {
+    logger.error(e,e);
+  }
+  if (!transitionToInService.isEmpty())   try {
+    autoScalingInstances.transitionState(getGroup(),LifecycleState.Pending,LifecycleState.InService,transitionToInService);
   }
  catch (  AutoScalingMetadataException e) {
     logger.error(e,e);
