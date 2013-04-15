@@ -1,0 +1,39 @@
+{
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
+  }
+ catch (  NoSuchElementException ex) {
+    throw new EventHandlerException("Could not find the loadbalancer with name=" + evt.getLoadBalancer(),ex);
+  }
+catch (  Exception ex) {
+    throw new EventHandlerException("Error while looking for loadbalancer with name=" + evt.getLoadBalancer(),ex);
+  }
+  final LoadBalancerDnsRecord dnsRec=lb.getDns();
+  if (dnsRec == null) {
+    LOG.warn("failed to find the dns record for the loadbalancer");
+    return;
+  }
+  this.dnsName=dnsRec.getName();
+  this.dnsZone=dnsRec.getZone();
+  final List<String> ipAddressToRemove=Lists.newArrayList();
+  final List<LoadBalancerZone> currentZones=Lists.newArrayList(lb.getZones());
+  for (  final LoadBalancerZone zone : currentZones) {
+    if (evt.getZones().contains(zone.getName())) {
+      for (      final LoadBalancerServoInstance instance : zone.getServoInstances()) {
+        final String ipAddr=instance.getAddress();
+        ipAddressToRemove.add(ipAddr);
+      }
+    }
+  }
+  this.ipAddressRemoved=Lists.newArrayList();
+  for (  final String ipAddr : ipAddressToRemove) {
+    try {
+      EucalyptusActivityTasks.getInstance().removeARecord(dnsZone,dnsName,ipAddr);
+      this.ipAddressRemoved.add(ipAddr);
+    }
+ catch (    Exception ex) {
+      LOG.warn(String.format("failed to remove A record %s-%s-%s",dnsZone,dnsName,ipAddr));
+    }
+  }
+}

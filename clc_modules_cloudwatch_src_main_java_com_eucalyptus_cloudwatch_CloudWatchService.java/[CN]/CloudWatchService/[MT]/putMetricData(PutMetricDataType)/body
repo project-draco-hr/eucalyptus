@@ -1,21 +1,20 @@
 {
   PutMetricDataResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  if (!hasActionPermission(PolicySpec.CLOUDWATCH_PUTMETRICDATA,ctx)) {
-    throw new EucalyptusCloudException();
+  try {
+    checkActionPermission(PolicySpec.CLOUDWATCH_PUTMETRICDATA,ctx);
+    final OwnerFullName ownerFullName=ctx.getUserFullName();
+    final List<MetricDatum> metricData=validateMetricData(request.getMetricData());
+    final String namespace=validateNamespace(request.getNamespace(),true);
+    final Boolean isUserAccountAdmin=ctx.getUser().isAccountAdmin();
+    MetricType metricType=getMetricTypeFromNamespace(namespace);
+    if (metricType == MetricType.System && !isUserAccountAdmin) {
+      throw new InvalidParameterValueException("The value AWS/ for parameter Namespace is invalid.");
+    }
+    MetricDataQueue.getInstance().insertMetricData(ownerFullName.getAccountNumber(),namespace,metricData,metricType);
   }
-  final OwnerFullName ownerFullName=ctx.getUserFullName();
-  final String nameSpace=request.getNamespace();
-  final List<MetricDatum> metricDatum=Lists.newArrayList(request.getMetricData().getMember());
-  final Boolean isUserAccountAdmin=ctx.getUser().isAccountAdmin();
-  if (nameSpace.startsWith(SystemMetricPrefix) && isUserAccountAdmin) {
-    MetricDataQueue.getInstance().insertMetricData(ownerFullName.getUserId(),ownerFullName.getAccountNumber(),nameSpace,metricDatum,MetricType.System);
-  }
- else   if (!nameSpace.startsWith(SystemMetricPrefix)) {
-    MetricDataQueue.getInstance().insertMetricData(ownerFullName.getUserId(),ownerFullName.getAccountNumber(),nameSpace,metricDatum,MetricType.Custom);
-  }
- else {
-    LOG.debug("Unknown metric data type");
+ catch (  Exception ex) {
+    handleException(ex);
   }
   return reply;
 }
