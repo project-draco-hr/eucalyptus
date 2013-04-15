@@ -1,4 +1,28 @@
 {
-  DisableMetricsCollectionResponseType reply=request.getReply();
+  final DisableMetricsCollectionResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  try {
+    final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+    final Callback<AutoScalingGroup> groupCallback=new Callback<AutoScalingGroup>(){
+      @Override public void fire(      final AutoScalingGroup autoScalingGroup){
+        if (RestrictedTypes.filterPrivileged().apply(autoScalingGroup)) {
+          final Set<MetricCollectionType> metricsToDisable=EnumSet.allOf(MetricCollectionType.class);
+          if (request.getMetrics() != null && !request.getMetrics().getMember().isEmpty()) {
+            metricsToDisable.clear();
+            Iterables.addAll(metricsToDisable,Iterables.transform(request.getMetrics().getMember(),Enums.valueOfFunction(MetricCollectionType.class)));
+          }
+          autoScalingGroup.getEnabledMetrics().removeAll(metricsToDisable);
+        }
+      }
+    }
+;
+    autoScalingGroups.update(accountFullName,request.getAutoScalingGroupName(),groupCallback);
+  }
+ catch (  AutoScalingMetadataNotFoundException e) {
+    throw new ValidationErrorException("Auto scaling group not found: " + request.getAutoScalingGroupName());
+  }
+catch (  Exception e) {
+    handleException(e);
+  }
   return reply;
 }
