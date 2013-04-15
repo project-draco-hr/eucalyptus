@@ -1,0 +1,42 @@
+{
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
+  }
+ catch (  NoSuchElementException ex) {
+    throw new EventHandlerException("Could not find the loadbalancer with name=" + evt.getLoadBalancer(),ex);
+  }
+catch (  Exception ex) {
+    throw new EventHandlerException("Error while looking for loadbalancer with name=" + evt.getLoadBalancer(),ex);
+  }
+  final StoredResult<String> updated=this.getChain().findHandler(UpdateAutoScalingGroup.class);
+  if (updated != null && updated.getResult() != null) {
+    try {
+      this.updatedInstances=Lists.newArrayList();
+      for (      final String removedZone : updated.getResult()) {
+        final LoadBalancerZone zone=LoadBalancers.findZone(lb,removedZone);
+        for (        final LoadBalancerBackendInstance instance : zone.getBackendInstances()) {
+          final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
+          try {
+            final LoadBalancerBackendInstance update=Entities.uniqueResult(instance);
+            update.setState(LoadBalancerBackendInstance.STATE.OutOfService);
+            Entities.persist(update);
+            db.commit();
+            this.updatedInstances.add(update);
+          }
+ catch (          final NoSuchElementException ex) {
+            db.rollback();
+            LOG.warn("failed to find the backend instance");
+          }
+catch (          final Exception ex) {
+            db.rollback();
+            LOG.warn("failed to query the backend instance",ex);
+          }
+        }
+      }
+    }
+ catch (    final Exception ex) {
+      LOG.warn("failed to update the backend instance's state to OutOfService",ex);
+    }
+  }
+}
