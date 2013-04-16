@@ -1,26 +1,33 @@
 {
   PutMetricAlarmResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  if (!hasActionPermission(PolicySpec.CLOUDWATCH_PUTMETRICALARM,ctx)) {
-    throw new EucalyptusCloudException();
+  try {
+    checkActionPermission(PolicySpec.CLOUDWATCH_PUTMETRICALARM,ctx);
+    final OwnerFullName ownerFullName=ctx.getUserFullName();
+    final String accountId=ownerFullName.getAccountNumber();
+    final Boolean actionsEnabled=validateActionsEnabled(request.getActionsEnabled(),true);
+    final Map<String,String> dimensionMap=TransformationFunctions.DimensionsToMap.INSTANCE.apply(validateDimensions(request.getDimensions()));
+    final Collection<String> alarmActions=validateActions(request.getAlarmActions(),dimensionMap,"AlarmActions");
+    final String alarmDescription=validateAlarmDescription(request.getAlarmDescription());
+    final String alarmName=validateAlarmName(request.getAlarmName(),true);
+    final ComparisonOperator comparisonOperator=validateComparisonOperator(request.getComparisonOperator(),true);
+    Integer evaluationPeriods=validateEvaluationPeriods(request.getEvaluationPeriods(),true);
+    final Integer period=validatePeriod(request.getPeriod(),true);
+    validatePeriodAndEvaluationPeriodsNotAcrossDays(period,evaluationPeriods);
+    final Collection<String> insufficientDataActions=validateActions(request.getInsufficientDataActions(),dimensionMap,"InsufficientDataActions");
+    final String metricName=validateMetricName(request.getMetricName(),true);
+    final String namespace=validateNamespace(request.getNamespace(),true);
+    final Collection<String> okActions=validateActions(request.getOkActions(),dimensionMap,"OKActions");
+    final Statistic statistic=validateStatistic(request.getStatistic(),true);
+    final Double threshold=validateThreshold(request.getThreshold(),true);
+    final Units unit=validateUnits(request.getUnit(),true);
+    if (AlarmManager.countMetricAlarms(accountId) >= 5000) {
+      throw new LimitExceededException("The maximum limit of 5000 alarms would be exceeded.");
+    }
+    AlarmManager.putMetricAlarm(accountId,actionsEnabled,alarmActions,alarmDescription,alarmName,comparisonOperator,dimensionMap,evaluationPeriods,insufficientDataActions,metricName,getMetricTypeFromNamespace(namespace),namespace,okActions,period,statistic,threshold,unit);
   }
-  final OwnerFullName ownerFullName=ctx.getUserFullName();
-  final String accountId=ownerFullName.getAccountNumber();
-  final Boolean actionsEnabled=(request.getActionsEnabled() == null) ? Boolean.TRUE : request.getActionsEnabled();
-  final Collection<String> alarmActions=(request.getAlarmActions() != null) ? request.getAlarmActions().getMember() : null;
-  final String alarmDescription=request.getAlarmDescription();
-  final String alarmName=request.getAlarmName();
-  final ComparisonOperator comparisonOperator=ComparisonOperator.valueOf(request.getComparisonOperator());
-  final Map<String,String> dimensionMap=transform(request.getDimensions());
-  Integer evaluationPeriods=request.getEvaluationPeriods();
-  final Collection<String> insufficientDataActions=(request.getInsufficientDataActions() != null) ? request.getInsufficientDataActions().getMember() : null;
-  final String metricName=request.getMetricName();
-  final String namespace=request.getNamespace();
-  final Collection<String> okActions=(request.getOkActions() != null) ? request.getOkActions().getMember() : null;
-  final Integer period=request.getPeriod();
-  final Statistic statistic=Statistic.valueOf(request.getStatistic());
-  final Double threshold=request.getThreshold();
-  final Units unit=Units.fromValue(request.getUnit());
-  AlarmManager.putMetricAlarm(accountId,actionsEnabled,alarmActions,alarmDescription,alarmName,comparisonOperator,dimensionMap,evaluationPeriods,insufficientDataActions,metricName,MetricType.Custom,namespace,okActions,period,statistic,threshold,unit);
+ catch (  Exception ex) {
+    handleException(ex);
+  }
   return reply;
 }

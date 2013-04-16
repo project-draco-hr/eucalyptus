@@ -1,0 +1,34 @@
+{
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
+  }
+ catch (  NoSuchElementException ex) {
+    throw new EventHandlerException("Could not find the loadbalancer with name=" + evt.getLoadBalancer(),ex);
+  }
+catch (  Exception ex) {
+    throw new EventHandlerException("Error while looking for loadbalancer with name=" + evt.getLoadBalancer(),ex);
+  }
+  final StoredResult<String> updated=this.getChain().findHandler(CreateOrUpdateAutoscalingGroup.class);
+  if (updated != null && updated.getResult() != null) {
+    for (    final String zone : updated.getResult()) {
+      final EntityTransaction db=Entities.get(LoadBalancerZone.class);
+      try {
+        final LoadBalancerZone exist=Entities.uniqueResult(LoadBalancerZone.named(lb,zone));
+        exist.setState(LoadBalancerZone.STATE.InService);
+        Entities.persist(exist);
+        db.commit();
+      }
+ catch (      NoSuchElementException ex) {
+        final LoadBalancerZone newZone=LoadBalancerZone.named(lb,zone);
+        newZone.setState(LoadBalancerZone.STATE.InService);
+        Entities.persist(newZone);
+        db.commit();
+        persistedZones.add(newZone);
+      }
+catch (      Exception ex) {
+        db.rollback();
+      }
+    }
+  }
+}
