@@ -1,0 +1,61 @@
+{
+  final List<AutoScalingInstanceCoreView> currentInstances;
+  try {
+    currentInstances=autoScalingInstances.listByGroup(group,Predicates.alwaysTrue(),TypeMappers.lookup(AutoScalingInstance.class,AutoScalingInstanceCoreView.class));
+  }
+ catch (  final Exception e) {
+    logger.error(e,e);
+    return new LaunchInstancesScalingProcessTask(group,0,"");
+  }
+  if (group.getCapacity() > group.getDesiredCapacity()) {
+    if (!Iterables.all(currentInstances,Predicates.and(LifecycleState.InService.forView(),ConfigurationState.Registered.forView(),HealthStatus.Healthy.forView()))) {
+      return new LaunchInstancesScalingProcessTask(group,0,"");
+    }
+    return perhapsTerminateInstances(group,group.getCapacity() - group.getDesiredCapacity());
+  }
+ else {
+    final List<String> zones=Lists.transform(currentInstances,AutoScalingInstances.availabilityZone());
+    final Set<String> groupZones=Sets.newLinkedHashSet(group.getAvailabilityZones());
+    final Set<String> unavailableZones=zoneMonitor.getUnavailableZones(AutoScalingConfiguration.getZoneFailureThresholdMillis());
+    groupZones.removeAll(unavailableZones);
+    final int expectedInstancesPerZone=group.getCapacity() / Math.max(1,groupZones.size());
+    int requiredInstances=0;
+    for (    final String zone : groupZones) {
+      int instanceCount=CollectionUtils.reduce(zones,0,CollectionUtils.count(Predicates.equalTo(zone)));
+      if (instanceCount < expectedInstancesPerZone) {
+        requiredInstances+=expectedInstancesPerZone - instanceCount;
+      }
+    }
+    final int hardInstanceLimit=group.getDesiredCapacity() + Math.max(1,group.getDesiredCapacity() / 10);
+    if (requiredInstances + group.getCapacity() > hardInstanceLimit) {
+      requiredInstances=hardInstanceLimit - group.getCapacity();
+    }
+ else     if (requiredInstances + group.getCapacity() < group.getDesiredCapacity()) {
+      requiredInstances=group.getDesiredCapacity() - group.getCapacity();
+    }
+    if (requiredInstances == 0) {
+      setScalingNotRequired(group);
+    }
+ else     if (!scalingProcessEnabled(ScalingProcessType.AZRebalance,group) && group.getCapacity().equals(group.getDesiredCapacity())) {
+      requiredInstances=0;
+    }
+    String cause;
+    if (group.getCapacity() < group.getDesiredCapacity()) {
+      cause=String.format("an instance was started in response to a difference between desired and actual capacity, increasing the capacity from %1$d to %2$d",group.getCapacity(),group.getCapacity() + requiredInstances);
+    }
+ else {
+      final Set<String> groupZoneSet=Sets.newHashSet(group.getAvailabilityZones());
+      final Set<String> invalidZoneSet=Sets.newTreeSet();
+      Iterables.addAll(invalidZoneSet,Sets.intersection(groupZoneSet,unavailableZones));
+      Iterables.addAll(invalidZoneSet,Sets.difference(Sets.newHashSet(zones),groupZoneSet));
+      final List<Integer> invalidZoneCounts=Lists.newArrayList();
+      for (      final String zone : invalidZoneSet) {
+        invalidZoneCounts.add(CollectionUtils.reduce(zones,0,CollectionUtils.count(Predicates.equalTo(zone))));
+      }
+      final String invalidZones=Joiner.on(", ").join(invalidZoneSet);
+      final String invalidZoneInstanceCounts=Joiner.on(", ").join(invalidZoneCounts);
+      cause=String.format("invalid availability zones %1$s had %2$s instances respectively. An instance was launched to aid in migrating instances from these zones to valid ones",invalidZones,invalidZoneInstanceCounts);
+    }
+    return new LaunchInstancesScalingProcessTask(group,requiredInstances,cause);
+  }
+}
