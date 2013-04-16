@@ -1,0 +1,98 @@
+def cmd(self, cmd, verbose=None, timeout=120, listformat=False, cb=None, cbargs=[], get_pty=True):
+    " \n        Runs a command 'cmd' within an ssh connection. \n        Upon success returns dict representing outcome of the command.\n\n        Returns dict:\n            ['cmd'] - The command which was executed\n            ['output'] - The std out/err from the executed command\n            ['status'] - The exitcode of the command. Note in the case a call back fires, this exitcode is unreliable.\n            ['cbfired']  - Boolean to indicate whether or not the provided callback fired (ie returned False)\n            ['elapsed'] - Time elapsed waiting for command loop to end. \n        Arguments:\n        :param cmd: - mandatory - string representing the command to be run  against the remote ssh session\n        :param verbose: - optional - will default to global setting, can be set per cmd() as well here\n        :param timeout: - optional - integer used to timeout the overall cmd() operation in case of remote blocking\n        :param listformat: - optional - boolean, if set returns output as list of lines, else a single buffer/string\n        :param cb: - optional - callback, method that can be used to handle output as it's rx'd instead of...\n                        waiting for the cmd to finish and return buffer. Called like: cb(ssh_cmd_out_buffer, *cbargs)\n                        Must accept string buffer, and return an integer to be used as cmd status. \n                        Must return type 'sshconnection.SshCbReturn'\n                        If cb returns stop, recv loop will end, and channel will be closed.\n                        if cb settimer is > 0, timer timeout will be adjusted for this time\n                        if cb statuscode is != -1 cmd status will return with this value\n                        if cb nextargs is set, the next time cb is called these args will be passed instead of cbargs\n        :param cbargs: - optional - list of arguments to be appended to output buffer and passed to cb\n\n        "
+    if (verbose is None):
+        verbose = self.verbose
+    ret = {}
+    cbfired = False
+    cmd = str(cmd)
+    self.lastcmd = cmd
+    self.lastexitcode = SshConnection.cmd_not_executed_code
+    start = time.time()
+    status = None
+    if verbose:
+        self.debug(((((('[' + self.username) + '@') + str(self.host)) + ']# ') + cmd))
+    try:
+        tran = self.connection.get_transport()
+        if (tran is None):
+            self.debug(('SSH transport was None, attempting to restablish ssh to: ' + str(self.host)))
+            self.refresh_connection()
+            tran = self.connection.get_transport()
+        chan = tran.open_session()
+        chan.set_combine_stderr(False)
+        chan.settimeout(timeout)
+        if get_pty:
+            chan.get_pty()
+        chan.exec_command(cmd)
+        output = ''
+        err = ''
+        fd = chan.fileno()
+        chan.setblocking(0)
+        cmdstart = start = time.time()
+        newdebug = '\n'
+        while (True and (chan.closed == 0)):
+            try:
+                (rl, wl, xl) = select.select([fd], [], [], timeout)
+            except select.error:
+                break
+            elapsed = int((time.time() - start))
+            if (elapsed >= timeout):
+                raise CommandTimeoutException((((('SSH Command timer fired after ' + str(int(elapsed))) + " seconds. Cmd:'") + str(cmd)) + "'"))
+            time.sleep(0.05)
+            if (len(rl) > 0):
+                while chan.recv_stderr_ready():
+                    data = chan.recv_stderr(1024)
+                    err += data
+                while chan.recv_ready():
+                    new = chan.recv(1024)
+                    if (new is not None):
+                        if (cb is not None):
+                            cbreturn = cb(new, *cbargs)
+                            if cbreturn.stop:
+                                cbfired = True
+                                if (cbreturn.statuscode != (-1)):
+                                    status = cbreturn.statuscode
+                                else:
+                                    status = self.lastexitcode = chan.recv_exit_status()
+                                chan.close()
+                                break
+                            else:
+                                cbargs = (cbreturn.nextargs or cbargs)
+                                if (cbreturn.settimer > 0):
+                                    start = time.time()
+                                    timeout = cbreturn.settimer
+                                if cbreturn.buf:
+                                    output += cbreturn.buf
+                        else:
+                            output += new
+                            if verbose:
+                                newdebug += new
+                    else:
+                        status = self.lastexitcode = chan.recv_exit_status()
+                        chan.close()
+                        break
+                if (newdebug and verbose):
+                    self.debug(str(newdebug))
+                    newdebug = ''
+        if listformat:
+            output = output.splitlines()
+            if (output is None):
+                output = []
+            err = err.splitlines()
+            if (err is None):
+                err = []
+        if (not status):
+            status = self.lastexitcode = chan.recv_exit_status()
+        ret['cmd'] = cmd
+        ret['output'] = output
+        ret['error'] = err
+        ret['status'] = status
+        ret['cbfired'] = cbfired
+        ret['elapsed'] = elapsed = int((time.time() - cmdstart))
+        if verbose:
+            self.debug('done with exec')
+    except CommandTimeoutException as cte:
+        self.lastexitcode = SshConnection.cmd_timeout_err_code
+        elapsed = str(int((time.time() - start)))
+        self.debug((((('Command (' + cmd) + ') timeout exception after ') + str(elapsed)) + ' seconds\nException'))
+        raise cte
+    return ret
