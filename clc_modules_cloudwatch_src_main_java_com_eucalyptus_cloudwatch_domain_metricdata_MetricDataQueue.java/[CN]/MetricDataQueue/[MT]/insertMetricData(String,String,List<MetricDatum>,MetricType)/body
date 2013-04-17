@@ -1,7 +1,8 @@
 {
-  List<MetricDatum> extraData=new ArrayList<MetricDatum>();
+  List<MetricDatum> dataToInsert=new ArrayList<MetricDatum>();
   Date now=new Date();
   for (  final MetricDatum datum : metricDatum) {
+    LOG.debug("Received metric datum: " + nameSpace + " "+ datum.getMetricName()+ " "+ datum.getTimestamp());
     if ("AWS/EBS".equals(nameSpace) && metricType == MetricType.System) {
       String volumeId=null;
       if ((datum.getDimensions() != null) && (datum.getDimensions().getMember() != null)) {
@@ -10,27 +11,12 @@
             volumeId=dimension.getValue();
           }
         }
-        if (volumeId != null) {
-          if ("VolumeReadOpsTotal".equals(datum.getMetricName())) {
-            if (!adjustAbsoluteVolumeValue(datum,"VolumeReadOpsTotal","VolumeReadOps",volumeId))             continue;
-            extraData.add(createVolumeThroughputMetric(datum));
-          }
-          if ("VolumeWriteOpsTotal".equals(datum.getMetricName())) {
-            if (!adjustAbsoluteVolumeValue(datum,"VolumeWriteOpsTotal","VolumeWriteOps",volumeId))             continue;
-          }
-          if ("VolumeReadBytesTotal".equals(datum.getMetricName())) {
-            if (!adjustAbsoluteVolumeValue(datum,"VolumeReadBytesTotal","VolumeReadBytes",volumeId))             continue;
-          }
-          if ("VolumeWriteBytesTotal".equals(datum.getMetricName())) {
-            if (!adjustAbsoluteVolumeValue(datum,"VolumeWriteBytesTotal","VolumeWriteBytes",volumeId))             continue;
-          }
-          if ("VolumeTotalReadTimeTotal".equals(datum.getMetricName())) {
-            if (!adjustAbsoluteVolumeValue(datum,"VolumeTotalReadTimeTotal","VolumeTotalReadTime",volumeId))             continue;
-          }
-          if ("VolumeTotalWriteTimeTotal".equals(datum.getMetricName())) {
-            if (!adjustAbsoluteVolumeValue(datum,"VolumeTotalWriteTimeTotal","VolumeTotalWriteTime",volumeId))             continue;
-          }
-        }
+      }
+      if (EBS_ABSOLUTE_METRICS.containsKey(datum.getMetricName())) {
+        if (!adjustAbsoluteVolumeStatisticSet(datum,datum.getMetricName(),EBS_ABSOLUTE_METRICS.get(datum.getMetricName()),volumeId))         continue;
+      }
+      if ("VolumeReadOpsAbsolute".equals(datum.getMetricName())) {
+        dataToInsert.add(createVolumeThroughputMetric(datum));
       }
     }
     if ("AWS/EC2".equals(nameSpace) && metricType == MetricType.System) {
@@ -41,16 +27,17 @@
             instanceId=dimension.getValue();
           }
         }
-        if (instanceId != null) {
-          if ("CPUUtilizationMS".equals(datum.getMetricName())) {
-            if (!adjustAbsoluteCPUValue(datum,"CPUUtilizationMS","CPUUtilization",instanceId))             continue;
-          }
-        }
+      }
+      if (EC2_ABSOLUTE_METRICS.containsKey(datum.getMetricName())) {
+        if (!adjustAbsoluteInstanceStatisticSet(datum,datum.getMetricName(),EC2_ABSOLUTE_METRICS.get(datum.getMetricName()),instanceId))         continue;
+      }
+ else       if ("CPUUtilizationMSAbsolute".equals(datum.getMetricName())) {
+        if (!adjustAbsoluteInstanceCPUStatisticSet(datum,"CPUUtilizationMSAbsolute","CPUUtilization",instanceId))         continue;
       }
     }
+    dataToInsert.add(datum);
   }
-  metricDatum.addAll(extraData);
-  for (  final MetricDatum datum : metricDatum) {
+  for (  final MetricDatum datum : dataToInsert) {
     scrub(datum,now);
     final ArrayList<Dimension> dimensions=datum.getDimensions().getMember();
     queue(new Supplier<MetricQueueItem>(){
