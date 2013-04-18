@@ -2,5 +2,22 @@
   super(userFullName,vmId);
   this.loadbalancer=lb;
   this.setState(STATE.OutOfService);
-  this.vmInstance=VmInstances.lookup(vmId);
+  this.setReasonCode("ELB");
+  this.setDescription("Instance registration is still in progress.");
+  if (this.getVmInstance() == null)   throw new IllegalArgumentException("Cannot find the instance with id=" + vmId);
+  final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
+  try {
+    final LoadBalancerZone found=Entities.uniqueResult(LoadBalancerZone.named(lb,this.vmInstance.getPlacement()));
+    this.setAvailabilityZone(found);
+    db.commit();
+  }
+ catch (  NoSuchElementException ex) {
+    db.rollback();
+  }
+catch (  Exception ex) {
+    db.rollback();
+  }
+ finally {
+    if (this.zone == null)     throw new IllegalArgumentException("Cannot find the availability zone");
+  }
 }

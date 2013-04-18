@@ -1,4 +1,19 @@
 {
-  DescribeScalingActivitiesResponseType reply=request.getReply();
+  final DescribeScalingActivitiesResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final boolean showAll=request.activityIds().remove("verbose");
+  final OwnerFullName ownerFullName=ctx.hasAdministrativePrivileges() && showAll ? null : ctx.getUserFullName().asAccountFullName();
+  try {
+    final AutoScalingGroupMinimumView group=com.google.common.base.Strings.isNullOrEmpty(request.getAutoScalingGroupName()) ? null : autoScalingGroups.lookup(ownerFullName,request.getAutoScalingGroupName(),TypeMappers.lookup(AutoScalingGroup.class,AutoScalingGroupMinimumView.class));
+    final List<Activity> scalingActivities=this.scalingActivities.list(ownerFullName,group,request.activityIds(),AutoScalingMetadatas.filterPrivileged(),TypeMappers.lookup(ScalingActivity.class,Activity.class));
+    Collections.sort(scalingActivities,Ordering.natural().reverse().onResultOf(Activity.startTime()));
+    reply.getDescribeScalingActivitiesResult().getActivities().getMember().addAll(scalingActivities);
+  }
+ catch (  AutoScalingMetadataNotFoundException e) {
+    throw new ValidationErrorException("Auto scaling group not found: " + request.getAutoScalingGroupName());
+  }
+catch (  AutoScalingMetadataException e) {
+    handleException(e);
+  }
   return reply;
 }

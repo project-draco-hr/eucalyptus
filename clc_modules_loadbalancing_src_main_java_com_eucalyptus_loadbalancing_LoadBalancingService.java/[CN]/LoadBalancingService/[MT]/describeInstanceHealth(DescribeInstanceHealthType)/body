@@ -14,37 +14,22 @@
 catch (  Exception ex) {
     throw new LoadBalancingException("failed to query loadbalancer due to unknown reason");
   }
-  List<LoadBalancerBackendInstance> instancesFound=Lists.newArrayList();
+  List<LoadBalancerBackendInstance> lbInstances=Lists.newArrayList(lb.getBackendInstances());
+  List<LoadBalancerBackendInstance> instancesFound=null;
   if (instances != null && instances.getMember() != null && instances.getMember().size() > 0) {
-    final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
+    instancesFound=Lists.newArrayList();
     for (    Instance inst : instances.getMember()) {
       String instId=inst.getInstanceId();
-      try {
-        LoadBalancerBackendInstance found=Entities.uniqueResult(LoadBalancerBackendInstance.named(ownerFullName,lb,instId));
-        instancesFound.add(found);
-      }
- catch (      NoSuchElementException ex) {
-        ;
-      }
-catch (      Exception ex) {
-        LOG.error("failed to query backend instances",ex);
+      for (      final LoadBalancerBackendInstance lbInstance : lbInstances) {
+        if (instId.equals(lbInstance.getInstanceId())) {
+          instancesFound.add(lbInstance);
+          break;
+        }
       }
     }
-    db.commit();
   }
  else {
-    final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
-    try {
-      instancesFound=Entities.query(LoadBalancerBackendInstance.named(ownerFullName,lb));
-      db.commit();
-    }
- catch (    NoSuchElementException ex) {
-      db.rollback();
-    }
-catch (    Exception ex) {
-      LOG.error("failed to query backend instances",ex);
-      db.rollback();
-    }
+    instancesFound=Lists.newArrayList(lb.getBackendInstances());
   }
   final ArrayList<InstanceState> stateList=Lists.newArrayList();
   for (  final LoadBalancerBackendInstance instance : instancesFound) {
@@ -52,6 +37,7 @@ catch (    Exception ex) {
     state.setInstanceId(instance.getDisplayName());
     state.setState(instance.getState().name());
     if (instance.getState().equals(LoadBalancerBackendInstance.STATE.OutOfService) && instance.getReasonCode() != null)     state.setReasonCode(instance.getReasonCode());
+    if (instance.getDescription() != null)     state.setDescription(instance.getDescription());
     stateList.add(state);
   }
   final InstanceStates states=new InstanceStates();

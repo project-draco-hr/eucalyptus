@@ -10,42 +10,49 @@
         lb=LoadBalancers.getLoadbalancer(ownerFullName,lbToDelete);
       }
  catch (      NoSuchElementException ex) {
-        throw new Exception("loadbalancer not found",ex);
       }
-      Collection<LoadBalancerListener> listeners=lb.getListeners();
-      final List<Integer> ports=Lists.newArrayList(Collections2.transform(listeners,new Function<LoadBalancerListener,Integer>(){
-        @Override public Integer apply(        @Nullable LoadBalancerListener arg0){
-          return arg0.getLoadbalancerPort();
+      if (lb != null && LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
+        Collection<LoadBalancerListener> listeners=lb.getListeners();
+        final List<Integer> ports=Lists.newArrayList(Collections2.transform(listeners,new Function<LoadBalancerListener,Integer>(){
+          @Override public Integer apply(          @Nullable LoadBalancerListener arg0){
+            return arg0.getLoadbalancerPort();
+          }
         }
-      }
 ));
-      try {
-        DeleteListenerEvent evt=new DeleteListenerEvent();
-        evt.setLoadBalancer(lbToDelete);
-        evt.setContext(ctx);
-        evt.setPorts(ports);
-        ActivityManager.getInstance().fire(evt);
+        try {
+          DeleteListenerEvent evt=new DeleteListenerEvent();
+          evt.setLoadBalancer(lbToDelete);
+          evt.setContext(ctx);
+          evt.setPorts(ports);
+          ActivityManager.getInstance().fire(evt);
+        }
+ catch (        EventFailedException e) {
+          LOG.error("failed to fire DeleteListener event",e);
+        }
+        try {
+          DeleteLoadbalancerEvent evt=new DeleteLoadbalancerEvent();
+          evt.setLoadBalancer(lbToDelete);
+          evt.setContext(ctx);
+          ActivityManager.getInstance().fire(evt);
+        }
+ catch (        EventFailedException e) {
+          LOG.error("failed to fire DeleteLoadbalancer event",e);
+          throw e;
+        }
+        LoadBalancers.deleteLoadbalancer(ownerFullName,lbToDelete);
       }
- catch (      EventFailedException e) {
-        LOG.error("failed to fire DeleteListener event",e);
-      }
-      try {
-        DeleteLoadbalancerEvent evt=new DeleteLoadbalancerEvent();
-        evt.setLoadBalancer(lbToDelete);
-        evt.setContext(ctx);
-        ActivityManager.getInstance().fire(evt);
-      }
- catch (      EventFailedException e) {
-        LOG.error("failed to fire DeleteLoadbalancer event",e);
-        throw e;
-      }
-      LoadBalancers.deleteLoadbalancer(ownerFullName,lbToDelete);
     }
   }
- catch (  Exception e) {
+ catch (  EventFailedException e) {
+    LOG.error("Error deleting the loadbalancer: " + e.getMessage(),e);
+    final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
+    throw new LoadBalancingException(String.format("Failed to delete the loadbalancer: %s",reason),e);
+  }
+catch (  Exception e) {
     if (!(e.getCause() instanceof NoSuchElementException)) {
       LOG.error("Error deleting the loadbalancer: " + e.getMessage(),e);
-      throw new LoadBalancingException("Failed to delete the loadbalancer " + lbToDelete,e);
+      final String reason="internal error";
+      throw new LoadBalancingException(String.format("Failed to delete the loadbalancer: %s",reason),e);
     }
   }
   DeleteLoadBalancerResult result=new DeleteLoadBalancerResult();

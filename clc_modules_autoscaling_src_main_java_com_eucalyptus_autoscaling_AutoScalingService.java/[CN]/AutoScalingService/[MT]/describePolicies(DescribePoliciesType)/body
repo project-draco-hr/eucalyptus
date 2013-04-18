@@ -6,8 +6,14 @@
   try {
     final Predicate<ScalingPolicy> requestedAndAccessible=Predicates.and(AutoScalingMetadatas.filterPrivilegesByIdOrArn(request.policyNames()),AutoScalingResourceName.isResourceName().apply(request.getAutoScalingGroupName()) ? AutoScalingMetadatas.filterByProperty(AutoScalingResourceName.parse(request.getAutoScalingGroupName(),autoScalingGroup).getUuid(),ScalingPolicies.toGroupUuid()) : AutoScalingMetadatas.filterByProperty(request.getAutoScalingGroupName(),ScalingPolicies.toGroupName()));
     final List<ScalingPolicyType> results=reply.getDescribePoliciesResult().getScalingPolicies().getMember();
-    for (    final ScalingPolicy scalingPolicy : scalingPolicies.list(ownerFullName,requestedAndAccessible)) {
-      results.add(TypeMappers.transform(scalingPolicy,ScalingPolicyType.class));
+    results.addAll(scalingPolicies.list(ownerFullName,requestedAndAccessible,TypeMappers.lookup(ScalingPolicy.class,ScalingPolicyType.class)));
+    final List<String> scalingPolicyArns=Lists.transform(results,ScalingPolicyType.policyArn());
+    final Map<String,Collection<String>> policyArnToAlarmArns=activityManager.getAlarmsForPolicies(ctx.getUserFullName(),scalingPolicyArns);
+    for (    final ScalingPolicyType scalingPolicyType : results) {
+      final Collection<String> alarmArns=policyArnToAlarmArns.get(scalingPolicyType.getPolicyARN());
+      if (alarmArns != null && !alarmArns.isEmpty()) {
+        scalingPolicyType.setAlarms(new Alarms(alarmArns));
+      }
     }
   }
  catch (  Exception e) {

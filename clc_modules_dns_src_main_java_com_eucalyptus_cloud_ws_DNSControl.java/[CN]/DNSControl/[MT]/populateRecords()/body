@@ -20,12 +20,35 @@
     ARecordInfo searchARecInfo=new ARecordInfo();
     List<ARecordInfo> aRecInfos=dbARec.query(searchARecInfo);
     for (    ARecordInfo aRecInfo : aRecInfos) {
-      ZoneManager.addRecord(aRecInfo);
+      ZoneManager.addRecord(aRecInfo,false);
     }
     db.commit();
   }
  catch (  EucalyptusCloudException ex) {
     db.rollback();
     LOG.error(ex);
+  }
+  final EntityTransaction db2=Entities.get(ARecordNameInfo.class);
+  try {
+    int count=0;
+    List<ARecordNameInfo> multiARec=Entities.query(new ARecordNameInfo(),true);
+    if (multiARec != null && multiARec.size() > 0) {
+      for (      ARecordNameInfo nameRec : multiARec) {
+        final Collection<ARecordAddressInfo> addresses=nameRec.getAddresses();
+        if (addresses != null && addresses.size() > 0) {
+          for (          final ARecordAddressInfo addrRec : addresses) {
+            ARecord record=new ARecord(new Name(nameRec.getName()),DClass.IN,nameRec.getTtl(),Address.getByAddress(addrRec.getAddress()));
+            ZoneManager.addRecord(nameRec.getZone(),record,true);
+            count++;
+          }
+        }
+      }
+    }
+    LOG.info(String.format("%d DNS records populated from database",count));
+    db2.commit();
+  }
+ catch (  Exception ex) {
+    db2.rollback();
+    LOG.error("Failed to populate the existing DNS records",ex);
   }
 }

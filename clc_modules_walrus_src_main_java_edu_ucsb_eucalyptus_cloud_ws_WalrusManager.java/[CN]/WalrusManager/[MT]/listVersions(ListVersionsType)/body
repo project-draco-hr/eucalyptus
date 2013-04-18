@@ -4,9 +4,6 @@
   Context ctx=Contexts.lookup();
   Account account=ctx.getAccount();
   String prefix=request.getPrefix();
-  if (prefix == null) {
-    prefix="";
-  }
   String keyMarker=request.getKeyMarker();
   String versionMarker=request.getVersionIdMarker();
   int maxKeys=-1;
@@ -27,10 +24,6 @@
     BucketInfo bucket=bucketList.get(0);
     BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
     if (ctx.hasAdministrativePrivileges() || (bucket.canRead(account.getAccountNumber()) && (bucket.isGlobalRead() || Lookups.checkPrivilege(PolicySpec.S3_LISTBUCKETVERSIONS,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
-      if (bucket.isVersioningDisabled()) {
-        db.rollback();
-        throw new EucalyptusCloudException("Versioning has not been enabled for bucket: " + bucketName);
-      }
       if (logData != null) {
         updateLogData(bucket,logData);
         reply.setLogData(logData);
@@ -53,8 +46,11 @@
       if (maxKeys >= 0) {
         reply.setMaxKeys(maxKeys);
       }
-      if (delimiter != null) {
-        reply.setDelimiter(delimiter);
+      reply.setDelimiter(delimiter);
+      reply.setKeyMarker(keyMarker);
+      if (bucket.isVersioningDisabled()) {
+        db.commit();
+        return reply;
       }
       if (maxKeys == 0) {
         reply.setVersions(new ArrayList<VersionEntry>());
@@ -71,8 +67,8 @@
       objCriteria.addOrder(Order.asc("objectKey"));
       objCriteria.addOrder(Order.desc("lastModified"));
       objCriteria.setMaxResults(queryStrideSize);
-      if (keyMarker != null) {
-        if (versionMarker != null) {
+      if (keyMarker.length() > 0) {
+        if (versionMarker.length() > 0) {
           Date resumeDate=null;
           try {
             ObjectInfo markerObj=new ObjectInfo();
@@ -84,6 +80,7 @@
               resumeDate=lastFromPrevObj.getLastModified();
             }
  else {
+              dbObject.rollback();
               throw new NoSuchEntityException("VersionIDMarker " + versionMarker + " does not match an existing object version");
             }
           }
@@ -98,7 +95,7 @@
           objCriteria.add(Restrictions.ge("objectKey",keyMarker));
         }
       }
-      if (prefix != null && !prefix.equals("")) {
+      if (prefix.length() > 0) {
         objCriteria.add(Restrictions.like("objectKey",prefix,MatchMode.START));
       }
       List<ObjectInfo> objectInfos=null;
@@ -121,7 +118,7 @@
             objectKey=objectInfo.getObjectKey();
             if (objectInfo.getDeleted()) {
             }
-            if (delimiter != null) {
+            if (delimiter.length() > 0) {
               parts=objectKey.substring(prefix.length()).split(delimiter);
               if (parts.length > 1) {
                 prefixString=parts[0] + delimiter;
@@ -151,7 +148,7 @@
               versionEntry.setKey(objectKey);
               versionEntry.setVersionId(objectInfo.getVersionId());
               versionEntry.setEtag(objectInfo.getEtag());
-              versionEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.RFC822_DATETIME_PATTERN));
+              versionEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ALT_ISO8601_DATE_PATTERN));
               try {
                 String displayName=Accounts.lookupAccountById(objectInfo.getOwnerId()).getName();
                 versionEntry.setOwner(new CanonicalUserType(objectInfo.getOwnerId(),displayName));
@@ -169,7 +166,7 @@
               DeleteMarkerEntry deleteMarkerEntry=new DeleteMarkerEntry();
               deleteMarkerEntry.setKey(objectKey);
               deleteMarkerEntry.setVersionId(objectInfo.getVersionId());
-              deleteMarkerEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.RFC822_DATETIME_PATTERN));
+              deleteMarkerEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ALT_ISO8601_DATE_PATTERN));
               try {
                 String ownerId=objectInfo.getOwnerId();
                 String displayName=Accounts.lookupAccountById(ownerId).getName();

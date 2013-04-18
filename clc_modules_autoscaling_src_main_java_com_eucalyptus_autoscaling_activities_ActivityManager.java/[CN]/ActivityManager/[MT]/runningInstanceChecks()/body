@@ -1,0 +1,26 @@
+{
+  final Map<String,AutoScalingGroupCoreView> autoScalingAccounts=Maps.newHashMap();
+  try {
+    for (    final AutoScalingGroupCoreView group : autoScalingGroups.listRequiringMonitoring(10000L,TypeMappers.lookup(AutoScalingGroup.class,AutoScalingGroupCoreView.class))) {
+      autoScalingAccounts.put(group.getOwnerAccountNumber(),group);
+      final List<String> groupInstancesPending=autoScalingInstances.listByGroup(group,LifecycleState.Pending,instanceId());
+      final List<String> groupInstancesInService=autoScalingInstances.listByGroup(group,LifecycleState.InService,instanceId());
+      if (!groupInstancesPending.isEmpty() || !groupInstancesInService.isEmpty()) {
+        runTask(new MonitoringScalingProcessTask(group,groupInstancesPending,groupInstancesInService));
+      }
+    }
+  }
+ catch (  Exception e) {
+    logger.error(e,e);
+  }
+  try {
+    for (    final AutoScalingGroupCoreView group : autoScalingAccounts.values()) {
+      runTask(new UntrackedInstanceTerminationScalingProcessTask(group));
+    }
+  }
+ catch (  Exception e) {
+    logger.error(e,e);
+  }
+  expireValues(launchFailureCounters,AutoScalingConfiguration.getActivityMaxBackoffMillis() * AutoScalingConfiguration.getSuspensionLaunchAttemptsThreshold());
+  expireValues(untrackedInstanceTimestamps,AutoScalingConfiguration.getUntrackedInstanceTimeoutMillis() + TimeUnit.MINUTES.toMillis(10));
+}

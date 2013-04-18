@@ -1,21 +1,24 @@
 {
-  RunInstancesType request=allocInfo.getRequest();
-  String zoneName=request.getAvailabilityZone();
-  if (Clusters.getInstance().listValues().isEmpty()) {
-    LOG.debug("enabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
-    LOG.debug("disabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
-    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
+  Context ctx=allocInfo.getContext();
+  NetworkGroups.lookup(ctx.getUserFullName().asAccountFullName(),NetworkGroups.defaultNetworkName());
+  Set<String> networkNames=Sets.newHashSet(allocInfo.getRequest().getGroupSet());
+  if (networkNames.isEmpty()) {
+    networkNames.add(NetworkGroups.defaultNetworkName());
   }
- else   if (Partitions.exists(zoneName)) {
-    Partition partition=Partitions.lookupByName(zoneName);
-    allocInfo.setPartition(partition);
+  Map<String,NetworkGroup> networkRuleGroups=Maps.newHashMap();
+  for (  String groupName : networkNames) {
+    NetworkGroup group=NetworkGroups.lookup(ctx.getUserFullName().asAccountFullName(),groupName);
+    if (!ctx.hasAdministrativePrivileges() && !RestrictedTypes.filterPrivileged().apply(group)) {
+      throw new IllegalMetadataAccessException("Not authorized to use network group " + groupName + " for "+ ctx.getUser().getName());
+    }
+    networkRuleGroups.put(groupName,group);
   }
- else   if (Partition.DEFAULT_NAME.equals(zoneName)) {
-    Partition partition=Partition.DEFAULT;
-    allocInfo.setPartition(partition);
+  Set<String> missingNets=Sets.difference(networkNames,networkRuleGroups.keySet());
+  if (!missingNets.isEmpty()) {
+    throw new NoSuchMetadataException("Failed to find security group info for: " + missingNets);
   }
  else {
-    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
+    allocInfo.setNetworkRules(networkRuleGroups);
   }
   return true;
 }

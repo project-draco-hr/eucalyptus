@@ -1,14 +1,5 @@
 {
   this.event=evt;
-  String groupName=String.format("euca-lb-%s-%s",evt.getLoadBalancer(),UUID.randomUUID().toString().substring(0,5));
-  String groupDesc=String.format("group for loadbalancer %s",evt.getLoadBalancer());
-  try {
-    EucalyptusActivityTasks.getInstance().createSecurityGroup(groupName,groupDesc);
-    createdGroup=groupName;
-  }
- catch (  Exception ex) {
-    throw new EventHandlerException("Failed to create the security group for loadbalancer",ex);
-  }
   LoadBalancer lb=null;
   try {
     lb=LoadBalancers.getLoadbalancer(evt.getContext().getUserFullName(),evt.getLoadBalancer());
@@ -19,13 +10,49 @@
 catch (  Exception ex) {
     throw new EventHandlerException("Error while looking for loadbalancer with name=" + evt.getLoadBalancer(),ex);
   }
+  String groupName=String.format("euca-internal-%s-%s",lb.getOwnerAccountNumber(),lb.getDisplayName());
+  String groupDesc=String.format("group for loadbalancer %s",evt.getLoadBalancer());
+  boolean groupFound=false;
+  try {
+    List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeSecurityGroups(Lists.newArrayList(groupName));
+    if (groups != null && groups.size() > 0) {
+      final SecurityGroupItemType current=groups.get(0);
+      if (groupName.equals(current.getGroupName())) {
+        groupFound=true;
+        this.groupOwnerAccountId=current.getAccountId();
+      }
+    }
+  }
+ catch (  Exception ex) {
+    groupFound=false;
+  }
+  if (!groupFound) {
+    try {
+      EucalyptusActivityTasks.getInstance().createSecurityGroup(groupName,groupDesc);
+      createdGroup=groupName;
+      List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeSecurityGroups(Lists.newArrayList(groupName));
+      if (groups != null && groups.size() > 0) {
+        final SecurityGroupItemType current=groups.get(0);
+        if (groupName.equals(current.getGroupName())) {
+          this.groupOwnerAccountId=current.getAccountId();
+        }
+      }
+    }
+ catch (    Exception ex) {
+      throw new EventHandlerException("Failed to create the security group for loadbalancer",ex);
+    }
+  }
+ else {
+    createdGroup=groupName;
+  }
+  if (this.createdGroup == null || this.groupOwnerAccountId == null)   throw new EventHandlerException("Failed to create the security group for loadbalancer");
   final EntityTransaction db=Entities.get(LoadBalancerSecurityGroup.class);
   try {
-    Entities.uniqueResult(LoadBalancerSecurityGroup.named(lb,groupName));
+    Entities.uniqueResult(LoadBalancerSecurityGroup.named(lb,this.groupOwnerAccountId,groupName));
     db.commit();
   }
  catch (  NoSuchElementException ex) {
-    final LoadBalancerSecurityGroup newGroup=LoadBalancerSecurityGroup.named(lb,groupName);
+    final LoadBalancerSecurityGroup newGroup=LoadBalancerSecurityGroup.named(lb,this.groupOwnerAccountId,groupName);
     LoadBalancerSecurityGroup written=Entities.persist(newGroup);
     Entities.flush(written);
     db.commit();

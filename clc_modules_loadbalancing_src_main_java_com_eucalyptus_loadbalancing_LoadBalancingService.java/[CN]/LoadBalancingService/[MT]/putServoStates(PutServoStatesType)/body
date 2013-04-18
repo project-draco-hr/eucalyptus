@@ -1,13 +1,18 @@
 {
   PutServoStatesResponseType reply=request.getReply();
   final String servoId=request.getInstanceId();
+  if (!isValidServoRequest(servoId)) {
+    return reply;
+  }
   final Instances instances=request.getInstances();
+  final MetricData metric=request.getMetricData();
   LoadBalancer lb=null;
   if (servoId != null) {
     try {
       LoadBalancerServoInstance servo=LoadBalancers.lookupServoInstance(servoId);
       lb=servo.getAvailabilityZone().getLoadbalancer();
       if (lb == null)       throw new Exception("Failed to find the loadbalancer");
+      if (!servo.getAvailabilityZone().getState().equals(LoadBalancerZone.STATE.InService))       lb=null;
     }
  catch (    NoSuchElementException ex) {
       LOG.warn("unknown servo VM id is used to query: " + servoId);
@@ -16,34 +21,81 @@ catch (    Exception ex) {
       LOG.warn("failed to query servo instance");
     }
   }
-  if (lb != null && instances.getMember() != null && instances.getMember().size() > 0) {
-    for (    Instance instance : instances.getMember()) {
-      String instanceId=instance.getInstanceId();
-      String[] parts=instanceId.split(":");
-      if (parts == null || parts.length != 2) {
-        LOG.warn("instance id is in wrong format:" + instanceId);
-        continue;
-      }
-      instanceId=parts[0];
-      String state=parts[1];
-      final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
-      try {
-        LoadBalancerBackendInstance sample=LoadBalancerBackendInstance.named(lb,instanceId);
-        LoadBalancerBackendInstance found=Entities.uniqueResult(sample);
-        if (state.equals(LoadBalancerBackendInstance.STATE.InService.name()) || state.equals(LoadBalancerBackendInstance.STATE.OutOfService.name())) {
-          found.setState(Enum.valueOf(LoadBalancerBackendInstance.STATE.class,state));
-          Entities.persist(found);
+  if (lb == null)   return reply;
+  Map<String,Integer> healthyCounter=new ConcurrentHashMap<String,Integer>();
+  Map<String,Integer> unHealthyCounter=new ConcurrentHashMap<String,Integer>();
+  if (instances != null && instances.getMember() != null && instances.getMember().size() > 0) {
+    final Collection<LoadBalancerBackendInstance> lbInstances=lb.getBackendInstances();
+    if (lb != null && instances.getMember() != null && instances.getMember().size() > 0) {
+      for (      Instance instance : instances.getMember()) {
+        String instanceId=instance.getInstanceId();
+        String[] parts=instanceId.split(":");
+        if (parts == null || parts.length != 2) {
+          LOG.warn("instance id is in wrong format:" + instanceId);
+          continue;
         }
-        db.commit();
-      }
- catch (      NoSuchElementException ex) {
-        db.rollback();
-      }
-catch (      Exception ex) {
-        db.rollback();
-        LOG.warn("Failed to query loadbalancer backend instance: " + instanceId,ex);
+        instanceId=parts[0];
+        String state=parts[1];
+        LoadBalancerBackendInstance found=null;
+        for (        final LoadBalancerBackendInstance lbInstance : lbInstances) {
+          if (instanceId.equals(lbInstance.getInstanceId())) {
+            found=lbInstance;
+            break;
+          }
+        }
+        if (found != null) {
+          String zoneName=found.getAvailabilityZone().getName();
+          final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
+          try {
+            found=Entities.uniqueResult(found);
+            if (state.equals(LoadBalancerBackendInstance.STATE.InService.name()) || state.equals(LoadBalancerBackendInstance.STATE.OutOfService.name())) {
+              found.setState(Enum.valueOf(LoadBalancerBackendInstance.STATE.class,state));
+              if (state.equals(LoadBalancerBackendInstance.STATE.OutOfService.name())) {
+                found.setReasonCode("Instance");
+                found.setDescription("Instance has failed at least the UnhealthyThreshold number of health checks consecutively.");
+              }
+ else {
+                found.setReasonCode(null);
+                found.setDescription(null);
+              }
+              Entities.persist(found);
+            }
+            db.commit();
+            if (state.equals(LoadBalancerBackendInstance.STATE.InService.name())) {
+              if (!healthyCounter.containsKey(zoneName))               healthyCounter.put(zoneName,0);
+              healthyCounter.put(zoneName,healthyCounter.get(zoneName) + 1);
+            }
+ else             if (state.equals(LoadBalancerBackendInstance.STATE.OutOfService.name())) {
+              if (!unHealthyCounter.containsKey(zoneName))               unHealthyCounter.put(zoneName,0);
+              unHealthyCounter.put(zoneName,unHealthyCounter.get(zoneName) + 1);
+            }
+          }
+ catch (          NoSuchElementException ex) {
+            db.rollback();
+          }
+catch (          Exception ex) {
+            db.rollback();
+            LOG.warn("Failed to query loadbalancer backend instance: " + instanceId,ex);
+          }
+        }
       }
     }
+  }
+  if (metric != null && metric.getMember() != null && metric.getMember().size() > 0) {
+    try {
+      LoadBalancerCwatchMetrics.getInstance().addMetric(servoId,metric);
+    }
+ catch (    Exception ex) {
+      LOG.error("Failed to add ELB cloudwatch metric",ex);
+    }
+  }
+  for (  String zone : healthyCounter.keySet()) {
+    int numHealthy=healthyCounter.get(zone);
+    LoadBalancerCwatchMetrics.getInstance().updateHealthyCount(lb.getOwnerUserId(),lb.getDisplayName(),zone,numHealthy);
+  }
+  for (  String zone : unHealthyCounter.keySet()) {
+    int numUnhealthy=unHealthyCounter.get(zone);
+    LoadBalancerCwatchMetrics.getInstance().updateUnhealthyCount(lb.getOwnerUserId(),lb.getDisplayName(),zone,numUnhealthy);
   }
   return reply;
 }

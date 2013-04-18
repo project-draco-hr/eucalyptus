@@ -1,19 +1,27 @@
 {
   DescribeAlarmsResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  if (!hasActionPermission(PolicySpec.CLOUDWATCH_DESCRIBEALARMS,ctx)) {
-    throw new EucalyptusCloudException();
+  try {
+    checkActionPermission(PolicySpec.CLOUDWATCH_DESCRIBEALARMS,ctx);
+    final OwnerFullName ownerFullName=ctx.getUserFullName();
+    final String accountId=ownerFullName.getAccountNumber();
+    final String actionPrefix=validateActionPrefix(request.getActionPrefix(),false);
+    final String alarmNamePrefix=validateAlarmNamePrefix(request.getAlarmNamePrefix(),false);
+    final Collection<String> alarmNames=validateAlarmNames(request.getAlarmNames(),false);
+    validateNotBothAlarmNamesAndAlarmNamePrefix(alarmNames,alarmNamePrefix);
+    final Integer maxRecords=validateMaxRecords(request.getMaxRecords());
+    final String nextToken=request.getNextToken();
+    final StateValue stateValue=validateStateValue(request.getStateValue(),false);
+    List<AlarmEntity> results=AlarmManager.describeAlarms(accountId,actionPrefix,alarmNamePrefix,alarmNames,maxRecords,stateValue,nextToken);
+    if (maxRecords != null && results.size() == maxRecords) {
+      reply.getDescribeAlarmsResult().setNextToken(results.get(results.size() - 1).getNaturalId());
+    }
+    MetricAlarms metricAlarms=new MetricAlarms();
+    metricAlarms.setMember(Lists.newArrayList(Collections2.<AlarmEntity,MetricAlarm>transform(results,TransformationFunctions.AlarmEntityToMetricAlarm.INSTANCE)));
+    reply.getDescribeAlarmsResult().setMetricAlarms(metricAlarms);
   }
-  final OwnerFullName ownerFullName=ctx.getUserFullName();
-  final String accountId=ownerFullName.getAccountNumber();
-  final String actionPrefix=request.getActionPrefix();
-  final String alarmNamePrefix=request.getAlarmNamePrefix();
-  final Collection<String> alarmNames=(request.getAlarmNames() != null) ? request.getAlarmNames().getMember() : null;
-  final Integer maxRecords=request.getMaxRecords();
-  final StateValue stateValue=(request.getStateValue() != null) ? StateValue.valueOf(request.getStateValue()) : null;
-  Collection<AlarmEntity> results=AlarmManager.describeAlarms(accountId,actionPrefix,alarmNamePrefix,alarmNames,maxRecords,stateValue);
-  MetricAlarms metricAlarms=new MetricAlarms();
-  metricAlarms.setMember(Lists.newArrayList(Collections2.<AlarmEntity,MetricAlarm>transform(results,AlarmEntityFunction.INSTANCE)));
-  reply.getDescribeAlarmsResult().setMetricAlarms(metricAlarms);
+ catch (  Exception ex) {
+    handleException(ex);
+  }
   return reply;
 }
