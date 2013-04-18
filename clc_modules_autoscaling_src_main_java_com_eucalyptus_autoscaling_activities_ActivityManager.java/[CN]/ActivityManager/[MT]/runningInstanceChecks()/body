@@ -1,17 +1,20 @@
 {
-  final Map<String,AutoScalingGroup> autoScalingAccounts=Maps.newHashMap();
+  final Map<String,AutoScalingGroupCoreView> autoScalingAccounts=Maps.newHashMap();
   try {
-    for (    final AutoScalingGroup group : autoScalingGroups.listRequiringMonitoring(10000L)) {
+    for (    final AutoScalingGroupCoreView group : autoScalingGroups.listRequiringMonitoring(10000L,TypeMappers.lookup(AutoScalingGroup.class,AutoScalingGroupCoreView.class))) {
       autoScalingAccounts.put(group.getOwnerAccountNumber(),group);
-      final List<AutoScalingInstance> groupInstances=autoScalingInstances.listByGroup(group);
-      if (!groupInstances.isEmpty())       runTask(new MonitoringScalingProcessTask(group,Lists.newArrayList(Iterables.transform(Iterables.filter(groupInstances,LifecycleState.Pending),instanceId())),Lists.newArrayList(Iterables.transform(Iterables.filter(groupInstances,LifecycleState.InService),instanceId()))));
+      final List<String> groupInstancesPending=autoScalingInstances.listByGroup(group,LifecycleState.Pending,instanceId());
+      final List<String> groupInstancesInService=autoScalingInstances.listByGroup(group,LifecycleState.InService,instanceId());
+      if (!groupInstancesPending.isEmpty() || !groupInstancesInService.isEmpty()) {
+        runTask(new MonitoringScalingProcessTask(group,groupInstancesPending,groupInstancesInService));
+      }
     }
   }
  catch (  Exception e) {
     logger.error(e,e);
   }
   try {
-    for (    final AutoScalingGroup group : autoScalingAccounts.values()) {
+    for (    final AutoScalingGroupCoreView group : autoScalingAccounts.values()) {
       runTask(new UntrackedInstanceTerminationScalingProcessTask(group));
     }
   }

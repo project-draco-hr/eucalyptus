@@ -1,0 +1,23 @@
+{
+  final AutoScalingInstance example=exampleForGroup(group);
+  example.setHealthStatus(HealthStatus.Healthy);
+  final List<AutoScalingInstance> instancesToMark=persistenceSupport.listByExample(example,LifecycleState.InService,instanceIds.isEmpty() ? Restrictions.conjunction() : Restrictions.not(Property.forName("displayName").in(instanceIds)),Collections.<String,String>emptyMap(),Functions.<AutoScalingInstance>identity());
+  for (  final AutoScalingInstance instance : instancesToMark) {
+    try {
+      persistenceSupport.updateByExample(AutoScalingInstance.withUuid(instance.getNaturalId()),group.getOwner(),instance.getInstanceId(),new Callback<AutoScalingInstance>(){
+        @Override public void fire(        final AutoScalingInstance instance){
+          if (instance.healthStatusGracePeriodExpired()) {
+            logger.info("Marking instance unhealthy: " + instance.getInstanceId());
+            instance.setHealthStatus(HealthStatus.Unhealthy);
+          }
+ else {
+            logger.debug("Instance not healthy but within grace period: " + instance.getInstanceId());
+          }
+        }
+      }
+);
+    }
+ catch (    final AutoScalingMetadataNotFoundException e) {
+    }
+  }
+}

@@ -2,22 +2,22 @@
   final DeleteAutoScalingGroupResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
   try {
-    final AutoScalingGroup autoScalingGroup=autoScalingGroups.lookup(ctx.getUserFullName().asAccountFullName(),request.getAutoScalingGroupName());
-    if (RestrictedTypes.filterPrivileged().apply(autoScalingGroup)) {
+    final AutoScalingGroupCoreView group=autoScalingGroups.lookup(ctx.getUserFullName().asAccountFullName(),request.getAutoScalingGroupName(),TypeMappers.lookup(AutoScalingGroup.class,AutoScalingGroupCoreView.class));
+    if (RestrictedTypes.filterPrivileged().apply(group)) {
       if (Objects.firstNonNull(request.getForceDelete(),Boolean.FALSE)) {
-        final List<AutoScalingInstance> instances=autoScalingInstances.listByGroup(autoScalingGroup);
-        if (!instances.isEmpty()) {
-          final List<ScalingActivity> activities=activityManager.terminateInstances(autoScalingGroup,instances);
+        final List<String> instanceIds=autoScalingInstances.listByGroup(group,Predicates.alwaysTrue(),AutoScalingInstances.instanceId());
+        if (!instanceIds.isEmpty()) {
+          final List<ScalingActivity> activities=activityManager.terminateInstances(group,instanceIds);
           if (activities == null || activities.isEmpty()) {
             throw new ScalingActivityInProgressException("Scaling activity in progress");
           }
-          autoScalingInstances.deleteByGroup(autoScalingGroup);
+          autoScalingInstances.deleteByGroup(group);
         }
       }
  else {
-        failIfScaling(activityManager,autoScalingGroup);
+        failIfScaling(activityManager,group);
       }
-      autoScalingGroups.delete(autoScalingGroup);
+      autoScalingGroups.delete(group);
     }
   }
  catch (  AutoScalingMetadataNotFoundException e) {
