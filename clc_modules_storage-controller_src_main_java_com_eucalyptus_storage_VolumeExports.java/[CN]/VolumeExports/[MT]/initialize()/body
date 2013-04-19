@@ -1,0 +1,35 @@
+{
+  cleanupService=Executors.newSingleThreadScheduledExecutor();
+  cleanupService.scheduleAtFixedRate(new Runnable(){
+    @Override public void run(){
+      EntityTransaction db=Entities.get(VolumeToken.class);
+      List<VolumeToken> tokens=Entities.query(exampleInvalidToken);
+      try {
+        boolean skip=false;
+        for (        VolumeToken t : tokens) {
+          skip=false;
+          for (          VolumeExportRecord r : t.getExportRecords()) {
+            if (r.getIsActive()) {
+              skip=true;
+            }
+          }
+          if (!skip) {
+            Entities.delete(t);
+          }
+        }
+      }
+  finally {
+        if (db.isActive()) {
+          try {
+            db.commit();
+          }
+ catch (          final Throwable t) {
+            LOG.error("VolumeExport cleanup thread commit failed: " + t.getMessage());
+            db.rollback();
+          }
+        }
+      }
+    }
+  }
+,1,5,TimeUnit.MINUTES);
+}
