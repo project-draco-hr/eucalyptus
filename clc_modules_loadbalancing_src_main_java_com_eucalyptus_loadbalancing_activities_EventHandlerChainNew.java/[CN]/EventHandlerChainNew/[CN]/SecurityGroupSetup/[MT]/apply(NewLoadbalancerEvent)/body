@@ -12,6 +12,18 @@ catch (  Exception ex) {
   }
   String groupName=String.format("euca-internal-%s-%s",lb.getOwnerAccountNumber(),lb.getDisplayName());
   String groupDesc=String.format("group for loadbalancer %s",evt.getLoadBalancer());
+  EntityTransaction db=Entities.get(LoadBalancerSecurityGroup.class);
+  try {
+    final LoadBalancerSecurityGroup exist=Entities.uniqueResult(LoadBalancerSecurityGroup.named(lb,this.groupOwnerAccountId,groupName));
+    db.commit();
+    if (exist != null)     throw new EventHandlerException("Cleaning-up resources for the loadbalancer with same name");
+  }
+ catch (  NoSuchElementException ex) {
+    db.rollback();
+  }
+catch (  Exception ex) {
+    db.rollback();
+  }
   boolean groupFound=false;
   try {
     List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeSecurityGroups(Lists.newArrayList(groupName));
@@ -46,7 +58,7 @@ catch (  Exception ex) {
     createdGroup=groupName;
   }
   if (this.createdGroup == null || this.groupOwnerAccountId == null)   throw new EventHandlerException("Failed to create the security group for loadbalancer");
-  final EntityTransaction db=Entities.get(LoadBalancerSecurityGroup.class);
+  db=Entities.get(LoadBalancerSecurityGroup.class);
   try {
     Entities.uniqueResult(LoadBalancerSecurityGroup.named(lb,this.groupOwnerAccountId,groupName));
     db.commit();
@@ -54,7 +66,6 @@ catch (  Exception ex) {
  catch (  NoSuchElementException ex) {
     final LoadBalancerSecurityGroup newGroup=LoadBalancerSecurityGroup.named(lb,this.groupOwnerAccountId,groupName);
     LoadBalancerSecurityGroup written=Entities.persist(newGroup);
-    Entities.flush(written);
     db.commit();
   }
 catch (  Exception ex) {
