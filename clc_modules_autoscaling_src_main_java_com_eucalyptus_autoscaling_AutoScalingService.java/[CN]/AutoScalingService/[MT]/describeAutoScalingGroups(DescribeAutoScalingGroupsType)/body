@@ -6,21 +6,14 @@
   final Predicate<AutoScalingGroupMetadata> requestedAndAccessible=AutoScalingMetadatas.filterPrivilegesByIdOrArn(request.autoScalingGroupNames());
   try {
     final List<AutoScalingGroupType> results=reply.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember();
-    final List<AutoScalingGroup> groups=autoScalingGroups.list(ownerFullName,requestedAndAccessible);
-    final Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(AutoScalingGroup.class).getResourceTagMap(ctx.getUserFullName().asAccountFullName(),Iterables.transform(groups,AutoScalingMetadatas.toDisplayName()),Predicates.alwaysTrue());
-    for (    final AutoScalingGroup autoScalingGroup : groups) {
-      final AutoScalingGroupType type=TypeMappers.transform(autoScalingGroup,AutoScalingGroupType.class);
-      final Instances instances=new Instances();
-      Iterables.addAll(instances.getMember(),Iterables.transform(autoScalingInstances.listByGroup(autoScalingGroup),TypeMappers.lookup(AutoScalingInstance.class,Instance.class)));
-      if (!instances.getMember().isEmpty()) {
-        type.setInstances(instances);
-      }
+    results.addAll(autoScalingGroups.list(ownerFullName,requestedAndAccessible,TypeMappers.lookup(AutoScalingGroup.class,AutoScalingGroupType.class)));
+    final Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(AutoScalingGroup.class).getResourceTagMap(ctx.getUserFullName().asAccountFullName(),Iterables.transform(results,AutoScalingGroupType.groupName()),Predicates.alwaysTrue());
+    for (    final AutoScalingGroupType type : results) {
       final TagDescriptionList tags=new TagDescriptionList();
-      Tags.addFromTags(tags.getMember(),TagDescription.class,tagsMap.get(autoScalingGroup.getAutoScalingGroupName()));
+      Tags.addFromTags(tags.getMember(),TagDescription.class,tagsMap.get(type.getAutoScalingGroupName()));
       if (!tags.getMember().isEmpty()) {
         type.setTags(tags);
       }
-      results.add(type);
     }
   }
  catch (  Exception e) {

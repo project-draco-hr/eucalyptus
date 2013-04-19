@@ -3,6 +3,17 @@
   final Context ctx=Contexts.lookup();
   final UserFullName ownerFullName=ctx.getUserFullName();
   final String lbName=request.getLoadBalancerName();
+  final Predicate<String> nameChecker=new Predicate<String>(){
+    @Override public boolean apply(    @Nullable String arg0){
+      if (arg0 == null)       return false;
+      if (!HostSpecifier.isValid(String.format("%s.com",arg0)))       return false;
+      return true;
+    }
+  }
+;
+  if (!nameChecker.apply(lbName)) {
+    throw new LoadBalancingException("Invalid character found in the loadbalancer name");
+  }
   final Supplier<LoadBalancer> allocator=new Supplier<LoadBalancer>(){
     @Override public LoadBalancer get(){
       try {
@@ -66,7 +77,8 @@ catch (    Exception ex) {
  catch (  EventFailedException e) {
     LOG.error("failed to fire new loadbalancer event",e);
     rollback.apply(lbName);
-    throw new LoadBalancingException(String.format("Faild to create the requested loadblanacer: %s",lbName),e);
+    final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
+    throw new LoadBalancingException(String.format("Faild to create the requested loadblanacer: %s",reason),e);
   }
   Collection<Listener> listeners=request.getListeners().getMember();
   if (listeners != null && listeners.size() > 0) {
@@ -81,7 +93,8 @@ catch (    Exception ex) {
  catch (    EventFailedException e) {
       LOG.error("failed to fire createListener event",e);
       rollback.apply(lbName);
-      throw new LoadBalancingException(String.format("Faild to create the requested loadblanacer: %s",lbName),e);
+      final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
+      throw new LoadBalancingException(String.format("Faild to create the requested loadblanacer: %s",reason),e);
     }
   }
   final CreateLoadBalancerResult result=new CreateLoadBalancerResult();
