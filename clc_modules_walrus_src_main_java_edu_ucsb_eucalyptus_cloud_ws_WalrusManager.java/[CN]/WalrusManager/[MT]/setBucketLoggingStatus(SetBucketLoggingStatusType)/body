@@ -1,6 +1,7 @@
 {
   SetBucketLoggingStatusResponseType reply=(SetBucketLoggingStatusResponseType)request.getReply();
   String bucket=request.getBucket();
+  Context ctx=Contexts.lookup();
   EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
   BucketInfo bucketInfo, targetBucketInfo;
   try {
@@ -10,33 +11,40 @@
     db.rollback();
     throw new NoSuchBucketException(bucket);
   }
-  if (request.getLoggingEnabled() != null) {
-    String targetBucket=request.getLoggingEnabled().getTargetBucket();
-    String targetPrefix=request.getLoggingEnabled().getTargetPrefix();
-    List<Grant> targetGrantsList=null;
-    TargetGrants targetGrants=request.getLoggingEnabled().getTargetGrants();
-    if (targetGrants != null)     targetGrantsList=targetGrants.getGrants();
-    if (targetPrefix == null)     targetPrefix="";
-    try {
-      targetBucketInfo=db.getUniqueEscape(new BucketInfo(targetBucket));
+  if (ctx.hasAdministrativePrivileges() || Lookups.checkPrivilege(PolicySpec.S3_PUTBUCKETLOGGING,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucket,bucketInfo.getOwnerId())) {
+    if (request.getLoggingEnabled() != null) {
+      String targetBucket=request.getLoggingEnabled().getTargetBucket();
+      String targetPrefix=request.getLoggingEnabled().getTargetPrefix();
+      List<Grant> targetGrantsList=null;
+      TargetGrants targetGrants=request.getLoggingEnabled().getTargetGrants();
+      if (targetGrants != null)       targetGrantsList=targetGrants.getGrants();
+      if (targetPrefix == null)       targetPrefix="";
+      try {
+        targetBucketInfo=db.getUniqueEscape(new BucketInfo(targetBucket));
+      }
+ catch (      EucalyptusCloudException ex) {
+        db.rollback();
+        throw new NoSuchBucketException(targetBucket);
+      }
+      if (!targetBucketInfo.hasLoggingPerms()) {
+        db.rollback();
+        throw new InvalidTargetBucketForLoggingException(targetBucket);
+      }
+      bucketInfo.setTargetBucket(targetBucket);
+      bucketInfo.setTargetPrefix(targetPrefix);
+      bucketInfo.setLoggingEnabled(true);
+      if (targetGrantsList != null) {
+        targetBucketInfo.addGrants(targetGrantsList);
+      }
     }
- catch (    EucalyptusCloudException ex) {
-      db.rollback();
-      throw new NoSuchBucketException(targetBucket);
-    }
-    if (!targetBucketInfo.hasLoggingPerms()) {
-      db.rollback();
-      throw new InvalidTargetBucketForLoggingException(targetBucket);
-    }
-    bucketInfo.setTargetBucket(targetBucket);
-    bucketInfo.setTargetPrefix(targetPrefix);
-    bucketInfo.setLoggingEnabled(true);
-    if (targetGrantsList != null) {
-      targetBucketInfo.addGrants(targetGrantsList);
+ else {
+      bucketInfo.setLoggingEnabled(false);
     }
   }
  else {
-    bucketInfo.setLoggingEnabled(false);
+    LOG.error("Not authorized to set bucket logging status by " + ctx.getUserFullName());
+    db.rollback();
+    throw new AccessDeniedException("Bucket",bucketInfo.getBucketName());
   }
   db.commit();
   return reply;

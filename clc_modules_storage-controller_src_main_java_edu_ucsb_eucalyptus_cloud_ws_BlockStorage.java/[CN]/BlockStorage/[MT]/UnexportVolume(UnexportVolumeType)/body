@@ -1,0 +1,37 @@
+{
+  UnexportVolumeResponseType reply=request.getReply();
+  String token=request.getToken();
+  String volumeId=request.getVolumeId();
+  String nodeIqn=request.getIqn();
+  String nodeIp=request.getIp();
+  if (token.startsWith(StorageProperties.TOKEN_PREFIX)) {
+    token=token.substring(StorageProperties.TOKEN_PREFIX.length(),token.length());
+  }
+  if (ENCRYPT_TOKEN) {
+    token=BlockStorageUtil.decryptWithCloud(token);
+  }
+  EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
+  try {
+    VolumeInfo volumeInfo=db.getUnique(new VolumeInfo(volumeId));
+  }
+ catch (  EucalyptusCloudException ex) {
+    LOG.error("Unable to find volume: " + volumeId + ex);
+    throw new NoSuchEntityException("Unable to find volume: " + volumeId + ex);
+  }
+ finally {
+    db.commit();
+  }
+  try {
+    if (VolumeExports.removeExport(volumeId,token,nodeIp,nodeIqn)) {
+      blockManager.detachVolume(volumeId,nodeIqn);
+    }
+ else {
+      LOG.error("Could not remove export for volume " + volumeId + " invalid token indicated");
+    }
+  }
+ catch (  EucalyptusCloudException ex) {
+    LOG.error("Could not detach volume " + volumeId);
+    throw ex;
+  }
+  return reply;
+}

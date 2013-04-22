@@ -45,18 +45,19 @@ catch (  Exception ex) {
     throw new EucalyptusCloudException("Can only attach volumes in the same zone: " + request.getVolumeId());
   }
   ServiceConfiguration ccConfig=Topology.lookup(ClusterController.class,vm.lookupPartition());
-  AttachStorageVolumeResponseType scAttachResponse;
+  GetVolumeTokenResponseType scGetTokenResponse;
   try {
-    AttachStorageVolumeType req=new AttachStorageVolumeType(Nodes.lookupIqn(vm),volume.getDisplayName());
-    scAttachResponse=AsyncRequests.sendSync(sc,req);
+    GetVolumeTokenType req=new GetVolumeTokenType(volume.getDisplayName());
+    scGetTokenResponse=AsyncRequests.sendSync(sc,req);
   }
  catch (  Exception e) {
     LOG.debug(e,e);
     throw new EucalyptusCloudException(e.getMessage(),e);
   }
-  request.setRemoteDevice(scAttachResponse.getRemoteDeviceString());
+  String token=StorageProperties.TOKEN_PREFIX + scGetTokenResponse.getVolumeId() + ","+ scGetTokenResponse.getToken();
+  request.setRemoteDevice(token);
   AttachedVolume attachVol=new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice(),request.getRemoteDevice());
-  vm.addTransientVolume(deviceName,scAttachResponse.getRemoteDeviceString(),volume);
+  vm.addTransientVolume(deviceName,token,volume);
   AsyncRequests.newRequest(new VolumeAttachCallback(request)).dispatch(ccConfig);
   EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getOwner().toString(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("partition",vm.getPartition().toString()).info();
   reply.setAttachedVolume(attachVol);

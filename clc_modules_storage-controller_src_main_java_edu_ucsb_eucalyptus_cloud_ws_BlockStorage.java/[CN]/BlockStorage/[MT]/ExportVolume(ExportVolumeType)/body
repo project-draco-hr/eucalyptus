@@ -1,0 +1,43 @@
+{
+  ExportVolumeResponseType reply=(ExportVolumeResponseType)request.getReply();
+  String volumeId=request.getVolumeId();
+  String token=request.getToken();
+  String ip=request.getIp();
+  String iqn=request.getIqn();
+  if (token.startsWith(StorageProperties.TOKEN_PREFIX)) {
+    token=token.substring(StorageProperties.TOKEN_PREFIX.length(),token.length());
+  }
+  if (ENCRYPT_TOKEN) {
+    token=BlockStorageUtil.decryptWithCloud(token);
+  }
+  reply.setVolumeId(volumeId);
+  ArrayList<String> nodeIqns=Lists.newArrayList(iqn);
+  EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
+  try {
+    VolumeInfo volumeInfo=db.getUnique(new VolumeInfo(volumeId));
+    if (volumeInfo == null) {
+      throw new EucalyptusCloudException("Volume " + volumeId + " not found");
+    }
+  }
+ catch (  EucalyptusCloudException ex) {
+    LOG.error("Unable to find volume: " + volumeId + ex);
+    throw new NoSuchEntityException("Unable to find volume: " + volumeId + ex);
+  }
+ finally {
+    db.commit();
+  }
+  try {
+    if (VolumeExports.addExport(volumeId,token,ip,iqn)) {
+      String deviceConnectString=blockManager.attachVolume(volumeId,nodeIqns);
+      reply.setConnectionString(deviceConnectString);
+    }
+ else {
+      throw new EucalyptusCloudException("Invalid token " + token + " received for volume "+ volumeId);
+    }
+  }
+ catch (  EucalyptusCloudException ex) {
+    LOG.error(ex,ex);
+    throw ex;
+  }
+  return reply;
+}
