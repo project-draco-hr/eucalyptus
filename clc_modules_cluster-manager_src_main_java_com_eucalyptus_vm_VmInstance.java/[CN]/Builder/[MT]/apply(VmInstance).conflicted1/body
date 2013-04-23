@@ -29,7 +29,37 @@
       runningInstance.setPlacement(input.getPlacement().getPartitionName());
       runningInstance.setLaunchTime(input.getLaunchRecord().getLaunchTime());
       runningInstance.setClientToken(input.getClientToken());
-      runningInstance.setNameOrArn(input.getNameOrArn());
+      if (!input.getNameOrArn().equals("") && input.getNameOrArn().startsWith("arn:")) {
+        final String rawName=input.getNameOrArn();
+        final int nameIndex=input.getNameOrArn().lastIndexOf('/');
+        final String name=input.getNameOrArn().substring(nameIndex + 1,rawName.length());
+        InstanceProfile instanceProfile;
+        try {
+          instanceProfile=Accounts.lookupAccountById(input.getOwnerAccountNumber()).lookupInstanceProfileByName(name);
+          final String profileArn=Accounts.getInstanceProfileArn(instanceProfile);
+          IamInstanceProfile iamInstanceProfile=new IamInstanceProfile();
+          iamInstanceProfile.setArn(profileArn);
+          iamInstanceProfile.setId(instanceProfile.getInstanceProfileId());
+          runningInstance.setIamInstanceProfile(iamInstanceProfile);
+        }
+ catch (        NoSuchElementException nsee) {
+          LOG.debug("profile arn : " + name,nsee);
+        }
+      }
+ else       if (!input.getNameOrArn().equals("") && !input.getNameOrArn().startsWith("arn:")) {
+        InstanceProfile instanceProfile;
+        try {
+          instanceProfile=Accounts.lookupAccountById(input.getOwnerAccountNumber()).lookupInstanceProfileByName(input.getNameOrArn());
+          final String profileArn=Accounts.getInstanceProfileArn(instanceProfile);
+          IamInstanceProfile iamInstanceProfile=new IamInstanceProfile();
+          iamInstanceProfile.setArn(profileArn);
+          iamInstanceProfile.setId(instanceProfile.getInstanceProfileId());
+          runningInstance.setIamInstanceProfile(iamInstanceProfile);
+        }
+ catch (        NoSuchElementException nsee) {
+          LOG.debug("profile name : " + input.getNameOrArn(),nsee);
+        }
+      }
       if (input.getMonitoring()) {
         runningInstance.setMonitoring("enabled");
       }
