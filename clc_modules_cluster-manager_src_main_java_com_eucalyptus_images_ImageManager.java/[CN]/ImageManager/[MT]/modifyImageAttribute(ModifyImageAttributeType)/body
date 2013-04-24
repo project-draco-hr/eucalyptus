@@ -1,46 +1,44 @@
 {
-  ModifyImageAttributeResponseType reply=(ModifyImageAttributeResponseType)request.getReply();
+  final ModifyImageAttributeResponseType reply=(ModifyImageAttributeResponseType)request.getReply();
   final Context ctx=Contexts.lookup();
   final String requestAccountId=ctx.getUserFullName().getAccountNumber();
-  final User requestUser=ctx.getUser();
-  final String action=PolicySpec.requestToAction(request);
-  EntityWrapper<ImageInfo> db=EntityWrapper.get(ImageInfo.class);
-  ImageInfo imgInfo=null;
+  final EntityWrapper<ImageInfo> db=EntityWrapper.get(ImageInfo.class);
   try {
-    imgInfo=db.getUnique(Images.exampleWithImageId(request.getImageId()));
+    final ImageInfo imgInfo=db.getUnique(Images.exampleWithImageId(request.getImageId()));
     if (!ctx.hasAdministrativePrivileges() && (!imgInfo.getOwnerAccountNumber().equals(requestAccountId) || !RestrictedTypes.filterPrivileged().apply(imgInfo))) {
       throw new EucalyptusCloudException("Not authorized to modify image attribute");
     }
-    for (    String productCode : request.getProductCodes()) {
-      imgInfo.addProductCode(productCode);
-    }
-    if ("launchPermission".equals(request.getAttribute())) {
-      if (request.getQueryUserGroup().isEmpty() && request.getQueryUserId().isEmpty())       throw new EucalyptusCloudException("No userId provided");
-      if (ADD.equals(request.getOperationType())) {
-        this.verifyUserIds(request.getQueryUserId());
-        imgInfo.addPermissions(request.getQueryUserId());
-        if (!request.getQueryUserGroup().isEmpty()) {
+switch (request.getImageAttribute()) {
+case LaunchPermission:
+      if (request.isAdd()) {
+        imgInfo.addPermissions(verifyUserIds(request.getUserIds()));
+        if (request.isGroupAll()) {
           imgInfo.setImagePublic(true);
         }
       }
  else {
-        for (int i=0; i < request.getQueryUserId().size(); i++) {
-          String accountId=request.getQueryUserId().get(i);
-          if (!imgInfo.checkPermission(accountId))           throw new EucalyptusCloudException("No existing launch permission for userId " + accountId);
-        }
-        imgInfo.removePermissions(request.getQueryUserId());
-        if (!request.getQueryUserGroup().isEmpty()) {
+        imgInfo.removePermissions(request.getUserIds());
+        if (request.isGroupAll()) {
           imgInfo.setImagePublic(false);
         }
       }
-    }
-    db.commit();
-    reply.set_return(true);
+    break;
+case ProductCode:
+  for (  String productCode : request.getProductCodes()) {
+    imgInfo.addProductCode(productCode);
   }
- catch (  EucalyptusCloudException e) {
-    db.rollback();
-    reply.set_return(false);
-    throw e;
-  }
-  return reply;
+break;
+case Description:
+imgInfo.setDescription(request.getDescription());
+break;
+}
+db.commit();
+reply.set_return(true);
+}
+ catch (EucalyptusCloudException e) {
+db.rollback();
+reply.set_return(false);
+throw e;
+}
+return reply;
 }
