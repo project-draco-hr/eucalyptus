@@ -1,0 +1,44 @@
+{
+  EntityTransaction db=Entities.get(VmInstance.class);
+  try {
+    List<VmInstance> instances=Entities.query(new VmInstance());
+    for (    VmInstance vm : instances) {
+      if (vm.getBootRecord().getMachine() instanceof BlockStorageImageInfo) {
+        LOG.info("Upgrading bfebs VmInstance: " + vm.toString());
+        if (vm.getBootRecord().getEphmeralStorage().isEmpty()) {
+          LOG.info("Adding an ephemeral storage attachment");
+          vm.addEphemeralAttachment("/dev/sdb","ephemeral0");
+        }
+        if (vm.getBootRecord().getPersistentVolumes().size() == 1) {
+          VmVolumeAttachment attachment=vm.getBootRecord().getPersistentVolumes().iterator().next();
+          LOG.info("Found the only VmVolumeAttachment: " + attachment.toString());
+          LOG.info("Setting root device flag to true");
+          attachment.setIsRootDevice(Boolean.TRUE);
+          if (attachment.getDevice().equalsIgnoreCase("/dev/sda1")) {
+            LOG.info("Changing the device name from /dev/sda1 to /dev/sda");
+            attachment.setDevice("/dev/sda");
+          }
+        }
+ else {
+          for (          VmVolumeAttachment attachment : vm.getBootRecord().getPersistentVolumes()) {
+            LOG.info("Found VmVolumeAttachment: " + attachment.toString());
+            if (attachment.getDevice().equalsIgnoreCase("/dev/sda1")) {
+              LOG.info("Setting root device flag to true");
+              attachment.setIsRootDevice(Boolean.TRUE);
+              LOG.info("Changing the device name from /dev/sda1 to /dev/sda");
+              attachment.setDevice("/dev/sda");
+            }
+          }
+        }
+      }
+      Entities.persist(vm);
+    }
+    db.commit();
+    return true;
+  }
+ catch (  Exception ex) {
+    LOG.error("Error upgrading VmInstance: ",ex);
+    db.rollback();
+    throw Exceptions.toUndeclared(ex);
+  }
+}
