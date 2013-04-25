@@ -3,12 +3,10 @@
   reply.setImageId(request.getImageId());
   final Context ctx=Contexts.lookup();
   final String requestAccountId=ctx.getUserFullName().getAccountNumber();
-  final User requestUser=Contexts.lookup().getUser();
-  final String action=PolicySpec.requestToAction(request);
   if (request.getAttribute() != null)   request.applyAttribute();
-  EntityWrapper<ImageInfo> db=EntityWrapper.get(ImageInfo.class);
+  final EntityWrapper<ImageInfo> db=EntityWrapper.get(ImageInfo.class);
   try {
-    ImageInfo imgInfo=db.getUnique(Images.exampleWithImageId(request.getImageId()));
+    final ImageInfo imgInfo=db.getUnique(Images.exampleWithImageId(imageIdentifier(request.getImageId())));
     if (!ctx.hasAdministrativePrivileges() && (!imgInfo.getOwnerAccountNumber().equals(requestAccountId) || !RestrictedTypes.filterPrivileged().apply(imgInfo))) {
       throw new EucalyptusCloudException("Not authorized to describe image attribute");
     }
@@ -31,10 +29,9 @@
  else     if (request.getLaunchPermission() != null) {
       reply.setRealResponse(reply.getLaunchPermission());
       if (imgInfo.getImagePublic()) {
-        reply.getLaunchPermission().add(LaunchPermissionItemType.getGroup());
+        reply.getLaunchPermission().add(LaunchPermissionItemType.newGroupLaunchPermission());
       }
-      Iterator<String> permItr=imgInfo.getPermissions().iterator();
-      while (permItr.hasNext())       reply.getLaunchPermission().add(LaunchPermissionItemType.getUser(permItr.next()));
+      for (      final String permission : imgInfo.getPermissions())       reply.getLaunchPermission().add(LaunchPermissionItemType.newUserLaunchPermission(permission));
     }
  else     if (request.getProductCodes() != null) {
       reply.setRealResponse(reply.getProductCodes());
@@ -46,6 +43,12 @@
       reply.getBlockDeviceMapping().add(ImageUtil.EPHEMERAL);
       reply.getBlockDeviceMapping().add(ImageUtil.SWAP);
       reply.getBlockDeviceMapping().add(ImageUtil.ROOT);
+    }
+ else     if (request.getDescription() != null) {
+      reply.setRealResponse(reply.getDescription());
+      if (imgInfo.getDescription() != null) {
+        reply.getDescription().add(imgInfo.getDescription());
+      }
     }
  else {
       throw new EucalyptusCloudException("invalid image attribute request.");
