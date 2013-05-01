@@ -1,28 +1,30 @@
 {
   ConfigureHealthCheckResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  final UserFullName ownerFullName=ctx.getUserFullName();
   final String lbName=request.getLoadBalancerName();
   final HealthCheck hc=request.getHealthCheck();
   Integer healthyThreshold=hc.getHealthyThreshold();
-  if (healthyThreshold == null)   throw new LoadBalancingException("healthy tresholds must be specified");
+  if (healthyThreshold == null)   throw new LoadBalancingException("Healthy tresholds must be specified");
   Integer interval=hc.getInterval();
-  if (interval == null)   throw new LoadBalancingException("interval must be specified");
+  if (interval == null)   throw new LoadBalancingException("Interval must be specified");
   String target=hc.getTarget();
-  if (target == null)   throw new LoadBalancingException("target must be specified");
+  if (target == null)   throw new LoadBalancingException("Target must be specified");
   Integer timeout=hc.getTimeout();
-  if (timeout == null)   throw new LoadBalancingException("timeout must be specified");
+  if (timeout == null)   throw new LoadBalancingException("Timeout must be specified");
   Integer unhealthyThreshold=hc.getUnhealthyThreshold();
-  if (unhealthyThreshold == null)   throw new LoadBalancingException("unhealthy tresholds must be specified");
+  if (unhealthyThreshold == null)   throw new LoadBalancingException("Unhealthy tresholds must be specified");
   LoadBalancer lb=null;
   try {
-    lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
+    lb=LoadBalancers.getLoadbalancer(ctx,lbName);
   }
  catch (  NoSuchElementException ex) {
     throw new AccessPointNotFoundException();
   }
 catch (  Exception ex) {
-    throw new LoadBalancingException("failed to find the loadbalancer due to unknown reason");
+    throw new LoadBalancingException("Failed to find the loadbalancer (internal error)");
+  }
+  if (lb != null && !LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
+    throw new AccessPointNotFoundException();
   }
   final EntityTransaction db=Entities.get(LoadBalancer.class);
   try {
@@ -34,7 +36,7 @@ catch (  Exception ex) {
  catch (  Exception ex) {
     db.rollback();
     LOG.error("failed to persist health check config",ex);
-    throw new LoadBalancingException("failed to persist the health check request",ex);
+    throw new LoadBalancingException("Failed to persist the health check request (internal error)",ex);
   }
   ConfigureHealthCheckResult result=new ConfigureHealthCheckResult();
   result.setHealthCheck(hc);

@@ -1,9 +1,18 @@
 {
   final DisableAvailabilityZonesForLoadBalancerResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  final UserFullName ownerFullName=ctx.getUserFullName();
   final String lbName=request.getLoadBalancerName();
   final Collection<String> zones=request.getAvailabilityZones().getMember();
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ctx,lbName);
+  }
+ catch (  final Exception ex) {
+    throw new AccessPointNotFoundException();
+  }
+  if (lb != null && !LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
+    throw new AccessPointNotFoundException();
+  }
   if (zones != null && zones.size() > 0) {
     try {
       final DisabledZoneEvent evt=new DisabledZoneEvent();
@@ -15,14 +24,13 @@
  catch (    EventFailedException e) {
       LOG.error("failed to execute DisabledZone event",e);
       final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
-      throw new LoadBalancingException(String.format("failed to disable zones: %s",reason),e);
+      throw new LoadBalancingException(String.format("Failed to disable zones: %s",reason),e);
     }
   }
   List<String> availableZones=Lists.newArrayList();
   try {
-    LoadBalancer lb=null;
-    lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
-    availableZones=Lists.transform(LoadBalancers.findZonesInService(lb),new Function<LoadBalancerZone,String>(){
+    final LoadBalancer updatedLb=LoadBalancers.getLoadbalancer(ctx,lbName);
+    availableZones=Lists.transform(LoadBalancers.findZonesInService(updatedLb),new Function<LoadBalancerZone,String>(){
       @Override public String apply(      @Nullable LoadBalancerZone arg0){
         return arg0.getName();
       }
