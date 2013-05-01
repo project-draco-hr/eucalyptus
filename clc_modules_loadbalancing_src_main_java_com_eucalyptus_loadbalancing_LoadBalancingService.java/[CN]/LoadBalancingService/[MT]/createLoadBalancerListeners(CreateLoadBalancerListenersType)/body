@@ -1,10 +1,19 @@
 {
   final CreateLoadBalancerListenersResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  final UserFullName ownerFullName=ctx.getUserFullName();
   final String lbName=request.getLoadBalancerName();
   final List<Listener> listeners=request.getListeners().getMember();
-  if (listeners != null)   LoadBalancers.validateListener(lbName,ownerFullName,listeners);
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ctx,lbName);
+  }
+ catch (  Exception ex) {
+    throw new AccessPointNotFoundException();
+  }
+  if (lb != null && !LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
+    throw new AccessPointNotFoundException();
+  }
+  if (listeners != null)   LoadBalancers.validateListener(lb,listeners);
   try {
     CreateListenerEvent evt=new CreateListenerEvent();
     evt.setLoadBalancer(lbName);
@@ -15,9 +24,9 @@
  catch (  final EventFailedException e) {
     LOG.error("failed to fire CreateListener event",e);
     final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getMessage() : "internal error";
-    throw new LoadBalancingException(String.format("failed to create listener: %s",reason),e);
+    throw new LoadBalancingException(String.format("Failed to create listener: %s",reason),e);
   }
-  LoadBalancers.createLoadbalancerListener(lbName,ownerFullName,listeners);
+  LoadBalancers.createLoadbalancerListener(lbName,ctx,listeners);
   reply.set_return(true);
   return reply;
 }

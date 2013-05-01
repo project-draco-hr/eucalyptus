@@ -1,7 +1,6 @@
 {
   final DeleteLoadBalancerListenersResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  final UserFullName ownerFullName=ctx.getUserFullName();
   final String lbName=request.getLoadBalancerName();
   final Collection<Integer> listenerPorts;
   try {
@@ -13,20 +12,20 @@
 );
   }
  catch (  Exception ex) {
-    throw new LoadBalancingException("invalid port number",ex);
+    throw new LoadBalancingException("Invalid port number",ex);
   }
   final LoadBalancer lb;
   try {
-    lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
+    lb=LoadBalancers.getLoadbalancer(ctx,lbName);
   }
  catch (  NoSuchElementException ex) {
     throw new AccessPointNotFoundException();
   }
 catch (  Exception ex) {
-    LOG.error("Failed to find the loadbalancer=" + lbName);
-    throw new LoadBalancingException("failed to find the loadbalancer",ex);
+    LOG.error("failed to query loadbalancer due to unknown reason",ex);
+    throw new LoadBalancingException("Failed to find the loadbalancer",ex);
   }
-  if (!LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
+  if (lb != null && !LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
     throw new AccessPointNotFoundException();
   }
   final Function<Void,Collection<Integer>> filter=new Function<Void,Collection<Integer>>(){
@@ -69,7 +68,7 @@ catch (        Exception ex) {
  catch (  EventFailedException e) {
     LOG.error("failed to fire DeleteListener event",e);
     final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
-    throw new LoadBalancingException(String.format("failed to delete listener: %s",reason),e);
+    throw new LoadBalancingException(String.format("Failed to delete listener: %s",reason),e);
   }
   reply.set_return(Entities.asTransaction(LoadBalancerListener.class,remover).apply(toDelete));
   return reply;

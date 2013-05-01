@@ -1,0 +1,39 @@
+{
+  Function<VolumeToken,VolumeToken> deactivateExport=new Function<VolumeToken,VolumeToken>(){
+    @Override public VolumeToken apply(    VolumeToken tok){
+      VolumeToken tokenEntity=Entities.merge(tok);
+      try {
+        for (        VolumeExportRecord rec : tokenEntity.getExportRecords()) {
+          if (rec.getIsActive() && rec.getHostIp().equals(ip) && rec.getHostIqn().equals(iqn)) {
+            rec.setIsActive(Boolean.FALSE);
+            break;
+          }
+        }
+        Predicate<VolumeExportRecord> notActive=new Predicate<VolumeExportRecord>(){
+          @Override public boolean apply(          VolumeExportRecord record){
+            return !record.getIsActive();
+          }
+        }
+;
+        if (Iterators.all(tokenEntity.getExportRecords().iterator(),notActive)) {
+          tok.setIsValid(Boolean.FALSE);
+        }
+        return tokenEntity;
+      }
+ catch (      Exception e) {
+        LOG.error("Could not invalidate export record for volume " + tok.getVolume().getVolumeId() + " token "+ tok.getToken()+ " ip "+ ip+ " iqn "+ iqn,e);
+      }
+      return null;
+    }
+  }
+;
+  try {
+    if (Entities.asTransaction(VolumeExportRecord.class,deactivateExport).apply(this) == null) {
+      throw new Exception("Failed to invalidate export, got null result from deactivation");
+    }
+  }
+ catch (  Exception e) {
+    LOG.error("Failed to invalidate export: " + e.getMessage(),e);
+    throw new EucalyptusCloudException("Failed to invalidate export");
+  }
+}

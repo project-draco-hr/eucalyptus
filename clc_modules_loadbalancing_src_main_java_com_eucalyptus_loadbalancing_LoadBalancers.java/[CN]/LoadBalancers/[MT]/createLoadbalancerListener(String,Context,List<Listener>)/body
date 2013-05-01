@@ -1,0 +1,30 @@
+{
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ctx,lbName);
+  }
+ catch (  Exception ex) {
+    LOG.warn("No loadbalancer is found with name=" + lbName);
+  }
+  validateListener(lb,listeners);
+  final Predicate<LoadBalancer> creator=new Predicate<LoadBalancer>(){
+    @Override public boolean apply(    LoadBalancer lb){
+      for (      Listener listener : listeners) {
+        try {
+          if (!lb.hasListener(listener.getLoadBalancerPort().intValue())) {
+            LoadBalancerListener.Builder builder=new LoadBalancerListener.Builder(lb,listener.getInstancePort().intValue(),listener.getLoadBalancerPort().intValue(),LoadBalancerListener.PROTOCOL.valueOf(listener.getProtocol().toUpperCase()));
+            if (!Strings.isNullOrEmpty(listener.getInstanceProtocol()))             builder.instanceProtocol(PROTOCOL.valueOf(listener.getInstanceProtocol()));
+            if (!Strings.isNullOrEmpty(listener.getSslCertificateId()))             builder.withSSLCerntificate(listener.getSslCertificateId());
+            Entities.persist(builder.build());
+          }
+        }
+ catch (        Exception ex) {
+          LOG.warn("failed to create the listener object",ex);
+        }
+      }
+      return true;
+    }
+  }
+;
+  Entities.asTransaction(LoadBalancerListener.class,creator).apply(lb);
+}

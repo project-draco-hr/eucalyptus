@@ -1,16 +1,46 @@
 {
   if (volumeInfo instanceof ISCSIVolumeInfo) {
-    if (((ISCSIVolumeInfo)volumeInfo).getTid() > -1) {
-      ISCSIVolumeInfo iscsiVolumeInfo=(ISCSIVolumeInfo)volumeInfo;
-      unexportTarget(iscsiVolumeInfo.getTid(),iscsiVolumeInfo.getLun());
-      Long timeout=DirectStorageInfo.getStorageInfo().getTimeoutInMillis();
-      CommandOutput output=execute(new String[]{ROOT_WRAP,"tgtadm","--lld","iscsi","--op","show","--mode","target","--tid",String.valueOf(iscsiVolumeInfo.getTid())},timeout);
-      if (StringUtils.isNotBlank(output.error)) {
-        iscsiVolumeInfo.setTid(-1);
+    ISCSIVolumeInfo volInfo=(ISCSIVolumeInfo)volumeInfo;
+    EntityTransaction db=Entities.get(ISCSIVolumeInfo.class);
+    try {
+      ISCSIVolumeInfo volEntity=Entities.merge(volInfo);
+      if (isExported(volEntity)) {
+        unexportTarget(volEntity.getTid(),volEntity.getLun());
+        if (!isExported(volEntity)) {
+          volEntity.setTid(-1);
+          volEntity.setLun(-1);
+          volEntity.setStoreName(null);
+        }
+ else {
+          throw new EucalyptusCloudException("Unable to remove tid: " + volEntity.getTid());
+        }
       }
  else {
-        throw new EucalyptusCloudException("Unable to remove tid: " + iscsiVolumeInfo.getTid());
+        volEntity.setTid(-1);
+        volEntity.setLun(-1);
+        volEntity.setStoreName(null);
+        volEntity.setStoreUser(null);
+      }
+      db.commit();
+      db=null;
+    }
+ catch (    Exception e) {
+      LOG.error("Something went wrong, exiting iscsi cleanup for volume " + volumeInfo.getVolumeId());
+    }
+ finally {
+      if (db != null && db.isActive()) {
+        try {
+          db.commit();
+        }
+ catch (        Exception e) {
+          LOG.error("Commit failded. Rolling back");
+          db.rollback();
+        }
       }
     }
+  }
+ else {
+    LOG.error("Unknown volume type for volume " + volumeInfo.getVolumeId() + " - cannot cleanpup");
+    throw new EucalyptusCloudException("Unknown type for volumeInfo in ISCSI cleanup. Did not find ISCSIVolumeInfo as expected");
   }
 }

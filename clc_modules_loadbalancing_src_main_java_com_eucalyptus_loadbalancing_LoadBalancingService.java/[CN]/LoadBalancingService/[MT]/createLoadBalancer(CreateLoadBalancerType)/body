@@ -14,7 +14,7 @@
   if (!nameChecker.apply(lbName)) {
     throw new LoadBalancingException("Invalid character found in the loadbalancer name");
   }
-  if (request.getListeners() != null && request.getListeners().getMember() != null)   LoadBalancers.validateListener(lbName,ownerFullName,request.getListeners().getMember());
+  if (request.getListeners() != null && request.getListeners().getMember() != null)   LoadBalancers.validateListener(request.getListeners().getMember());
   final Supplier<LoadBalancer> allocator=new Supplier<LoadBalancer>(){
     @Override public LoadBalancer get(){
       try {
@@ -38,7 +38,7 @@
   Function<String,Boolean> rollback=new Function<String,Boolean>(){
     @Override public Boolean apply(    String lbName){
       try {
-        LoadBalancers.unsetForeignKeys(ctx.getUserFullName(),lbName);
+        LoadBalancers.unsetForeignKeys(ctx,lbName);
       }
  catch (      Exception ex) {
         LOG.warn("unable to unset foreign keys",ex);
@@ -57,7 +57,7 @@
   Collection<String> zones=request.getAvailabilityZones().getMember();
   if (zones != null && zones.size() > 0) {
     try {
-      LoadBalancers.addZone(lbName,ownerFullName,zones);
+      LoadBalancers.addZone(lbName,ctx,zones);
     }
  catch (    LoadBalancingException ex) {
       rollback.apply(lbName);
@@ -65,7 +65,7 @@
     }
 catch (    Exception ex) {
       rollback.apply(lbName);
-      throw new LoadBalancingException("failed to create the loadbalancer",ex);
+      throw new LoadBalancingException("Failed to create the loadbalancer (internal error)",ex);
     }
   }
   try {
@@ -79,11 +79,11 @@ catch (    Exception ex) {
     LOG.error("failed to fire new loadbalancer event",e);
     rollback.apply(lbName);
     final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
-    throw new LoadBalancingException(String.format("Faild to create the requested loadblanacer: %s",reason),e);
+    throw new LoadBalancingException(String.format("Failed to create the loadbalancer: %s",reason),e);
   }
   Collection<Listener> listeners=request.getListeners().getMember();
   if (listeners != null && listeners.size() > 0) {
-    LoadBalancers.createLoadbalancerListener(lbName,ownerFullName,Lists.newArrayList(listeners));
+    LoadBalancers.createLoadbalancerListener(lbName,ctx,Lists.newArrayList(listeners));
     try {
       CreateListenerEvent evt=new CreateListenerEvent();
       evt.setLoadBalancer(lbName);
@@ -95,12 +95,12 @@ catch (    Exception ex) {
       LOG.error("failed to fire createListener event",e);
       rollback.apply(lbName);
       final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
-      throw new LoadBalancingException(String.format("Faild to create the requested loadblanacer: %s",reason),e);
+      throw new LoadBalancingException(String.format("Faild to create the loadbalancer: %s",reason),e);
     }
   }
   final CreateLoadBalancerResult result=new CreateLoadBalancerResult();
   if (dns == null || dns.getDnsName() == null) {
-    LOG.warn("No DNS name is assigned to a loadblancer " + lbName);
+    LOG.warn("No DNS name is assigned to the loadbalancer: " + lbName);
   }
   result.setDnsName(dns.getDnsName());
   reply.setCreateLoadBalancerResult(result);

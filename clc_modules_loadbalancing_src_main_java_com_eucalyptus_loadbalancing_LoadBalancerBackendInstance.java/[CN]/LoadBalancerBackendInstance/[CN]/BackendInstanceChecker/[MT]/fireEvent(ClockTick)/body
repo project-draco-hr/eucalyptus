@@ -1,0 +1,74 @@
+{
+  final List<LoadBalancerBackendInstance> allInstances=Lists.newArrayList();
+  final List<LoadBalancerBackendInstance> stateOutdated=Lists.newArrayList();
+  EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
+  try {
+    allInstances.addAll(Entities.query(LoadBalancerBackendInstance.named()));
+    db.commit();
+  }
+ catch (  final Exception ex) {
+    db.rollback();
+  }
+  final Map<String,STATE> stateMap=new HashMap<String,STATE>();
+  final Date current=new Date(System.currentTimeMillis());
+  for (  final LoadBalancerBackendInstance be : allInstances) {
+    if (STATE.Error.equals(be.getBackendState()))     continue;
+    final Date lastUpdate=be.getLastUpdateTimestamp();
+    int elapsedSec=(int)((current.getTime() - lastUpdate.getTime()) / 1000.0);
+    if (elapsedSec > CHECK_EVERY_SECONDS) {
+      stateOutdated.add(be);
+      stateMap.put(be.getInstanceId(),be.getBackendState());
+    }
+  }
+  db=Entities.get(LoadBalancerBackendInstance.class);
+  try {
+    for (    final LoadBalancerBackendInstance be : stateOutdated) {
+      final LoadBalancerBackendInstance update=Entities.uniqueResult(be);
+      update.setLastUpdateTimestamp(current);
+      Entities.persist(update);
+    }
+    db.commit();
+  }
+ catch (  final Exception ex) {
+    db.rollback();
+  }
+  final List<String> instancesToCheck=Lists.transform(stateOutdated,new Function<LoadBalancerBackendInstance,String>(){
+    @Override @Nullable public String apply(    @Nullable LoadBalancerBackendInstance arg0){
+      return arg0.getInstanceId();
+    }
+  }
+);
+  List<RunningInstancesItemType> result=null;
+  try {
+    result=EucalyptusActivityTasks.getInstance().describeSystemInstances(instancesToCheck);
+    if (result == null)     throw new Exception();
+  }
+ catch (  final Exception ex) {
+    LOG.warn("failed to query instances",ex);
+    return;
+  }
+  for (  final RunningInstancesItemType instance : result) {
+    final String state=instance.getStateName();
+    if ("pending".equals(state))     stateMap.put(instance.getInstanceId(),STATE.OutOfService);
+ else     if ("running".equals(state))     ;
+ else     if ("shutting-down".equals(state))     stateMap.put(instance.getInstanceId(),STATE.Error);
+ else     if ("terminated".equals(state))     stateMap.put(instance.getInstanceId(),STATE.Error);
+ else     if ("stopping".equals(state))     stateMap.put(instance.getInstanceId(),STATE.Error);
+ else     if ("stopped".equals(state))     stateMap.put(instance.getInstanceId(),STATE.Error);
+  }
+  db=Entities.get(LoadBalancerBackendInstance.class);
+  try {
+    for (    final LoadBalancerBackendInstance be : stateOutdated) {
+      STATE trueState=stateMap.get(be.getInstanceId());
+      if (!trueState.equals(be.getBackendState())) {
+        final LoadBalancerBackendInstance update=Entities.uniqueResult(be);
+        update.setBackendState(trueState);
+        Entities.persist(update);
+      }
+    }
+    db.commit();
+  }
+ catch (  final Exception ex) {
+    db.rollback();
+  }
+}
