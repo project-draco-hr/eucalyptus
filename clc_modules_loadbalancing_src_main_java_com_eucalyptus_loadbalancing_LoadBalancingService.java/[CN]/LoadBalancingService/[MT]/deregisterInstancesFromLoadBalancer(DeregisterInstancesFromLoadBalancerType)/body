@@ -37,6 +37,7 @@
         }
  catch (        NoSuchElementException ex) {
           toDelete=null;
+          throw Exceptions.toUndeclared(new InvalidEndPointException());
         }
 catch (        Exception ex) {
           LOG.error("Can't query loadbalancer backend instance for " + instanceId);
@@ -80,11 +81,16 @@ catch (        Exception ex) {
     ActivityManager.getInstance().fire(evt);
   }
  catch (  EventFailedException e) {
-    LOG.error("failed to fire DeregisterInstances event",e);
+    LOG.error("failed to handle DeregisterInstances event",e);
     final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
-    throw new LoadBalancingException(String.format("Failed to deregister instances: %s",reason),e);
+    throw new InternalFailure400Exception(String.format("Failed to deregister instances: %s",reason),e);
   }
-  reply.set_return(Entities.asTransaction(LoadBalancerBackendInstance.class,remover).apply(null));
+  try {
+    reply.set_return(Entities.asTransaction(LoadBalancerBackendInstance.class,remover).apply(null));
+  }
+ catch (  final Exception ex) {
+    handleException(ex);
+  }
   DeregisterInstancesFromLoadBalancerResult result=new DeregisterInstancesFromLoadBalancerResult();
   Instances returnInstances=new Instances();
   returnInstances.setMember(Entities.asTransaction(LoadBalancer.class,finder).apply(null));
