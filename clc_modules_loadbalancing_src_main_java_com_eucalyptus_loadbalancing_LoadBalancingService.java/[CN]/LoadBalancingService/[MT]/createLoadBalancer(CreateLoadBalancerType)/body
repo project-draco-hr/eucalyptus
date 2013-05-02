@@ -12,7 +12,7 @@
   }
 ;
   if (!nameChecker.apply(lbName)) {
-    throw new LoadBalancingException("Invalid character found in the loadbalancer name");
+    throw new InvalidConfigurationRequestException("Invalid character found in the loadbalancer name");
   }
   if (request.getListeners() != null && request.getListeners().getMember() != null)   LoadBalancers.validateListener(request.getListeners().getMember());
   final Supplier<LoadBalancer> allocator=new Supplier<LoadBalancer>(){
@@ -33,8 +33,6 @@
  catch (  Exception e) {
     handleException(e);
   }
-  final LoadBalancerDnsRecord dns=LoadBalancers.getDnsRecord(lb);
-  if (dns == null || dns.getName() == null)   throw new LoadBalancingException("New dns name could not be created");
   Function<String,Boolean> rollback=new Function<String,Boolean>(){
     @Override public Boolean apply(    String lbName){
       try {
@@ -54,6 +52,11 @@
     }
   }
 ;
+  final LoadBalancerDnsRecord dns=LoadBalancers.getDnsRecord(lb);
+  if (dns == null || dns.getName() == null) {
+    rollback.apply(lbName);
+    throw new InternalFailure400Exception("Dns name could not be created");
+  }
   Collection<String> zones=request.getAvailabilityZones().getMember();
   if (zones != null && zones.size() > 0) {
     try {
@@ -65,7 +68,7 @@
     }
 catch (    Exception ex) {
       rollback.apply(lbName);
-      throw new LoadBalancingException("Failed to create the loadbalancer (internal error)",ex);
+      throw new InternalFailure400Exception("Failed to persist the zone");
     }
   }
   try {
@@ -76,10 +79,10 @@ catch (    Exception ex) {
     ActivityManager.getInstance().fire(evt);
   }
  catch (  EventFailedException e) {
-    LOG.error("failed to fire new loadbalancer event",e);
+    LOG.error("failed to handle new loadbalancer event",e);
     rollback.apply(lbName);
     final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
-    throw new LoadBalancingException(String.format("Failed to create the loadbalancer: %s",reason),e);
+    throw new InternalFailure400Exception(String.format("Failed to create the loadbalancer: %s",reason),e);
   }
   Collection<Listener> listeners=request.getListeners().getMember();
   if (listeners != null && listeners.size() > 0) {
@@ -92,10 +95,10 @@ catch (    Exception ex) {
       ActivityManager.getInstance().fire(evt);
     }
  catch (    EventFailedException e) {
-      LOG.error("failed to fire createListener event",e);
+      LOG.error("failed to handle createListener event",e);
       rollback.apply(lbName);
       final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
-      throw new LoadBalancingException(String.format("Faild to create the loadbalancer: %s",reason),e);
+      throw new InternalFailure400Exception(String.format("Faild to setup the listener: %s",reason),e);
     }
   }
   final CreateLoadBalancerResult result=new CreateLoadBalancerResult();
