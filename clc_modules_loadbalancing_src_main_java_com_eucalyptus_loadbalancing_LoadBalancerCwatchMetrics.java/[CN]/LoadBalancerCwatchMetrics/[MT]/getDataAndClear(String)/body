@@ -4,8 +4,22 @@
   final List<ElbDimension> toCleanup=Lists.newArrayList();
   final Map<ElbDimension,Integer> healthyCountMap=new HashMap<ElbDimension,Integer>();
   final Map<ElbDimension,Integer> unhealthyCountMap=new HashMap<ElbDimension,Integer>();
+  final List<String> candidates=Lists.newArrayList(Iterables.filter(this.instanceHealthMap.keySet(),new Predicate<String>(){
+    @Override public boolean apply(    @Nullable String instanceId){
+      try {
+        final LoadBalancerBackendInstance be=LoadBalancers.lookupBackendInstance(instanceId);
+        if (be == null)         return false;
+        if (be.getAvailabilityZone() == null || !LoadBalancerZone.STATE.InService.equals(be.getAvailabilityZone().getState()))         return false;
+        return (LoadBalancerBackendInstance.STATE.InService.equals(be.getState()) || LoadBalancerBackendInstance.STATE.OutOfService.equals(be.getState()));
+      }
+ catch (      final Exception ex) {
+        return false;
+      }
+    }
+  }
+));
 synchronized (lock) {
-    for (    final String instanceId : this.instanceHealthMap.keySet()) {
+    for (    final String instanceId : candidates) {
       final ElbDimension thisDim=this.instanceToDimensionMap.get(instanceId);
       if (this.instanceHealthMap.get(instanceId).booleanValue()) {
         if (!healthyCountMap.containsKey(thisDim))         healthyCountMap.put(thisDim,0);

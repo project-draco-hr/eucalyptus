@@ -3,7 +3,8 @@
   event=cloudWatchSupplier.get();
   final VmInstance instance=VmInstances.lookup(event.getInstanceId());
   if (!instance.getInstanceId().equals(event.getInstanceId()) || !instance.getMonitoring()) {
-    throw new NoSuchElementException("Instance : " + event.getInstanceId() + " monitoring is not enabled");
+    LOG.debug("Instance : " + event.getInstanceId() + " monitoring is not enabled");
+    return;
   }
   if (instance.getInstanceId().equals(event.getInstanceId()) && instance.getMonitoring()) {
     PutMetricDataType putMetricData=new PutMetricDataType();
@@ -26,6 +27,18 @@
       }
  else {
         putMetricData.setNamespace("AWS/EC2");
+        try {
+          String autoscalingGroupName=Transactions.find(VmInstanceTag.named(instance,instance.getOwner(),"aws:autoscaling:groupName")).getValue();
+          if (autoscalingGroupName != null) {
+            Dimension autoscalingGroupNameDim=new Dimension();
+            autoscalingGroupNameDim.setName("AutoScalingGroupName");
+            autoscalingGroupNameDim.setValue(autoscalingGroupName);
+            dimArray.add(autoscalingGroupNameDim);
+          }
+        }
+ catch (        Exception ex) {
+          ;
+        }
         Dimension instanceIdDim=new Dimension();
         instanceIdDim.setName("InstanceId");
         instanceIdDim.setValue(instance.getInstanceId());
@@ -48,7 +61,7 @@
     }
  else {
       LOG.debug("Event does not contain a dimension");
-      throw new Exception();
+      return;
     }
     Dimensions dims=new Dimensions();
     dims.setMember(dimArray);
@@ -63,13 +76,18 @@
     }
     metricData.setMember(Lists.newArrayList(metricDatum));
     putMetricData.setMetricData(metricData);
-    Account account=Accounts.getAccountProvider().lookupAccountById(instance.getOwnerAccountNumber());
-    User user=account.lookupUserByName(User.ACCOUNT_ADMIN);
-    putMetricData.setEffectiveUserId(user.getUserId());
-    ServiceConfiguration serviceConfiguration=ServiceConfigurations.createEphemeral(ComponentIds.lookup(CloudWatch.class));
-    BaseMessage reply=(BaseMessage)AsyncRequests.dispatch(serviceConfiguration,putMetricData).get();
-    if (!(reply instanceof PutMetricDataResponseType)) {
-      throw new EucalyptusCloudException("Unable to send put metric data to cloud watch");
+    try {
+      Account account=Accounts.getAccountProvider().lookupAccountById(instance.getOwnerAccountNumber());
+      User user=account.lookupUserByName(User.ACCOUNT_ADMIN);
+      putMetricData.setEffectiveUserId(user.getUserId());
+      ServiceConfiguration serviceConfiguration=ServiceConfigurations.createEphemeral(ComponentIds.lookup(CloudWatch.class));
+      BaseMessage reply=(BaseMessage)AsyncRequests.dispatch(serviceConfiguration,putMetricData).get();
+      if (!(reply instanceof PutMetricDataResponseType)) {
+        throw new EucalyptusCloudException("Unable to send put metric data to cloud watch");
+      }
+    }
+ catch (    Exception ex) {
+      LOG.debug(ex.getMessage(),ex);
     }
   }
 }

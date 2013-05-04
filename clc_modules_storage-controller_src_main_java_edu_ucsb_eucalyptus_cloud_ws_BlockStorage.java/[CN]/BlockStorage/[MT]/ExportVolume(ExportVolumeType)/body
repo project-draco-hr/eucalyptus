@@ -1,43 +1,98 @@
 {
-  ExportVolumeResponseType reply=(ExportVolumeResponseType)request.getReply();
-  String volumeId=request.getVolumeId();
+  final ExportVolumeResponseType reply=(ExportVolumeResponseType)request.getReply();
+  final String volumeId=request.getVolumeId();
   String token=request.getToken();
-  String ip=request.getIp();
-  String iqn=request.getIqn();
-  if (token.startsWith(StorageProperties.TOKEN_PREFIX)) {
-    token=token.substring(StorageProperties.TOKEN_PREFIX.length(),token.length());
-  }
-  if (ENCRYPT_TOKEN) {
-    token=BlockStorageUtil.decryptWithCloud(token);
-  }
+  final String ip=request.getIp();
+  final String iqn=request.getIqn();
   reply.setVolumeId(volumeId);
-  ArrayList<String> nodeIqns=Lists.newArrayList(iqn);
-  EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
-  try {
-    VolumeInfo volumeInfo=db.getUnique(new VolumeInfo(volumeId));
-    if (volumeInfo == null) {
-      throw new EucalyptusCloudException("Volume " + volumeId + " not found");
+  final String tokenValue=cleanupTokenString(token);
+  Function<VolumeInfo,String> exportAndAttach=new Function<VolumeInfo,String>(){
+    @Override public String apply(    VolumeInfo volume){
+      VolumeToken tokenInfo=null;
+      VolumeInfo volEntity=Entities.merge(volume);
+      try {
+        tokenInfo=volEntity.getAttachmentTokenIfValid(tokenValue);
+        if (tokenInfo == null) {
+          throw new Exception("Cannot export, due to invalid token");
+        }
+      }
+ catch (      Exception e) {
+        LOG.error("Could not check for valid token",e);
+        return null;
+      }
+      VolumeExportRecord export=null;
+      try {
+        export=tokenInfo.getValidExport(ip,iqn);
+      }
+ catch (      EucalyptusCloudException e2) {
+        LOG.error("Failed when checking/getting valid export for " + ip + " - "+ iqn);
+        return null;
+      }
+      if (export == null) {
+        String connectionString=null;
+        try {
+          connectionString=blockManager.exportVolume(volumeId,iqn);
+        }
+ catch (        Exception e) {
+          LOG.error("Could not attach volume: " + e.getMessage());
+          LOG.trace("Failed volume attach",e);
+          return null;
+        }
+        try {
+          tokenInfo.addExport(ip,iqn,connectionString);
+          return connectionString;
+        }
+ catch (        Exception e) {
+          LOG.error("Could not export volume " + volumeId + " failed to add export record");
+          try {
+            LOG.info("Unexporting volume " + volumeId + " to "+ iqn+ " for export failure cleanup");
+            blockManager.unexportVolume(volumeId,iqn);
+          }
+ catch (          EucalyptusCloudException e1) {
+            LOG.error("Failed to detach volume during invalidation failure",e);
+          }
+          return null;
+        }
+      }
+ else {
+        LOG.debug("Found extant valid export for " + ip + " and "+ iqn+ " returning connection information for that export");
+        return export.getConnectionString();
+      }
     }
   }
- catch (  EucalyptusCloudException ex) {
-    LOG.error("Unable to find volume: " + volumeId + ex);
-    throw new NoSuchEntityException("Unable to find volume: " + volumeId + ex);
-  }
- finally {
+;
+  VolumeInfo searchVol=new VolumeInfo(volumeId);
+  EntityTransaction db=Entities.get(VolumeInfo.class);
+  VolumeInfo vol=null;
+  try {
+    vol=Entities.uniqueResult(searchVol);
     db.commit();
   }
-  try {
-    if (VolumeExports.addExport(volumeId,token,ip,iqn)) {
-      String deviceConnectString=blockManager.attachVolume(volumeId,nodeIqns);
-      reply.setConnectionString(deviceConnectString);
-    }
- else {
-      throw new EucalyptusCloudException("Invalid token " + token + " received for volume "+ volumeId);
+ catch (  NoSuchElementException e) {
+    LOG.error("No volume db record found for " + volumeId,e);
+    throw new EucalyptusCloudException("Volume not found " + volumeId);
+  }
+catch (  TransactionException e) {
+    LOG.error("Failed to Export due to db error",e);
+    throw new EucalyptusCloudException("Could not export volume",e);
+  }
+ finally {
+    if (db.isActive()) {
+      db.rollback();
     }
   }
- catch (  EucalyptusCloudException ex) {
-    LOG.error(ex,ex);
-    throw ex;
+  try {
+    String connectionString=Entities.asTransaction(VolumeInfo.class,exportAndAttach).apply(vol);
+    if (connectionString != null) {
+      reply.setConnectionString(connectionString);
+    }
+ else {
+      throw new Exception("Got null record result. Cannot set connection string");
+    }
+  }
+ catch (  Exception e) {
+    LOG.error("Failed ExportVolume transaction due to: " + e.getMessage(),e);
+    throw new EucalyptusCloudException("Failed to add export",e);
   }
   return reply;
 }
