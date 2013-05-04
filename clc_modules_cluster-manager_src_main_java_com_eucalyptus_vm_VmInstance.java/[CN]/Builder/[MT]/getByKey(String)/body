@@ -1,21 +1,15 @@
 {
-  if (!mapOfMetaSupplier.containsKey(this.getInstanceId())) {
-    mapOfMetaSupplier.put(this.getInstanceId(),Suppliers.memoizeWithExpiration(new Supplier<Map<String,String>>(){
-      @Override public Map<String,String> get(){
-        return getMetadataMap();
-      }
+  String path=Objects.firstNonNull(pathArg,"");
+  LOG.debug("Servicing metadata request:" + path);
+  if (path.endsWith("/")) {
+    path=path.substring(0,path.length() - 1);
+  }
+  Optional<MetadataGroup> groupOption=Optional.absent();
+  for (  final MetadataGroup metadataGroup : MetadataGroup.values()) {
+    if (metadataGroup.providesPath(path)) {
+      groupOption=Optional.of(metadataGroup);
     }
-,5,TimeUnit.SECONDS));
   }
-  Supplier<Map<String,String>> metaSupplier=mapOfMetaSupplier.get(this.getInstanceId());
-  final Map<String,String> m=metaSupplier.get();
-  String path=(pathArg != null) ? pathArg : "";
-  LOG.debug("Servicing metadata request:" + path + " -> "+ m.get(path));
-  if (m.containsKey(path + "/"))   path+="/";
-  if (!m.containsKey(path)) {
-    throw new NoSuchElementException("No such key: " + path);
-  }
- else {
-    return m.get(path).replaceAll("\n*\\z","");
-  }
+  final MetadataGroup group=groupOption.or(MetadataGroup.Core);
+  return Optional.fromNullable(group.apply(this)).or(Collections.<String,String>emptyMap()).get(path);
 }
