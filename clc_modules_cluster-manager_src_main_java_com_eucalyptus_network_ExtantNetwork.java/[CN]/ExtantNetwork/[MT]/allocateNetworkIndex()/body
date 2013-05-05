@@ -11,22 +11,31 @@
     throw new TransientEntityException(this.toString());
   }
  else {
-    EntityTransaction db=Entities.get(PrivateNetworkIndex.class);
+    final EntityTransaction db=Entities.get(PrivateNetworkIndex.class);
     try {
+      final List<Long> networkIndexHolder=Lists.newArrayList();
+      Entities.registerSynchronization(ExtantNetwork.class,new Synchronization(){
+        @Override public void beforeCompletion(){
+        }
+        @Override public void afterCompletion(        final int status){
+          clearInFlight(networkIndexHolder);
+        }
+      }
+);
       for (      final Long i : Numbers.shuffled(NetworkGroups.networkIndexInterval())) {
         try {
           Entities.uniqueResult(PrivateNetworkIndex.named(this,i));
-          continue;
         }
- catch (        final Exception ex) {
-          try {
+ catch (        final NoSuchElementException ex) {
+          if (ifNotInFlight(i))           try {
+            networkIndexHolder.add(i);
             PrivateNetworkIndex netIdx=Entities.persist(PrivateNetworkIndex.create(this,i));
             PrivateNetworkIndex ref=netIdx.allocate();
             db.commit();
             return ref;
           }
  catch (          final Exception ex1) {
-            continue;
+            Logs.exhaust().debug(ex1);
           }
         }
       }

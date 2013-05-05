@@ -9,7 +9,7 @@
     LVMVolumeInfo snapshotInfo=volumeManager.getVolumeInfo();
     snapshotInfo.setVolumeId(snapshotId);
     String vgName=foundLVMVolumeInfo.getVgName();
-    String lvName="lv-snap-" + Hashes.getRandom(4);
+    String lvName=generateLVName(snapshotId);
     String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ foundLVMVolumeInfo.getLvName();
     int size=foundLVMVolumeInfo.getSize();
     long snapshotSize=(size * StorageProperties.GB) / 2;
@@ -21,9 +21,9 @@
       String volLoDevName=foundLVMVolumeInfo.getLoDevName();
       boolean tearDown=false;
 synchronized (monitor) {
-        if (!logicalVolumeExists(absoluteVolLVName)) {
+        if (!LVMWrapper.logicalVolumeExists(absoluteVolLVName)) {
           volLoDevName=createLoopback(DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId);
-          enableLogicalVolume(absoluteVolLVName);
+          LVMWrapper.enableLogicalVolume(absoluteVolLVName);
           tearDown=true;
         }
         snapshotInfo.setStatus(StorageProperties.Status.pending.toString());
@@ -37,15 +37,15 @@ synchronized (monitor) {
         String snapRawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + snapshotId;
         String absoluteSnapLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
         duplicateLogicalVolume(absoluteSnapLVName,snapRawFileName);
-        String returnValue=removeLogicalVolume(absoluteSnapLVName);
+        String returnValue=LVMWrapper.removeLogicalVolume(absoluteSnapLVName);
         if (returnValue.length() == 0) {
           throw new EucalyptusCloudException("Unable to remove logical volume " + absoluteSnapLVName);
         }
-        returnValue=reduceVolumeGroup(vgName,loDevName);
+        returnValue=LVMWrapper.reduceVolumeGroup(vgName,loDevName);
         if (returnValue.length() == 0) {
           throw new EucalyptusCloudException("Unable to reduce volume group " + vgName + " logical volume: "+ loDevName);
         }
-        returnValue=removePhysicalVolume(loDevName);
+        returnValue=LVMWrapper.removePhysicalVolume(loDevName);
         if (returnValue.length() == 0) {
           throw new EucalyptusCloudException("Unable to remove physical volume " + loDevName);
         }
@@ -55,7 +55,7 @@ synchronized (monitor) {
         }
         if (tearDown) {
           LOG.info("Snapshot complete. Detaching loop device" + volLoDevName);
-          disableLogicalVolume(absoluteVolLVName);
+          LVMWrapper.disableLogicalVolume(absoluteVolLVName);
           removeLoopback(volLoDevName);
         }
         returnValues.add(snapRawFileName);

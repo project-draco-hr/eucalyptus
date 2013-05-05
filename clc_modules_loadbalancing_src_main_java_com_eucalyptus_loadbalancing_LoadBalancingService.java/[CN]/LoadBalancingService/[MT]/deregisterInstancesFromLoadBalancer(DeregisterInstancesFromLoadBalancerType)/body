@@ -1,19 +1,20 @@
 {
   DeregisterInstancesFromLoadBalancerResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  final UserFullName ownerFullName=ctx.getUserFullName();
   final String lbName=request.getLoadBalancerName();
   final Collection<Instance> instances=request.getInstances().getMember();
-  final Function<Void,Collection<String>> filter=new Function<Void,Collection<String>>(){
-    @Override public Collection<String> apply(    Void v){
-      LoadBalancer lb=null;
-      try {
-        lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
-      }
- catch (      Exception ex) {
-        LOG.warn("No loadbalancer is found with name=" + lbName);
-        return null;
-      }
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ctx,lbName);
+  }
+ catch (  Exception ex) {
+    throw new AccessPointNotFoundException();
+  }
+  if (lb != null && !LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
+    throw new AccessPointNotFoundException();
+  }
+  final Function<LoadBalancer,Collection<String>> filter=new Function<LoadBalancer,Collection<String>>(){
+    @Override public Collection<String> apply(    LoadBalancer lb){
       Collection<String> filtered=Sets.newHashSet();
       for (      Instance inst : instances) {
         if (lb.hasBackendInstance(inst.getInstanceId()))         filtered.add(inst.getInstanceId());
@@ -22,7 +23,7 @@
     }
   }
 ;
-  final Collection<String> instancesToRemove=Entities.asTransaction(LoadBalancer.class,filter).apply(null);
+  final Collection<String> instancesToRemove=Entities.asTransaction(LoadBalancer.class,filter).apply(lb);
   if (instancesToRemove == null) {
     reply.set_return(false);
     return reply;
@@ -32,10 +33,11 @@
       for (      String instanceId : instancesToRemove) {
         LoadBalancerBackendInstance toDelete=null;
         try {
-          toDelete=Entities.uniqueResult(LoadBalancerBackendInstance.named(ownerFullName,instanceId));
+          toDelete=Entities.uniqueResult(LoadBalancerBackendInstance.named(instanceId));
         }
  catch (        NoSuchElementException ex) {
           toDelete=null;
+          throw Exceptions.toUndeclared(new InvalidEndPointException());
         }
 catch (        Exception ex) {
           LOG.error("Can't query loadbalancer backend instance for " + instanceId);
@@ -52,7 +54,7 @@ catch (        Exception ex) {
     @Override public ArrayList<Instance> apply(    Void v){
       LoadBalancer lb=null;
       try {
-        lb=LoadBalancers.getLoadbalancer(ownerFullName,lbName);
+        lb=LoadBalancers.getLoadbalancer(ctx,lbName);
       }
  catch (      Exception ex) {
         LOG.warn("No loadbalancer is found with name=" + lbName);
@@ -79,11 +81,16 @@ catch (        Exception ex) {
     ActivityManager.getInstance().fire(evt);
   }
  catch (  EventFailedException e) {
-    LOG.error("failed to fire DeregisterInstances event",e);
+    LOG.error("failed to handle DeregisterInstances event",e);
     final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
-    throw new LoadBalancingException(String.format("failed to deregister instances: %s",reason),e);
+    throw new InternalFailure400Exception(String.format("Failed to deregister instances: %s",reason),e);
   }
-  reply.set_return(Entities.asTransaction(LoadBalancerBackendInstance.class,remover).apply(null));
+  try {
+    reply.set_return(Entities.asTransaction(LoadBalancerBackendInstance.class,remover).apply(null));
+  }
+ catch (  final Exception ex) {
+    handleException(ex);
+  }
   DeregisterInstancesFromLoadBalancerResult result=new DeregisterInstancesFromLoadBalancerResult();
   Instances returnInstances=new Instances();
   returnInstances.setMember(Entities.asTransaction(LoadBalancer.class,finder).apply(null));
