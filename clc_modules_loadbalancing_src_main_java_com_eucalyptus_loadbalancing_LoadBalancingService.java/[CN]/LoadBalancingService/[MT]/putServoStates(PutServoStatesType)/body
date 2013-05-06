@@ -2,6 +2,7 @@
   PutServoStatesResponseType reply=request.getReply();
   final String servoId=request.getInstanceId();
   if (!isValidServoRequest(servoId)) {
+    LOG.warn("invalid servo request found");
     return reply;
   }
   final Instances instances=request.getInstances();
@@ -27,29 +28,35 @@ catch (    Exception ex) {
   if (lb == null || !LoadBalancingMetadatas.filterPrivilegedWithoutOwner().apply(lb))   return reply;
   if (instances != null && instances.getMember() != null && instances.getMember().size() > 0) {
     final Collection<LoadBalancerBackendInstanceCoreView> lbInstances=lb.getBackendInstances();
-    if (lb != null && instances.getMember() != null && instances.getMember().size() > 0) {
-      for (      Instance instance : instances.getMember()) {
-        String instanceId=instance.getInstanceId();
-        String[] parts=instanceId.split(":");
-        if (parts == null || parts.length != 2) {
-          LOG.warn("instance id is in wrong format:" + instanceId);
-          continue;
+    for (    final Instance instance : instances.getMember()) {
+      String instanceId=instance.getInstanceId();
+      String[] parts=instanceId.split(":");
+      if (parts == null || parts.length != 2) {
+        LOG.warn("instance id is in wrong format:" + instanceId);
+        continue;
+      }
+      instanceId=parts[0];
+      final String state=parts[1];
+      LoadBalancerBackendInstanceCoreView found=null;
+      for (      final LoadBalancerBackendInstanceCoreView lbInstance : lbInstances) {
+        if (instanceId.equals(lbInstance.getInstanceId())) {
+          found=lbInstance;
+          break;
         }
-        instanceId=parts[0];
-        String state=parts[1];
-        LoadBalancerBackendInstanceCoreView found=null;
-        for (        final LoadBalancerBackendInstanceCoreView lbInstance : lbInstances) {
-          if (instanceId.equals(lbInstance.getInstanceId())) {
-            found=lbInstance;
-            break;
-          }
+      }
+      if (found != null) {
+        LoadBalancerBackendInstance sample=null;
+        try {
+          sample=LoadBalancerBackendInstanceEntityTransform.INSTANCE.apply(found);
         }
-        if (found != null) {
-          String zoneName=found.getZoneName();
+ catch (        final Exception ex) {
+          LOG.error("unable to find the loadbancer backend instance",ex);
+        }
+        if (sample != null) {
           final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
           try {
-            LoadBalancerBackendInstance update=Entities.uniqueResult(LoadBalancerBackendInstance.named(lb,found.getInstanceId()));
-            if (state.equals(LoadBalancerBackendInstance.STATE.InService.name()) || state.equals(LoadBalancerBackendInstance.STATE.OutOfService.name())) {
+            final LoadBalancerBackendInstance update=Entities.uniqueResult(sample);
+            if (!state.equals(found.getBackendState().toString())) {
               update.setState(Enum.valueOf(LoadBalancerBackendInstance.STATE.class,state));
               if (state.equals(LoadBalancerBackendInstance.STATE.OutOfService.name())) {
                 update.setReasonCode("Instance");
@@ -59,16 +66,21 @@ catch (    Exception ex) {
                 update.setReasonCode(null);
                 update.setDescription(null);
               }
-              Entities.persist(update);
             }
+            update.updateInstanceStateTimestamp();
+            Entities.persist(update);
             db.commit();
           }
- catch (          NoSuchElementException ex) {
+ catch (          final NoSuchElementException ex) {
             db.rollback();
+            LOG.error("unable to find the loadbancer backend instance",ex);
           }
-catch (          Exception ex) {
+catch (          final Exception ex) {
             db.rollback();
-            LOG.warn("Failed to query loadbalancer backend instance: " + instanceId,ex);
+            LOG.error("unable to update the state of loadbalancer backend instance",ex);
+          }
+ finally {
+            if (db.isActive())             db.rollback();
           }
         }
       }
