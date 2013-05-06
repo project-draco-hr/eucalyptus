@@ -1,0 +1,55 @@
+{
+  final Map<String,String> m=new HashMap<String,String>();
+  final String instanceProfileNameOrArn=this.getNameOrArn();
+  if (instanceProfileNameOrArn != null && !instanceProfileNameOrArn.isEmpty()) {
+    InstanceProfile profile=null;
+    String roleName=null;
+    String roleArn=null;
+    String profileArn=null;
+    try {
+      final Account userAccount=Accounts.lookupAccountById(this.getOwnerAccountNumber());
+      String profileName;
+      if (instanceProfileNameOrArn.startsWith("arn:")) {
+        profileName=instanceProfileNameOrArn.substring(instanceProfileNameOrArn.lastIndexOf('/') + 1);
+      }
+ else {
+        profileName=instanceProfileNameOrArn;
+      }
+      profile=userAccount.lookupInstanceProfileByName(profileName);
+      profileArn=Accounts.getInstanceProfileArn(profile);
+      final Role role=profile.getRole();
+      if (role != null) {
+        roleArn=Accounts.getRoleArn(role);
+        roleName=role.getName();
+      }
+    }
+ catch (    AuthException e) {
+      LOG.debug(e);
+    }
+    CredentialsType credentials=null;
+    if (roleArn != null) {
+      final AssumeRoleType assumeRoleType=new AssumeRoleType();
+      assumeRoleType.setRoleArn(roleArn);
+      assumeRoleType.setRoleSessionName(Crypto.generateId(roleArn,this.getOwner().getUserId()));
+      ServiceConfiguration serviceConfiguration=ServiceConfigurations.createEphemeral(ComponentIds.lookup(Tokens.class));
+      try {
+        credentials=((AssumeRoleResponseType)AsyncRequests.sendSync(serviceConfiguration,assumeRoleType)).getAssumeRoleResult().getCredentials();
+      }
+ catch (      Exception e) {
+        LOG.debug("Unable to send assume role request to token service",e);
+      }
+    }
+    if (profile != null) {
+      m.put("iam/info/last-updated-date",Timestamps.formatIso8601Timestamp(profile.getCreationTimestamp()));
+      m.put("iam/info/instance-profile-arn",profileArn);
+      m.put("iam/info/instance-profile-id",profile.getInstanceProfileId());
+    }
+    if (roleName != null && credentials != null) {
+      m.put("iam/security-credentials/" + roleName + "/AccessKeyId",credentials.getAccessKeyId());
+      m.put("iam/security-credentials/" + roleName + "/Expiration",Timestamps.formatIso8601Timestamp(credentials.getExpiration()));
+      m.put("iam/security-credentials/" + roleName + "/SecretAccessKey",credentials.getSecretAccessKey());
+      m.put("iam/security-credentials/" + roleName + "/Token",credentials.getSessionToken());
+    }
+  }
+  return m;
+}

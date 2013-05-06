@@ -4,10 +4,13 @@
   final List<ElbDimension> toCleanup=Lists.newArrayList();
   final Map<ElbDimension,Integer> healthyCountMap=new HashMap<ElbDimension,Integer>();
   final Map<ElbDimension,Integer> unhealthyCountMap=new HashMap<ElbDimension,Integer>();
-  final List<String> candidates=Lists.newArrayList(Iterables.filter(this.instanceHealthMap.keySet(),new Predicate<String>(){
-    @Override public boolean apply(    @Nullable String instanceId){
+  final List<BackendInstance> candidates=Lists.newArrayList(Iterables.filter(this.instanceHealthMap.keySet(),new Predicate<BackendInstance>(){
+    @Override public boolean apply(    @Nullable BackendInstance instance){
       try {
-        final LoadBalancerBackendInstance be=LoadBalancers.lookupBackendInstance(instanceId);
+        if (instance.getLoadBalancer() == null)         return false;
+        if (!userId.equals(instance.getLoadBalancer().getOwnerUserId()))         return false;
+        final LoadBalancer lb=LoadBalancerEntityTransform.INSTANCE.apply(instance.getLoadBalancer());
+        final LoadBalancerBackendInstance be=LoadBalancers.lookupBackendInstance(lb,instance.getInstanceId());
         if (be == null)         return false;
         if (be.getAvailabilityZone() == null || !LoadBalancerZone.STATE.InService.equals(be.getAvailabilityZone().getState()))         return false;
         return (LoadBalancerBackendInstance.STATE.InService.equals(be.getState()) || LoadBalancerBackendInstance.STATE.OutOfService.equals(be.getState()));
@@ -19,9 +22,9 @@
   }
 ));
 synchronized (lock) {
-    for (    final String instanceId : candidates) {
-      final ElbDimension thisDim=this.instanceToDimensionMap.get(instanceId);
-      if (this.instanceHealthMap.get(instanceId).booleanValue()) {
+    for (    final BackendInstance instance : candidates) {
+      final ElbDimension thisDim=this.instanceToDimensionMap.get(instance);
+      if (this.instanceHealthMap.get(instance).booleanValue()) {
         if (!healthyCountMap.containsKey(thisDim))         healthyCountMap.put(thisDim,0);
         healthyCountMap.put(thisDim,healthyCountMap.get(thisDim) + 1);
       }
@@ -77,10 +80,14 @@ synchronized (lock) {
       if (datumList.size() > 0)       data.getMember().addAll(datumList);
       toCleanup.add(dim);
     }
-    for (    ElbDimension cleanup : toCleanup) {
+    for (    final ElbDimension cleanup : toCleanup) {
       this.metricsMap.remove(cleanup);
       healthyCountMap.remove(cleanup);
       unhealthyCountMap.remove(cleanup);
+    }
+    for (    final BackendInstance instance : candidates) {
+      this.instanceHealthMap.remove(instance);
+      this.instanceToDimensionMap.remove(instance);
     }
   }
   return data;

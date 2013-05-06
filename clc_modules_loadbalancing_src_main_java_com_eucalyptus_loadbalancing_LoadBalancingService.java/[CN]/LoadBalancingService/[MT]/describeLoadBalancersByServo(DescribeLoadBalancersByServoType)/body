@@ -1,11 +1,16 @@
 {
   final DescribeLoadBalancersByServoResponseType reply=request.getReply();
   final String instanceId=request.getInstanceId();
+  LoadBalancerZoneCoreView zoneView=null;
   LoadBalancerZone zone=null;
   try {
     if (isValidServoRequest(instanceId)) {
       final LoadBalancerServoInstance instance=LoadBalancers.lookupServoInstance(instanceId);
-      zone=instance.getAvailabilityZone();
+      zoneView=instance.getAvailabilityZone();
+      zone=LoadBalancerZoneEntityTransform.INSTANCE.apply(zoneView);
+    }
+ else {
+      LOG.warn("invalid servo request found");
     }
   }
  catch (  NoSuchElementException ex) {
@@ -17,23 +22,30 @@ catch (  Exception ex) {
   final Function<LoadBalancerZone,Set<LoadBalancerDescription>> lookupLBDescriptions=new Function<LoadBalancerZone,Set<LoadBalancerDescription>>(){
     @Override public Set<LoadBalancerDescription> apply(    LoadBalancerZone zone){
       final Set<LoadBalancerDescription> descs=Sets.newHashSet();
-      final LoadBalancer lb=zone.getLoadbalancer();
-      final String lbName=lb.getDisplayName();
+      final LoadBalancerCoreView lbView=zone.getLoadbalancer();
+      final String lbName=lbView.getDisplayName();
       LoadBalancerDescription desc=new LoadBalancerDescription();
       desc.setLoadBalancerName(lbName);
-      desc.setCreatedTime(lb.getCreationTimestamp());
-      final LoadBalancerDnsRecord dns=lb.getDns();
-      desc.setDnsName(dns.getDnsName());
-      Collection<LoadBalancerBackendInstance> notInError=Collections2.filter(zone.getBackendInstances(),new Predicate<LoadBalancerBackendInstance>(){
-        @Override public boolean apply(        @Nullable LoadBalancerBackendInstance arg0){
+      desc.setCreatedTime(lbView.getCreationTimestamp());
+      LoadBalancer lb=null;
+      try {
+        lb=LoadBalancerEntityTransform.INSTANCE.apply(lbView);
+      }
+ catch (      final Exception ex) {
+        Sets.<LoadBalancerDescription>newHashSet();
+      }
+      final LoadBalancerDnsRecordCoreView dnsView=lb.getDns();
+      desc.setDnsName(dnsView.getDnsName());
+      Collection<LoadBalancerBackendInstanceCoreView> notInError=Collections2.filter(zone.getBackendInstances(),new Predicate<LoadBalancerBackendInstanceCoreView>(){
+        @Override public boolean apply(        @Nullable LoadBalancerBackendInstanceCoreView arg0){
           return !LoadBalancerBackendInstance.STATE.Error.equals(arg0.getBackendState());
         }
       }
 );
       if (notInError.size() > 0) {
         desc.setInstances(new Instances());
-        desc.getInstances().setMember(new ArrayList<Instance>(Collections2.transform(notInError,new Function<LoadBalancerBackendInstance,Instance>(){
-          @Override public Instance apply(          final LoadBalancerBackendInstance be){
+        desc.getInstances().setMember(new ArrayList<Instance>(Collections2.transform(notInError,new Function<LoadBalancerBackendInstanceCoreView,Instance>(){
+          @Override public Instance apply(          final LoadBalancerBackendInstanceCoreView be){
             Instance instance=new Instance();
             instance.setInstanceId(be.getInstanceId() + ":" + be.getIpAddress());
             return instance;
@@ -45,8 +57,8 @@ catch (  Exception ex) {
       desc.getAvailabilityZones().setMember(Lists.newArrayList(zone.getName()));
       if (lb.getListeners().size() > 0) {
         desc.setListenerDescriptions(new ListenerDescriptions());
-        desc.getListenerDescriptions().setMember(new ArrayList<ListenerDescription>(Collections2.transform(lb.getListeners(),new Function<LoadBalancerListener,ListenerDescription>(){
-          @Override public ListenerDescription apply(          final LoadBalancerListener input){
+        desc.getListenerDescriptions().setMember(new ArrayList<ListenerDescription>(Collections2.transform(lb.getListeners(),new Function<LoadBalancerListenerCoreView,ListenerDescription>(){
+          @Override public ListenerDescription apply(          final LoadBalancerListenerCoreView input){
             ListenerDescription desc=new ListenerDescription();
             Listener listener=new Listener();
             listener.setLoadBalancerPort(input.getLoadbalancerPort());
@@ -86,10 +98,17 @@ catch (      Exception ex) {
   }
 ;
   Set<LoadBalancerDescription> descs=null;
-  if (zone != null && LoadBalancingMetadatas.filterPrivilegedWithoutOwner().apply(zone.getLoadbalancer()) && zone.getState().equals(LoadBalancerZone.STATE.InService)) {
-    descs=lookupLBDescriptions.apply(zone);
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancerEntityTransform.INSTANCE.apply(zone.getLoadbalancer());
+    if (zone != null && LoadBalancingMetadatas.filterPrivilegedWithoutOwner().apply(lb) && zone.getState().equals(LoadBalancerZone.STATE.InService)) {
+      descs=lookupLBDescriptions.apply(zone);
+    }
+ else     descs=Sets.<LoadBalancerDescription>newHashSet();
   }
- else   descs=Sets.<LoadBalancerDescription>newHashSet();
+ catch (  final Exception ex) {
+    descs=Sets.<LoadBalancerDescription>newHashSet();
+  }
   DescribeLoadBalancersResult descResult=new DescribeLoadBalancersResult();
   LoadBalancerDescriptions lbDescs=new LoadBalancerDescriptions();
   lbDescs.setMember(new ArrayList<LoadBalancerDescription>(descs));
