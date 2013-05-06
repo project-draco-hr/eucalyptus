@@ -9,8 +9,11 @@
   LoadBalancer lb=null;
   if (servoId != null) {
     try {
-      LoadBalancerServoInstance servo=LoadBalancers.lookupServoInstance(servoId);
-      lb=servo.getAvailabilityZone().getLoadbalancer();
+      final LoadBalancerServoInstance servo=LoadBalancers.lookupServoInstance(servoId);
+      final LoadBalancerZoneCoreView zoneView=servo.getAvailabilityZone();
+      final LoadBalancerZone zone=LoadBalancerZoneEntityTransform.INSTANCE.apply(zoneView);
+      final LoadBalancerCoreView lbView=zone.getLoadbalancer();
+      lb=LoadBalancerEntityTransform.INSTANCE.apply(lbView);
       if (lb == null)       throw new Exception("Failed to find the loadbalancer");
       if (!servo.getAvailabilityZone().getState().equals(LoadBalancerZone.STATE.InService))       lb=null;
     }
@@ -23,7 +26,7 @@ catch (    Exception ex) {
   }
   if (lb == null || !LoadBalancingMetadatas.filterPrivilegedWithoutOwner().apply(lb))   return reply;
   if (instances != null && instances.getMember() != null && instances.getMember().size() > 0) {
-    final Collection<LoadBalancerBackendInstance> lbInstances=lb.getBackendInstances();
+    final Collection<LoadBalancerBackendInstanceCoreView> lbInstances=lb.getBackendInstances();
     if (lb != null && instances.getMember() != null && instances.getMember().size() > 0) {
       for (      Instance instance : instances.getMember()) {
         String instanceId=instance.getInstanceId();
@@ -34,29 +37,29 @@ catch (    Exception ex) {
         }
         instanceId=parts[0];
         String state=parts[1];
-        LoadBalancerBackendInstance found=null;
-        for (        final LoadBalancerBackendInstance lbInstance : lbInstances) {
+        LoadBalancerBackendInstanceCoreView found=null;
+        for (        final LoadBalancerBackendInstanceCoreView lbInstance : lbInstances) {
           if (instanceId.equals(lbInstance.getInstanceId())) {
             found=lbInstance;
             break;
           }
         }
         if (found != null) {
-          String zoneName=found.getAvailabilityZone().getName();
+          String zoneName=found.getZoneName();
           final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
           try {
-            found=Entities.uniqueResult(found);
+            LoadBalancerBackendInstance update=Entities.uniqueResult(LoadBalancerBackendInstance.named(found.getInstanceId()));
             if (state.equals(LoadBalancerBackendInstance.STATE.InService.name()) || state.equals(LoadBalancerBackendInstance.STATE.OutOfService.name())) {
-              found.setState(Enum.valueOf(LoadBalancerBackendInstance.STATE.class,state));
+              update.setState(Enum.valueOf(LoadBalancerBackendInstance.STATE.class,state));
               if (state.equals(LoadBalancerBackendInstance.STATE.OutOfService.name())) {
-                found.setReasonCode("Instance");
-                found.setDescription("Instance has failed at least the UnhealthyThreshold number of health checks consecutively.");
+                update.setReasonCode("Instance");
+                update.setDescription("Instance has failed at least the UnhealthyThreshold number of health checks consecutively.");
               }
  else {
-                found.setReasonCode(null);
-                found.setDescription(null);
+                update.setReasonCode(null);
+                update.setDescription(null);
               }
-              Entities.persist(found);
+              Entities.persist(update);
             }
             db.commit();
           }
@@ -71,10 +74,10 @@ catch (          Exception ex) {
       }
     }
   }
-  for (  final LoadBalancerBackendInstance sample : lb.getBackendInstances()) {
+  for (  final LoadBalancerBackendInstanceCoreView sample : lb.getBackendInstances()) {
     final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
     try {
-      final LoadBalancerBackendInstance found=Entities.uniqueResult(sample);
+      final LoadBalancerBackendInstance found=Entities.uniqueResult(LoadBalancerBackendInstance.named(sample.getInstanceId()));
       final String zoneName=found.getAvailabilityZone().getName();
       if (found.getState().equals(LoadBalancerBackendInstance.STATE.InService)) {
         LoadBalancerCwatchMetrics.getInstance().updateHealthy(lb.getOwnerUserId(),lb.getDisplayName(),zoneName,found.getInstanceId());

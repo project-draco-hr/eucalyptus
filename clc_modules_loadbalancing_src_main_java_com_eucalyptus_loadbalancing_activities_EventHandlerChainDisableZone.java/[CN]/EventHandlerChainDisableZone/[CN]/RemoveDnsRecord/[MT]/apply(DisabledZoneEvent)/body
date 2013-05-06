@@ -9,7 +9,7 @@
 catch (  Exception ex) {
     throw new EventHandlerException("Error while looking for loadbalancer with name=" + evt.getLoadBalancer(),ex);
   }
-  final LoadBalancerDnsRecord dnsRec=lb.getDns();
+  final LoadBalancerDnsRecordCoreView dnsRec=lb.getDns();
   if (dnsRec == null) {
     LOG.warn("failed to find the dns record for the loadbalancer");
     return;
@@ -17,10 +17,18 @@ catch (  Exception ex) {
   this.dnsName=dnsRec.getName();
   this.dnsZone=dnsRec.getZone();
   final List<String> ipAddressToRemove=Lists.newArrayList();
-  final List<LoadBalancerZone> currentZones=Lists.newArrayList(lb.getZones());
-  for (  final LoadBalancerZone zone : currentZones) {
-    if (evt.getZones().contains(zone.getName())) {
-      for (      final LoadBalancerServoInstance instance : zone.getServoInstances()) {
+  final List<LoadBalancerZoneCoreView> currentZones=Lists.newArrayList(lb.getZones());
+  for (  final LoadBalancerZoneCoreView zoneView : currentZones) {
+    if (evt.getZones().contains(zoneView.getName())) {
+      LoadBalancerZone zone=null;
+      try {
+        zone=LoadBalancerZoneEntityTransform.INSTANCE.apply(zoneView);
+      }
+ catch (      final Exception ex) {
+        LOG.error("unable to transform the zone from its view",ex);
+        continue;
+      }
+      for (      final LoadBalancerServoInstanceCoreView instance : zone.getServoInstances()) {
         final String ipAddr=instance.getAddress();
         ipAddressToRemove.add(ipAddr);
       }
