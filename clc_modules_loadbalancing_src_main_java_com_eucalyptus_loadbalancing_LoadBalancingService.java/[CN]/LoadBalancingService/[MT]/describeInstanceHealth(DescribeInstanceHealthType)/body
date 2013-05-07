@@ -18,6 +18,9 @@ catch (  Exception ex) {
   }
   List<LoadBalancerBackendInstanceCoreView> lbInstances=Lists.newArrayList(lb.getBackendInstances());
   List<LoadBalancerBackendInstanceCoreView> instancesFound=null;
+  List<LoadBalancerBackendInstanceCoreView> stateOutdated=Lists.newArrayList();
+  final int healthyTimeoutSec=3 * (lb.getHealthCheckInterval() * lb.getHealthyThreshold());
+  long currentTime=System.currentTimeMillis();
   if (instances != null && instances.getMember() != null && instances.getMember().size() > 0) {
     instancesFound=Lists.newArrayList();
     for (    Instance inst : instances.getMember()) {
@@ -35,12 +38,51 @@ catch (  Exception ex) {
   }
   final ArrayList<InstanceState> stateList=Lists.newArrayList();
   for (  final LoadBalancerBackendInstanceCoreView instance : instancesFound) {
+    boolean outdated=false;
+    Date lastUpdated=null;
+    if ((lastUpdated=instance.instanceStateLastUpdated()) != null) {
+      final int diffSec=(int)((currentTime - lastUpdated.getTime()) / 1000.0);
+      if (LoadBalancerBackendInstance.STATE.InService.equals(instance.getState()) && diffSec > healthyTimeoutSec) {
+        stateOutdated.add(instance);
+        outdated=true;
+      }
+    }
     InstanceState state=new InstanceState();
     state.setInstanceId(instance.getDisplayName());
-    state.setState(instance.getState().name());
-    if (instance.getState().equals(LoadBalancerBackendInstance.STATE.OutOfService) && instance.getReasonCode() != null)     state.setReasonCode(instance.getReasonCode());
-    if (instance.getDescription() != null)     state.setDescription(instance.getDescription());
+    if (outdated) {
+      state.setState(LoadBalancerBackendInstance.STATE.OutOfService.toString());
+      state.setReasonCode("ELB");
+      state.setDescription("Internal error: instance health not updated for extended period of time");
+    }
+ else {
+      state.setState(instance.getState().name());
+      if (instance.getState().equals(LoadBalancerBackendInstance.STATE.OutOfService) && instance.getReasonCode() != null)       state.setReasonCode(instance.getReasonCode());
+      if (instance.getDescription() != null)       state.setDescription(instance.getDescription());
+    }
     stateList.add(state);
+  }
+  if (!stateOutdated.isEmpty()) {
+    final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
+    try {
+      for (      final LoadBalancerBackendInstanceCoreView instanceView : stateOutdated) {
+        final LoadBalancerBackendInstance sample=LoadBalancerBackendInstanceEntityTransform.INSTANCE.apply(instanceView);
+        final LoadBalancerBackendInstance update=Entities.uniqueResult(sample);
+        update.setState(LoadBalancerBackendInstance.STATE.OutOfService);
+        update.setReasonCode("ELB");
+        update.setDescription("Internal error: instance health not updated for extended period of time");
+        Entities.persist(update);
+      }
+      db.commit();
+    }
+ catch (    final NoSuchElementException ex) {
+      db.rollback();
+    }
+catch (    final Exception ex) {
+      db.rollback();
+    }
+ finally {
+      if (db.isActive())       db.rollback();
+    }
   }
   final InstanceStates states=new InstanceStates();
   states.setMember(stateList);

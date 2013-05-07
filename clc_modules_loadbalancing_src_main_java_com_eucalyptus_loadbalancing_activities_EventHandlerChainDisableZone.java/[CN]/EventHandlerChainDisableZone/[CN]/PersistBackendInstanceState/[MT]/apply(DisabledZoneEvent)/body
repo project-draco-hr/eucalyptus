@@ -16,10 +16,12 @@ catch (  Exception ex) {
       for (      final String removedZone : updated.getResult()) {
         final LoadBalancerZone zone=LoadBalancers.findZone(lb,removedZone);
         for (        final LoadBalancerBackendInstanceCoreView instance : zone.getBackendInstances()) {
-          final EntityTransaction db=Entities.get(LoadBalancerBackendInstanceCoreView.class);
+          final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
           try {
-            final LoadBalancerBackendInstance update=Entities.uniqueResult(LoadBalancerBackendInstance.named(instance.getInstanceId()));
+            final LoadBalancerBackendInstance update=Entities.uniqueResult(LoadBalancerBackendInstance.named(lb,instance.getInstanceId()));
             update.setState(LoadBalancerBackendInstance.STATE.OutOfService);
+            update.setReasonCode("ELB");
+            update.setDescription("Zone disabled");
             Entities.persist(update);
             db.commit();
             this.updatedInstances.add(update);
@@ -31,6 +33,9 @@ catch (  Exception ex) {
 catch (          final Exception ex) {
             db.rollback();
             LOG.warn("failed to query the backend instance",ex);
+          }
+ finally {
+            if (db.isActive())             db.rollback();
           }
         }
       }
