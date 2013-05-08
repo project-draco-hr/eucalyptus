@@ -6,50 +6,49 @@
 synchronized (monitor) {
       try {
         LOG.info("Cleaning up volume: " + volume.getVolumeId());
+        String path=lvmRootDirectory + PATH_SEPARATOR + volume.getVgName()+ PATH_SEPARATOR+ volume.getLvName();
         try {
-          String path=lvmRootDirectory + PATH_SEPARATOR + volume.getVgName()+ PATH_SEPARATOR+ volume.getLvName();
           if (LVMWrapper.logicalVolumeExists(path)) {
+            LOG.debug("Found logical volume at " + path + " for "+ volume.getVolumeId()+ ". Now cleaning up");
             exportManager.cleanup(volume);
           }
-          volumeManager.finish();
-          volumeManager=new VolumeEntityWrapperManager();
-          volume=volumeManager.getVolumeInfo(volumeId);
+ else {
+            LOG.debug("Failed to find logical volume at " + path + " for "+ volume.getVolumeId()+ ". Skipping cleanup for tgt and lvm");
+          }
         }
  catch (        EucalyptusCloudException ee) {
-          LOG.error("Error cleaning up volume " + volumeId,ee);
-          volumeManager.abort();
-          return;
+          LOG.error("Error cleaning up volume iscsi state " + volume.getVolumeId(),ee);
+          throw ee;
         }
-        String loDevName=volume.getLoDevName();
-        if (loDevName != null) {
-          if (volume != null) {
-            String vgName=volume.getVgName();
-            String lvName=volume.getLvName();
-            String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
-            if (!volumeManager.areSnapshotsPending(volumeId)) {
-              try {
-                LVMWrapper.disableLogicalVolume(absoluteLVName);
-                LOG.info("Detaching loop device: " + loDevName);
+ finally {
+          volumeManager.finish();
+        }
+        volumeManager=new VolumeEntityWrapperManager();
+        try {
+          volume=volumeManager.getVolumeInfo(volumeId);
+          String loDevName=volume.getLoDevName();
+          if (loDevName != null) {
+            if (volume != null) {
+              if (!volumeManager.areSnapshotsPending(volume.getVolumeId())) {
+                LVMWrapper.disableLogicalVolume(path);
+                LOG.info("Detaching loop device: " + loDevName + " for volume "+ volume.getVolumeId());
                 removeLoopback(loDevName);
                 volume.setLoDevName(null);
-                LOG.info("Done cleaning up: " + volumeId);
+                LOG.info("Done cleaning up: " + volume.getVolumeId());
                 volume.setCleanup(false);
               }
- catch (              EucalyptusCloudException e) {
-                LOG.error(e,e);
-              }
- finally {
-                volumeManager.finish();
-              }
-            }
  else {
-              LOG.info("Snapshot in progress. Not detaching loop device.");
-              volumeManager.abort();
+                LOG.info("Snapshot in progress. Not detaching loop device.");
+              }
             }
           }
         }
- else {
-          volumeManager.abort();
+ catch (        EucalyptusCloudException e) {
+          LOG.error(e,e);
+          throw e;
+        }
+ finally {
+          volumeManager.finish();
         }
       }
   finally {
@@ -59,5 +58,6 @@ synchronized (monitor) {
   }
  catch (  Exception ex) {
     LOG.error("Error unexporting " + volumeId + " from all hosts",ex);
+    throw new EucalyptusCloudException(ex);
   }
 }
