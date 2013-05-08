@@ -10,7 +10,7 @@ catch (  Exception ex) {
     LOG.warn("Failed to find the loadbalancer named " + evt.getLoadBalancer(),ex);
     return;
   }
-  LoadBalancerAutoScalingGroup group=lb.getAutoScaleGroup();
+  final LoadBalancerAutoScalingGroupCoreView group=lb.getAutoScaleGroup();
   if (group == null) {
     LOG.warn(String.format("Loadbalancer %s had no autoscale group associated with it",lb.getDisplayName()));
     return;
@@ -32,9 +32,25 @@ catch (  Exception ex) {
     LOG.warn("Failed to delete launch configuration " + launchConfigName,ex);
     error=true;
   }
-  EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
+  LoadBalancerAutoScalingGroup scaleGroup=null;
   try {
-    for (    LoadBalancerServoInstance instance : lb.getAutoScaleGroup().getServos()) {
+    final LoadBalancerAutoScalingGroupCoreView groupView=lb.getAutoScaleGroup();
+    scaleGroup=LoadBalancerAutoScalingGroupEntityTransform.INSTANCE.apply(groupView);
+  }
+ catch (  final Exception ex) {
+    LOG.error("falied to update servo instance record",ex);
+  }
+  if (scaleGroup == null)   return;
+  final EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
+  try {
+    for (    final LoadBalancerServoInstanceCoreView instanceView : scaleGroup.getServos()) {
+      LoadBalancerServoInstance instance=null;
+      try {
+        instance=LoadBalancerServoInstanceEntityTransform.INSTANCE.apply(instanceView);
+      }
+ catch (      final Exception ex) {
+        continue;
+      }
       final LoadBalancerServoInstance found=Entities.uniqueResult(instance);
       found.setDns(null);
       found.setAvailabilityZone(null);
@@ -44,7 +60,7 @@ catch (  Exception ex) {
     }
     db.commit();
   }
- catch (  Exception ex) {
+ catch (  final Exception ex) {
     db.rollback();
     LOG.error("Failed to update servo instance record",ex);
   }
