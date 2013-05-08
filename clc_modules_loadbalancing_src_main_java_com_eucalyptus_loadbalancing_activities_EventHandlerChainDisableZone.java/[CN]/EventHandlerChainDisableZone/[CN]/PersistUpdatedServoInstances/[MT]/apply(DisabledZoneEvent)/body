@@ -10,10 +10,26 @@ catch (  Exception ex) {
     throw new EventHandlerException("Error while looking for loadbalancer with name=" + evt.getLoadBalancer(),ex);
   }
   retiredInstances=Lists.newArrayList();
-  final List<LoadBalancerZone> currentZones=Lists.newArrayList(lb.getZones());
-  for (  final LoadBalancerZone zone : currentZones) {
-    if (evt.getZones().contains(zone.getName())) {
-      for (      final LoadBalancerServoInstance instance : zone.getServoInstances()) {
+  final List<LoadBalancerZoneCoreView> currentZones=Lists.newArrayList(lb.getZones());
+  for (  final LoadBalancerZoneCoreView zoneView : currentZones) {
+    if (evt.getZones().contains(zoneView.getName())) {
+      LoadBalancerZone zone=null;
+      try {
+        zone=LoadBalancerZoneEntityTransform.INSTANCE.apply(zoneView);
+      }
+ catch (      final Exception ex) {
+        LOG.error("unable to transform zone from the view",ex);
+        continue;
+      }
+      for (      final LoadBalancerServoInstanceCoreView instanceView : zone.getServoInstances()) {
+        LoadBalancerServoInstance instance=null;
+        try {
+          instance=LoadBalancerServoInstanceEntityTransform.INSTANCE.apply(instanceView);
+        }
+ catch (        final Exception ex) {
+          LOG.error("unable to transfrom servo-instance from the view",ex);
+          continue;
+        }
         final EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
         try {
           final LoadBalancerServoInstance update=Entities.uniqueResult(instance);
