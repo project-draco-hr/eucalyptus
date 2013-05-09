@@ -4,6 +4,7 @@
   final String volumeId=request.getVolumeId();
   final String nodeIqn=request.getIqn();
   final String nodeIp=request.getIp();
+  LOG.info("Processing UnexportVolume request for volume " + volumeId + " from node "+ nodeIp+ " with iqn "+ nodeIqn);
   if (token.startsWith(StorageProperties.TOKEN_PREFIX)) {
     token=token.substring(StorageProperties.TOKEN_PREFIX.length(),token.length());
   }
@@ -11,71 +12,66 @@
     token=BlockStorageUtil.decryptWithCloud(token);
   }
   final String tokenValue=token;
-  Function<VolumeInfo,VolumeInfo> unexportAndDetach=new Function<VolumeInfo,VolumeInfo>(){
-    @Override public VolumeInfo apply(    VolumeInfo volume){
-      VolumeInfo volumeEntity=Entities.merge(volume);
+  final Function<String,VolumeInfo> unexport=new Function<String,VolumeInfo>(){
+    @Override public VolumeInfo apply(    String volumeId){
+      VolumeInfo volumeEntity=null;
       try {
+        VolumeInfo foundVolume=Entities.uniqueResult(new VolumeInfo(volumeId));
+        volumeEntity=Entities.merge(foundVolume);
         volumeEntity.invalidateExport(tokenValue,nodeIp,nodeIqn);
+      }
+ catch (      Exception e) {
+        LOG.error("Could not remove export for volume " + volumeId + " due to: "+ e.getMessage(),e);
+        return null;
+      }
+      return volumeEntity;
+    }
+  }
+;
+  final Function<String,VolumeInfo> tearDown=new Function<String,VolumeInfo>(){
+    @Override public VolumeInfo apply(    String volumeId){
+      VolumeInfo volumeEntity=null;
+      try {
+        VolumeInfo foundVolume=Entities.uniqueResult(new VolumeInfo(volumeId));
+        volumeEntity=Entities.merge(foundVolume);
         VolumeToken validToken=null;
-        validToken=volume.getCurrentValidToken();
-        if (validToken == null || Iterators.all(validToken.getExportRecords().iterator(),new Predicate<VolumeExportRecord>(){
-          @Override public boolean apply(          VolumeExportRecord rec){
-            return !rec.getIsActive();
-          }
-        }
-)) {
+        validToken=volumeEntity.getCurrentValidToken();
+        if (validToken == null) {
           blockManager.unexportVolumeFromAll(volumeId);
         }
  else {
           try {
-            blockManager.unexportVolume(volumeId,nodeIqn);
+            blockManager.unexportVolume(volumeEntity.getVolumeId(),nodeIqn);
           }
  catch (          UnsupportedOperationException e) {
             LOG.debug("UnexportVolume for single host not supported by backend. Treating as no-op");
           }
 catch (          Exception e) {
-            LOG.error("Could not detach volume " + volume.getVolumeId(),e);
+            LOG.error("Could not detach volume " + volumeEntity.getVolumeId(),e);
             throw e;
           }
         }
       }
  catch (      Exception e) {
-        LOG.error("Could not remove export for volume " + volumeId + " invalid token indicated");
+        LOG.error("Could not remove export for volume " + volumeId + " due to: "+ e.getMessage(),e);
         return null;
       }
-      return volume;
+      return volumeEntity;
     }
   }
 ;
-  VolumeInfo searchVol=new VolumeInfo(volumeId);
-  EntityTransaction db=Entities.get(VolumeInfo.class);
   try {
-    VolumeInfo vol=Entities.uniqueResult(searchVol);
-    try {
-      Entities.asTransaction(VolumeInfo.class,unexportAndDetach).apply(vol);
-    }
- catch (    Exception e) {
-      LOG.error("Failed unexportAndDetach transaction due to: " + e.getMessage(),e);
-      db.rollback();
-    }
+    Entities.asTransaction(VolumeInfo.class,unexport).apply(volumeId);
+    Entities.asTransaction(VolumeInfo.class,tearDown).apply(volumeId);
+    reply.set_return(true);
   }
  catch (  NoSuchElementException e) {
-    db.rollback();
     LOG.error("No volume found",e);
     throw new EucalyptusCloudException("Volume not found " + volumeId);
   }
-catch (  TransactionException e) {
-    db.rollback();
-    LOG.error("Failed to unexport due to db error",e);
-    throw new EucalyptusCloudException("Could not unexport",e);
-  }
- finally {
-    if (db.isActive()) {
-      db.commit();
-    }
- else {
-      db.rollback();
-    }
+catch (  Exception e) {
+    LOG.error("Failed unexportAndDetach transaction due to: " + e.getMessage(),e);
+    throw new EucalyptusCloudException(e);
   }
   return reply;
 }

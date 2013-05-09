@@ -33,13 +33,20 @@
  catch (  Exception e) {
     handleException(e);
   }
+  final Collection<String> zones=request.getAvailabilityZones().getMember();
   Function<String,Boolean> rollback=new Function<String,Boolean>(){
     @Override public Boolean apply(    String lbName){
       try {
         LoadBalancers.unsetForeignKeys(ctx,lbName);
       }
- catch (      Exception ex) {
+ catch (      final Exception ex) {
         LOG.warn("unable to unset foreign keys",ex);
+      }
+      try {
+        LoadBalancers.removeZone(lbName,ctx,zones);
+      }
+ catch (      final Exception ex) {
+        LOG.error("unable to delete availability zones during rollback",ex);
       }
       try {
         LoadBalancers.deleteLoadbalancer(ownerFullName,lbName);
@@ -57,7 +64,6 @@
     rollback.apply(lbName);
     throw new InternalFailure400Exception("Dns name could not be created");
   }
-  Collection<String> zones=request.getAvailabilityZones().getMember();
   if (zones != null && zones.size() > 0) {
     try {
       LoadBalancers.addZone(lbName,ctx,zones);
