@@ -1,22 +1,20 @@
 {
-  EntityTransaction db=Entities.get(VolumeInfo.class);
-  try {
-    VolumeInfo volEntity=Entities.merge(this);
-    for (    VolumeToken tok : volEntity.getAttachmentTokens()) {
-      if (tok.getIsValid()) {
-        db.commit();
-        return tok;
+  Function<VolumeInfo,VolumeToken> getValidToken=new Function<VolumeInfo,VolumeToken>(){
+    @Override public VolumeToken apply(    VolumeInfo src){
+      try {
+        VolumeInfo volEntity=Entities.merge(src);
+        for (        VolumeToken tok : volEntity.getAttachmentTokens()) {
+          if (tok.getIsValid()) {
+            return tok;
+          }
+        }
       }
-    }
-    db.commit();
-  }
- catch (  Exception e) {
-    LOG.trace("Failed to lookup valid token found for volume " + this.getVolumeId());
-  }
- finally {
-    if (db.isActive()) {
-      db.rollback();
+ catch (      Exception e) {
+        LOG.trace("Failed while looking up valid token found for volume " + src.getVolumeId(),e);
+      }
+      return null;
     }
   }
-  return null;
+;
+  return Entities.asTransaction(VolumeInfo.class,getValidToken).apply(this);
 }

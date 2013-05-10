@@ -3,16 +3,25 @@
   final Context ctx=Contexts.lookup();
   final String lbName=request.getLoadBalancerName();
   final HealthCheck hc=request.getHealthCheck();
-  Integer healthyThreshold=hc.getHealthyThreshold();
+  final Integer healthyThreshold=hc.getHealthyThreshold();
   if (healthyThreshold == null)   throw new InvalidConfigurationRequestException("Healthy tresholds must be specified");
-  Integer interval=hc.getInterval();
+  final Integer interval=hc.getInterval();
   if (interval == null)   throw new InvalidConfigurationRequestException("Interval must be specified");
-  String target=hc.getTarget();
+  final String target=hc.getTarget();
   if (target == null)   throw new InvalidConfigurationRequestException("Target must be specified");
-  Integer timeout=hc.getTimeout();
+  final Integer timeout=hc.getTimeout();
   if (timeout == null)   throw new InvalidConfigurationRequestException("Timeout must be specified");
-  Integer unhealthyThreshold=hc.getUnhealthyThreshold();
+  final Integer unhealthyThreshold=hc.getUnhealthyThreshold();
   if (unhealthyThreshold == null)   throw new InvalidConfigurationRequestException("Unhealthy tresholds must be specified");
+  if (interval < MIN_HEALTHCHECK_INTERVAL_SEC) {
+    throw new InvalidConfigurationRequestException(String.format("Interval must be longer than %d seconds",MIN_HEALTHCHECK_INTERVAL_SEC));
+  }
+  if (healthyThreshold < MIN_HEALTHCHECK_THRESHOLDS) {
+    throw new InvalidConfigurationRequestException(String.format("Healthy thresholds must be larger than %d",MIN_HEALTHCHECK_THRESHOLDS));
+  }
+  if (unhealthyThreshold < MIN_HEALTHCHECK_THRESHOLDS) {
+    throw new InvalidConfigurationRequestException(String.format("Unhealthy thresholds must be larger than %d",MIN_HEALTHCHECK_THRESHOLDS));
+  }
   LoadBalancer lb=null;
   try {
     lb=LoadBalancers.getLoadbalancer(ctx,lbName);
@@ -37,6 +46,9 @@ catch (  Exception ex) {
     db.rollback();
     LOG.error("failed to persist health check config",ex);
     throw new InternalFailure400Exception("Failed to persist the health check config",ex);
+  }
+ finally {
+    if (db.isActive())     db.rollback();
   }
   ConfigureHealthCheckResult result=new ConfigureHealthCheckResult();
   result.setHealthCheck(hc);

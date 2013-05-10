@@ -13,30 +13,21 @@
     boolean isReadyForDelete=false;
     int retryCount=0;
     VolumeOpMonitor monitor=getMonitor(foundLVMVolumeInfo.getVolumeId());
-    LOG.debug("Trying to lock volume " + volumeId);
+    VolumeEntityWrapperManager outerVolumeManager=null;
+    do {
+      LOG.debug("Trying to lock volume for export detection" + volumeId);
 synchronized (monitor) {
-      VolumeEntityWrapperManager outerVolumeManager=null;
-      do {
         final VolumeEntityWrapperManager volumeManager=new VolumeEntityWrapperManager();
         try {
           foundLVMVolumeInfo=volumeManager.getVolumeInfo(volumeId);
-          if (foundLVMVolumeInfo.getCleanup()) {
-            LOG.debug("Volume " + volumeId + " has been marked for cleanup. Will resume after cleanup is complete");
-            monitor.wait(60000);
+          if (exportManager.isExported(foundLVMVolumeInfo)) {
+            LOG.error("Cannot delete volume " + volumeId + " because it is currently exported");
+            volumeManager.finish();
           }
  else {
-            LOG.debug("Volume " + volumeId + " is not marked for cleanup. Checking loop back device status");
-            if (exportManager.isExported(foundLVMVolumeInfo)) {
-              foundLVMVolumeInfo.setCleanup(true);
-              volumeManager.finish();
-              LOG.debug("Loop back device for volume " + volumeId + " exists. Marking the volume for cleanup. Will resume after cleanup is complete");
-              monitor.wait(60000);
-            }
- else {
-              LOG.debug("Volume " + volumeId + " is prepped for deletion");
-              isReadyForDelete=true;
-              break;
-            }
+            LOG.debug("Volume " + volumeId + " is prepped for deletion");
+            isReadyForDelete=true;
+            break;
           }
         }
  catch (        Exception e) {
@@ -52,7 +43,18 @@ synchronized (monitor) {
         }
         LOG.debug("Lap: " + retryCount++);
       }
- while (!isReadyForDelete && retryCount < 10);
+      if (!isReadyForDelete) {
+        try {
+          Thread.sleep(10000);
+        }
+ catch (        InterruptedException e) {
+          throw new EucalyptusCloudException("Thread interrupted. Failing volume delete for volume " + volumeId);
+        }
+      }
+    }
+ while (!isReadyForDelete && retryCount < 20);
+    LOG.debug("Trying to lock volume for volume deletion" + volumeId);
+synchronized (monitor) {
       if (isReadyForDelete) {
         try {
           LOG.debug("Deleting volume " + volumeId);

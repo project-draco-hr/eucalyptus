@@ -1,11 +1,11 @@
 {
   if (volumeInfo instanceof ISCSIVolumeInfo) {
     ISCSIVolumeInfo volInfo=(ISCSIVolumeInfo)volumeInfo;
-    EntityTransaction db=Entities.get(ISCSIVolumeInfo.class);
+    EntityWrapper<ISCSIVolumeInfo> db=StorageProperties.getEntityWrapper();
     try {
-      ISCSIVolumeInfo volEntity=Entities.merge(volInfo);
+      ISCSIVolumeInfo volEntity=db.merge(volInfo);
       if (isExported(volEntity)) {
-        unexportTarget(volEntity.getTid(),volEntity.getLun());
+        unexportTarget(volEntity.getVolumeId(),volEntity.getTid(),volEntity.getLun(),volEntity.getAbsoluteLVPath());
         if (!isExported(volEntity)) {
           volEntity.setTid(-1);
           volEntity.setLun(-1);
@@ -21,21 +21,17 @@
         volEntity.setStoreName(null);
         volEntity.setStoreUser(null);
       }
-      db.commit();
-      db=null;
     }
  catch (    Exception e) {
       LOG.error("Something went wrong, exiting iscsi cleanup for volume " + volumeInfo.getVolumeId());
     }
  finally {
-      if (db != null && db.isActive()) {
-        try {
-          db.commit();
-        }
- catch (        Exception e) {
-          LOG.error("Commit failded. Rolling back");
-          db.rollback();
-        }
+      try {
+        db.commit();
+      }
+ catch (      Exception e) {
+        LOG.error("Commit failed. Rolling back");
+        db.rollback();
       }
     }
   }

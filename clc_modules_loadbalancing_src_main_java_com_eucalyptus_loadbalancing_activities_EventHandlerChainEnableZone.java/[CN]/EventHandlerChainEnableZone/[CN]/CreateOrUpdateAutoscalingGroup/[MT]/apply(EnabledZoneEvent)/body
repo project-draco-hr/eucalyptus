@@ -46,14 +46,14 @@ catch (  Exception ex) {
  else {
     this.groupName=group.getName();
     final List<String> requestedZones=Lists.newArrayList(evt.getZones());
-    final List<LoadBalancerZone> currentZones=Lists.newArrayList(Collections2.filter(lb.getZones(),new Predicate<LoadBalancerZone>(){
-      @Override public boolean apply(      @Nullable LoadBalancerZone arg0){
+    final List<LoadBalancerZoneCoreView> currentZones=Lists.newArrayList(Collections2.filter(lb.getZones(),new Predicate<LoadBalancerZoneCoreView>(){
+      @Override public boolean apply(      @Nullable LoadBalancerZoneCoreView arg0){
         return arg0.getState().equals(LoadBalancerZone.STATE.InService);
       }
     }
 ));
-    final Set<String> availableZones=Sets.newHashSet(Collections2.transform(currentZones,new Function<LoadBalancerZone,String>(){
-      @Override public String apply(      @Nullable LoadBalancerZone arg0){
+    final Set<String> availableZones=Sets.newHashSet(Collections2.transform(currentZones,new Function<LoadBalancerZoneCoreView,String>(){
+      @Override public String apply(      @Nullable LoadBalancerZoneCoreView arg0){
         return arg0.getName();
       }
     }
@@ -65,10 +65,18 @@ catch (  Exception ex) {
         int capacityPerZone=Integer.parseInt(EventHandlerChainNew.LOADBALANCER_NUM_VM);
         if (capacityPerZone <= 0)         capacityPerZone=1;
         final int newCapacity=capacityPerZone * newZones.size();
+        LoadBalancerAutoScalingGroup scaleGroup=null;
+        try {
+          scaleGroup=LoadBalancerAutoScalingGroupEntityTransform.INSTANCE.apply(this.group);
+        }
+ catch (        final Exception ex) {
+          LOG.error("unable to transform scaling group from the view",ex);
+          throw ex;
+        }
         EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(group.getName(),Lists.newArrayList(newZones),newCapacity);
         final EntityTransaction db=Entities.get(LoadBalancerAutoScalingGroup.class);
         try {
-          final LoadBalancerAutoScalingGroup update=Entities.uniqueResult(group);
+          final LoadBalancerAutoScalingGroup update=Entities.uniqueResult(scaleGroup);
           update.setCapacity(newCapacity);
           Entities.persist(update);
           db.commit();
@@ -80,6 +88,9 @@ catch (  Exception ex) {
 catch (        Exception ex) {
           db.rollback();
           LOG.error("failed to update the autoscaling group record",ex);
+        }
+ finally {
+          if (db.isActive())           db.rollback();
         }
         this.newZones=Lists.newArrayList(newZones);
         this.oldZones=Lists.newArrayList(availableZones);
