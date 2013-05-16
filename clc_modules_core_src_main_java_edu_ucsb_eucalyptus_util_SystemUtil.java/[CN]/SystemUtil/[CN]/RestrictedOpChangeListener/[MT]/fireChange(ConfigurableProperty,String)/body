@@ -1,0 +1,36 @@
+{
+  int value=Integer.parseInt(t.getValue());
+  int newValue=Integer.parseInt(newValueString);
+  if (newValue < 1) {
+    throw new ConfigurablePropertyException(t.getDisplayName() + " must be greater than or equal to 1.");
+  }
+  final int permitDelta=newValue - value;
+  LOG.debug("Adjust number of RESTRICTED_CONCURRENT_OPS to be: " + newValue + " from "+ value+ "@"+ concurrentOps.availablePermits()+ "/"+ concurrentOps.getQueueLength()+ " ("+ permitDelta+ ")");
+  if (permitDelta > 0) {
+    concurrentOps.release(permitDelta);
+  }
+ else   if (permitDelta == 0) {
+  }
+ else   if (permitDelta < 0) {
+    if (acquiringPermits.compareAndSet(false,true)) {
+      Threads.lookup(Empyrean.class).submit(new Runnable(){
+        @Override public void run(){
+          for (int i=0; i < Math.abs(permitDelta); i++) {
+            try {
+              concurrentOps.acquire();
+            }
+ catch (            InterruptedException ex) {
+              Exceptions.maybeInterrupted(ex);
+              break;
+            }
+          }
+          acquiringPermits.set(false);
+        }
+      }
+);
+    }
+ else {
+      throw new ConfigurablePropertyException(t.getDisplayName() + " is still draining permits from a previous request to change the settings.  Please wait.");
+    }
+  }
+}
