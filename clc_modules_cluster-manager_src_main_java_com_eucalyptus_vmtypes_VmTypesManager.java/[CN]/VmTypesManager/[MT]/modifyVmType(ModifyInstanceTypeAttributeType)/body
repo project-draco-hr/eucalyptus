@@ -1,0 +1,60 @@
+{
+  final ModifyInstanceTypeAttributeResponseType reply=request.getReply();
+  if (Contexts.lookup().hasAdministrativePrivileges()) {
+    final Function<String,VmType> modifyFunc=new Function<String,VmType>(){
+      @Override public VmType apply(      String vmTypeName){
+        try {
+          VmType vmType=VmTypes.lookup(vmTypeName);
+          if (request.getReset()) {
+            PredefinedTypes defaultVmType=PredefinedTypes.valueOf(vmTypeName);
+            vmType.setCpu(defaultVmType.getCpu());
+            vmType.setDisk(defaultVmType.getDisk());
+            vmType.setMemory(defaultVmType.getMemory());
+          }
+ else {
+            vmType.setCpu(Objects.firstNonNull(request.getCpu(),vmType.getCpu()));
+            vmType.setDisk(Objects.firstNonNull(request.getDisk(),vmType.getDisk()));
+            vmType.setMemory(Objects.firstNonNull(request.getMemory(),vmType.getMemory()));
+          }
+          VmTypes.update(vmType);
+          return vmType;
+        }
+ catch (        NoSuchMetadataException ex) {
+          throw Exceptions.toUndeclared(ex);
+        }
+      }
+    }
+;
+    try {
+      VmTypeDetails beforeDetails=new VmTypeDetails(){
+{
+          VmType before=VmTypes.lookup(request.getName());
+          this.setName(before.getName());
+          this.setDisk(before.getDisk());
+          this.setCpu(before.getCpu());
+          this.setMemory(before.getMemory());
+        }
+      }
+;
+      VmTypeDetails afterDetails=new VmTypeDetails(){
+{
+          VmType after=Entities.asTransaction(modifyFunc).apply(request.getName());
+          this.setName(after.getName());
+          this.setDisk(after.getDisk());
+          this.setCpu(after.getCpu());
+          this.setMemory(after.getMemory());
+        }
+      }
+;
+      reply.setPreviousInstanceType(beforeDetails);
+      reply.setInstanceType(afterDetails);
+    }
+ catch (    NoSuchMetadataException ex) {
+      throw new EucalyptusCloudException("Failed to lookup the requested instance type: " + request.getName(),ex);
+    }
+  }
+ else {
+    throw new EucalyptusCloudException("Authorization failed.");
+  }
+  return reply;
+}
