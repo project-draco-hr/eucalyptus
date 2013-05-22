@@ -1,77 +1,67 @@
 {
   UnexportVolumeResponseType reply=request.getReply();
-  String token=request.getToken();
+  final String token=request.getToken();
   final String volumeId=request.getVolumeId();
   final String nodeIqn=request.getIqn();
   final String nodeIp=request.getIp();
   LOG.info("Processing UnexportVolume request for volume " + volumeId + " from node "+ nodeIp+ " with iqn "+ nodeIqn);
-  if (token.startsWith(StorageProperties.TOKEN_PREFIX)) {
-    token=token.substring(StorageProperties.TOKEN_PREFIX.length(),token.length());
-  }
-  if (ENCRYPT_TOKEN) {
-    token=BlockStorageUtil.decryptWithCloud(token);
-  }
-  final String tokenValue=token;
-  final Function<String,VolumeInfo> unexport=new Function<String,VolumeInfo>(){
-    @Override public VolumeInfo apply(    String volumeId){
-      VolumeInfo volumeEntity=null;
-      try {
-        VolumeInfo foundVolume=Entities.uniqueResult(new VolumeInfo(volumeId));
-        volumeEntity=Entities.merge(foundVolume);
-        volumeEntity.invalidateExport(tokenValue,nodeIp,nodeIqn);
-      }
- catch (      Exception e) {
-        LOG.error("Could not remove export for volume " + volumeId + " due to: "+ e.getMessage(),e);
-        return null;
-      }
-      return volumeEntity;
-    }
-  }
-;
-  final Function<String,VolumeInfo> tearDown=new Function<String,VolumeInfo>(){
-    @Override public VolumeInfo apply(    String volumeId){
-      VolumeInfo volumeEntity=null;
-      try {
-        VolumeInfo foundVolume=Entities.uniqueResult(new VolumeInfo(volumeId));
-        volumeEntity=Entities.merge(foundVolume);
-        VolumeToken validToken=null;
-        validToken=volumeEntity.getCurrentValidToken();
-        if (validToken == null) {
-          blockManager.unexportVolumeFromAll(volumeId);
-        }
- else {
-          try {
-            blockManager.unexportVolume(volumeEntity.getVolumeId(),nodeIqn);
-          }
- catch (          UnsupportedOperationException e) {
-            LOG.debug("UnexportVolume for single host not supported by backend. Treating as no-op");
-          }
-catch (          Exception e) {
-            LOG.error("Could not detach volume " + volumeEntity.getVolumeId(),e);
-            throw e;
-          }
-        }
-      }
- catch (      Exception e) {
-        LOG.error("Could not remove export for volume " + volumeId + " due to: "+ e.getMessage(),e);
-        return null;
-      }
-      return volumeEntity;
-    }
-  }
-;
+  VolumeInfo volumeEntity=null;
+  VolumeToken validToken=null;
+  EntityTransaction db=Entities.get(VolumeInfo.class);
   try {
-    Entities.asTransaction(VolumeInfo.class,unexport).apply(volumeId);
-    Entities.asTransaction(VolumeInfo.class,tearDown).apply(volumeId);
+    VolumeInfo foundVolume=Entities.uniqueResult(new VolumeInfo(volumeId));
+    volumeEntity=Entities.merge(foundVolume);
+    try {
+      validToken=volumeEntity.getAttachmentTokenIfValid(token);
+    }
+ catch (    Exception e) {
+      LOG.error("Invalid token in request for volume " + volumeId + ". Encrypted token: "+ token);
+      throw new EucalyptusCloudException(e);
+    }
+    if (validToken.hasOnlyExport(nodeIp,nodeIqn)) {
+      blockManager.unexportVolumeFromAll(volumeId);
+    }
+ else {
+      try {
+        blockManager.unexportVolume(volumeEntity.getVolumeId(),nodeIqn);
+      }
+ catch (      UnsupportedOperationException e) {
+        LOG.info("Volume " + volumeId + ": UnexportVolume for single host not supported by backend. Treating as no-op and continuing normally.");
+      }
+catch (      Exception e) {
+        LOG.error("Could not detach volume: " + volumeId,e);
+        throw e;
+      }
+    }
+    if (!Entities.asTransaction(VolumeInfo.class,new Function<VolumeInfo,Boolean>(){
+      @Override public Boolean apply(      VolumeInfo vol){
+        VolumeInfo entity=Entities.merge(vol);
+        try {
+          entity.invalidateExport(token,nodeIp,nodeIqn);
+          return true;
+        }
+ catch (        Exception e) {
+          LOG.error("Error invalidating export: " + e.getMessage());
+          return false;
+        }
+      }
+    }
+).apply(volumeEntity)) {
+      LOG.error("Error invalidating the export record in the DB for volume " + volumeId);
+    }
+    db.commit();
     reply.set_return(true);
   }
  catch (  NoSuchElementException e) {
-    LOG.error("No volume found",e);
-    throw new EucalyptusCloudException("Volume not found " + volumeId);
+    LOG.error("Volume " + volumeId + " not found in DB",e);
+    throw new EucalyptusCloudException("Volume " + volumeId + " not found");
   }
 catch (  Exception e) {
-    LOG.error("Failed unexportAndDetach transaction due to: " + e.getMessage(),e);
+    LOG.error("Failed UnexportVolume due to: " + e.getMessage(),e);
     throw new EucalyptusCloudException(e);
+  }
+ finally {
+    db.rollback();
   }
   return reply;
 }

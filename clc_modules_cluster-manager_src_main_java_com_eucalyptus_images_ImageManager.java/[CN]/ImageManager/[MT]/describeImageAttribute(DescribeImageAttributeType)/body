@@ -39,23 +39,53 @@
     }
  else     if (request.getBlockDeviceMapping() != null) {
       reply.setRealResponse(reply.getBlockDeviceMapping());
-      reply.getBlockDeviceMapping().add(ImageUtil.EMI);
-      reply.getBlockDeviceMapping().add(ImageUtil.EPHEMERAL);
-      reply.getBlockDeviceMapping().add(ImageUtil.SWAP);
-      reply.getBlockDeviceMapping().add(ImageUtil.ROOT);
-    }
- else     if (request.getDescription() != null) {
-      reply.setRealResponse(reply.getDescription());
-      if (imgInfo.getDescription() != null) {
-        reply.getDescription().add(imgInfo.getDescription());
-      }
-    }
+      if (imgInfo instanceof BlockStorageImageInfo) {
+        BlockStorageImageInfo bfebsImage=(BlockStorageImageInfo)imgInfo;
+        reply.getBlockDeviceMapping().add(new BlockDeviceMappingItemType("emi",bfebsImage.getRootDeviceName()));
+        reply.getBlockDeviceMapping().add(new BlockDeviceMappingItemType("root",bfebsImage.getRootDeviceName()));
+        int i=0;
+        for (        DeviceMapping mapping : bfebsImage.getDeviceMappings()) {
+          if (mapping.getDeviceName().equalsIgnoreCase(bfebsImage.getRootDeviceName())) {
+            continue;
+          }
+switch (mapping.getDeviceMappingType()) {
+case blockstorage:
+            BlockStorageDeviceMapping bsdm=(BlockStorageDeviceMapping)mapping;
+          BlockDeviceMappingItemType bdmItem=new BlockDeviceMappingItemType("ebs" + (++i),mapping.getDeviceName());
+        EbsDeviceMapping ebsItem=new EbsDeviceMapping();
+      ebsItem.setSnapshotId(bsdm.getSnapshotId());
+    ebsItem.setVolumeSize(bsdm.getSize());
+  ebsItem.setDeleteOnTermination(bsdm.getDelete());
+bdmItem.setEbs(ebsItem);
+reply.getBlockDeviceMapping().add(bdmItem);
+break;
+case ephemeral:
+reply.getBlockDeviceMapping().add(new BlockDeviceMappingItemType(mapping.getVirtualName(),mapping.getDeviceName()));
+break;
+default :
+break;
+}
+}
+}
  else {
-      throw new EucalyptusCloudException("invalid image attribute request.");
-    }
-  }
+reply.getBlockDeviceMapping().add(ImageUtil.EMI);
+reply.getBlockDeviceMapping().add(ImageUtil.EPHEMERAL);
+reply.getBlockDeviceMapping().add(ImageUtil.SWAP);
+reply.getBlockDeviceMapping().add(ImageUtil.ROOT);
+}
+}
+ else if (request.getDescription() != null) {
+reply.setRealResponse(reply.getDescription());
+if (imgInfo.getDescription() != null) {
+reply.getDescription().add(imgInfo.getDescription());
+}
+}
+ else {
+throw new EucalyptusCloudException("invalid image attribute request.");
+}
+}
   finally {
-    db.commit();
-  }
-  return reply;
+db.commit();
+}
+return reply;
 }
