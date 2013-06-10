@@ -1,23 +1,27 @@
 {
   final Name name=query.getName();
   final int type=query.getType();
+  response.getHeader().setFlag(Flags.RA);
   for (  final DnsResolver r : DnsResolvers.resolversFor(query,source)) {
     try {
-      LOG.debug("DnsResolver: " + r.getClass().getSimpleName() + " for name "+ name);
+      LOG.debug("DnsResolver: " + RequestType.typeOf(type) + " "+ name);
       final DnsResponse reply=r.lookupRecords(query);
+      if (reply.isAuthoritative()) {
+        response.getHeader().setFlag(Flags.AA);
+      }
       if (reply.hasAnswer()) {
         for (        ResponseSection s : ResponseSection.values()) {
-          RRset rrset=reply.section(s);
-          if (rrset != null) {
-            addRRset(name,response,rrset,type);
+          Record[] records=reply.section(s);
+          if (records != null) {
+            addRRset(name,response,records,s.section());
           }
         }
         return SetResponse.ofType(SetResponse.SUCCESSFUL);
       }
     }
  catch (    final Exception ex) {
-      LOG.error(ex);
-      LOG.debug(ex,ex);
+      LOG.error(ex.getMessage());
+      LOG.trace(ex,ex);
     }
   }
   return SetResponse.ofType(SetResponse.UNKNOWN);
