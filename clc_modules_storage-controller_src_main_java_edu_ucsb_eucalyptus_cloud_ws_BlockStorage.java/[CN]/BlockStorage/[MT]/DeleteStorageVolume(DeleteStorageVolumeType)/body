@@ -9,19 +9,39 @@
   EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
   VolumeInfo volumeInfo=new VolumeInfo();
   volumeInfo.setVolumeId(volumeId);
-  List<VolumeInfo> volumeList=db.query(volumeInfo);
-  if (volumeList.size() > 0) {
-    VolumeInfo foundVolume=volumeList.get(0);
+  try {
+    VolumeInfo foundVolume=db.getUnique(volumeInfo);
     String status=foundVolume.getStatus();
-    if (status.equals(StorageProperties.Status.available.toString()) || status.equals(StorageProperties.Status.failed.toString())) {
+    if (status == null) {
+      throw new EucalyptusCloudException("Invalid volume status: null");
+    }
+ else     if (status.equals(StorageProperties.Status.available.toString()) || status.equals(StorageProperties.Status.failed.toString())) {
+      LOG.trace("Marking volume " + volumeId + " for deletion");
       foundVolume.setStatus(StorageProperties.Status.deleting.toString());
     }
-    reply.set_return(Boolean.TRUE);
-  }
+ else     if (status.equals(StorageProperties.Status.deleting) || status.equals(StorageProperties.Status.deleted.toString())) {
+      LOG.debug("Volume " + volumeId + " already in deleting/deleted. No-op for delete request.");
+    }
  else {
-    LOG.error("Unable to find volume in SC database: " + volumeId);
-    reply.set_return(Boolean.FALSE);
+      throw new EucalyptusCloudException("Cannot delete volume in state: " + status + ". Please retry later");
+    }
+    reply.set_return(Boolean.TRUE);
+    db.commit();
   }
-  db.commit();
+ catch (  NoSuchElementException e) {
+    LOG.error("Unable to find volume in SC database: " + volumeId);
+    throw new EucalyptusCloudException("Volume record not found",e);
+  }
+catch (  EucalyptusCloudException e) {
+    LOG.error("Error marking volume " + volumeId + " for deletion: "+ e.getMessage());
+    throw e;
+  }
+catch (  final Throwable e) {
+    LOG.error("Exception looking up volume: " + volumeId,e);
+    throw new EucalyptusCloudException(e);
+  }
+ finally {
+    db.rollback();
+  }
   return reply;
 }
