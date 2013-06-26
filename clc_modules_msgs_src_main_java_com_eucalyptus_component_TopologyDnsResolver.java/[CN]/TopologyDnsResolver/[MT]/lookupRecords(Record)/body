@@ -1,0 +1,33 @@
+{
+  final Name name=query.getName();
+  if (ResolverSupport.COMPONENT.apply(name)) {
+    Class<? extends ComponentId> compId=ResolverSupport.COMPONENT_FUNCTION.apply(name);
+    Component comp=Components.lookup(compId);
+    ServiceConfiguration config=null;
+    if (comp.getComponentId().isPartitioned()) {
+      String partitionName=name.getLabelString(1);
+      Partition partition=Partitions.lookupByName(partitionName);
+      config=Topology.lookup(compId,partition);
+    }
+ else {
+      config=Topology.lookup(compId);
+    }
+    Name serviceLabel=Name.fromConstantString(config.getName());
+    Name canonicalName=DomainNames.concatenateConstant(serviceLabel,name);
+    Record cName=DomainNameRecords.canonicalName(name,canonicalName);
+    if (RequestType.CNAME.apply(query)) {
+      return DnsResponse.forName(query.getName()).answer(cName);
+    }
+ else {
+      Record aRecord=DomainNameRecords.addressRecord(canonicalName,config.getInetAddress());
+      return DnsResponse.forName(query.getName()).answer(cName,aRecord);
+    }
+  }
+ else   if (ResolverSupport.SERVICE.apply(name)) {
+    ServiceConfiguration config=ResolverSupport.SERVICE_FUNCTION.apply(name);
+    return DnsResponse.forName(query.getName()).answer(DomainNameRecords.addressRecord(name,config.getInetAddress()));
+  }
+ else {
+    throw new NoSuchElementException("Failed to lookup name: " + name);
+  }
+}
