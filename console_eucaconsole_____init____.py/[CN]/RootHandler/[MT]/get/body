@@ -1,6 +1,43 @@
 def get(self, path):
     try:
-        path = os.path.join(config.get('paths', 'staticpath'), 'index.html')
+        action = self.get_argument('action', default='')
+        print ('root action = ' + action)
+        if (action == 'awslogin'):
+            access_token = self.get_argument('access_token')
+            req = urllib2.Request(('https://api.amazon.com/auth/o2/tokeninfo?access_token=' + urllib.quote_plus(access_token)))
+            print 'requesting token auth'
+            response = urllib2.urlopen(req, timeout=15)
+            body = response.read()
+            print ("here's the response from the token auth:" + body)
+            token_info = json.loads(body)
+            if (token_info['aud'] != 'amzn1.application-oa2-client.02dc0d9e787e49359fde3cf87cee14d9'):
+                raise BaseException('Invalid Token')
+            print 'requesting user profile'
+            req = urllib2.Request('https://api.amazon.com/user/profile')
+            req.add_header('Authorization', ('bearer ' + access_token))
+            response = urllib2.urlopen(req, timeout=15)
+            body = response.read()
+            print ("here's the response for user profile:" + body)
+            profile = json.loads(body)
+            print ('%s %s %s' % (profile['name'], profile['email'], profile['user_id']))
+            sts = boto.sts.connect_to_region('us-east-1')
+            creds = sts.assume_role_with_web_identity(role_arn='arn:aws:iam::365812321051:role/authRole', role_session_name='eucalyptusconsoleuser', web_identity_token=token_info['aud'], provider_id='www.amazon.com')
+            creds = Credentials(None)
+            h = boto.handler.XmlHandler(creds, None)
+            xml.sax.parseString(body, h)
+            session_token = creds.session_token
+            access_id = creds.access_key
+            secret_key = creds.secret_key
+            while True:
+                sid = os.urandom(16).encode('hex')
+                if (sid in sessions):
+                    continue
+                break
+            sessions[sid] = UserSession(account, user, session_token, access_id, secret_key)
+            sessions[sid].host_override = 'ec2.us-east-1.amazonaws.com'
+            return LoginResponse(sessions[sid])
+        else:
+            path = os.path.join(config.get('paths', 'staticpath'), 'index.html')
     except ConfigParser.Error:
         logging.info(('Caught url path exception :' + path))
         path = '../static/index.html'
