@@ -1,0 +1,34 @@
+{
+  EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
+  int size=-1;
+  List<String> returnValues=new ArrayList<String>();
+  try {
+    SANVolumeInfo volumeInfo=db.getUnique(new SANVolumeInfo(volumeId));
+    size=volumeInfo.getSize();
+  }
+ catch (  EucalyptusCloudException ex) {
+    LOG.error("Unable to find volume: " + volumeId);
+  }
+ finally {
+    db.commit();
+  }
+  LOG.info("Creating snapshot " + snapshotId + " from volume "+ volumeId+ " using snapshot point "+ snapshotPointId);
+  String iqn=connectionManager.createSnapshot(volumeId,snapshotId,snapshotPointId);
+  if (iqn != null) {
+    SANVolumeInfo snapInfo=new SANVolumeInfo(snapshotId,iqn,size);
+    snapInfo.setSnapshotOf(volumeId);
+    db=StorageProperties.getEntityWrapper();
+    db.add(snapInfo);
+    db.commit();
+    if (shouldTransferSnapshots) {
+      String deviceName=connectionManager.connectTarget(iqn);
+      returnValues.add(deviceName);
+      returnValues.add(String.valueOf(size * WalrusProperties.G));
+    }
+  }
+ else {
+    db.rollback();
+    throw new EucalyptusCloudException("Unable to create snapshot: " + snapshotId + " from volume: "+ volumeId);
+  }
+  return returnValues;
+}
