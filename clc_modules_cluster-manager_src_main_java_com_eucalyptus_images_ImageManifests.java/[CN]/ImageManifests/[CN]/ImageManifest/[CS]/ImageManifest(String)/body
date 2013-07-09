@@ -9,9 +9,6 @@
   String bucketName=cleanLocation.substring(0,index);
   String manifestKey=cleanLocation.substring(index + 1);
   final String manifestName=manifestKey.replaceAll(".*/","");
-  if (!ImageManifests.verifyBucketAcl(bucketName)) {
-    throw new EucalyptusCloudException("Image registration failed: you must own the bucket containing the image.");
-  }
   this.manifest=ImageManifests.requestManifestData(ctx.getUserFullName(),bucketName,manifestKey);
   try {
     DocumentBuilder builder=XMLParser.getDocBuilder();
@@ -56,6 +53,19 @@
   this.bundledSize=((temp=this.xpathHelper.apply("/manifest/image/bundled_size/text()")) != null) ? Long.parseLong(temp) : -1l;
   String arch=this.xpathHelper.apply("/manifest/machine_configuration/architecture/text()");
   this.architecture=ImageMetadata.Architecture.valueOf(((arch == null) ? "i386" : arch));
+  try {
+    NodeList ancestorNodes=(NodeList)xpath.evaluate("/manifest/image/ancestry/ancestor_ami_id/text()",inputSource,XPathConstants.NODESET);
+    if (ancestorNodes != null) {
+      for (int i=0; i < ancestorNodes.getLength(); i++) {
+        for (        String ancestorId : ancestorNodes.item(i).getNodeValue().split(",")) {
+          this.ancestors.add(ancestorId);
+        }
+      }
+    }
+  }
+ catch (  XPathExpressionException ex) {
+    LOG.error(ex,ex);
+  }
   try {
     NodeList devMapList=(NodeList)this.xpath.evaluate("/manifest/machine_configuration/block_device_mapping/mapping",inputSource,XPathConstants.NODESET);
     for (int i=0; i < devMapList.getLength(); i++) {
