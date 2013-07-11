@@ -10,36 +10,34 @@
   }
   OutboundEndpoint endpoint;
   try {
-    endpoint=muleCtx.getRegistry().lookupEndpointFactory().getOutboundEndpoint(dest);
-    if (!endpoint.getConnector().isStarted()) {
-      endpoint.getConnector().start();
-    }
+    endpoint=muleCtx.getEndpointFactory().getOutboundEndpoint(dest);
+    perhapsConfigureConnector(endpoint.getConnector());
   }
  catch (  MuleException ex) {
     LOG.error(ex,ex);
     throw new ServiceDispatchException("Failed to dispatch message to " + dest + " caused by failure to obtain service endpoint reference: "+ ex.getMessage(),ex);
   }
-  MuleMessage muleMsg=new DefaultMuleMessage(msg);
-  MuleSession muleSession;
-  try {
-    muleSession=new DefaultMuleSession(muleMsg,((AbstractConnector)endpoint.getConnector()).getSessionHandler(),ServiceContextManager.getContext());
-  }
- catch (  MuleException ex) {
-    LOG.error(ex,ex);
-    throw new ServiceDispatchException("Failed to dispatch message to " + dest + " caused by failure to contruct session: "+ ex.getMessage(),ex);
-  }
-  MuleEvent muleEvent=new DefaultMuleEvent(muleMsg,endpoint,muleSession,false);
+  MuleSession muleSession=new DefaultMuleSession();
   final Context ctx=msg instanceof BaseMessage ? Contexts.createWrapped(dest,(BaseMessage)msg) : null;
+  MessageDispatcher dispatcher=null;
   try {
-    dispatcherFactory.create(endpoint).dispatch(muleEvent);
+    dispatcher=dispatcherFactory.create(endpoint);
+    dispatcher.initialise();
+    dispatcher.start();
+    MuleMessage muleMsg=dispatcher.createMuleMessage(msg);
+    MuleEvent muleEvent=new DefaultMuleEvent(muleMsg,endpoint.getExchangePattern(),(FlowConstruct)null,muleSession);
+    dispatcher.process(muleEvent);
   }
  catch (  DispatchException ex) {
     LOG.error(ex,ex);
-    throw new ServiceDispatchException("Error while dispatching message (" + msg + ")t o "+ dest+ " caused by: "+ ex.getMessage(),ex);
+    throw new ServiceDispatchException("Error while dispatching message (" + msg + ") to "+ dest+ " caused by: "+ ex.getMessage(),ex);
   }
 catch (  MuleException ex) {
     LOG.error(ex,ex);
     throw new ServiceDispatchException("Failed to dispatch message to " + dest + " caused by failure to obtain service dispatcher reference: "+ ex.getMessage(),ex);
+  }
+ finally {
+    if (dispatcher != null)     dispatcher.dispose();
   }
   Threads.enqueue(Empyrean.class,ServiceContext.class,new Callable<Boolean>(){
     @Override public Boolean call(){
