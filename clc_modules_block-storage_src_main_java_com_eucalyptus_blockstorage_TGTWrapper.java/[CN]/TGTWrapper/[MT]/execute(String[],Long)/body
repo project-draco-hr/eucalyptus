@@ -1,0 +1,33 @@
+{
+  try {
+    Integer returnValue=-999999;
+    Runtime runtime=Runtime.getRuntime();
+    Process process=runtime.exec(command);
+    StreamConsumer error=new StreamConsumer(process.getErrorStream());
+    StreamConsumer output=new StreamConsumer(process.getInputStream());
+    error.start();
+    output.start();
+    Callable<Integer> processMonitor=new ProcessMonitor(process);
+    Future<Integer> processController=getExecutorWithInit().submit(processMonitor);
+    try {
+      returnValue=processController.get(timeout,TimeUnit.MILLISECONDS);
+    }
+ catch (    TimeoutException tex) {
+      String commandStr=buildCommand(command);
+      LOG.error(commandStr + " timed out. Cancelling the process, logging a fault and exceptioning out");
+      processController.cancel(true);
+      Faults.forComponent(Storage.class).havingId(TGT_HOSED).withVar("component","Storage Controller").withVar("timeout",Long.toString(timeout)).log();
+      throw new CallTimeoutException("No response from the command " + commandStr + ". Process timed out after waiting for "+ timeout+ " milliseconds");
+    }
+    output.join();
+    error.join();
+    LOG.debug("TGTWrapper executed: " + JOINER.join(command) + "\n return="+ returnValue+ "\n stdout="+ output.getReturnValue()+ "\n stderr="+ error.getReturnValue());
+    return new CommandOutput(returnValue,output.getReturnValue(),error.getReturnValue());
+  }
+ catch (  CallTimeoutException e) {
+    throw e;
+  }
+catch (  Exception ex) {
+    throw new EucalyptusCloudException(ex);
+  }
+}

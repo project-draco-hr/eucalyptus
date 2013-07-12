@@ -1,0 +1,27 @@
+{
+  EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
+  try {
+    db.getUnique(new SANVolumeInfo(snapshotId));
+    throw new EucalyptusCloudException("Snapshot " + snapshotId + " already exists. Import failed.");
+  }
+ catch (  EucalyptusCloudException ex) {
+  }
+ finally {
+    db.commit();
+  }
+  String iqn=connectionManager.createVolume(snapshotId,size);
+  if (iqn != null) {
+    String deviceName=connectionManager.connectTarget(iqn);
+    try {
+      SystemUtil.run(new String[]{StorageProperties.EUCA_ROOT_WRAPPER,"dd","if=" + snapPath,"of=" + deviceName,"bs=" + StorageProperties.blockSize});
+    }
+  finally {
+      connectionManager.disconnectTarget(snapshotId,iqn);
+    }
+    SANVolumeInfo volumeInfo=new SANVolumeInfo(snapshotId,iqn,size);
+    volumeInfo.setSnapshotOf(volumeId);
+    db=StorageProperties.getEntityWrapper();
+    db.add(volumeInfo);
+    db.commit();
+  }
+}

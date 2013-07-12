@@ -1,0 +1,29 @@
+{
+  GetStorageVolumeResponseType reply=(GetStorageVolumeResponseType)request.getReply();
+  if (!StorageProperties.enableStorage) {
+    LOG.error("BlockStorageController has been disabled. Please check your setup");
+    return reply;
+  }
+  String volumeId=request.getVolumeId();
+  LOG.info("Processing GetStorageVolume request for volume " + volumeId);
+  EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
+  VolumeInfo volumeInfo=new VolumeInfo();
+  volumeInfo.setVolumeId(volumeId);
+  List<VolumeInfo> volumeInfos=db.query(volumeInfo);
+  if (volumeInfos.size() > 0) {
+    VolumeInfo foundVolumeInfo=volumeInfos.get(0);
+    String deviceName=blockManager.getVolumeConnectionString(volumeId);
+    reply.setVolumeId(foundVolumeInfo.getVolumeId());
+    reply.setSize(foundVolumeInfo.getSize().toString());
+    reply.setStatus(foundVolumeInfo.getStatus());
+    reply.setSnapshotId(foundVolumeInfo.getSnapshotId());
+    if (deviceName != null)     reply.setActualDeviceName(deviceName);
+ else     reply.setActualDeviceName("invalid");
+  }
+ else {
+    db.rollback();
+    throw new NoSuchVolumeException(volumeId);
+  }
+  db.commit();
+  return reply;
+}
