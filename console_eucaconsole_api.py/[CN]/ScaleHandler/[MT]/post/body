@@ -71,7 +71,7 @@ def post(self):
             min_size = self.get_argument('MinSize', None)
             max_size = self.get_argument('MaxSize', None)
             termination_policy = self.get_argument_list('TerminationPolicies.member')
-            group = AutoScalingGroup(name=name, launch_config=launch_config, availability_zones=azones, default_cooldown=def_cooldown, health_check_type=hc_type, health_check_period=hc_period, desired_capacity=desired_capacity, min_size=min_size, max_size=max_size, termination_policies=termination_policies)
+            group = AutoScalingGroup(name=name, launch_config=launch_config, availability_zones=azones, default_cooldown=def_cooldown, health_check_type=hc_type, health_check_period=hc_period, desired_capacity=desired_capacity, min_size=min_size, max_size=max_size, termination_policies=termination_policy)
             self.user_session.scaling.update_autoscaling_group(group, self.callback)
         elif (action == 'CreateLaunchConfiguration'):
             image_id = self.get_argument('ImageId')
@@ -88,12 +88,14 @@ def post(self):
             while mapping:
                 pre = ('BlockDeviceMapping.%d' % idx)
                 dev_name = mapping
-                block_dev_type = boto.ec2.autoscale.launchconfig.BlockDeviceMapping()
-                block_dev_type.ephemeral_name = self.get_argument(('%s.VirtualName' % pre), None)
-                if (not block_dev_type.ephemeral_name):
-                    block_dev_type.snapshot_id = self.get_argument(('%s.Ebs.SnapshotId' % pre), None)
-                    block_dev_type.size = self.get_argument(('%s.Ebs.VolumeSize' % pre), None)
-                bdm[dev_name] = block_dev_type
+                virt_name = self.get_argument(('%s.VirtualName' % pre), None)
+                block_dev_type = boto.ec2.autoscale.launchconfig.BlockDeviceMapping(device_name=dev_name, virtual_name=virt_name)
+                if (not virt_name):
+                    snapshot_id = self.get_argument(('%s.Ebs.SnapshotId' % pre), None)
+                    size = self.get_argument(('%s.Ebs.VolumeSize' % pre), None)
+                    ebs = boto.ec2.autoscale.launchconfig.Ebs(snapshot_id=snapshot_id, volume_size=size)
+                    block_dev_type.ebs = ebs
+                bdm.append(block_dev_type)
                 idx += 1
                 mapping = self.get_argument(('BlockDeviceMapping.%d.DeviceName' % idx), None)
             if (len(bdm) == 0):
@@ -111,6 +113,43 @@ def post(self):
             max_records = self.get_argument('MaxRecords', None)
             next_token = self.get_argument('NextToken', None)
             self.user_session.scaling.get_all_launch_configurations(config_names, max_records, next_token, self.callback)
+        elif (action == 'DeletePolicy'):
+            policy_name = self.get_argument('PolicyName')
+            as_group = self.get_argument('AutoScalingGroupName', None)
+            self.user_session.scaling.delete_policy(policy_name, as_group, self.callback)
+        elif (action == 'DescribePolicies'):
+            as_group = self.get_argument('AutoScalingGroupName', None)
+            policy_names = self.get_argument_list('PolicyNames.member')
+            max_records = self.get_argument('MaxRecords', None)
+            next_token = self.get_argument('NextToken', None)
+            self.user_session.scaling.get_all_policies(as_group, policy_names, max_records, next_token, self.callback)
+        elif (action == 'ExecutePolicy'):
+            policy_name = self.get_argument('PolicyName')
+            as_group = self.get_argument('AutoScalingGroupName', None)
+            honor_cooldown = self.get_argument('HonorCooldown', None)
+            self.user_session.scaling.execute_policy(policy_name, as_group, honor_cooldown, self.callback)
+        elif (action == 'PutScalingPolicy'):
+            policy_name = self.get_argument('PolicyName')
+            adjustment_type = self.get_argument('AdjustmentType')
+            as_group = self.get_argument('AutoScalingGroupName')
+            scaling_adjustment = self.get_argument('ScalingAdjustment')
+            cooldown = self.get_argument('Cooldown', None)
+            min_adjustment_step = self.get_argument('MinAdjustmentStep', None)
+            policy = ScalingPolicy(name=policy_name, adjustment_type=adjustment_type, as_name=as_group, scaling_adjustment=scaling_adjustment, cooldown=cooldown, min_adjustment_step=min_adjustment_step)
+            self.user_session.scaling.create_scaling_policy(policy, self.callback)
+        elif (action == 'DescribeAdjustmentTypes'):
+            self.user_session.scaling.get_all_adjustment_types(self.callback)
+        elif (action == 'DeleteTags'):
+            tags = self.get_tags()
+            self.user_session.scaling.delete_tags(tags, self.callback)
+        elif (action == 'DescribeTags'):
+            filters = self.get_argument_list('Filters.member')
+            max_records = self.get_argument('MaxRecords', None)
+            next_token = self.get_argument('NextToken', None)
+            self.user_session.scaling.get_all_tags(filters, max_records, next_token, self.callback)
+        elif (action == 'CreateOrUpdateTags'):
+            tags = self.get_tags()
+            self.user_session.scaling.create_or_update_tags(tags, self.callback)
     except Exception as ex:
         logging.error('Could not fulfill request, exception to follow')
         logging.error('Since we got here, client likely not notified either!')

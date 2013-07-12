@@ -5,35 +5,43 @@
     String uri=request.getUri();
     InetSocketAddress remoteAddr=((InetSocketAddress)ctx.getChannel().getRemoteAddress());
     String remoteHost=remoteAddr.getAddress().getHostAddress();
-    if (uri.startsWith("/latest/"))     newUri=uri.replaceAll("/latest/",remoteHost + ":");
- else     newUri=uri.replaceAll("/\\d\\d\\d\\d-\\d\\d-\\d\\d/",remoteHost + ":");
-    HttpResponse response=null;
+    if (uri.startsWith("/latest/")) {
+      newUri=uri.replaceAll("/latest[/]+",remoteHost + ":");
+    }
+ else     if (uri.startsWith("/1.0/")) {
+      newUri=uri.replaceAll("/1.0[/]+",remoteHost + ":");
+    }
+ else {
+      newUri=uri.replaceAll("/\\d\\d\\d\\d-\\d\\d-\\d\\d[/]+",remoteHost + ":");
+    }
     LOG.trace("Trying to get metadata: " + newUri);
     Object reply="".getBytes();
     Exception replyEx=null;
-    try {
-      if (Bootstrap.isShuttingDown()) {
-        reply="System shutting down".getBytes();
-      }
- else       if (!Bootstrap.isFinished()) {
-        reply="System is still starting up".getBytes();
-      }
+    if (uri.equals("/") || uri.isEmpty()) {
+      reply=Joiner.on('\n').join(VERSION).getBytes(Charsets.UTF_8);
+    }
  else {
-        reply=ServiceContext.send("VmMetadata",newUri);
+      try {
+        if (Bootstrap.isShuttingDown()) {
+          reply="System shutting down".getBytes();
+        }
+ else         if (!Bootstrap.isFinished()) {
+          reply="System is still starting up".getBytes();
+        }
+ else {
+          reply=ServiceContext.send("VmMetadata",newUri);
+        }
       }
-    }
- catch (    ServiceDispatchException e1) {
-      Logs.extreme().debug(e1,e1);
-      replyEx=e1;
-    }
-catch (    Exception e1) {
-      Logs.extreme().debug(e1,e1);
-      replyEx=e1;
-    }
+ catch (      Exception e1) {
+        Logs.extreme().debug(e1,e1);
+        replyEx=e1;
+      }
  finally {
-      Contexts.clear(request.getCorrelationId());
+        Contexts.clear(request.getCorrelationId());
+      }
     }
     Logs.extreme().debug("VmMetadata reply info: " + reply + " "+ replyEx);
+    HttpResponse response=null;
     if (replyEx != null || reply == null || reply instanceof NullPayload) {
       response=new DefaultHttpResponse(request.getProtocolVersion(),HttpResponseStatus.NOT_FOUND);
       String errorMessage=String.format(ERROR_STRING,newUri.replaceAll(remoteHost + ":",""),replyEx != null && Logs.isDebug() ? Exceptions.string(replyEx) : "");
