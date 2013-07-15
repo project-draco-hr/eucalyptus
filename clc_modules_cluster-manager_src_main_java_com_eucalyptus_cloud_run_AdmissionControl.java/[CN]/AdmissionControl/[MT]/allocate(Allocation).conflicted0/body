@@ -1,76 +1,24 @@
 {
-  RunInstancesType request=allocInfo.getRequest();
-  Partition reqPartition=allocInfo.getPartition();
-  String zoneName=reqPartition.getName();
-  String vmTypeName=allocInfo.getVmType().getName();
-  final int minAmount=allocInfo.getMinCount();
-  final int maxAmount=allocInfo.getMaxCount();
-  if (minAmount > maxAmount)   throw new RuntimeException("Maximum instance count must not be smaller than minimum instance count");
-  Context ctx=Contexts.lookup();
-  List<Cluster> authorizedClusters=this.doPrivilegedLookup(zoneName,vmTypeName);
-  int remaining=maxAmount;
-  int allocated=0;
-  int available=0;
-  LOG.info("Found authorized clusters: " + Iterables.transform(authorizedClusters,HasName.GET_NAME));
-  if ((available=checkAvailability(vmTypeName,authorizedClusters)) < minAmount) {
-    throw new NotEnoughResourcesException("Not enough resources (" + available + " in "+ zoneName+ " < "+ minAmount+ "): vm instances.");
-  }
- else {
-    for (    Cluster cluster : authorizedClusters) {
-      if (remaining <= 0) {
-        break;
+  if (NetworkGroups.networkingConfiguration().hasNetworking()) {
+    EntityTransaction db=Entities.get(NetworkGroup.class);
+    try {
+      NetworkGroup net=Entities.merge(allocInfo.getPrimaryNetwork());
+      ExtantNetwork exNet=net.extantNetwork();
+      for (      ResourceToken rscToken : allocInfo.getAllocationTokens()) {
+        rscToken.setExtantNetwork(exNet);
       }
- else {
-        ResourceState state=cluster.getNodeState();
-        Partition partition=cluster.getConfiguration().lookupPartition();
-        if (allocInfo.getPartition().equals(Partition.DEFAULT)) {
-          int zoneAvailable=checkZoneAvailability(vmTypeName,partition,authorizedClusters);
-          if (zoneAvailable < minAmount)           continue;
-          allocInfo.setPartition(partition);
-        }
- else         if (!allocInfo.getPartition().equals(partition)) {
-          continue;
-        }
-        if (allocInfo.getBootSet().getMachine() instanceof BlockStorageImageInfo) {
-          try {
-            ServiceConfiguration sc=Topology.lookup(Storage.class,partition);
-          }
- catch (          Exception ex) {
-            allocInfo.abort();
-            allocInfo.setPartition(reqPartition);
-            throw new NotEnoughResourcesException("Not enough resources: Cannot run EBS instances in partition w/o a storage controller: " + ex.getMessage(),ex);
-          }
-        }
-        try {
-          int tryAmount=(remaining > state.getAvailability(vmTypeName).getAvailable()) ? state.getAvailability(vmTypeName).getAvailable() : remaining;
-          List<ResourceToken> tokens=this.requestResourceToken(allocInfo,tryAmount,maxAmount);
-          remaining-=tokens.size();
-          allocated+=tokens.size();
-        }
- catch (        Exception t) {
-          LOG.error(t);
-          Logs.extreme().error(t,t);
-          allocInfo.abort();
-          allocInfo.setPartition(reqPartition);
-          if (((available=checkZoneAvailability(vmTypeName,partition,authorizedClusters)) < remaining) && (remaining > 0)) {
-            throw new NotEnoughResourcesException("Not enough resources (" + available + " in "+ zoneName+ " < "+ minAmount+ "): vm instances.",t);
-          }
- else {
-            throw new NotEnoughResourcesException(t.getMessage(),t);
-          }
-        }
-      }
+      Entities.merge(net);
+      db.commit();
     }
-    if ((allocated < minAmount) && (remaining > 0)) {
-      allocInfo.abort();
-      allocInfo.setPartition(reqPartition);
-      if (reqPartition.equals(Partition.DEFAULT)) {
-        throw new NotEnoughResourcesException("Not enough resources available in all zone for " + minAmount + "): vm instances.");
-      }
- else {
-        available=checkZoneAvailability(vmTypeName,reqPartition,authorizedClusters);
-        throw new NotEnoughResourcesException("Not enough resources (" + available + " in "+ zoneName+ " < "+ minAmount+ "): vm instances.");
-      }
+ catch (    TransientEntityException ex) {
+      LOG.error(ex,ex);
+      db.rollback();
+      throw ex;
+    }
+catch (    Exception ex) {
+      LOG.error(ex,ex);
+      db.rollback();
+      throw ex;
     }
   }
 }
