@@ -1,0 +1,24 @@
+{
+  final List<String> errors=Lists.newArrayList();
+  if (coordinator != null) {
+    final List<DBStatus> distinctStatus=CollectionUtils.reduce(coordinator.getDatabaseStatus(),Lists.<DBStatus>newArrayList(),distinctStatus());
+    final Iterable<String> coordinatorErrors=Optional.presentInstances(Iterables.transform(coordinator.getDatabaseStatus(),DbStatusErrorTransform.INSTANCE));
+    if (distinctStatus.size() > 1 || !Iterables.isEmpty(coordinatorErrors)) {
+      if (distinctStatus.size() > 1) {
+        errors.add(String.format("Host %s database error: Inconsistent primary/secondary databases %s",coordinator.getDisplayName(),distinctStatus));
+      }
+      for (      final Host host : Iterables.filter(hosts,DbStatusErrorFilter.INSTANCE)) {
+        for (        final String error : Optional.presentInstances(Iterables.transform(host.getDatabaseStatus(),DbStatusErrorTransform.INSTANCE))) {
+          errors.add(String.format("Host %s database error: %s",host.getDisplayName(),error));
+        }
+      }
+    }
+ else     if (distinctStatus.size() == 1)     for (    final Host host : hosts) {
+      final List<DBStatus> inconsistentStatus=Lists.newArrayList(Iterables.filter(host.getDatabaseStatus(),Predicates.not(consistentWith(distinctStatus.get(0)))));
+      if (!inconsistentStatus.isEmpty()) {
+        errors.add(String.format("Host %s database error: Inconsistent primary/secondary databases %s",host.getDisplayName(),inconsistentStatus));
+      }
+    }
+  }
+  return errors;
+}
