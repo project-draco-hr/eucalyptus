@@ -1,76 +1,14 @@
 {
-  List<MetricDatum> dataToInsert=new ArrayList<MetricDatum>();
   Date now=new Date();
   for (  final MetricDatum datum : metricDatum) {
-    LOG.trace("Received metric datum: " + nameSpace + " "+ datum.getMetricName()+ " "+ datum.getTimestamp());
-    if ("AWS/EBS".equals(nameSpace) && metricType == MetricType.System) {
-      String volumeId=null;
-      if ((datum.getDimensions() != null) && (datum.getDimensions().getMember() != null)) {
-        for (        Dimension dimension : datum.getDimensions().getMember()) {
-          if ("VolumeId".equals(dimension.getName())) {
-            volumeId=dimension.getValue();
-          }
-        }
-      }
-      if (EBS_ABSOLUTE_METRICS.containsKey(datum.getMetricName())) {
-        if (!adjustAbsoluteVolumeStatisticSet(datum,datum.getMetricName(),EBS_ABSOLUTE_METRICS.get(datum.getMetricName()),volumeId))         continue;
-      }
-      if ("VolumeReadOps".equals(datum.getMetricName())) {
-        dataToInsert.add(createVolumeThroughputMetric(datum));
-      }
-      if ("VolumeTotalReadWriteTime".equals(datum.getMetricName())) {
-        convertVolumeTotalReadWriteTimeToVolumeIdleTime(datum);
-      }
-      if ("VolumeQueueLength".equals(datum.getMetricName())) {
-        if (!adjustAbsoluteVolumeQueueLengthStatisticSet(datum,volumeId))         continue;
-      }
-    }
-    if ("AWS/EC2".equals(nameSpace) && metricType == MetricType.System) {
-      String instanceId=null;
-      if ((datum.getDimensions() != null) && (datum.getDimensions().getMember() != null)) {
-        for (        Dimension dimension : datum.getDimensions().getMember()) {
-          if ("InstanceId".equals(dimension.getName())) {
-            instanceId=dimension.getValue();
-          }
-        }
-      }
-      if (EC2_ABSOLUTE_METRICS.containsKey(datum.getMetricName())) {
-        if (!adjustAbsoluteInstanceStatisticSet(datum,datum.getMetricName(),EC2_ABSOLUTE_METRICS.get(datum.getMetricName()),instanceId))         continue;
-      }
- else       if ("CPUUtilizationMSAbsolute".equals(datum.getMetricName())) {
-        if (!adjustAbsoluteInstanceCPUStatisticSet(datum,"CPUUtilizationMSAbsolute","CPUUtilization",instanceId))         continue;
-      }
-    }
-    dataToInsert.add(datum);
-  }
-  for (  final MetricDatum datum : dataToInsert) {
     scrub(datum,now);
-    final ArrayList<Dimension> dimensions=datum.getDimensions().getMember();
     queue(new Supplier<MetricQueueItem>(){
       @Override public MetricQueueItem get(){
         MetricQueueItem metricMetadata=new MetricQueueItem();
         metricMetadata.setAccountId(ownerAccountId);
-        metricMetadata.setMetricName(datum.getMetricName());
+        metricMetadata.setMetricDatum(datum);
         metricMetadata.setNamespace(nameSpace);
-        metricMetadata.setDimensionMap(makeDimensionMap(dimensions));
         metricMetadata.setMetricType(metricType);
-        metricMetadata.setUnits(Units.fromValue(datum.getUnit()));
-        metricMetadata.setTimestamp(datum.getTimestamp());
-        if (datum.getValue() != null) {
-          metricMetadata.setSampleMax(datum.getValue());
-          metricMetadata.setSampleMin(datum.getValue());
-          metricMetadata.setSampleSum(datum.getValue());
-          metricMetadata.setSampleSize(1.0);
-        }
- else         if ((datum.getStatisticValues() != null) && (datum.getStatisticValues().getMaximum() != null) && (datum.getStatisticValues().getMinimum() != null)&& (datum.getStatisticValues().getSum() != null)&& (datum.getStatisticValues().getSampleCount() != null)) {
-          metricMetadata.setSampleMax(datum.getStatisticValues().getMaximum());
-          metricMetadata.setSampleMin(datum.getStatisticValues().getMinimum());
-          metricMetadata.setSampleSum(datum.getStatisticValues().getSum());
-          metricMetadata.setSampleSize(datum.getStatisticValues().getSampleCount());
-        }
- else {
-          throw new RuntimeException("Statistics set (all values) or Value must be set");
-        }
         return metricMetadata;
       }
     }
