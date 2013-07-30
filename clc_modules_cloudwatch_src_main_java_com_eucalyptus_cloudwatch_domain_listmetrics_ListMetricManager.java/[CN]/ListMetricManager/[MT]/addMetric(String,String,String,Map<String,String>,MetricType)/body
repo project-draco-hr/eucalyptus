@@ -1,65 +1,7 @@
 {
-  if (dimensionMap == null) {
-    dimensionMap=new HashMap<String,String>();
-  }
- else   if (dimensionMap.size() > ListMetric.MAX_DIM_NUM) {
-    throw new IllegalArgumentException("Too many dimensions for metric, " + dimensionMap.size());
-  }
-  TreeSet<DimensionEntity> dimensions=new TreeSet<DimensionEntity>();
-  for (  Map.Entry<String,String> entry : dimensionMap.entrySet()) {
-    DimensionEntity d=new DimensionEntity();
-    d.setName(entry.getKey());
-    d.setValue(entry.getValue());
-    dimensions.add(d);
-  }
-  Set<Set<DimensionEntity>> permutations=null;
-  if (metricType == MetricType.System) {
-    if (!namespace.equals("AWS/EC2")) {
-      permutations=Sets.powerSet(dimensions);
-    }
- else {
-      permutations=Sets.filter(Sets.powerSet(dimensions),new Predicate<Set<DimensionEntity>>(){
-        public boolean apply(        @Nullable Set<DimensionEntity> candidate){
-          return (candidate != null && candidate.size() < 2);
-        }
-      }
-);
-    }
-  }
- else {
-    permutations=Sets.newHashSet();
-    permutations.add(dimensions);
-  }
-  Multimap<Class,MetricEntity> metricMap=ArrayListMultimap.<Class,MetricEntity>create();
   EntityTransaction db=Entities.get(ListMetric.class);
   try {
-    for (    Set<DimensionEntity> dimensionsPermutation : permutations) {
-      ListMetric metric=new ListMetric();
-      metric.setAccountId(accountId);
-      metric.setMetricName(metricName);
-      metric.setNamespace(namespace);
-      metric.setDimensions(dimensionsPermutation);
-      metric.setMetricType(metricType);
-      Criteria criteria=Entities.createCriteria(ListMetric.class).add(Restrictions.eq("accountId",accountId)).add(Restrictions.eq("metricName",metricName)).add(Restrictions.eq("namespace",namespace));
-      int dimIndex=1;
-      for (      DimensionEntity d : dimensionsPermutation) {
-        criteria.add(Restrictions.eq("dim" + dimIndex + "Name",d.getName()));
-        criteria.add(Restrictions.eq("dim" + dimIndex + "Value",d.getValue()));
-        dimIndex++;
-      }
-      while (dimIndex <= ListMetric.MAX_DIM_NUM) {
-        criteria.add(Restrictions.isNull("dim" + dimIndex + "Name"));
-        criteria.add(Restrictions.isNull("dim" + dimIndex + "Value"));
-        dimIndex++;
-      }
-      ListMetric inDbMetric=(ListMetric)criteria.uniqueResult();
-      if (inDbMetric != null) {
-        inDbMetric.setVersion(1 + inDbMetric.getVersion());
-      }
- else {
-        Entities.persist(metric);
-      }
-    }
+    addMetric(db,accountId,metricName,namespace,dimensionMap,metricType);
     db.commit();
   }
  catch (  RuntimeException ex) {
