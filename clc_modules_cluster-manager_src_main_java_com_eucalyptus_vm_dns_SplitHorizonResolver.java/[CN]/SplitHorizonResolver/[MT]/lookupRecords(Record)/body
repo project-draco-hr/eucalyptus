@@ -1,10 +1,19 @@
 {
-  Name name=query.getName();
   if (RequestType.PTR.apply(query)) {
-    InetAddress ip=DomainNameRecords.inAddrArpaToInetAddress(name);
+    final InetAddress ip=DomainNameRecords.inAddrArpaToInetAddress(query.getName());
     if (InstanceDomainNames.isInstance(ip)) {
-      return DnsResponse.forName(name).answer(DomainNameRecords.ptrRecord(name,ip));
+      final String hostAddress=ip.getHostAddress();
+      if (Addresses.getInstance().contains(hostAddress)) {
+        VmInstances.lookupByPublicIp(hostAddress);
+        final Name dnsName=InstanceDomainNames.fromInetAddress(InstanceDomainNames.EXTERNAL,ip);
+        return DnsResponse.forName(query.getName()).answer(DomainNameRecords.ptrRecord(dnsName,ip));
+      }
+ else {
+        VmInstances.lookupByPrivateIp(hostAddress);
+        final Name dnsName=InstanceDomainNames.fromInetAddress(InstanceDomainNames.INTERNAL,ip);
+        return DnsResponse.forName(query.getName()).answer(DomainNameRecords.ptrRecord(dnsName,ip));
+      }
     }
   }
-  return DnsResponse.forName(name).nxdomain();
+  return DnsResponse.forName(query.getName()).nxdomain();
 }
