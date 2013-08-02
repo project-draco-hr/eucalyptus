@@ -18,41 +18,44 @@
       returnValue=null;
     }
  else {
-      boolean sendNullReturnValue=false;
       double TOLERANCE=0.0000001;
       long elapsedTimeInMillis=newTimestamp.getTime() - lastEntity.getTimestamp().getTime();
       LOG.trace("lastTimestamp=" + lastEntity.getTimestamp());
       double valueDifference=newMetricValue - lastEntity.getLastMetricValue();
       if (elapsedTimeInMillis < 0) {
         LOG.trace("earlier point, kicking out");
-        sendNullReturnValue=true;
+        returnValue=null;
       }
  else       if (elapsedTimeInMillis == 0) {
         if (Math.abs(valueDifference) > TOLERANCE) {
           LOG.warn("Getting different values " + newMetricValue + " and "+ lastEntity.getLastMetricValue()+ " for absolute metric "+ metricName+ " at the same timestamp "+ newTimestamp+ ", keeping the second value.");
         }
-        sendNullReturnValue=true;
+        returnValue=null;
       }
  else       if (elapsedTimeInMillis > MAX_DIFFERENCE_DURATION_MS) {
         LOG.trace("too much time has passed, (" + elapsedTimeInMillis + " ms), starting over");
         lastEntity.setTimestamp(newTimestamp);
         lastEntity.setLastMetricValue(newMetricValue);
-        sendNullReturnValue=true;
+        returnValue=null;
       }
  else       if (elapsedTimeInMillis > 0) {
         lastEntity.setTimestamp(newTimestamp);
         lastEntity.setLastMetricValue(newMetricValue);
-        if (Math.abs(valueDifference) < TOLERANCE) {
-          valueDifference=0.0;
+        if (valueDifference < -TOLERANCE) {
+          returnValue=null;
         }
  else {
-          LOG.trace("smaller value, assuming reset");
-          sendNullReturnValue=true;
+          if (Math.abs(valueDifference) < TOLERANCE) {
+            valueDifference=0.0;
+          }
+          returnValue=new MetricDifferenceInfo(valueDifference,elapsedTimeInMillis);
         }
       }
-      LOG.trace("new values=valueDifference=" + valueDifference + ",elapsedTimeInMillis="+ elapsedTimeInMillis);
-      if (!sendNullReturnValue) {
-        returnValue=new MetricDifferenceInfo(valueDifference,elapsedTimeInMillis);
+      if (returnValue != null) {
+        LOG.trace("new values=valueDifference=" + valueDifference + ",elapsedTimeInMillis="+ elapsedTimeInMillis);
+      }
+ else {
+        LOG.trace("sending null value out");
       }
     }
     db.commit();
