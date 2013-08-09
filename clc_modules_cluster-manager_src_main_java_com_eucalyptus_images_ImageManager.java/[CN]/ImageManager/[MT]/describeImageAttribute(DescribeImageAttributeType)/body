@@ -4,9 +4,9 @@
   final Context ctx=Contexts.lookup();
   final String requestAccountId=ctx.getUserFullName().getAccountNumber();
   if (request.getAttribute() != null)   request.applyAttribute();
-  final EntityWrapper<ImageInfo> db=EntityWrapper.get(ImageInfo.class);
+  final EntityTransaction tx=Entities.get(ImageInfo.class);
   try {
-    final ImageInfo imgInfo=db.getUnique(Images.exampleWithImageId(imageIdentifier(request.getImageId())));
+    final ImageInfo imgInfo=Entities.uniqueResult(Images.exampleWithImageId(imageIdentifier(request.getImageId())));
     if (!ctx.hasAdministrativePrivileges() && (!imgInfo.getOwnerAccountNumber().equals(requestAccountId) || !RestrictedTypes.filterPrivileged().apply(imgInfo))) {
       throw new EucalyptusCloudException("Not authorized to describe image attribute");
     }
@@ -68,10 +68,10 @@ break;
 }
 }
  else {
-reply.getBlockDeviceMapping().add(ImageUtil.EMI);
-reply.getBlockDeviceMapping().add(ImageUtil.EPHEMERAL);
-reply.getBlockDeviceMapping().add(ImageUtil.SWAP);
-reply.getBlockDeviceMapping().add(ImageUtil.ROOT);
+reply.getBlockDeviceMapping().add(EMI);
+reply.getBlockDeviceMapping().add(EPHEMERAL);
+reply.getBlockDeviceMapping().add(SWAP);
+reply.getBlockDeviceMapping().add(ROOT);
 }
 }
  else if (request.getDescription() != null) {
@@ -84,8 +84,11 @@ reply.getDescription().add(imgInfo.getDescription());
 throw new EucalyptusCloudException("invalid image attribute request.");
 }
 }
-  finally {
-db.commit();
+ catch (TransactionException|NoSuchElementException ex) {
+throw new EucalyptusCloudException("Error handling image attribute request: " + ex.getMessage(),ex);
+}
+ finally {
+tx.commit();
 }
 return reply;
 }
