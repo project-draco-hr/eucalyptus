@@ -12,12 +12,10 @@
               throw Exceptions.toUndeclared("Host is not ready to be activated: " + host);
             }
  else {
-              DriverDatabaseClusterMBean cluster=LookupPersistenceContextDatabaseCluster.INSTANCE.apply(contextName);
-              final String dbUrl="jdbc:" + ServiceUris.remote(Database.class,host.getBindAddress(),contextName);
-              final String realJdbcDriver=Databases.getDriverName();
+              final DatabaseClusterMBean cluster=lookup(contextName,TimeUnit.SECONDS.toMillis(30));
               String syncStrategy="passive";
-              boolean activated=cluster.getActiveDatabases().contains(hostName);
-              boolean deactivated=cluster.getInactiveDatabases().contains(hostName);
+              final boolean activated=cluster.getactiveDatabases().contains(hostName);
+              final boolean deactivated=cluster.getinactiveDatabases().contains(hostName);
               syncStrategy=(fullSync ? "full" : "passive");
               if (activated) {
                 return;
@@ -26,22 +24,22 @@
                 ActivateHostFunction.prepareConnections(host,contextName);
               }
  else {
-                LOG.info("Creating database connections for: " + host);
+                LOG.info("Creating database " + ctx + " connections for: "+ host);
                 try {
-                  cluster.getDatabase(hostName);
+                  lookupDatabase(contextName,hostName);
                 }
- catch (                IllegalArgumentException ex2) {
+ catch (                NoSuchElementException e) {
                   try {
-                    cluster.add(hostName,realJdbcDriver,dbUrl);
-                    Logs.extreme().debug("Added db connections for host: " + hostName);
+                    cluster.add(hostName);
+                    Logs.extreme().debug("Added database " + ctx + " connections for host: "+ hostName);
                   }
  catch (                  IllegalArgumentException ex) {
-                    Logs.extreme().debug("Skipping addition of db connections for host which already exists: " + hostName);
+                    Logs.extreme().debug("Skipping addition of database " + ctx + " connections for host which already exists: "+ hostName);
                   }
 catch (                  IllegalStateException ex) {
                     if (Exceptions.isCausedBy(ex,InstanceAlreadyExistsException.class)) {
-                      ManagementFactory.getPlatformMBeanServer().unregisterMBean(new ObjectName("net.sf.hajdbc:cluster=" + ctx + ",database="+ hostName));
-                      cluster.add(hostName,realJdbcDriver,dbUrl);
+                      ManagementFactory.getPlatformMBeanServer().unregisterMBean(new ObjectName(jdbcJmxDomain,new Hashtable<>(ImmutableMap.of("cluster",ctx,"type","Database","database",hostName))));
+                      cluster.add(hostName);
                     }
  else {
                       throw ex;
@@ -52,22 +50,29 @@ catch (                  IllegalStateException ex) {
               }
               try {
                 if (fullSync) {
-                  LOG.info("Full sync of database on: " + host);
+                  LOG.info("Full sync of database " + ctx + " on: "+ host);
                 }
  else {
-                  LOG.info("Passive activation of database connections to: " + host);
+                  LOG.info("Passive activation of database " + ctx + " connections to: "+ host);
                 }
                 cluster.activate(hostName,syncStrategy);
                 if (fullSync) {
-                  LOG.info("Full sync of database on: " + host + " using "+ cluster.getActiveDatabases());
+                  LOG.info("Full sync of database " + ctx + " on: "+ host+ " using "+ cluster.getactiveDatabases());
                 }
  else {
-                  LOG.info("Passive activation of database on: " + host + " using "+ cluster.getActiveDatabases());
+                  LOG.info("Passive activation of database " + ctx + " on: "+ host+ " using "+ cluster.getactiveDatabases());
                 }
-                return;
               }
  catch (              Exception ex) {
                 throw Exceptions.toUndeclared(ex);
+              }
+              try {
+                LOG.debug("Refreshing idle pooled connections for context: " + contextName);
+                ProxoolFacade.killAllConnections(contextName,"Database registered",true);
+                LOG.debug("Refreshed idle pooled connections for context: " + contextName);
+              }
+ catch (              Exception ex) {
+                LOG.error("Error refreshing connections on activation of context: " + contextName,ex);
               }
             }
           }
@@ -84,7 +89,7 @@ catch (          final IllegalStateException ex1) {
 catch (          final Exception ex1) {
             LOG.error(ex1);
             Logs.extreme().error(ex1,ex1);
-            throw Exceptions.toUndeclared("Failed to activate host " + host + " because of: "+ ex1.getMessage(),ex1);
+            throw Exceptions.toUndeclared("Failed to activate database " + ctx + " host "+ host+ " because of: "+ ex1.getMessage(),ex1);
           }
         }
         @Override public String toString(){
