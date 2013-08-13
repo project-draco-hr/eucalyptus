@@ -1,11 +1,11 @@
 {
-  final Map<String,String> m=new HashMap<String,String>();
-  final String instanceProfileNameOrArn=this.getNameOrArn();
+  final Map<String,String> m=new HashMap<>();
+  final String instanceProfileNameOrArn=this.getIamInstanceProfileArn();
   if (instanceProfileNameOrArn != null && !instanceProfileNameOrArn.isEmpty()) {
     InstanceProfile profile=null;
     String roleName=null;
-    String roleArn=null;
-    String profileArn=null;
+    String roleArn=this.getIamRoleArn();
+    String profileArn=this.getIamInstanceProfileArn();
     try {
       final Account userAccount=Accounts.lookupAccountById(this.getOwnerAccountNumber());
       String profileName;
@@ -17,10 +17,16 @@
       }
       profile=userAccount.lookupInstanceProfileByName(profileName);
       profileArn=Accounts.getInstanceProfileArn(profile);
-      final Role role=profile.getRole();
-      if (role != null) {
-        roleArn=Accounts.getRoleArn(role);
-        roleName=role.getName();
+      if (roleArn == null) {
+        final Role role=profile.getRole();
+        if (role != null) {
+          roleArn=Accounts.getRoleArn(role);
+          roleName=role.getName();
+        }
+      }
+ else {
+        final EuareResourceName ern=(EuareResourceName)Ern.parse(roleArn);
+        roleName=ern.getName();
       }
     }
  catch (    AuthException e) {
@@ -45,10 +51,14 @@
       m.put("iam/info/instance-profile-id",profile.getInstanceProfileId());
     }
     if (roleName != null && credentials != null) {
+      final String jsonCredentials=new JSONObject().element("Code","Success").element("LastUpdated",Timestamps.formatIso8601Timestamp(new Date())).element("Type","AWS-HMAC").element("AccessKeyId",credentials.getAccessKeyId()).element("SecretAccessKey",credentials.getSecretAccessKey()).element("Token",credentials.getSessionToken()).element("Expiration",Timestamps.formatIso8601Timestamp(credentials.getExpiration())).toString(2);
       m.put("iam/security-credentials/" + roleName + "/AccessKeyId",credentials.getAccessKeyId());
       m.put("iam/security-credentials/" + roleName + "/Expiration",Timestamps.formatIso8601Timestamp(credentials.getExpiration()));
       m.put("iam/security-credentials/" + roleName + "/SecretAccessKey",credentials.getSecretAccessKey());
       m.put("iam/security-credentials/" + roleName + "/Token",credentials.getSessionToken());
+      m.put("iam/security-credentials/" + roleName,jsonCredentials);
+      m.put("iam/security-credentials",roleName);
+      m.put("iam/security-credentials/",roleName);
     }
   }
   return m;
