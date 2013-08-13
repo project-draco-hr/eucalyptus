@@ -1,0 +1,221 @@
+{
+  ListVersionsResponseType reply=(ListVersionsResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
+  String prefix=request.getPrefix();
+  String keyMarker=request.getKeyMarker();
+  String versionMarker=request.getVersionIdMarker();
+  int maxKeys=-1;
+  String maxKeysString=request.getMaxKeys();
+  if (maxKeysString != null) {
+    maxKeys=Integer.parseInt(maxKeysString);
+  }
+ else {
+    maxKeys=WalrusProperties.MAX_KEYS;
+  }
+  String delimiter=request.getDelimiter();
+  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  bucketInfo.setHidden(false);
+  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
+  Hashtable<String,PrefixEntry> prefixes=new Hashtable<String,PrefixEntry>();
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
+    if (ctx.hasAdministrativePrivileges() || (bucket.canRead(account.getAccountNumber()) && (bucket.isGlobalRead() || Lookups.checkPrivilege(PolicySpec.S3_LISTBUCKETVERSIONS,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
+      if (logData != null) {
+        updateLogData(bucket,logData);
+        reply.setLogData(logData);
+      }
+      if (Contexts.lookup().hasAdministrativePrivileges()) {
+        try {
+          if (bucketHasSnapshots(bucketName)) {
+            db.rollback();
+            throw new NoSuchBucketException(bucketName);
+          }
+        }
+ catch (        Exception e) {
+          db.rollback();
+          throw new EucalyptusCloudException(e);
+        }
+      }
+      reply.setName(bucketName);
+      reply.setIsTruncated(false);
+      reply.setPrefix(prefix);
+      if (maxKeys >= 0) {
+        reply.setMaxKeys(maxKeys);
+      }
+      reply.setDelimiter(delimiter);
+      reply.setKeyMarker(keyMarker);
+      if (bucket.isVersioningDisabled()) {
+        db.commit();
+        return reply;
+      }
+      if (maxKeys == 0) {
+        reply.setVersions(new ArrayList<VersionEntry>());
+        db.commit();
+        return reply;
+      }
+      final int queryStrideSize=maxKeys + 1;
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      ObjectInfo searchObj=new ObjectInfo();
+      searchObj.setBucketName(bucketName);
+      searchObj.setDeleted(false);
+      Criteria objCriteria=dbObject.createCriteria(ObjectInfo.class);
+      objCriteria.add(Example.create(searchObj));
+      objCriteria.addOrder(Order.asc("objectKey"));
+      objCriteria.addOrder(Order.desc("lastModified"));
+      objCriteria.setMaxResults(queryStrideSize);
+      keyMarker=(Strings.isNullOrEmpty(keyMarker) ? "" : keyMarker);
+      prefix=(Strings.isNullOrEmpty(prefix) ? "" : prefix);
+      versionMarker=(Strings.isNullOrEmpty(versionMarker) ? "" : versionMarker);
+      if (!Strings.isNullOrEmpty(keyMarker)) {
+        if (!Strings.isNullOrEmpty(versionMarker)) {
+          Date resumeDate=null;
+          try {
+            ObjectInfo markerObj=new ObjectInfo();
+            markerObj.setBucketName(bucketName);
+            markerObj.setVersionId(versionMarker);
+            markerObj.setObjectKey(keyMarker);
+            ObjectInfo lastFromPrevObj=dbObject.uniqueResultEscape(markerObj);
+            if (lastFromPrevObj != null && lastFromPrevObj.getLastModified() != null) {
+              resumeDate=lastFromPrevObj.getLastModified();
+            }
+ else {
+              dbObject.rollback();
+              throw new NoSuchEntityException("VersionIDMarker " + versionMarker + " does not match an existing object version");
+            }
+          }
+ catch (          TransactionException e) {
+            LOG.error(e);
+            dbObject.rollback();
+            throw new EucalyptusCloudException("Next-Key-Marker or Next-Version-Id marker invalid");
+          }
+          objCriteria.add(Restrictions.or(Restrictions.and(Restrictions.ge("objectKey",keyMarker),Restrictions.le("lastModified",resumeDate)),Restrictions.gt("objectKey",keyMarker)));
+        }
+ else {
+          objCriteria.add(Restrictions.ge("objectKey",keyMarker));
+        }
+      }
+      if (!Strings.isNullOrEmpty(prefix)) {
+        objCriteria.add(Restrictions.like("objectKey",prefix,MatchMode.START));
+      }
+ else {
+        prefix="";
+      }
+      List<ObjectInfo> objectInfos=null;
+      int resultKeyCount=0;
+      String objectKey=null;
+      String[] parts=null;
+      String prefixString=null;
+      ArrayList<VersionEntry> versions=new ArrayList<VersionEntry>();
+      ArrayList<DeleteMarkerEntry> deleteMarkers=new ArrayList<DeleteMarkerEntry>();
+      do {
+        objectKey=null;
+        parts=null;
+        prefixString=null;
+        if (resultKeyCount > 0) {
+          objCriteria.setFirstResult(queryStrideSize);
+        }
+        objectInfos=(List<ObjectInfo>)objCriteria.list();
+        if (objectInfos.size() > 0) {
+          for (          ObjectInfo objectInfo : objectInfos) {
+            objectKey=objectInfo.getObjectKey();
+            if (objectInfo.getDeleted()) {
+            }
+            if (!Strings.isNullOrEmpty(delimiter)) {
+              parts=objectKey.substring(prefix.length()).split(delimiter);
+              if (parts.length > 1) {
+                prefixString=parts[0] + delimiter;
+                if (!prefixes.containsKey(prefixString)) {
+                  if (resultKeyCount == maxKeys) {
+                    reply.setNextKeyMarker(objectKey);
+                    reply.setNextVersionIdMarker(objectInfo.getVersionId());
+                    reply.setIsTruncated(true);
+                    resultKeyCount++;
+                    break;
+                  }
+                  prefixes.put(prefixString,new PrefixEntry(prefixString));
+                  resultKeyCount++;
+                }
+                continue;
+              }
+            }
+            if (resultKeyCount == maxKeys) {
+              reply.setNextKeyMarker(objectKey);
+              reply.setNextVersionIdMarker(objectInfo.getVersionId());
+              reply.setIsTruncated(true);
+              resultKeyCount++;
+              break;
+            }
+            if (!objectInfo.getDeleted()) {
+              VersionEntry versionEntry=new VersionEntry();
+              versionEntry.setKey(objectKey);
+              versionEntry.setVersionId(objectInfo.getVersionId());
+              versionEntry.setEtag(objectInfo.getEtag());
+              versionEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ALT_ISO8601_DATE_PATTERN));
+              try {
+                String displayName=Accounts.lookupAccountById(objectInfo.getOwnerId()).getName();
+                versionEntry.setOwner(new CanonicalUserType(objectInfo.getOwnerId(),displayName));
+              }
+ catch (              AuthException e) {
+                db.rollback();
+                throw new AccessDeniedException("Bucket",bucketName,logData);
+              }
+              versionEntry.setSize(objectInfo.getSize());
+              versionEntry.setStorageClass(objectInfo.getStorageClass());
+              versionEntry.setIsLatest(objectInfo.getLast());
+              versions.add(versionEntry);
+            }
+ else {
+              DeleteMarkerEntry deleteMarkerEntry=new DeleteMarkerEntry();
+              deleteMarkerEntry.setKey(objectKey);
+              deleteMarkerEntry.setVersionId(objectInfo.getVersionId());
+              deleteMarkerEntry.setLastModified(DateUtils.format(objectInfo.getLastModified().getTime(),DateUtils.ALT_ISO8601_DATE_PATTERN));
+              try {
+                String ownerId=objectInfo.getOwnerId();
+                String displayName=Accounts.lookupAccountById(ownerId).getName();
+                deleteMarkerEntry.setOwner(new CanonicalUserType(ownerId,displayName));
+              }
+ catch (              AuthException e) {
+                db.rollback();
+                throw new AccessDeniedException("Bucket",bucketName,logData);
+              }
+              deleteMarkerEntry.setIsLatest(objectInfo.getLast());
+              deleteMarkers.add(deleteMarkerEntry);
+            }
+            resultKeyCount++;
+          }
+        }
+        if (resultKeyCount <= maxKeys && objectInfos.size() <= maxKeys) {
+          break;
+        }
+      }
+ while (resultKeyCount <= maxKeys);
+      reply.setDeleteMarkers(deleteMarkers);
+      reply.setVersions(versions);
+      if (prefixes != null && prefixes.size() > 0) {
+        ArrayList<PrefixEntry> prefixList=new ArrayList<PrefixEntry>();
+        prefixList.addAll(prefixes.values());
+        Collections.sort(prefixList,new Comparator<PrefixEntry>(){
+          public int compare(          PrefixEntry e1,          PrefixEntry e2){
+            return e1.getPrefix().compareTo(e2.getPrefix());
+          }
+        }
+);
+        reply.setCommonPrefixes(prefixList);
+      }
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException("Bucket",bucketName,logData);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  return reply;
+}

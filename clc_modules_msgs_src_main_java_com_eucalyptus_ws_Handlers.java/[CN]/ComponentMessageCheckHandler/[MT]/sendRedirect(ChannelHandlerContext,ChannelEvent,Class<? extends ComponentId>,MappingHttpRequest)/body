@@ -10,7 +10,7 @@
     redirectUri=serviceUri.toASCIIString().replace(Eucalyptus.INSTANCE.getServicePath(),"") + request.getServicePath().replace(serviceUri.getPath(),"");
   }
   HttpResponse response=null;
-  if (redirectUri == null) {
+  if (redirectUri == null || isRedirectLoop(request,redirectUri)) {
     response=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.SERVICE_UNAVAILABLE);
     if (Logs.isDebug()) {
       String errorMessage="Failed to lookup service for " + Components.lookup(compClass).getName() + " for path "+ request.getServicePath()+ ".\nCurrent state: \n\t"+ Joiner.on("\n\t").join(Topology.enabledServices());
@@ -25,9 +25,8 @@
     }
     response.setHeader(HttpHeaders.Names.LOCATION,redirectUri);
   }
-  final ChannelFuture writeFuture=Channels.future(ctx.getChannel());
-  writeFuture.addListener(ChannelFutureListener.CLOSE);
+  response.setHeader(HttpHeaders.Names.CONNECTION,HttpHeaders.Values.CLOSE);
   if (ctx.getChannel().isConnected()) {
-    Channels.write(ctx,writeFuture,response);
+    ctx.getChannel().write(response).addListener(ChannelFutureListener.CLOSE);
   }
 }
