@@ -16,10 +16,19 @@
   finally {
         HoldMe.canHas.unlock();
       }
-      final Vector v=new Vector();
+      final List<WSEncryptionPart> partsToSign=Lists.newArrayList();
       final WSSecHeader wsheader=new WSSecHeader("",false);
-      wsheader.insertSecurityHeader(doc);
+      try {
+        wsheader.insertSecurityHeader(doc);
+      }
+ catch (      WSSecurityException e) {
+        LOG.error(e,e);
+        Channels.fireExceptionCaught(ctx,e);
+      }
       final WSSecSignature signer=new WSSecSignature();
+      final WSSConfig config=WSSConfig.getNewInstance();
+      config.setWsiBSPCompliant(false);
+      signer.setWsConfig(config);
       signer.setKeyIdentifierType(WSConstants.BST_DIRECT_REFERENCE);
       signer.setSigCanonicalization(WSConstants.C14N_EXCL_OMIT_COMMENTS);
       try {
@@ -36,11 +45,11 @@
         ts.prepare(doc);
         ts.prependToHeader(wsheader);
       }
-      v.addAll(this.getSignatureParts());
+      partsToSign.addAll(this.getSignatureParts());
       signer.appendBSTElementToHeader(wsheader);
-      signer.appendToHeader(wsheader);
+      List<Reference> references=null;
       try {
-        signer.addReferencesToSign(v,wsheader);
+        references=signer.addReferencesToSign(partsToSign,wsheader);
       }
  catch (      WSSecurityException e) {
         LOG.error(doc);
@@ -48,7 +57,7 @@
         Channels.fireExceptionCaught(ctx,e);
       }
       try {
-        signer.computeSignature();
+        signer.computeSignature(references,false,null);
       }
  catch (      WSSecurityException e) {
         LOG.error(doc);
