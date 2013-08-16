@@ -1,31 +1,44 @@
 {
   final Name name=query.getName();
   if (ResolverSupport.COMPONENT.apply(name)) {
-    Class<? extends ComponentId> compId=ResolverSupport.COMPONENT_FUNCTION.apply(name);
-    Component comp=Components.lookup(compId);
-    ServiceConfiguration config=null;
-    if (comp.getComponentId().isPartitioned()) {
+    Class<? extends ComponentId> compIdType=ResolverSupport.COMPONENT_FUNCTION.apply(name);
+    Component comp=Components.lookup(compIdType);
+    List<ServiceConfiguration> configs=Lists.newArrayList();
+    final ComponentId componentId=comp.getComponentId();
+    if (componentId.isPartitioned()) {
       String partitionName=name.getLabelString(1);
       Partition partition=Partitions.lookupByName(partitionName);
-      config=Topology.lookup(compId,partition);
+      if (componentId.isManyToOnePartition()) {
+        for (        ServiceConfiguration conf : Iterables.filter(Components.lookup(compIdType).services(),ServiceConfigurations.filterByPartition(partition))) {
+          configs.add(conf);
+        }
+        Collections.shuffle(configs);
+      }
+ else {
+        configs.add(Topology.lookup(compIdType,partition));
+      }
     }
  else {
-      config=Topology.lookup(compId);
-    }
-    Name serviceLabel=Name.fromConstantString(config.getName());
-    Name canonicalName=DomainNames.concatenateConstant(serviceLabel,name);
-    Record cName=DomainNameRecords.canonicalName(name,canonicalName);
-    if (RequestType.CNAME.apply(query)) {
-      return DnsResponse.forName(query.getName()).answer(cName);
-    }
+      if (componentId.isManyToOnePartition()) {
+        for (        ServiceConfiguration conf : Components.lookup(compIdType).services()) {
+          configs.add(conf);
+        }
+        Collections.shuffle(configs);
+      }
  else {
-      Record aRecord=DomainNameRecords.addressRecord(canonicalName,config.getInetAddress());
-      return DnsResponse.forName(query.getName()).answer(cName,aRecord);
+        configs.add(Topology.lookup(compIdType));
+      }
     }
+    List<Record> answers=Lists.newArrayList();
+    for (    ServiceConfiguration config : configs) {
+      Record aRecord=DomainNameRecords.addressRecord(name,config.getInetAddress());
+      answers.add(aRecord);
+    }
+    return DnsResponse.forName(query.getName()).answer(RequestType.AAAA.apply(query) ? null : answers);
   }
  else   if (ResolverSupport.SERVICE.apply(name)) {
     ServiceConfiguration config=ResolverSupport.SERVICE_FUNCTION.apply(name);
-    return DnsResponse.forName(query.getName()).answer(DomainNameRecords.addressRecord(name,config.getInetAddress()));
+    return DnsResponse.forName(query.getName()).answer(RequestType.AAAA.apply(query) ? null : DomainNameRecords.addressRecord(name,config.getInetAddress()));
   }
  else {
     throw new NoSuchElementException("Failed to lookup name: " + name);
