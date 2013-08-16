@@ -23,14 +23,26 @@ def get(self, path):
             print ('%s %s %s' % (profile['name'], profile['email'], profile['user_id']))
             account = profile['user_id']
             user = profile['email']
-            sts = boto.sts.connect_to_region('us-east-1')
             role_arn = 'arn:aws:iam::365812321051:role/authRole'
             role_session_name = 'testing'
-            assumedRole = sts.assume_role_with_web_identity(role_arn=role_arn, role_session_name=role_session_name, web_identity_token=access_token, provider_id='www.amazon.com')
-            print ("here's the response for AssumeRoleWithWebIdentity:\n- AssumedRole.user: %s\n- AssumedRole.credentials: %s" % (assumedRole.user.__dict__, assumedRole.credentials.__dict__))
-            session_token = assumedRole.credentials.session_token
-            access_id = assumedRole.credentials.access_key
-            secret_key = assumedRole.credentials.secret_key
+            url = 'https://sts.amazonaws.com?Action=AssumeRoleWithWebIdentity'
+            url = (url + '&DurationSeconds=3600')
+            url = (url + '&ProviderId=www.amazon.com')
+            url = ((url + '&RoleSessionName=') + role_session_name)
+            url = (url + '&Version=2011-06-15')
+            url = ((url + '&RoleArn=') + urllib.quote(role_arn))
+            url = ((url + '&WebIdentityToken=') + urllib.quote(access_token))
+            logging.info(('sts request = ' + url))
+            request = urllib2.Request(url, headers={'Accept': 'application/json', })
+            response = urllib2.urlopen(request)
+            assumedRole = response.read()
+            logging.info(('assumed role = ' + assumedRole))
+            assumedRole = json.loads(assumedRole)
+            assumedRole = assumedRole['AssumeRoleWithWebIdentityResponse']['AssumeRoleWithWebIdentityResult']
+            logging.info(("here's the response for AssumeRoleWithWebIdentity:\n- AssumedRole.user: %s\n- AssumedRole.credentials: %s" % (assumedRole['AssumedRoleUser'], assumedRole['Credentials'])))
+            session_token = assumedRole['Credentials']['SessionToken']
+            access_id = assumedRole['Credentials']['AccessKeyId']
+            secret_key = assumedRole['Credentials']['SecretAccessKey']
             while True:
                 sid = os.urandom(16).encode('hex')
                 if (sid in sessions):
@@ -49,4 +61,7 @@ def get(self, path):
     except ConfigParser.Error:
         logging.info(('Caught url path exception :' + path))
         path = '../static/index.html'
+    self.set_header('X-Frame-Options', 'DENY')
+    self.set_header('Cache-control', 'no-cache')
+    self.set_header('Pragma', 'no-cache')
     self.render(path)
