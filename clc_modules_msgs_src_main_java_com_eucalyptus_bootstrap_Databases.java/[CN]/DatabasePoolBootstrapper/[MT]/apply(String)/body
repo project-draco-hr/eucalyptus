@@ -1,0 +1,77 @@
+{
+  return new Function<String,Runnable>(){
+    @Override public Runnable apply(    final String contextName){
+      return new Runnable(){
+        @Override public void run(){
+          if (Internets.testLocal(hostName)) {
+            return;
+          }
+          try {
+            final boolean wasPrimary;
+            try {
+              wasPrimary=lookupDatabase(contextName,hostName).getweight() == DATABASE_WEIGHT_PRIMARY;
+            }
+ catch (            Exception ex1) {
+              return;
+            }
+            LOG.info("Tearing down database connections for: " + hostName + " to context: "+ contextName);
+            final DatabaseClusterMBean cluster=lookup(contextName,TimeUnit.SECONDS.toMillis(5));
+            for (int i=0; i < MAX_DEACTIVATION_RETRIES && cluster.getactiveDatabases().contains(hostName); i++)             try {
+              LOG.debug("Deactivating database connections for: " + hostName + " to context: "+ contextName);
+              cluster.deactivate(hostName);
+              LOG.debug("Deactived database connections for: " + hostName + " to context: "+ contextName);
+              break;
+            }
+ catch (            Exception ex) {
+              LOG.error(ex);
+              Logs.extreme().error(ex,ex);
+            }
+            for (int i=0; i < MAX_DEACTIVATION_RETRIES && cluster.getinactiveDatabases().contains(hostName) && !Hosts.contains(hostName); i++)             try {
+              LOG.debug("Removing database registration for: " + hostName + " to context: "+ contextName);
+              cluster.remove(hostName);
+              LOG.debug("Removed database registration for: " + hostName + " to context: "+ contextName);
+              break;
+            }
+ catch (            Exception ex) {
+              LOG.error(ex);
+              Logs.extreme().error(ex,ex);
+            }
+            final Host coordinator=Hosts.getCoordinator();
+            if (wasPrimary && coordinator != null) {
+              try {
+                lookupDatabase(contextName,coordinator.getDisplayName()).setweight(DATABASE_WEIGHT_PRIMARY);
+              }
+ catch (              NoSuchElementException e) {
+              }
+catch (              Exception e) {
+                LOG.error("Error setting primary weight for host " + coordinator.getDisplayName() + " context "+ contextName,e);
+              }
+            }
+            for (int i=0; i < MAX_DEACTIVATION_RETRIES && !cluster.getactiveDatabases().contains(hostName) && !cluster.getinactiveDatabases().contains(hostName); i++)             try {
+              LOG.debug("Refreshing idle pooled connections for context: " + contextName);
+              ProxoolFacade.killAllConnections(contextName,"Database deregistered",true);
+              LOG.debug("Refreshed idle pooled connections for context: " + contextName);
+              break;
+            }
+ catch (            Exception ex) {
+              LOG.error(ex);
+              Logs.extreme().error(ex,ex);
+            }
+          }
+ catch (          final Exception ex1) {
+            LOG.error(ex1);
+            Logs.extreme().error(ex1,ex1);
+          }
+        }
+        @Override public String toString(){
+          return "Databases.disable(): " + hostName + " "+ contextName;
+        }
+      }
+;
+    }
+    @Override public String toString(){
+      return "Databases.disable(): " + hostName;
+    }
+  }
+;
+}

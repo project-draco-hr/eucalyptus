@@ -9,9 +9,6 @@
   String bucketName=cleanLocation.substring(0,index);
   String manifestKey=cleanLocation.substring(index + 1);
   final String manifestName=manifestKey.replaceAll(".*/","");
-  if (!ImageManifests.verifyBucketAcl(bucketName)) {
-    throw new EucalyptusCloudException("Image registration failed: you must own the bucket containing the image.");
-  }
   this.manifest=ImageManifests.requestManifestData(ctx.getUserFullName(),bucketName,manifestKey);
   try {
     DocumentBuilder builder=XMLParser.getDocBuilder();
@@ -57,6 +54,19 @@
   String arch=this.xpathHelper.apply("/manifest/machine_configuration/architecture/text()");
   this.architecture=ImageMetadata.Architecture.valueOf(((arch == null) ? "i386" : arch));
   try {
+    NodeList ancestorNodes=(NodeList)xpath.evaluate("/manifest/image/ancestry/ancestor_ami_id/text()",inputSource,XPathConstants.NODESET);
+    if (ancestorNodes != null) {
+      for (int i=0; i < ancestorNodes.getLength(); i++) {
+        for (        String ancestorId : ancestorNodes.item(i).getNodeValue().split(",")) {
+          this.ancestors.add(ancestorId);
+        }
+      }
+    }
+  }
+ catch (  XPathExpressionException ex) {
+    LOG.error(ex,ex);
+  }
+  try {
     NodeList devMapList=(NodeList)this.xpath.evaluate("/manifest/machine_configuration/block_device_mapping/mapping",inputSource,XPathConstants.NODESET);
     for (int i=0; i < devMapList.getLength(); i++) {
       Node node=devMapList.item(i);
@@ -99,12 +109,14 @@
     if (checkIdType.apply(ImageMetadata.Type.kernel)) {
       this.imageType=ImageMetadata.Type.kernel;
       this.platform=ImageMetadata.Platform.linux;
+      this.virtualizationType=ImageMetadata.VirtualizationType.paravirtualized;
       this.kernelId=null;
       this.ramdiskId=null;
     }
  else     if (checkIdType.apply(ImageMetadata.Type.ramdisk)) {
       this.imageType=ImageMetadata.Type.ramdisk;
       this.platform=ImageMetadata.Platform.linux;
+      this.virtualizationType=ImageMetadata.VirtualizationType.paravirtualized;
       this.kernelId=null;
       this.ramdiskId=null;
     }
@@ -114,6 +126,7 @@
       this.imageType=ImageMetadata.Type.machine;
       if (!manifestName.startsWith(ImageMetadata.Platform.windows.toString()) && !(kId != null && ImageMetadata.Platform.windows.name().equals(kId))) {
         this.platform=ImageMetadata.Platform.linux;
+        this.virtualizationType=ImageMetadata.VirtualizationType.paravirtualized;
         if (kId != null && kId.startsWith(ImageMetadata.Type.kernel.getTypePrefix())) {
           ImageManifests.checkPrivileges(this.kernelId);
           this.kernelId=kId;
@@ -131,6 +144,7 @@
       }
  else {
         this.platform=ImageMetadata.Platform.windows;
+        this.virtualizationType=ImageMetadata.VirtualizationType.hvm;
         this.kernelId=null;
         this.ramdiskId=null;
       }

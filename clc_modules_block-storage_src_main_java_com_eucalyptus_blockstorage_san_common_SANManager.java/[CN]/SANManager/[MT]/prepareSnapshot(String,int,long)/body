@@ -1,0 +1,75 @@
+{
+  EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
+  LOG.info("Preparing snapshot " + snapshotId + " of size: "+ sizeExpected);
+  try {
+    SANVolumeInfo volInfo=new SANVolumeInfo(snapshotId);
+    SANVolumeInfo foundVolInfo=db.getUnique(volInfo);
+    SANVolumeInfo volumeInfo=new SANVolumeInfo(snapshotId,foundVolInfo.getIqn(),sizeExpected);
+    volumeInfo.setStatus(foundVolInfo.getStatus());
+    volumeInfo.setSnapshotOf(foundVolInfo.getSnapshotOf());
+    volumeInfo.setStoreUser(foundVolInfo.getStoreUser());
+    db.add(volumeInfo);
+    LOG.debug("Found an existing snapshot record for " + snapshotId + " and will use that lun and record.");
+    return null;
+  }
+ catch (  EucalyptusCloudException e) {
+  }
+ finally {
+    db.commit();
+  }
+  LOG.debug(snapshotId + " not found on this SC's SAN. Now creating a lun on the SAN for the snapshot to be copied from Walrus.");
+  String iqn=null;
+  try {
+    iqn=connectionManager.createSnapshotHolder(snapshotId,actualSizeInMB);
+  }
+ catch (  EucalyptusCloudException e) {
+    LOG.error("Could not create a volume to hold snapshot " + snapshotId);
+    iqn=null;
+  }
+  if (iqn != null) {
+    try {
+      String scIqn=StorageProperties.getStorageIqn();
+      if (scIqn == null) {
+        throw new EucalyptusCloudException("Could not get the SC's initiator IQN, found null.");
+      }
+      Integer lun=-1;
+      try {
+        lun=connectionManager.addInitiatorRule(snapshotId,scIqn);
+      }
+ catch (      EucalyptusCloudException attEx) {
+        LOG.debug("Failed to setup attachment for snapshot " + snapshotId + " to SC",attEx);
+        throw new EucalyptusCloudException("Could not setup snapshot volume " + snapshotId + " to SC because of error in attach prep",attEx);
+      }
+      String deviceName=null;
+      try {
+        if (lun >= 0) {
+          iqn=iqn + "," + String.valueOf(lun);
+        }
+        deviceName=connectionManager.connectTarget(iqn);
+      }
+ catch (      Exception connEx) {
+        LOG.debug("Failed to connect SC to snapshot volume on SAN for snapshot " + snapshotId + ". Detaching and cleaning up.");
+        try {
+          connectionManager.removeInitiatorRule(snapshotId,scIqn);
+        }
+ catch (        EucalyptusCloudException detEx) {
+          LOG.debug("Could not detach snapshot volume " + snapshotId + " during cleanup of failed connection");
+        }
+        throw new EucalyptusCloudException("Could not connect SC to target snapshot volume to prep for snapshot download from Walrus",connEx);
+      }
+      SANVolumeInfo snapInfo=new SANVolumeInfo(snapshotId,iqn,sizeExpected);
+      db=StorageProperties.getEntityWrapper();
+      db.add(snapInfo);
+      db.commit();
+      return deviceName;
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error("Error occured trying to connect the SC to the snapshot lun on the SAN.",e);
+      if (!connectionManager.deleteVolume(snapshotId)) {
+        LOG.error("Failed to delete the snapshot volume during cleanup of failed snapshot prep for " + snapshotId);
+      }
+      throw new EucalyptusCloudException("Failed to create new LUN for snapshot " + snapshotId,e);
+    }
+  }
+  return null;
+}

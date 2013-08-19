@@ -3,22 +3,26 @@
   reply.set_return(true);
   final Context ctx=Contexts.lookup();
   final String requestAccountId=ctx.getUserFullName().getAccountNumber();
-  EntityWrapper<ImageInfo> db=EntityWrapper.get(ImageInfo.class);
+  EntityTransaction tx=Entities.get(ImageInfo.class);
   try {
-    ImageInfo imgInfo=db.getUnique(Images.exampleWithImageId(imageIdentifier(request.getImageId())));
+    ImageInfo imgInfo=Entities.uniqueResult(Images.exampleWithImageId(imageIdentifier(request.getImageId())));
     if (ctx.hasAdministrativePrivileges() || (imgInfo.getOwnerAccountNumber().equals(requestAccountId) && RestrictedTypes.filterPrivileged().apply(imgInfo))) {
       imgInfo.resetPermission();
-      db.commit();
+      tx.commit();
+      return reply.markWinning();
     }
  else {
-      db.rollback();
-      reply.set_return(false);
+      tx.rollback();
+      return reply.markFailed();
     }
   }
  catch (  EucalyptusCloudException e) {
     LOG.error(e,e);
-    db.rollback();
-    reply.set_return(false);
+    tx.rollback();
+    return reply.markFailed();
   }
-  return reply;
+catch (  TransactionException|NoSuchElementException ex) {
+    tx.rollback();
+    return reply.markFailed();
+  }
 }

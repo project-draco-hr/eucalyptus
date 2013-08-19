@@ -8,7 +8,18 @@
           buf.append("SnapshotStateUpdate: ").append(entity.getPartition()).append(" ").append(input).append(" ").append(entity.getParentVolume()).append(" ").append(entity.getState()).append(" ").append(entity.getProgress()).append(" ");
           if (storageSnapshot != null) {
             if (storageSnapshot.getStatus() != null) {
+              boolean wasGenerating=entity.getState().equals(State.GENERATING);
               entity.setMappedState(storageSnapshot.getStatus());
+              if (wasGenerating && entity.getState().equals(State.EXTANT)) {
+                try {
+                  final Volume volume=Transactions.find(Volume.named(null,storageSnapshot.getVolumeId()));
+                  final String volumeUuid=volume.getNaturalId();
+                  ListenerRegistry.getInstance().fireEvent(SnapShotEvent.with(SnapShotEvent.forSnapShotCreate(entity.getVolumeSize(),volumeUuid,entity.getParentVolume()),entity.getNaturalId(),entity.getDisplayName(),entity.getOwnerUserName()));
+                }
+ catch (                final Throwable e) {
+                  LOG.error("Error inserting/creating reporting event for snapshot creation of snapshot: " + entity.getDisplayName(),e);
+                }
+              }
             }
             if (!State.EXTANT.equals(entity.getState()) && storageSnapshot.getProgress() != null) {
               entity.setProgress(storageSnapshot.getProgress());

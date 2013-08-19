@@ -1,69 +1,16 @@
 {
-  LOG.trace("accountId=" + accountId);
-  LOG.trace("metricName=" + metricName);
-  LOG.trace("namespace=" + namespace);
-  LOG.trace("dimensionMap=" + dimensionMap);
-  LOG.trace("metricType=" + metricType);
-  LOG.trace("units=" + units);
-  LOG.trace("timestamp=" + timestamp);
-  LOG.trace("sampleSize=" + sampleSize);
-  LOG.trace("sampleMax=" + sampleMax);
-  LOG.trace("sampleMin=" + sampleMin);
-  LOG.trace("sampleSum=" + sampleSum);
-  if (dimensionMap == null) {
-    dimensionMap=new HashMap<String,String>();
-  }
- else   if (dimensionMap.size() > MetricEntity.MAX_DIM_NUM) {
-    throw new IllegalArgumentException("Too many dimensions for metric, " + dimensionMap.size());
-  }
-  timestamp=stripSeconds(timestamp);
-  TreeSet<DimensionEntity> dimensions=new TreeSet<DimensionEntity>();
-  for (  Map.Entry<String,String> entry : dimensionMap.entrySet()) {
-    DimensionEntity d=new DimensionEntity();
-    d.setName(entry.getKey());
-    d.setValue(entry.getValue());
-    dimensions.add(d);
-  }
-  Set<Set<DimensionEntity>> permutations=null;
-  if (metricType == MetricType.System) {
-    permutations=Sets.powerSet(dimensions);
-  }
- else {
-    permutations=Sets.newHashSet();
-    permutations.add(dimensions);
-  }
-  Multimap<Class,MetricEntity> metricMap=ArrayListMultimap.<Class,MetricEntity>create();
-  for (  Set<DimensionEntity> dimensionsPermutation : permutations) {
-    String dimensionHash=hash(dimensionsPermutation);
-    MetricEntity metric=MetricEntityFactory.getNewMetricEntity(metricType,dimensionHash);
-    metric.setAccountId(accountId);
-    metric.setMetricName(metricName);
-    metric.setNamespace(namespace);
-    metric.setDimensions(dimensions);
-    metric.setDimensionHash(dimensionHash);
-    metric.setMetricType(metricType);
-    metric.setUnits(units);
-    metric.setTimestamp(timestamp);
-    metric.setSampleMax(sampleMax);
-    metric.setSampleMin(sampleMin);
-    metric.setSampleSum(sampleSum);
-    metric.setSampleSize(sampleSize);
-    metricMap.put(MetricEntityFactory.getClassForEntitiesGet(metricType,dimensionHash),metric);
-  }
-  for (  Class c : metricMap.keySet()) {
-    EntityTransaction db=Entities.get(c);
-    try {
-      for (      MetricEntity me : metricMap.get(c)) {
-        Entities.persist(me);
-      }
-      db.commit();
-    }
- catch (    RuntimeException ex) {
-      Logs.extreme().error(ex,ex);
-      throw ex;
-    }
- finally {
-      if (db.isActive())       db.rollback();
-    }
-  }
+  SimpleMetricEntity simpleMetricEntity=new SimpleMetricEntity();
+  simpleMetricEntity.setAccountId(accountId);
+  simpleMetricEntity.setDimensionMap(dimensionMap);
+  simpleMetricEntity.setMetricName(metricName);
+  simpleMetricEntity.setMetricType(metricType);
+  simpleMetricEntity.setNamespace(namespace);
+  simpleMetricEntity.setSampleMax(sampleMax);
+  simpleMetricEntity.setSampleMin(sampleMin);
+  simpleMetricEntity.setSampleSize(sampleSize);
+  simpleMetricEntity.setSampleSum(sampleSum);
+  simpleMetricEntity.setTimestamp(timestamp);
+  simpleMetricEntity.setUnits(units);
+  validateMetricQueueItem(simpleMetricEntity);
+  addManyMetrics(makeMetricMap(foldAndHash(simpleMetricEntity)));
 }

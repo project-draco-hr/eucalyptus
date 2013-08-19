@@ -1,4 +1,5 @@
 {
+  Images.cleanDeregistered();
   DescribeImagesResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
   final String requestAccountId=ctx.getUserFullName().getAccountNumber();
@@ -10,10 +11,14 @@
   final Predicate<? super ImageInfo> requestedAndAccessible=CloudMetadatas.filteringFor(ImageInfo.class).byId(request.getImagesSet()).byOwningAccount(request.getOwnersSet()).byPredicate(Images.filterExecutableBy(request.getExecutableBySet())).byPredicate(filter.asPredicate()).byPredicate(Images.FilterPermissions.INSTANCE).byPrivilegesWithoutOwner().buildPredicate();
   final List<ImageDetails> imageDetailsList=Transactions.filteredTransform(new ImageInfo(),filter.asCriterion(),filter.getAliases(),requestedAndAccessible,Images.TO_IMAGE_DETAILS);
   final Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(ImageInfo.class).getResourceTagMap(AccountFullName.getInstance(ctx.getAccount()),Iterables.transform(imageDetailsList,ImageDetailsToImageId.INSTANCE));
+  final List<ImageDetails> deregList=new ArrayList<ImageDetails>();
   for (  final ImageDetails details : imageDetailsList) {
+    if (ImageMetadata.State.deregistered.toString().equals(details.getImageState())) {
+      deregList.add(details);
+    }
     Tags.addFromTags(details.getTagSet(),ResourceTag.class,tagsMap.get(details.getImageId()));
   }
+  imageDetailsList.removeAll(deregList);
   reply.getImagesSet().addAll(imageDetailsList);
-  ImageUtil.cleanDeregistered();
   return reply;
 }

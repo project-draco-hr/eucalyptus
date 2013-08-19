@@ -1,0 +1,41 @@
+{
+  Component sc=Components.lookup(Storage.class);
+  if (sc == null) {
+    throw Exceptions.toUndeclared("Cannot instantiate SANManager, no SC component found");
+  }
+  ServiceConfiguration scConfig=sc.getLocalServiceConfiguration();
+  if (scConfig == null) {
+    throw Exceptions.toUndeclared("Cannot instantiate SANManager without SC service configuration");
+  }
+  String sanProvider=null;
+  EntityTransaction trans=Entities.get(StorageControllerConfiguration.class);
+  try {
+    StorageControllerConfiguration config=Entities.uniqueResult((StorageControllerConfiguration)scConfig);
+    sanProvider=config.getBlockStorageManager();
+    trans.commit();
+  }
+ catch (  Exception e) {
+    throw Exceptions.toUndeclared("Cannot get backend configuration for SC.");
+  }
+ finally {
+    trans.rollback();
+  }
+  if (sanProvider == null) {
+    throw Exceptions.toUndeclared("Cannot instantiate SAN Provider, none specified");
+  }
+  Class providerClass=StorageManagers.lookupProvider(sanProvider);
+  if (providerClass != null && SANProvider.class.isAssignableFrom(providerClass)) {
+    try {
+      connectionManager=(SANProvider)providerClass.newInstance();
+    }
+ catch (    IllegalAccessException e) {
+      throw Exceptions.toUndeclared("Cannot create SANManager.",e);
+    }
+catch (    InstantiationException e) {
+      throw Exceptions.toUndeclared("Cannot create SANManager. Cannot instantiate the SAN Provider",e);
+    }
+  }
+ else {
+    throw Exceptions.toUndeclared("Provider not of correct type or not found.");
+  }
+}

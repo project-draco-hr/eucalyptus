@@ -1,28 +1,13 @@
 {
-  DescribeAddressesResponseType reply=(DescribeAddressesResponseType)request.getReply();
-  Context ctx=Contexts.lookup();
-  boolean isAdmin=ctx.hasAdministrativePrivileges();
-  User requestUser=ctx.getUser();
-  String action=PolicySpec.requestToAction(request);
-  final Predicate<? super Address> filter=CloudMetadatas.filteringFor(Address.class).byId(request.getPublicIpsSet()).byPredicate(Filters.generate(request.getFilterSet(),Address.class).asPredicate()).buildPredicate();
+  final DescribeAddressesResponseType reply=(DescribeAddressesResponseType)request.getReply();
+  final Context ctx=Contexts.lookup();
+  final boolean isAdmin=ctx.hasAdministrativePrivileges();
+  final boolean verbose=isAdmin && request.getPublicIpsSet().remove("verbose");
+  final Predicate<? super Address> filter=CloudMetadatas.filteringFor(Address.class).byId(request.getPublicIpsSet()).byPredicate(Filters.generate(request.getFilterSet(),Address.class).asPredicate()).byOwningAccount(verbose ? Collections.<String>emptyList() : Collections.singleton(ctx.getAccount().getAccountNumber())).byPrivileges().buildPredicate();
   for (  Address address : Iterables.filter(Addresses.getInstance().listValues(),filter)) {
-    Account addrAccount=null;
-    String addrAccountNumber=address.getOwnerAccountNumber();
-    if (!Principals.nobodyAccount().getAccountNumber().equals(addrAccountNumber) && !Principals.systemAccount().getAccountNumber().equals(addrAccountNumber)) {
-      try {
-        addrAccount=Accounts.lookupAccountById(addrAccountNumber);
-      }
- catch (      AuthException e) {
-      }
-    }
-    if (addrAccount != null && (isAdmin || RestrictedTypes.filterPrivileged().apply(address))) {
-      reply.getAddressesSet().add(isAdmin ? address.getAdminDescription() : address.getDescription());
-    }
- else     if (isAdmin) {
-      reply.getAddressesSet().add(isAdmin ? address.getAdminDescription() : address.getDescription());
-    }
+    reply.getAddressesSet().add(verbose ? address.getAdminDescription() : address.getDescription());
   }
-  if (isAdmin) {
+  if (verbose) {
     for (    Address address : Iterables.filter(Addresses.getInstance().listDisabledValues(),filter)) {
       reply.getAddressesSet().add(new AddressInfoType(address.getName(),Principals.nobodyFullName().getUserName()));
     }
