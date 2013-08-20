@@ -1,14 +1,26 @@
 {
-  do {
-    LOG.info(EventRecord.here(StatefulMessageSet.class,EventType.VM_STARTING,this.state.name(),(System.currentTimeMillis() - this.startTime) / 1000.0d + "s"));
-    try {
-      this.queueEvents(this.state);
-      this.state=this.transition(this.state);
+  try {
+    do {
+      LOG.info(EventRecord.here(StatefulMessageSet.class,EventType.VM_STARTING,this.state.name(),(System.currentTimeMillis() - this.startTime) / 1000.0d + "s"));
+      try {
+        this.queueEvents(this.state);
+        this.state=this.transition(this.state);
+      }
+ catch (      final Exception ex) {
+        LOG.error(ex,ex);
+      }
     }
- catch (    final Exception ex) {
-      LOG.error(ex,ex);
+ while (!this.isFinished());
+  }
+  finally {
+    LOG.info(EventRecord.here(StatefulMessageSet.class,this.isSuccessful() ? EventType.VM_START_COMPLETED : EventType.VM_START_ABORTED,(System.currentTimeMillis() - this.startTime) / 1000.0d + "s"));
+    if (!isSuccessful()) {
+      for (      final Runnable cleanupTask : cleanupTasks)       try {
+        cleanupTask.run();
+      }
+ catch (      final RuntimeException e) {
+        LOG.error("Error in cleanup task: " + e.getMessage(),e);
+      }
     }
   }
- while (!this.isFinished());
-  LOG.info(EventRecord.here(StatefulMessageSet.class,this.isSuccessful() ? EventType.VM_START_COMPLETED : EventType.VM_START_ABORTED,(System.currentTimeMillis() - this.startTime) / 1000.0d + "s"));
 }
