@@ -5,6 +5,31 @@
       return f;
     }
   }
+  if (request.getHeader(HttpHeaders.Names.HOST).contains("amazonaws.com") || request.getHeader(HttpHeaders.Names.HOST).contains(subDomain.get())) {
+    String hostHeader=request.getHeader(HttpHeaders.Names.HOST);
+    LOG.debug("Trying to intercept request for " + hostHeader);
+    for (    final FilteredPipeline f : pipelines) {
+      if (Ats.from(f).has(ComponentPart.class)) {
+        Class<? extends ComponentId> compIdClass=Ats.from(f).get(ComponentPart.class).value();
+        ComponentId compId=ComponentIds.lookup(compIdClass);
+        if (Ats.from(compIdClass).has(PublicService.class)) {
+          if (request.getHeaderNames().contains("SOAPAction") && f.addHandlers(Channels.pipeline()).get(SoapHandler.class) == null) {
+            continue;
+          }
+ else           if (!request.getHeaderNames().contains("SOAPAction") && f.addHandlers(Channels.pipeline()).get(SoapHandler.class) != null) {
+            continue;
+          }
+          LOG.debug("Maybe intercepting: " + hostHeader + " using "+ f.getClass());
+          if (Ats.from(compIdClass).has(AwsServiceName.class) && request.getHeader(HttpHeaders.Names.HOST).matches("[\\w\\.-_]*" + compId.getAwsServiceName() + "\\.\\w+\\.amazonaws.com")) {
+            return f;
+          }
+ else           if (request.getHeader(HttpHeaders.Names.HOST).matches("[\\w\\.-_]*" + compId.name() + "\\."+ subDomain.get())) {
+            return f;
+          }
+        }
+      }
+    }
+  }
   if (candidate == null) {
     for (    final FilteredPipeline f : internalPipelines) {
       if (f.checkAccepts(request)) {

@@ -2,33 +2,26 @@
   DeregisterImageResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
   final String requestAccountId=ctx.getUserFullName().getAccountNumber();
-  EntityWrapper<ImageInfo> db=EntityWrapper.get(ImageInfo.class);
+  EntityTransaction tx=Entities.get(ImageInfo.class);
   try {
-    ImageInfo imgInfo=db.getUnique(Images.exampleWithImageId(imageIdentifier(request.getImageId())));
+    ImageInfo imgInfo=Entities.uniqueResult(Images.exampleWithImageId(imageIdentifier(request.getImageId())));
     if (!ctx.hasAdministrativePrivileges() && (!imgInfo.getOwnerAccountNumber().equals(requestAccountId) || !RestrictedTypes.filterPrivileged().apply(imgInfo))) {
       throw new EucalyptusCloudException("Not authorized to deregister image");
     }
     Images.deregisterImage(imgInfo.getDisplayName());
     return reply;
   }
- catch (  NoSuchImageException ex) {
-    LOG.trace(ex);
-    reply.set_return(false);
-    return reply;
-  }
-catch (  NoSuchElementException ex) {
-    LOG.trace(ex);
-    reply.set_return(false);
-    return reply;
+ catch (  NoSuchImageException|NoSuchElementException ex) {
+    throw new ClientComputeException("InvalidAMIID.NotFound","The image ID '" + request.getImageId() + "' does not exist");
   }
 catch (  InstanceNotTerminatedException re) {
     throw new ClientComputeException("InvalidAMIID.Unavailable","The image ID '" + request.getImageId() + "' is no longer available");
   }
-catch (  EucalyptusCloudException ex) {
+catch (  TransactionException ex) {
     if (ex.getCause() instanceof NoSuchElementException)     throw new ClientComputeException("InvalidAMIID.NotFound","The image ID '" + request.getImageId() + "' does not exist");
- else     throw ex;
+ else     throw new EucalyptusCloudException(ex);
   }
  finally {
-    db.commit();
+    tx.commit();
   }
 }
