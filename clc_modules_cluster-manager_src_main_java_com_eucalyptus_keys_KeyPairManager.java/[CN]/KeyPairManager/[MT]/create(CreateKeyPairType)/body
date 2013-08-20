@@ -1,10 +1,14 @@
 {
   final CreateKeyPairResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
+  final String keyName=request.getKeyName();
+  if (!CharMatcher.ASCII.matchesAllOf(keyName)) {
+    throw new ClientComputeException("InvalidParameterValue","Value (" + keyName + ") for parameter KeyName is invalid. Character sets beyond ASCII are not supported.");
+  }
   Supplier<SshKeyPair> allocator=new Supplier<SshKeyPair>(){
     @Override public SshKeyPair get(){
       try {
-        PrivateKey pk=KeyPairs.create(ctx.getUserFullName(),request.getKeyName());
+        PrivateKey pk=KeyPairs.create(ctx.getUserFullName(),keyName);
         reply.setKeyFingerprint(Certs.getFingerPrint(pk));
         ByteArrayOutputStream byteOut=new ByteArrayOutputStream();
         PEMWriter privOut=new PEMWriter(new OutputStreamWriter(byteOut));
@@ -16,9 +20,9 @@
           LOG.error(e);
           throw new EucalyptusCloudException(e);
         }
-        reply.setKeyName(request.getKeyName());
+        reply.setKeyName(keyName);
         reply.setKeyMaterial(byteOut.toString());
-        return KeyPairs.lookup(ctx.getUserFullName(),request.getKeyName());
+        return KeyPairs.lookup(ctx.getUserFullName(),keyName);
       }
  catch (      Exception ex) {
         throw new RuntimeException(ex);
