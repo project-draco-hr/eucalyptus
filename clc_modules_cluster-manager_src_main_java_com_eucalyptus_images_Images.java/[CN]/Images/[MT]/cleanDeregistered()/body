@@ -1,17 +1,16 @@
 {
-  EntityTransaction tx=Entities.get(ImageInfo.class);
+  List<String> imageIdentifiers;
   try {
-    List<ImageInfo> imgList=Entities.query(Images.exampleWithImageState(ImageMetadata.State.deregistered));
-    for (    ImageInfo deregImg : imgList) {
-      try {
-        Entities.delete(deregImg);
-      }
- catch (      Exception e1) {
-      }
-    }
-    tx.commit();
+    imageIdentifiers=Transactions.filteredTransform(Images.exampleWithImageState(ImageMetadata.State.deregistered),Predicates.alwaysTrue(),RestrictedTypes.toDisplayName());
   }
- catch (  Exception e1) {
-    tx.rollback();
+ catch (  TransactionException e) {
+    LOG.error("Error loading deregistered image list",e);
+    imageIdentifiers=Collections.emptyList();
+  }
+  for (  final String imageIdentifier : imageIdentifiers)   try {
+    Transactions.delete(Images.exampleWithImageId(imageIdentifier));
+  }
+ catch (  RuntimeException|TransactionException e) {
+    Logs.extreme().debug("Attempted image delete failed (image still referenced?): " + imageIdentifier,e);
   }
 }
