@@ -14,25 +14,16 @@ def post(web_req):
     else:
         (account, user, passwd) = auth_decoded.split(':', 2)
         remember = web_req.get_argument('remember')
-    ec2_endpoint = None
-    if (account[(len(account) - 13):] == 'amazonaws.com'):
-        if (action == 'changepwd'):
-            raise eucaconsole.EuiException(501, 'Cannot change password on AWS account.')
-        ec2_endpoint = account
-        access_id = user
-        secret_key = passwd
-        session_token = None
-    if (ec2_endpoint == None):
-        if (config.getboolean('test', 'usemock') == False):
-            auth = TokenAuthenticator(config.get('server', 'clchost'), (config.getint('server', 'session.abs.timeout') + 60))
-            creds = auth.authenticate(account, user, passwd, newpwd)
-            session_token = creds.session_token
-            access_id = creds.access_key
-            secret_key = creds.secret_key
-        else:
-            session_token = 'Larry'
-            access_id = 'Moe'
-            secret_key = 'Curly'
+    if (config.getboolean('test', 'usemock') == False):
+        auth = TokenAuthenticator(config.get('server', 'clchost'), (config.getint('server', 'session.abs.timeout') + 60))
+        creds = auth.authenticate(account, user, passwd, newpwd)
+        session_token = creds.session_token
+        access_id = creds.access_key
+        secret_key = creds.secret_key
+    else:
+        session_token = 'Larry'
+        access_id = 'Moe'
+        secret_key = 'Curly'
     while True:
         sid = os.urandom(16).encode('hex')
         if (sid in sessions):
@@ -52,5 +43,5 @@ def post(web_req):
         web_req.clear_cookie('username')
         web_req.clear_cookie('remember')
     sessions[sid] = UserSession(account, user, session_token, access_id, secret_key)
-    sessions[sid].host_override = ec2_endpoint
+    sessions[sid].host_override = None
     return LoginResponse(sessions[sid])

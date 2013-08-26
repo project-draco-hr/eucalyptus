@@ -1,31 +1,29 @@
 {
-  if (c != null && (c.isLocalHost() || c.hasBootstrapped())) {
-    LOG.info("Found system view with database: " + c);
-    long now=System.currentTimeMillis();
-    long coordTime=c.getStartedTime();
-    long earliestJoin=coordTime + (REJOIN_BACKOFF_SECS * 5L * 1000L);
-    if (now > earliestJoin) {
-      return false;
-    }
- else {
-      try {
-        LOG.info("Waiting for system view to settle till " + earliestJoin + " for coordinator "+ coordTime+ " ("+ (earliestJoin - now) / 1000l + " secs).");
-        TimeUnit.SECONDS.sleep(REJOIN_BACKOFF_SECS);
-      }
- catch (      InterruptedException ex) {
-        Exceptions.maybeInterrupted(ex);
-      }
-      return true;
-    }
+  if (!input.isLocalHost()) {
+    return false;
   }
  else {
-    try {
-      TimeUnit.SECONDS.sleep(3);
-      LOG.info("Waiting for system view with database...");
+    final Host that=Host.create();
+    if (that.hasBootstrapped() && !input.hasBootstrapped()) {
+      return true;
     }
- catch (    InterruptedException ex) {
-      Exceptions.maybeInterrupted(ex);
+ else     if (that.hasDatabase() && !input.hasDatabase()) {
+      return true;
     }
-    return true;
+ else     if (that.getEpoch() > input.getEpoch()) {
+      return true;
+    }
+ else     if (that.hasSynced() && !input.hasSynced()) {
+      return true;
+    }
+ else     if (!that.getHostAddresses().equals(input.getHostAddresses())) {
+      return true;
+    }
+ else     if (!that.getDatabaseStatus().equals(input.getDatabaseStatus())) {
+      return true;
+    }
+ else {
+      return false;
+    }
   }
 }
