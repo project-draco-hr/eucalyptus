@@ -1,0 +1,22 @@
+{
+  final String imageId=Crypto.generateId(RandomStringUtils.random(10),ImageMetadata.Type.machine.getTypePrefix());
+  BlockStorageImageInfo ret=new BlockStorageImageInfo(creator,imageId,imageNameArg,imageDescription,new Long(-1),requestArch,imagePlatform,null,null,"snap-EUCARESERVED",false,Images.DEFAULT_ROOT_DEVICE);
+  BlockDeviceMappingItemType toRemove=null;
+  for (  final BlockDeviceMappingItemType device : blockDeviceMappings) {
+    if (Images.findCreateImageRoot().apply(device))     toRemove=device;
+  }
+  if (toRemove != null)   blockDeviceMappings.remove(toRemove);
+  final EntityTransaction tx=Entities.get(BlockStorageImageInfo.class);
+  try {
+    ret=Entities.merge(ret);
+    ret.setState(ImageMetadata.State.pending);
+    ret.getDeviceMappings().addAll(Lists.transform(blockDeviceMappings,Images.deviceMappingGenerator(ret,-1)));
+    tx.commit();
+    LOG.info("Registering image pk=" + ret.getDisplayName() + " ownerId="+ creator);
+  }
+ catch (  Exception e) {
+    tx.rollback();
+    throw new EucalyptusCloudException("Failed to register pending bfebs image because of: " + e.getMessage(),e);
+  }
+  return ret;
+}

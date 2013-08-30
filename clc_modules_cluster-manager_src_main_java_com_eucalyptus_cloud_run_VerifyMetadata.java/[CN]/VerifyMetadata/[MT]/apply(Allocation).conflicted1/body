@@ -1,30 +1,11 @@
 {
-  final Context ctx=allocInfo.getContext();
-  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
-  NetworkGroups.lookup(accountFullName,NetworkGroups.defaultNetworkName());
-  final Set<String> networkNames=Sets.newLinkedHashSet(allocInfo.getRequest().securityGroupNames());
-  final Set<String> networkIds=Sets.newLinkedHashSet(allocInfo.getRequest().securityGroupsIds());
-  if (networkNames.isEmpty() && networkIds.isEmpty()) {
-    networkNames.add(NetworkGroups.defaultNetworkName());
+  Context ctx=allocInfo.getContext();
+  User user=ctx.getUser();
+  String instanceType=allocInfo.getRequest().getInstanceType();
+  VmType vmType=VmTypes.lookup(instanceType);
+  if (!ctx.hasAdministrativePrivileges() && !RestrictedTypes.filterPrivileged().apply(vmType)) {
+    throw new IllegalMetadataAccessException("Not authorized to allocate vm type " + instanceType + " for "+ ctx.getUserFullName());
   }
-  final List<NetworkGroup> groups=Lists.newArrayList();
-  for (  String groupName : networkNames) {
-    if (!Iterables.tryFind(groups,CollectionUtils.propertyPredicate(groupName,RestrictedTypes.toDisplayName())).isPresent()) {
-      groups.add(NetworkGroups.lookup(accountFullName,groupName));
-    }
-  }
-  for (  String groupId : networkIds) {
-    if (!Iterables.tryFind(groups,CollectionUtils.propertyPredicate(groupId,NetworkGroups.groupId())).isPresent()) {
-      groups.add(NetworkGroups.lookupByGroupId(accountFullName,groupId));
-    }
-  }
-  final Map<String,NetworkGroup> networkRuleGroups=Maps.newHashMap();
-  for (  final NetworkGroup group : groups) {
-    if (!ctx.hasAdministrativePrivileges() && !RestrictedTypes.filterPrivileged().apply(group)) {
-      throw new IllegalMetadataAccessException("Not authorized to use network group " + group.getGroupId() + "/"+ group.getDisplayName()+ " for "+ ctx.getUser().getName());
-    }
-    networkRuleGroups.put(group.getDisplayName(),group);
-  }
-  allocInfo.setNetworkRules(networkRuleGroups);
+  allocInfo.setVmType(vmType);
   return true;
 }

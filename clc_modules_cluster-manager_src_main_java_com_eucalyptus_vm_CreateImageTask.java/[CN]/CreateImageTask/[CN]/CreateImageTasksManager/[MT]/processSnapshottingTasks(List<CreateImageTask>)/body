@@ -1,0 +1,40 @@
+{
+  for (  final CreateImageTask task : tasks) {
+    try {
+      final List<String> status=task.getSnapshotStatus();
+      boolean allDone=true;
+      for (      final String s : status) {
+        if ("completed".equals(s)) {
+          ;
+        }
+ else         if ("failed".equals(s)) {
+          throw new EucalyptusCloudException("Snapshot creation failed");
+        }
+ else         allDone=false;
+      }
+      if (allDone) {
+        task.registerImage();
+        LOG.info(String.format("Image %s is available",task.getImageId()));
+        if (task.noReboot)         task.setVmCreateImageTaskState(CreateImageState.complete);
+      }
+ else       continue;
+    }
+ catch (    final Exception ex) {
+      LOG.error("failed to register the image",ex);
+      task.setVmCreateImageTaskState(CreateImageState.failed);
+    }
+    if (!task.noReboot) {
+      try {
+        final VmInstance vm=task.getVmInstance();
+        if (vm.getRuntimeState() != null && "poweredOff".equals(vm.getRuntimeState().getGuestState())) {
+          task.startInstance();
+          LOG.info(String.format("Restarting instance %s",vm.getInstanceId()));
+        }
+      }
+ catch (      final Exception ex) {
+        LOG.error(String.format("failed to start the instance %s",task.instanceId),ex);
+        task.setVmCreateImageTaskState(CreateImageState.failed);
+      }
+    }
+  }
+}

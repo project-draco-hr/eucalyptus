@@ -1,0 +1,76 @@
+{
+  final List<VmInstance> candidates=VmInstances.list(new Predicate<VmInstance>(){
+    @Override public boolean apply(    @Nullable VmInstance input){
+      if (VmState.RUNNING.equals(input.getState()) && input.isBlockStorage() && input.getRuntimeState().isCreatingImage())       return true;
+ else       return false;
+    }
+  }
+);
+  for (  final VmInstance candidate : candidates) {
+    if (!createImageTasks.containsKey(candidate.getInstanceId())) {
+      LOG.info(String.format("Restoring create image task for %s",candidate.getInstanceId()));
+      final CreateImageTask task=RESTORE.apply(candidate);
+      if (task != null) {
+        createImageTasks.put(candidate.getInstanceId(),task);
+        LOG.info(String.format("craete image task for %s restored",candidate.getInstanceId()));
+      }
+    }
+  }
+  final Map<VmCreateImageTask.CreateImageState,List<CreateImageTask>> taskByState=new HashMap<VmCreateImageTask.CreateImageState,List<CreateImageTask>>();
+  for (  final String instId : createImageTasks.keySet()) {
+    final CreateImageTask task=createImageTasks.get(instId);
+    final CreateImageState taskState=task.getVmCreateImageTaskState();
+    if (!taskByState.containsKey(taskState)) {
+      taskByState.put(taskState,Lists.<CreateImageTask>newArrayList());
+    }
+    taskByState.get(taskState).add(task);
+  }
+  if (taskByState.containsKey(CreateImageState.pending)) {
+    try {
+      this.processPendingTasks(taskByState.get(VmCreateImageTask.CreateImageState.pending));
+    }
+ catch (    final Exception ex) {
+      LOG.error("exception while processing pending CreateImageTask",ex);
+    }
+  }
+  if (taskByState.containsKey(CreateImageState.guest_stopping)) {
+    try {
+      this.processStoppingTasks(taskByState.get(VmCreateImageTask.CreateImageState.guest_stopping));
+    }
+ catch (    final Exception ex) {
+      LOG.error("exception while processing stopping CreateImageTask",ex);
+    }
+  }
+  if (taskByState.containsKey(CreateImageState.creating_snapshot)) {
+    try {
+      this.processSnapshottingTasks(taskByState.get(VmCreateImageTask.CreateImageState.creating_snapshot));
+    }
+ catch (    final Exception ex) {
+      LOG.error("exception while processing snapshotting CreateImageTask",ex);
+    }
+  }
+  if (taskByState.containsKey(CreateImageState.guest_starting)) {
+    try {
+      this.processStartingTasks(taskByState.get(VmCreateImageTask.CreateImageState.guest_starting));
+    }
+ catch (    final Exception ex) {
+      LOG.error("exception while processing snapshotting CreateImageTask",ex);
+    }
+  }
+  if (taskByState.containsKey(CreateImageState.complete)) {
+    try {
+      this.processCompleteTasks(taskByState.get(VmCreateImageTask.CreateImageState.complete));
+    }
+ catch (    final Exception ex) {
+      LOG.error("exception while processing complete CreateImageTask",ex);
+    }
+  }
+  if (taskByState.containsKey(CreateImageState.failed)) {
+    try {
+      this.processFailedTasks(taskByState.get(VmCreateImageTask.CreateImageState.failed));
+    }
+ catch (    final Exception ex) {
+      LOG.error("exception while processing failed CreateImageTask",ex);
+    }
+  }
+}

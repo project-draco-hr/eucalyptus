@@ -1,0 +1,33 @@
+{
+  try {
+    this.validateVmInstance();
+    List<BlockDeviceMappingItemType> deviceMap=this.prepareDeviceMapping();
+    final String imageId=this.preRegisterImage(Lists.newArrayList(deviceMap));
+    if (imageId == null)     throw new EucalyptusCloudException("Failed to register the image");
+    final EntityTransaction db=Entities.get(VmInstance.class);
+    try {
+      final VmInstance vm=Entities.uniqueResult(VmInstance.named(this.instanceId));
+      if (VmState.STOPPED.equals(vm.getState()) && !this.noReboot) {
+        LOG.debug("Reboot is not possible for stopped instance");
+        this.noReboot=true;
+      }
+      vm.getRuntimeState().resetCreateImageTask(CreateImageState.pending,imageId,null,this.noReboot);
+      Entities.persist(vm);
+      db.commit();
+    }
+ catch (    NoSuchElementException ex) {
+      throw ex;
+    }
+catch (    Exception ex) {
+      throw Exceptions.toUndeclared(ex);
+    }
+ finally {
+      if (db.isActive())       db.rollback();
+    }
+    createImageTasks.put(this.instanceId,this);
+    return imageId;
+  }
+ catch (  final Exception ex) {
+    throw ex;
+  }
+}

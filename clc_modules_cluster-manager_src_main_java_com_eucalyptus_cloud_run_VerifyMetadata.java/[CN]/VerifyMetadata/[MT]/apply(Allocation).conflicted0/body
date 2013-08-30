@@ -1,21 +1,51 @@
 {
-  RunInstancesType request=allocInfo.getRequest();
-  String zoneName=request.getAvailabilityZone();
-  if (Clusters.getInstance().listValues().isEmpty()) {
-    LOG.debug("enabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
-    LOG.debug("disabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
-    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
+  BootableImageInfo imageInfo=allocInfo.getBootSet().getMachine();
+  final ArrayList<BlockDeviceMappingItemType> instanceMappings=allocInfo.getRequest().getBlockDeviceMapping() != null ? allocInfo.getRequest().getBlockDeviceMapping() : new ArrayList<BlockDeviceMappingItemType>();
+  List<DeviceMapping> imageMappings=new ArrayList<DeviceMapping>(((ImageInfo)imageInfo).getDeviceMappings());
+  instanceMappings.addAll(Lists.transform(Lists.newArrayList(Iterables.filter(imageMappings,new Predicate<DeviceMapping>(){
+    @Override public boolean apply(    DeviceMapping arg0){
+      return !Iterables.any(instanceMappings,Images.findBlockDeviceMappingItempType(arg0.getDeviceName()));
+    }
   }
- else   if (Partitions.exists(zoneName)) {
-    Partition partition=Partitions.lookupByName(zoneName);
-    allocInfo.setPartition(partition);
-  }
- else   if (Partition.DEFAULT_NAME.equals(zoneName)) {
-    Partition partition=Partition.DEFAULT;
-    allocInfo.setPartition(partition);
+)),Images.DeviceMappingDetails.INSTANCE));
+  if (imageInfo instanceof BlockStorageImageInfo) {
+    if (!instanceMappings.isEmpty()) {
+      Images.isDeviceMappingListValid(instanceMappings,Boolean.TRUE,Boolean.TRUE);
+      BlockStorageImageInfo bfebsImage=(BlockStorageImageInfo)imageInfo;
+      Integer imageSizeGB=(int)(bfebsImage.getImageSizeBytes() / BYTES_PER_GB);
+      Integer userRequestedSizeGB=null;
+      BlockDeviceMappingItemType rootBlockDevice=Iterables.find(instanceMappings,Images.findEbsRootOptionalSnapshot(bfebsImage.getRootDeviceName()),null);
+      if (rootBlockDevice != null) {
+        if (StringUtils.isNotBlank(rootBlockDevice.getEbs().getSnapshotId()) && !StringUtils.equals(rootBlockDevice.getEbs().getSnapshotId(),bfebsImage.getSnapshotId())) {
+          throw new InvalidMetadataException("Snapshot ID cannot be modified for the root device. " + "Source snapshot from the image registration will be used for creating the root device");
+        }
+ else         if (StringUtils.isNotBlank(rootBlockDevice.getVirtualName())) {
+          throw new InvalidMetadataException("Logical type cannot be modified for the root device. " + "Source snapshot from the image registration will be used for creating the root device");
+        }
+ else         if (rootBlockDevice.getNoDevice() != null && rootBlockDevice.getNoDevice()) {
+          throw new InvalidMetadataException("Root device cannot be suppressed. " + "Source snapshot from the image registration will be used for creating the root device");
+        }
+ else         if ((userRequestedSizeGB=rootBlockDevice.getEbs().getVolumeSize()) != null && userRequestedSizeGB < imageSizeGB) {
+          throw new InvalidMetadataException("Root device volume cannot be smaller than the image size");
+        }
+        if (rootBlockDevice.getEbs().getSnapshotId() == null) {
+          rootBlockDevice.getEbs().setSnapshotId(bfebsImage.getSnapshotId());
+        }
+        if (rootBlockDevice.getEbs().getVolumeSize() == null) {
+          rootBlockDevice.getEbs().setVolumeSize(imageSizeGB);
+        }
+        if (rootBlockDevice.getEbs().getDeleteOnTermination() == null) {
+          rootBlockDevice.getEbs().setDeleteOnTermination(bfebsImage.getDeleteOnTerminate());
+        }
+      }
+ else {
+        throw new InvalidMetadataException("Root block device mapping not found\n");
+      }
+    }
   }
  else {
-    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
+    Images.isDeviceMappingListValid(instanceMappings,Boolean.TRUE,Boolean.FALSE);
   }
+  allocInfo.getRequest().setBlockDeviceMapping(instanceMappings);
   return true;
 }

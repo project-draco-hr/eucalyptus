@@ -4,24 +4,18 @@
   VmInstance vm;
   try {
     vm=RestrictedTypes.doPrivileged(request.getInstanceId(),VmInstance.class);
+    if (!vm.isBlockStorage())     throw new EucalyptusCloudException("Cannot create an image from an instance which is not booted from an EBS volume");
     if (!VmState.RUNNING.equals(vm.getState()) && !VmState.STOPPED.equals(vm.getState())) {
       throw new EucalyptusCloudException("Cannot create an image from an instance which is not in either the 'running' or 'stopped' state: " + vm.getInstanceId() + " is in state "+ vm.getState().getName());
     }
-    if (vm.isBlockStorage() && !ctx.hasAdministrativePrivileges()) {
-      throw new EucalyptusCloudException("Cannot create an image from an instance which is not booted from a volume: " + vm.getInstanceId() + " is in state "+ vm.getState().getName());
+    Cluster cluster=null;
+    try {
+      ServiceConfiguration ccConfig=Topology.lookup(ClusterController.class,vm.lookupPartition());
+      cluster=Clusters.lookup(ccConfig);
     }
- else     if (vm.isBlockStorage()) {
-    }
- else {
-      Cluster cluster=null;
-      try {
-        ServiceConfiguration ccConfig=Topology.lookup(ClusterController.class,vm.lookupPartition());
-        cluster=Clusters.lookup(ccConfig);
-      }
- catch (      NoSuchElementException e) {
-        LOG.debug(e);
-        throw new EucalyptusCloudException("Cluster does not exist: " + vm.getPartition());
-      }
+ catch (    NoSuchElementException e) {
+      LOG.debug(e);
+      throw new EucalyptusCloudException("Cluster does not exist: " + vm.getPartition());
     }
   }
  catch (  AuthException ex) {
@@ -32,6 +26,21 @@ catch (  NoSuchElementException ex) {
   }
 catch (  PersistenceException ex) {
     throw new EucalyptusCloudException("Instance does not exist: " + request.getInstanceId(),ex);
+  }
+  final String userId=ctx.getUser().getUserId();
+  final String instanceId=request.getInstanceId();
+  final String name=request.getName();
+  final boolean noReboot=true ? request.getNoReboot() != null && request.getNoReboot().booleanValue() : false;
+  final String desc=request.getDescription();
+  final List<BlockDeviceMappingItemType> blockDevices=request.getBlockDeviceMappings();
+  CreateImageTask task=new CreateImageTask(userId,instanceId,noReboot,name,desc,blockDevices);
+  try {
+    reply.setImageId(task.create());
+  }
+ catch (  final Exception ex) {
+    LOG.error("CreateImage task failed",ex);
+    if (ex instanceof EucalyptusCloudException)     throw (EucalyptusCloudException)ex;
+ else     throw new EucalyptusCloudException("Create-image has failed",ex);
   }
   return reply;
 }
