@@ -1,0 +1,64 @@
+{
+  final String accountNumber=(account == null || account.getAccountNumber() == null ? "unknown" : account.getAccountNumber());
+  logWithContext("Attempting to cache image " + bucketName + "/"+ manifestKey+ ".",Level.DEBUG,correlationId,accountNumber);
+  String decryptedImageKey=null;
+  ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,manifestKey);
+  EntityWrapper<ImageCacheInfo> db=EntityWrapper.get(ImageCacheInfo.class);
+  try {
+    List<ImageCacheInfo> imageCacheInfos=db.queryEscape(searchImageCacheInfo);
+    if (imageCacheInfos.size() != 0) {
+      ImageCacheInfo icInfo=imageCacheInfos.get(0);
+      if (!icInfo.getInCache()) {
+        decryptedImageKey=icInfo.getImageName();
+      }
+ else {
+        logWithContext("Found image " + bucketName + "/"+ manifestKey+ " already in cache. No further action required.",Level.INFO,correlationId,accountNumber);
+        return;
+      }
+    }
+  }
+ catch (  Exception e) {
+    logWithContext("Failed looking up cache records for image: " + bucketName + "/"+ manifestKey+ ". Exception: "+ e.getMessage(),Level.ERROR,correlationId,accountNumber);
+    return;
+  }
+ finally {
+    db.rollback();
+  }
+  ImageCacher imageCacher=imageCachers.putIfAbsent(bucketName + manifestKey,new ImageCacher(bucketName,manifestKey,decryptedImageKey));
+  if (imageCacher == null) {
+    logWithContext("No current caching tasks found for image: " + bucketName + "/"+ manifestKey+ " Initiating one.",Level.DEBUG,correlationId,accountNumber);
+    if (decryptedImageKey == null) {
+      try {
+        decryptedImageKey=decryptImage(bucketName,manifestKey,account,isAdministrator,correlationId);
+      }
+ catch (      EucalyptusCloudException ex) {
+        imageCachers.remove(bucketName + manifestKey);
+        throw ex;
+      }
+      ImageCacheInfo foundImageCacheInfo=new ImageCacheInfo(bucketName,manifestKey);
+      foundImageCacheInfo.setImageName(decryptedImageKey);
+      foundImageCacheInfo.setInCache(false);
+      foundImageCacheInfo.setUseCount(0);
+      foundImageCacheInfo.setSize(0L);
+      db=EntityWrapper.get(ImageCacheInfo.class);
+      try {
+        db.add(foundImageCacheInfo);
+        db.commit();
+      }
+ catch (      Exception e) {
+        logWithContext("Failed to add new cache record: " + e.getMessage(),Level.ERROR,correlationId,accountNumber);
+        imageCachers.remove(bucketName + manifestKey);
+        throw new EucalyptusCloudException(e);
+      }
+ finally {
+        db.rollback();
+      }
+    }
+    imageCacher=imageCachers.get(bucketName + manifestKey);
+    imageCacher.setDecryptedImageKey(decryptedImageKey);
+    Threads.lookup(Walrus.class,WalrusImageManager.ImageCacher.class).limitTo(10).submit(imageCacher);
+  }
+ else {
+    logWithContext("Another thread already caching image: " + bucketName + "/"+ manifestKey+ ". No further action required.",Level.INFO,correlationId,accountNumber);
+  }
+}
