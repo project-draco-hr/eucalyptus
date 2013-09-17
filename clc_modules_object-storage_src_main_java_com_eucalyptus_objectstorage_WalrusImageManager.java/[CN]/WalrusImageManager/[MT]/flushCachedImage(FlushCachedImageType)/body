@@ -2,24 +2,31 @@
   FlushCachedImageResponseType reply=(FlushCachedImageResponseType)request.getReply();
   String bucketName=request.getBucket();
   String manifestKey=request.getKey();
+  Context ctx=Contexts.lookup();
+  final String correlationId=ctx.getCorrelationId();
+  Account account=ctx.getAccount();
+  logWithContext("Processing FlushCachedImage request for " + bucketName + "/"+ manifestKey,Level.INFO,correlationId,account.getAccountNumber());
   EntityWrapper<ImageCacheInfo> db=EntityWrapper.get(ImageCacheInfo.class);
-  ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,manifestKey);
-  List<ImageCacheInfo> foundImageCacheInfos=db.queryEscape(searchImageCacheInfo);
-  if (foundImageCacheInfos.size() > 0) {
-    ImageCacheInfo foundImageCacheInfo=foundImageCacheInfos.get(0);
-    if (foundImageCacheInfo.getInCache() && (imageCachers.get(bucketName + manifestKey) == null)) {
-      db.commit();
-      ImageCacheFlusher imageCacheFlusher=new ImageCacheFlusher(bucketName,manifestKey);
-      Threads.lookup(Walrus.class,WalrusImageManager.ImageCacheFlusher.class).limitTo(10).submit(imageCacheFlusher);
+  try {
+    ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,manifestKey);
+    List<ImageCacheInfo> foundImageCacheInfos=db.queryEscape(searchImageCacheInfo);
+    if (foundImageCacheInfos.size() > 0) {
+      ImageCacheInfo foundImageCacheInfo=foundImageCacheInfos.get(0);
+      if (foundImageCacheInfo.getInCache() && (imageCachers.get(bucketName + manifestKey) == null)) {
+        db.commit();
+        ImageCacheFlusher imageCacheFlusher=new ImageCacheFlusher(bucketName,manifestKey);
+        Threads.lookup(Walrus.class,WalrusImageManager.ImageCacheFlusher.class).limitTo(10).submit(imageCacheFlusher);
+      }
+ else {
+        throw new WalrusException("not in cache");
+      }
     }
  else {
-      db.rollback();
-      throw new WalrusException("not in cache");
+      throw new NoSuchEntityException(bucketName + manifestKey);
     }
+    return reply;
   }
- else {
+  finally {
     db.rollback();
-    throw new NoSuchEntityException(bucketName + manifestKey);
   }
-  return reply;
 }

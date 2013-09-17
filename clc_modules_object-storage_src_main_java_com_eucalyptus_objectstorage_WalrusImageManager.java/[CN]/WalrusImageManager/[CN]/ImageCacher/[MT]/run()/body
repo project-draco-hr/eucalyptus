@@ -1,86 +1,121 @@
 {
-  String decryptedImageName=storageManager.getObjectPath(bucketName,decryptedImageKey);
-  String imageName=decryptedImageName.substring(0,decryptedImageName.lastIndexOf(".tgz"));
-  String tarredImageName=imageName + (".tar");
-  String imageKey=decryptedImageKey.substring(0,decryptedImageKey.lastIndexOf(".tgz"));
-  Long unencryptedSize;
-  int numberOfRetries=0;
-  while ((unencryptedSize=tryToCache(decryptedImageName,tarredImageName,imageName)) < 0) {
+  try {
     try {
-      Thread.sleep(WalrusProperties.IMAGE_CACHE_RETRY_TIMEOUT);
+      this.myThreadId=Thread.currentThread().getId();
     }
- catch (    InterruptedException ex) {
-      notifyWaiters();
-      return;
+ catch (    final Throwable f) {
+      LOG.error("Failed to get thread ID for caching task. Using -1.");
+      this.myThreadId=-1L;
     }
-    WalrusProperties.IMAGE_CACHE_RETRY_TIMEOUT=2 * WalrusProperties.IMAGE_CACHE_RETRY_TIMEOUT;
-    if (numberOfRetries++ >= WalrusProperties.IMAGE_CACHE_RETRY_LIMIT) {
-      notifyWaiters();
-      return;
-    }
-    EntityWrapper<ImageCacheInfo> db=EntityWrapper.get(ImageCacheInfo.class);
-    ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo();
-    searchImageCacheInfo.setInCache(true);
-    List<ImageCacheInfo> imageCacheInfos=db.queryEscape(searchImageCacheInfo);
-    if (imageCacheInfos.size() == 0) {
-      LOG.error("No cached images found to flush. Unable to cache image. Please check the error log and the image cache size.");
-      db.rollback();
-      notifyWaiters();
-      return;
-    }
-    Collections.sort(imageCacheInfos);
-    db.commit();
-    try {
-      if (spaceNeeded > 0) {
-        ArrayList<ImageCacheInfo> imagesToFlush=new ArrayList<ImageCacheInfo>();
-        long tryToFree=spaceNeeded;
-        for (        ImageCacheInfo imageCacheInfo : imageCacheInfos) {
-          if (tryToFree <= 0)           break;
-          long imageSize=imageCacheInfo.getSize();
-          tryToFree-=imageSize;
-          imagesToFlush.add(imageCacheInfo);
-        }
-        if (imagesToFlush.size() == 0) {
-          LOG.error("Unable to flush existing images. Sorry.");
-          notifyWaiters();
+    logCachingStatus("Initiating caching task for image: " + this.bucketName + "/"+ this.manifestKey,null);
+    String decryptedImageName=storageManager.getObjectPath(bucketName,decryptedImageKey);
+    String imageName=decryptedImageName.substring(0,decryptedImageName.lastIndexOf(".tgz"));
+    String tarredImageName=imageName + (".tar");
+    String imageKey=decryptedImageKey.substring(0,decryptedImageKey.lastIndexOf(".tgz"));
+    Long unencryptedSize;
+    int numberOfRetries=0;
+    long backoffTime=WalrusProperties.IMAGE_CACHE_RETRY_BACKOFF_TIME;
+    while ((unencryptedSize=tryToCache(decryptedImageName,tarredImageName,imageName)) < 0) {
+      try {
+        Thread.sleep(backoffTime);
+      }
+ catch (      InterruptedException ex) {
+        logCachingStatus("Terminating cache task due to sleep interruption.",Level.ERROR);
+        return;
+      }
+      backoffTime=2 * backoffTime;
+      if (numberOfRetries++ >= WalrusProperties.IMAGE_CACHE_RETRY_LIMIT) {
+        logCachingStatus("Terminating cache task with failure due to retry count exceeded.",Level.ERROR);
+        return;
+      }
+      List<ImageCacheInfo> imageCacheInfos=null;
+      EntityWrapper<ImageCacheInfo> db=EntityWrapper.get(ImageCacheInfo.class);
+      try {
+        ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo();
+        searchImageCacheInfo.setInCache(true);
+        imageCacheInfos=db.queryEscape(searchImageCacheInfo);
+        if (imageCacheInfos == null || imageCacheInfos.size() == 0) {
+          logCachingStatus("Terminating cache task with failure due to insufficient cache space and no images to flush.",Level.ERROR);
           return;
         }
-        for (        ImageCacheInfo imageCacheInfo : imagesToFlush) {
-          flushCachedImage(imageCacheInfo.getBucketName(),imageCacheInfo.getManifestName());
+ else {
+          Collections.sort(imageCacheInfos);
         }
       }
+ catch (      Exception e) {
+        logCachingStatus("Exception checking image cache metadata:" + e.getMessage(),Level.ERROR);
+        LOG.error("Exception checking image cache metadata:" + e.getMessage(),e);
+      }
+ finally {
+        db.rollback();
+      }
+      try {
+        if (spaceNeeded > 0) {
+          ArrayList<ImageCacheInfo> imagesToFlush=new ArrayList<ImageCacheInfo>();
+          long tryToFree=spaceNeeded;
+          for (          ImageCacheInfo imageCacheInfo : imageCacheInfos) {
+            if (tryToFree <= 0) {
+              break;
+            }
+            long imageSize=imageCacheInfo.getSize();
+            tryToFree-=imageSize;
+            imagesToFlush.add(imageCacheInfo);
+          }
+          if (imagesToFlush.size() == 0) {
+            logCachingStatus("Unable to flush any existing images. None found.",null);
+            return;
+          }
+          if (tryToFree > 0) {
+            logCachingStatus("Unabled to free enough cache space for image. Aborting without flushing any images. Needed additional " + tryToFree + " bytes",null);
+            return;
+          }
  else {
-        LOG.error("Unable to cache image. Unable to flush existing images.");
-        notifyWaiters();
-        return;
+            logCachingStatus("Flushing cached images to make space for new image",Level.DEBUG);
+            for (            ImageCacheInfo imageCacheInfo : imagesToFlush) {
+              flushCachedImage(imageCacheInfo.getBucketName(),imageCacheInfo.getManifestName());
+            }
+          }
+        }
+ else {
+          logCachingStatus("Terminating cache task with failure not related to size",null);
+          return;
+        }
+      }
+ catch (      Exception ex) {
+        logCachingStatus(" Unable to flush previously cached image: " + ex.getMessage(),Level.ERROR);
+        LOG.error("Unable to flush previously cached image.",ex);
+      }
+    }
+    try {
+      logCachingStatus(" Cleaning up temporary image artifacts. decryptedImage " + decryptedImageName + " and tarred image:"+ tarredImageName,Level.DEBUG);
+      storageManager.deleteAbsoluteObject(decryptedImageName);
+      storageManager.deleteAbsoluteObject(tarredImageName);
+      EntityWrapper<ImageCacheInfo> db=EntityWrapper.get(ImageCacheInfo.class);
+      try {
+        ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,manifestKey);
+        List<ImageCacheInfo> foundImageCacheInfos=db.queryEscape(searchImageCacheInfo);
+        if (foundImageCacheInfos.size() > 0) {
+          ImageCacheInfo foundImageCacheInfo=foundImageCacheInfos.get(0);
+          foundImageCacheInfo.setImageName(imageKey);
+          foundImageCacheInfo.setInCache(true);
+          foundImageCacheInfo.setSize(unencryptedSize);
+          db.commit();
+        }
+ else {
+          db.rollback();
+          logCachingStatus(" Terminating caching with failure. Could not expand image" + decryptedImageName,null);
+        }
+      }
+  finally {
+        db.rollback();
       }
     }
  catch (    Exception ex) {
-      LOG.error(ex);
-      LOG.error("Unable to flush previously cached image. Please increase your image cache size");
-      notifyWaiters();
+      LOG.error("Terminating with failure on exception",ex);
+      logCachingStatus(" Terminating with failure Exception: " + ex.getMessage(),Level.ERROR);
     }
   }
-  try {
-    storageManager.deleteAbsoluteObject(decryptedImageName);
-    storageManager.deleteAbsoluteObject(tarredImageName);
-    EntityWrapper<ImageCacheInfo> db=EntityWrapper.get(ImageCacheInfo.class);
-    ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,manifestKey);
-    List<ImageCacheInfo> foundImageCacheInfos=db.queryEscape(searchImageCacheInfo);
-    if (foundImageCacheInfos.size() > 0) {
-      ImageCacheInfo foundImageCacheInfo=foundImageCacheInfos.get(0);
-      foundImageCacheInfo.setImageName(imageKey);
-      foundImageCacheInfo.setInCache(true);
-      foundImageCacheInfo.setSize(unencryptedSize);
-      db.commit();
-    }
- else {
-      db.rollback();
-      LOG.error("Could not expand image" + decryptedImageName);
-    }
+  finally {
+    notifyWaiters();
   }
- catch (  Exception ex) {
-    LOG.error(ex);
-  }
-  notifyWaiters();
 }

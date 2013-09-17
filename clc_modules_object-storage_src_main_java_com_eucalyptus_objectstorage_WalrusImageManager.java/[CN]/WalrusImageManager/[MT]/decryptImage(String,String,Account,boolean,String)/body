@@ -1,4 +1,5 @@
 {
+  logWithContext("Decrypting image with manifest: " + bucketName + "/"+ objectKey,Level.INFO,correlationId,account.getAccountNumber());
   EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
@@ -16,6 +17,8 @@
         String encryptedKey=parser.getValue("//ec2_encrypted_key");
         String encryptedIV=parser.getValue("//ec2_encrypted_iv");
         String signature=parser.getValue("//signature");
+        Long bundledSize=Long.valueOf(parser.getValue("//bundled_size"));
+        Long claimedSize=Long.valueOf(parser.getValue("//size"));
         String image=parser.getXML("image");
         String machineConfiguration=parser.getXML("machine_configuration");
         String verificationString=machineConfiguration + image;
@@ -95,7 +98,10 @@
           }
         }
         List<String> parts=parser.getValues("//image/parts/part/filename");
-        if (parts == null)         throw new DecryptionFailedException("Invalid manifest");
+        if (parts == null) {
+          logWithContext("Decryption failed due to invalid manifest:" + bucketName + "/"+ objectKey,Level.ERROR,correlationId,account.getAccountNumber());
+          throw new DecryptionFailedException("Invalid manifest");
+        }
         ArrayList<String> qualifiedPaths=new ArrayList<String>();
         searchObjectInfo=new ObjectInfo();
         searchObjectInfo.setBucketName(bucketName);
@@ -111,7 +117,13 @@
         String encryptedImageName=storageManager.getObjectPath(bucketName,encryptedImageKey);
         String decryptedImageKey=encryptedImageKey.substring(0,encryptedImageKey.lastIndexOf("crypt.gz")) + "tgz";
         String decryptedImageName=storageManager.getObjectPath(bucketName,decryptedImageKey);
-        assembleParts(encryptedImageName,qualifiedPaths);
+        if (claimedSize != null && !willFitInCache(claimedSize.longValue())) {
+          logWithContext("Aborting image part assembly because image is too large to fit in cache",Level.ERROR,correlationId,account.getAccountNumber());
+          throw new WalrusException("EntityTooLarge","Image is too large to fit in the cache.","image",bucketName + "/" + objectKey,HttpResponseStatus.BAD_REQUEST);
+        }
+        logWithContext("Assembling parts for image " + bucketName + "/"+ objectKey+ " into file: "+ encryptedImageName,Level.INFO,correlationId,account.getAccountNumber());
+        WalrusImageUtils.assembleParts(encryptedImageName,qualifiedPaths);
+        logWithContext("Assembly of parts complete for image " + bucketName + "/"+ objectKey,Level.INFO,correlationId,account.getAccountNumber());
         byte[] key;
         byte[] iv;
         try {
@@ -127,12 +139,13 @@
           db.rollback();
           LOG.error(ex);
           try {
+            logWithContext("Cleaning up encrypted temporary image file for: " + bucketName + "/"+ objectKey,Level.DEBUG,correlationId,account.getAccountNumber());
             storageManager.deleteAbsoluteObject(encryptedImageName);
           }
  catch (          Exception e) {
             LOG.error(e);
-            throw new WalrusException("Unable to delete: " + encryptedImageKey);
           }
+          logWithContext("Decryption failed for: " + bucketName + "/"+ objectKey+ " due to AES params",Level.ERROR,correlationId,account.getAccountNumber());
           throw new DecryptionFailedException("AES params");
         }
         try {
@@ -141,31 +154,42 @@
           IvParameterSpec salt=new IvParameterSpec(iv);
           SecretKey keySpec=new SecretKeySpec(key,"AES");
           cipher.init(Cipher.DECRYPT_MODE,keySpec,salt);
-          decryptImage(encryptedImageName,decryptedImageName,cipher);
+          logWithContext("Starting decryption for image " + bucketName + "/"+ objectKey+ " in file "+ encryptedImageName,Level.INFO,correlationId,account.getAccountNumber());
+          WalrusImageUtils.decryptImage(encryptedImageName,decryptedImageName,cipher);
+          logWithContext("Finished decryption for image " + bucketName + "/"+ objectKey+ " from file "+ encryptedImageName+ " to "+ decryptedImageName+ " successfully",Level.INFO,correlationId,account.getAccountNumber());
         }
  catch (        Exception ex) {
           db.rollback();
           LOG.error(ex);
           try {
+            logWithContext("Cleaning up encrypted and decrypted temporary image files for: " + bucketName + "/"+ objectKey,Level.DEBUG,correlationId,account.getAccountNumber());
             storageManager.deleteAbsoluteObject(encryptedImageName);
             storageManager.deleteAbsoluteObject(decryptedImageName);
           }
  catch (          Exception e) {
             LOG.error(e);
-            throw new WalrusException("Unable to delete: " + encryptedImageKey);
           }
           throw new DecryptionFailedException("decryption failed");
         }
         try {
+          logWithContext("Cleaning up encrypted temporary image file for: " + bucketName + "/"+ objectKey,Level.DEBUG,correlationId,account.getAccountNumber());
           storageManager.deleteAbsoluteObject(encryptedImageName);
         }
  catch (        Exception ex) {
           LOG.error(ex);
-          throw new WalrusException("Unable to delete: " + encryptedImageKey);
         }
         return decryptedImageKey;
       }
+ else {
+        logWithContext("Cannot perform decryption. Insufficient S3/IAM permissions on manifest object: " + bucketName + "/"+ objectKey,Level.ERROR,correlationId,account.getAccountNumber());
+      }
     }
+ else {
+      logWithContext("Cannot perform decryption. Manifest object not found: " + bucketName + "/"+ objectKey,Level.ERROR,correlationId,account.getAccountNumber());
+    }
+  }
+ else {
+    logWithContext("Cannot perform decryption. Bucket not found: " + bucketName,Level.ERROR,correlationId,account.getAccountNumber());
   }
   return null;
 }
