@@ -8,20 +8,23 @@
     final NetworkGroup ruleGroup=lookupGroup(request.getGroupId(),request.getGroupName());
     if (RestrictedTypes.filterPrivileged().apply(ruleGroup)) {
       NetworkGroups.resolvePermissions(ipPermissions,true);
-      final List<NetworkRule> revokedRuleList=NetworkGroups.ipPermissionsAsNetworkRules(ipPermissions);
-      for (final Iterator<NetworkRule> it=ruleGroup.getNetworkRules().iterator(); it.hasNext(); ) {
-        if (revokedRuleList.contains(it.next())) {
-          it.remove();
-        }
+      try {
+        Iterators.removeAll(ruleGroup.getNetworkRules().iterator(),NetworkGroups.ipPermissionsAsNetworkRules(ipPermissions));
+      }
+ catch (      IllegalArgumentException e) {
+        throw new ClientComputeException("InvalidPermission.Malformed",e.getMessage());
       }
     }
  else {
-      throw new EucalyptusCloudException("Not authorized to revoke" + "network group " + request.getGroupName() + " for "+ ctx.getUser());
+      throw new EucalyptusCloudException("Not authorized to revoke network group " + request.getGroupName() + " for "+ ctx.getUser());
     }
     reply.set_return(true);
     db.commit();
   }
- catch (  Exception ex) {
+ catch (  EucalyptusCloudException ex) {
+    throw ex;
+  }
+catch (  Exception ex) {
     Logs.exhaust().error(ex,ex);
     throw new EucalyptusCloudException("RevokeSecurityGroupIngress failed because: " + ex.getMessage(),ex);
   }
