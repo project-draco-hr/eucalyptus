@@ -4,35 +4,39 @@
   String manifestKey=request.getKey();
   Context ctx=Contexts.lookup();
   Account account=ctx.getAccount();
+  final String correlationId=ctx.getCorrelationId();
+  logWithContext("Processing ValidateImage request for " + bucketName + "/"+ manifestKey,Level.INFO,correlationId,account.getAccountNumber());
   EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  BucketInfo bucketInfo=new BucketInfo(bucketName);
-  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
-  if (bucketList.size() > 0) {
-    BucketInfo bucket=bucketList.get(0);
-    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
-    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,manifestKey);
-    searchObjectInfo.setDeleted(false);
-    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-    List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
-    if (objectInfos.size() > 0) {
-      ObjectInfo objectInfo=objectInfos.get(0);
-      if (ctx.hasAdministrativePrivileges() || (objectInfo.canRead(account.getAccountNumber()) && Lookups.checkPrivilege(PolicySpec.S3_GETOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,manifestKey),objectInfo.getOwnerId()))) {
-        validateManifest(bucketName,manifestKey,account.getAccountNumber());
-        db.commit();
+  try {
+    BucketInfo bucketInfo=new BucketInfo(bucketName);
+    List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
+    if (bucketList.size() > 0) {
+      BucketInfo bucket=bucketList.get(0);
+      BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
+      ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,manifestKey);
+      searchObjectInfo.setDeleted(false);
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
+      if (objectInfos.size() > 0) {
+        ObjectInfo objectInfo=objectInfos.get(0);
+        if (ctx.hasAdministrativePrivileges() || (objectInfo.canRead(account.getAccountNumber()) && Lookups.checkPrivilege(PolicySpec.S3_GETOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,manifestKey),objectInfo.getOwnerId()))) {
+          validateManifest(bucketName,manifestKey,account.getAccountNumber());
+          db.commit();
+        }
+ else {
+          throw new AccessDeniedException("Key",manifestKey,logData);
+        }
       }
  else {
-        db.rollback();
-        throw new AccessDeniedException("Key",manifestKey,logData);
+        throw new NoSuchEntityException(manifestKey,logData);
       }
     }
  else {
-      db.rollback();
-      throw new NoSuchEntityException(manifestKey,logData);
+      throw new NoSuchBucketException(bucketName);
     }
+    return reply;
   }
- else {
+  finally {
     db.rollback();
-    throw new NoSuchBucketException(bucketName);
   }
-  return reply;
 }

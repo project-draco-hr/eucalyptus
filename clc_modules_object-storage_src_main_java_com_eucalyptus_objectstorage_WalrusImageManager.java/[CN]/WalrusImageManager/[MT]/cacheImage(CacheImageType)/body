@@ -5,48 +5,65 @@
   String manifestKey=request.getKey();
   Context ctx=Contexts.lookup();
   Account account=ctx.getAccount();
+  final String correlationId=ctx.getCorrelationId();
+  final String accountNumber=account.getAccountNumber();
+  logWithContext("Processing CacheImage request for " + bucketName + "/"+ manifestKey,null,correlationId,accountNumber);
   EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  BucketInfo bucketInfo=new BucketInfo(bucketName);
-  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
-  if (bucketList.size() > 0) {
-    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,manifestKey);
-    List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
-    if (objectInfos.size() > 0) {
-      ObjectInfo objectInfo=objectInfos.get(0);
-      if (ctx.hasAdministrativePrivileges() || (objectInfo.canRead(account.getAccountNumber()) && Lookups.checkPrivilege(PolicySpec.S3_GETOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,manifestKey),objectInfo.getOwnerId()))) {
-        EntityWrapper<ImageCacheInfo> db2=EntityWrapper.get(ImageCacheInfo.class);
-        ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,manifestKey);
-        List<ImageCacheInfo> foundImageCacheInfos=db2.queryEscape(searchImageCacheInfo);
-        if (!imageCachers.containsKey(bucketName + manifestKey)) {
-          if (foundImageCacheInfos.size() > 0) {
-            ImageCacheInfo cacheInfo=foundImageCacheInfos.get(0);
-            if (!cacheInfo.getInCache()) {
-              db2.delete(cacheInfo);
+  try {
+    BucketInfo bucketInfo=new BucketInfo(bucketName);
+    List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
+    if (bucketList.size() > 0) {
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,manifestKey);
+      List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
+      if (objectInfos.size() > 0) {
+        ObjectInfo objectInfo=objectInfos.get(0);
+        if (ctx.hasAdministrativePrivileges() || (objectInfo.canRead(account.getAccountNumber()) && Lookups.checkPrivilege(PolicySpec.S3_GETOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,manifestKey),objectInfo.getOwnerId()))) {
+          EntityWrapper<ImageCacheInfo> db2=EntityWrapper.get(ImageCacheInfo.class);
+          try {
+            ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo(bucketName,manifestKey);
+            List<ImageCacheInfo> foundImageCacheInfos=db2.queryEscape(searchImageCacheInfo);
+            if (!imageCachers.containsKey(bucketName + manifestKey)) {
+              if (foundImageCacheInfos.size() > 0) {
+                ImageCacheInfo cacheInfo=foundImageCacheInfos.get(0);
+                if (!cacheInfo.getInCache()) {
+                  db2.delete(cacheInfo);
+                }
+              }
+              db2.commit();
+              logWithContext("No caching task found for image: " + bucketName + "/"+ manifestKey+ " Initiating caching task.",Level.DEBUG,correlationId,accountNumber);
+              cacheImage(bucketName,manifestKey,account,Contexts.lookup().hasAdministrativePrivileges(),correlationId);
+              reply.setSuccess(true);
+            }
+ else {
+              logWithContext("Caching in progress for image " + bucketName + "/"+ manifestKey+ " nothing to do.",null,correlationId,accountNumber);
+              db2.rollback();
             }
           }
-          db2.commit();
-          cacheImage(bucketName,manifestKey,account,Contexts.lookup().hasAdministrativePrivileges());
-          reply.setSuccess(true);
+  finally {
+            db2.rollback();
+          }
+          db.commit();
+          return reply;
         }
  else {
-          db2.rollback();
+          logWithContext("CacheImage failed for image " + bucketName + "/"+ manifestKey+ " due to Access Denied.",Level.ERROR,correlationId,accountNumber);
+          throw new AccessDeniedException("Key",manifestKey);
         }
-        db.commit();
-        return reply;
       }
  else {
-        db.rollback();
-        throw new AccessDeniedException("Key",manifestKey);
+        logWithContext("CacheImage failed for image " + bucketName + "/"+ manifestKey+ " because object not found.",Level.ERROR,correlationId,accountNumber);
+        throw new NoSuchEntityException(manifestKey);
       }
     }
  else {
-      db.rollback();
-      throw new NoSuchEntityException(manifestKey);
+      logWithContext("CachImage failed for image " + bucketName + "/"+ manifestKey+ " because bucket not found.",Level.ERROR,correlationId,accountNumber);
+      throw new NoSuchBucketException(bucketName);
     }
   }
- else {
-    db.rollback();
-    throw new NoSuchBucketException(bucketName);
+  finally {
+    if (db.isActive()) {
+      db.rollback();
+    }
   }
 }

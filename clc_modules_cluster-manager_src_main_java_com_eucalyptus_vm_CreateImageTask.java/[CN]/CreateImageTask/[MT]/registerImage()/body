@@ -2,12 +2,20 @@
   try {
     final String imageId=this.getImageId();
     if (imageId == null)     throw new EucalyptusCloudException("Image Id should be available before full registration");
-    final EucalyptusRegisterImageTask task=new EucalyptusRegisterImageTask();
-    final CheckedListenableFuture<Boolean> result=task.dispatch();
-    if (result.get()) {
-      if (!imageId.equals(task.getImageId()))       throw new EucalyptusCloudException("Wrong image registered");
+    final List<VmCreateImageSnapshot> snapshots=this.getSnapshots();
+    final List<BlockDeviceMappingItemType> devices=Lists.newArrayList();
+    String rootDeviceName=null;
+    for (    final VmCreateImageSnapshot snapshot : snapshots) {
+      if (snapshot.isRootDevice())       rootDeviceName=snapshot.getDeviceName();
+      final BlockDeviceMappingItemType device=new BlockDeviceMappingItemType();
+      device.setDeviceName(snapshot.getDeviceName());
+      final EbsDeviceMapping ebsMap=new EbsDeviceMapping();
+      ebsMap.setSnapshotId(snapshot.getSnapshotId());
+      device.setEbs(ebsMap);
+      devices.add(device);
     }
- else     throw new EucalyptusCloudException(String.format("Failed to register the image %s",imageId));
+    final UserFullName accountAdmin=UserFullName.getInstance(this.accountAdminId);
+    final ImageInfo updatedImage=Images.updateWithDeviceMapping(imageId,accountAdmin,rootDeviceName,devices);
   }
  catch (  final Exception ex) {
     throw Exceptions.toUndeclared(ex);

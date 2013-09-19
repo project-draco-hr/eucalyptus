@@ -1,0 +1,195 @@
+{
+  logWithContext("Decrypting image with manifest: " + bucketName + "/"+ objectKey,Level.INFO,correlationId,account.getAccountNumber());
+  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
+  if (bucketList.size() > 0) {
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+    List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
+    if (objectInfos.size() > 0) {
+      ObjectInfo objectInfo=objectInfos.get(0);
+      if (isAdministrator || (objectInfo.canRead(account.getAccountNumber()) && Lookups.checkPrivilege(PolicySpec.S3_GETOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,objectKey),objectInfo.getOwnerId()))) {
+        String objectName=objectInfo.getObjectName();
+        File file=new File(storageManager.getObjectPath(bucketName,objectName));
+        XMLParser parser=new XMLParser(file);
+        String imageKey=parser.getValue("//image/name");
+        String encryptedKey=parser.getValue("//ec2_encrypted_key");
+        String encryptedIV=parser.getValue("//ec2_encrypted_iv");
+        String signature=parser.getValue("//signature");
+        Long bundledSize=Long.valueOf(parser.getValue("//bundled_size"));
+        Long claimedSize=Long.valueOf(parser.getValue("//size"));
+        String image=parser.getXML("image");
+        String machineConfiguration=parser.getXML("machine_configuration");
+        String verificationString=machineConfiguration + image;
+        Signature sigVerifier;
+        try {
+          sigVerifier=Signature.getInstance("SHA1withRSA");
+        }
+ catch (        NoSuchAlgorithmException ex) {
+          LOG.error(ex,ex);
+          throw new DecryptionFailedException("SHA1withRSA not found");
+        }
+        if (isAdministrator) {
+          try {
+            boolean verified=false;
+            for (            User u : Accounts.listAllUsers()) {
+              for (              Certificate c : u.getCertificates()) {
+                X509Certificate cert=c.getX509Certificate();
+                if (cert != null)                 verified=canVerifySignature(sigVerifier,cert,signature,verificationString);
+                if (verified)                 break;
+              }
+              if (verified)               break;
+            }
+            if (!verified) {
+              X509Certificate cert=SystemCredentials.lookup(Eucalyptus.class).getCertificate();
+              if (cert != null)               verified=canVerifySignature(sigVerifier,cert,signature,verificationString);
+            }
+            if (!verified) {
+              final List<Partition> partitions=Partitions.list();
+              for (              final Partition p : partitions) {
+                X509Certificate cert=p.getNodeCertificate();
+                if (cert != null)                 verified=canVerifySignature(sigVerifier,cert,signature,verificationString);
+                if (verified)                 break;
+              }
+            }
+            if (!verified) {
+              throw new NotAuthorizedException("Invalid signature");
+            }
+          }
+ catch (          Exception ex) {
+            db.rollback();
+            LOG.error(ex,ex);
+            throw new DecryptionFailedException("signature verification");
+          }
+        }
+ else {
+          boolean signatureVerified=false;
+          try {
+            for (            User user : account.getUsers()) {
+              for (              Certificate c : user.getCertificates()) {
+                X509Certificate cert=c.getX509Certificate();
+                if (cert != null) {
+                  signatureVerified=canVerifySignature(sigVerifier,cert,signature,verificationString);
+                }
+                if (signatureVerified)                 break;
+              }
+              if (signatureVerified)               break;
+            }
+          }
+ catch (          Exception ex) {
+            db.rollback();
+            LOG.error(ex,ex);
+            throw new DecryptionFailedException("signature verification");
+          }
+          if (!signatureVerified) {
+            try {
+              X509Certificate cert=SystemCredentials.lookup(Eucalyptus.class).getCertificate();
+              if (cert != null)               signatureVerified=canVerifySignature(sigVerifier,cert,signature,verificationString);
+            }
+ catch (            Exception ex) {
+              db.rollback();
+              LOG.error(ex,ex);
+              throw new DecryptionFailedException("signature verification");
+            }
+          }
+          if (!signatureVerified) {
+            throw new NotAuthorizedException("Invalid signature");
+          }
+        }
+        List<String> parts=parser.getValues("//image/parts/part/filename");
+        if (parts == null) {
+          logWithContext("Decryption failed due to invalid manifest:" + bucketName + "/"+ objectKey,Level.ERROR,correlationId,account.getAccountNumber());
+          throw new DecryptionFailedException("Invalid manifest");
+        }
+        ArrayList<String> qualifiedPaths=new ArrayList<String>();
+        searchObjectInfo=new ObjectInfo();
+        searchObjectInfo.setBucketName(bucketName);
+        List<ObjectInfo> bucketObjectInfos=dbObject.queryEscape(searchObjectInfo);
+        for (        String part : parts) {
+          for (          ObjectInfo object : bucketObjectInfos) {
+            if (part.equals(object.getObjectKey())) {
+              qualifiedPaths.add(storageManager.getObjectPath(bucketName,object.getObjectName()));
+            }
+          }
+        }
+        String encryptedImageKey=UUID.randomUUID().toString() + ".crypt.gz";
+        String encryptedImageName=storageManager.getObjectPath(bucketName,encryptedImageKey);
+        String decryptedImageKey=encryptedImageKey.substring(0,encryptedImageKey.lastIndexOf("crypt.gz")) + "tgz";
+        String decryptedImageName=storageManager.getObjectPath(bucketName,decryptedImageKey);
+        if (claimedSize != null && !willFitInCache(claimedSize.longValue())) {
+          logWithContext("Aborting image part assembly because image is too large to fit in cache",Level.ERROR,correlationId,account.getAccountNumber());
+          throw new WalrusException("EntityTooLarge","Image is too large to fit in the cache.","image",bucketName + "/" + objectKey,HttpResponseStatus.BAD_REQUEST);
+        }
+        logWithContext("Assembling parts for image " + bucketName + "/"+ objectKey+ " into file: "+ encryptedImageName,Level.INFO,correlationId,account.getAccountNumber());
+        WalrusImageUtils.assembleParts(encryptedImageName,qualifiedPaths);
+        logWithContext("Assembly of parts complete for image " + bucketName + "/"+ objectKey,Level.INFO,correlationId,account.getAccountNumber());
+        byte[] key;
+        byte[] iv;
+        try {
+          PrivateKey pk=SystemCredentials.lookup(Eucalyptus.class).getPrivateKey();
+          Cipher cipher=Ciphers.RSA_PKCS1.get();
+          cipher.init(Cipher.DECRYPT_MODE,pk);
+          String keyString=new String(cipher.doFinal(Hashes.hexToBytes(encryptedKey)));
+          key=Hashes.hexToBytes(keyString);
+          String ivString=new String(cipher.doFinal(Hashes.hexToBytes(encryptedIV)));
+          iv=Hashes.hexToBytes(ivString);
+        }
+ catch (        Exception ex) {
+          db.rollback();
+          LOG.error(ex);
+          try {
+            logWithContext("Cleaning up encrypted temporary image file for: " + bucketName + "/"+ objectKey,Level.DEBUG,correlationId,account.getAccountNumber());
+            storageManager.deleteAbsoluteObject(encryptedImageName);
+          }
+ catch (          Exception e) {
+            LOG.error(e);
+          }
+          logWithContext("Decryption failed for: " + bucketName + "/"+ objectKey+ " due to AES params",Level.ERROR,correlationId,account.getAccountNumber());
+          throw new DecryptionFailedException("AES params");
+        }
+        try {
+          db.commit();
+          Cipher cipher=Cipher.getInstance("AES/CBC/PKCS5Padding","BC");
+          IvParameterSpec salt=new IvParameterSpec(iv);
+          SecretKey keySpec=new SecretKeySpec(key,"AES");
+          cipher.init(Cipher.DECRYPT_MODE,keySpec,salt);
+          logWithContext("Starting decryption for image " + bucketName + "/"+ objectKey+ " in file "+ encryptedImageName,Level.INFO,correlationId,account.getAccountNumber());
+          WalrusImageUtils.decryptImage(encryptedImageName,decryptedImageName,cipher);
+          logWithContext("Finished decryption for image " + bucketName + "/"+ objectKey+ " from file "+ encryptedImageName+ " to "+ decryptedImageName+ " successfully",Level.INFO,correlationId,account.getAccountNumber());
+        }
+ catch (        Exception ex) {
+          db.rollback();
+          LOG.error(ex);
+          try {
+            logWithContext("Cleaning up encrypted and decrypted temporary image files for: " + bucketName + "/"+ objectKey,Level.DEBUG,correlationId,account.getAccountNumber());
+            storageManager.deleteAbsoluteObject(encryptedImageName);
+            storageManager.deleteAbsoluteObject(decryptedImageName);
+          }
+ catch (          Exception e) {
+            LOG.error(e);
+          }
+          throw new DecryptionFailedException("decryption failed");
+        }
+        try {
+          logWithContext("Cleaning up encrypted temporary image file for: " + bucketName + "/"+ objectKey,Level.DEBUG,correlationId,account.getAccountNumber());
+          storageManager.deleteAbsoluteObject(encryptedImageName);
+        }
+ catch (        Exception ex) {
+          LOG.error(ex);
+        }
+        return decryptedImageKey;
+      }
+ else {
+        logWithContext("Cannot perform decryption. Insufficient S3/IAM permissions on manifest object: " + bucketName + "/"+ objectKey,Level.ERROR,correlationId,account.getAccountNumber());
+      }
+    }
+ else {
+      logWithContext("Cannot perform decryption. Manifest object not found: " + bucketName + "/"+ objectKey,Level.ERROR,correlationId,account.getAccountNumber());
+    }
+  }
+ else {
+    logWithContext("Cannot perform decryption. Bucket not found: " + bucketName,Level.ERROR,correlationId,account.getAccountNumber());
+  }
+  return null;
+}
