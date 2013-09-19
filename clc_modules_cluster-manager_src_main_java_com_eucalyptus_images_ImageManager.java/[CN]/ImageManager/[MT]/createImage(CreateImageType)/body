@@ -1,6 +1,6 @@
 {
-  CreateImageResponseType reply=request.getReply();
-  Context ctx=Contexts.lookup();
+  final CreateImageResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
   if (request.getName() != null && !Images.isImageNameValid(request.getName())) {
     throw new ClientComputeException("InvalidAMIName.Malformed","InvalidAMIName.Malformed");
   }
@@ -38,10 +38,62 @@ catch (  PersistenceException ex) {
   final String name=request.getName();
   final boolean noReboot=true ? request.getNoReboot() != null && request.getNoReboot().booleanValue() : false;
   final String desc=request.getDescription();
-  final List<BlockDeviceMappingItemType> blockDevices=request.getBlockDeviceMappings();
-  CreateImageTask task=new CreateImageTask(userId,instanceId,noReboot,name,desc,blockDevices);
+  String rootDeviceName=null;
+  List<BlockDeviceMappingItemType> blockDevices=request.getBlockDeviceMappings();
+  ImageMetadata.Architecture arch=null;
+  ImageMetadata.Platform platform=null;
   try {
-    reply.setImageId(task.create());
+    final BlockStorageImageInfo image=Emis.LookupBlockStorage.INSTANCE.apply(vm.getImageId());
+    arch=image.getArchitecture();
+    platform=image.getPlatform();
+    rootDeviceName=image.getRootDeviceName();
+  }
+ catch (  final Exception ex) {
+    throw new EucalyptusCloudException("Unable to get the image information");
+  }
+  final ImageMetadata.Architecture imageArch=arch;
+  final ImageMetadata.Platform imagePlatform=platform;
+  if (blockDevices == null || blockDevices.size() <= 0) {
+    try {
+      blockDevices=Lists.transform(VmInstances.lookupEphemeralDevices(instanceId),VmInstances.EphemeralAttachmentToDevice);
+    }
+ catch (    final Exception ex) {
+      LOG.warn("Failed to retrieve ephemeral device information",ex);
+      blockDevices=Lists.newArrayList();
+    }
+  }
+ else {
+    for (    final BlockDeviceMappingItemType device : blockDevices) {
+      if (rootDeviceName != null && rootDeviceName.equals(device.getDeviceName()))       throw new ClientComputeException("InvalidBlockDeviceMapping","The device names should not contain root device");
+    }
+  }
+  final List<BlockDeviceMappingItemType> blockDeviceMapping=blockDevices;
+  Supplier<ImageInfo> allocator=new Supplier<ImageInfo>(){
+    @Override public ImageInfo get(){
+      try {
+        return Images.createPendingFromDeviceMapping(ctx.getUserFullName(),name,desc,imageArch,imagePlatform,blockDeviceMapping);
+      }
+ catch (      final Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    }
+  }
+;
+  ImageInfo imageInfo=null;
+  try {
+    imageInfo=RestrictedTypes.allocateUnitlessResource(allocator);
+    reply.setImageId(imageInfo.getDisplayName());
+  }
+ catch (  final AuthException ex) {
+    throw new ClientComputeException("AuthFailure","Not authorized to create an image");
+  }
+catch (  final Exception ex) {
+    LOG.error("Unable to register the image",ex);
+    throw new EucalyptusCloudException("Unable to register the image",ex);
+  }
+  final CreateImageTask task=new CreateImageTask(userId,instanceId,noReboot,blockDevices);
+  try {
+    task.create(imageInfo.getDisplayName());
   }
  catch (  final Exception ex) {
     LOG.error("CreateImage task failed",ex);
