@@ -1,0 +1,26 @@
+{
+  final Context ctx=Contexts.lookup();
+  if (name != null) {
+    if (!Images.isImageNameValid(name)) {
+      throw new ClientComputeException("InvalidAMIName.Malformed","AMI names must be between 3 and 128 characters long, and may contain letters, numbers, '(', ')', '.', '-', '/' and '_'");
+    }
+    final EntityTransaction db=Entities.get(ImageInfo.class);
+    try {
+      final List<ImageInfo> images=Lists.newArrayList(Iterables.filter(Entities.query(Images.exampleWithName(ctx.getUserFullName().asAccountFullName(),name),Entities.queryOptions().withReadonly(true).build()),Predicates.or(ImageMetadata.State.available,ImageMetadata.State.pending)));
+      if (images.size() > 0)       throw new ClientComputeException("InvalidAMIName.Duplicate",String.format("AMI name %s is already in use by EMI %s",name,images.get(0).getDisplayName()));
+    }
+ catch (    final ComputeException e) {
+      throw e;
+    }
+catch (    final Exception ex) {
+      LOG.error("Error checking for duplicate image name",ex);
+      throw new ComputeException("InternalError","Error processing request.");
+    }
+ finally {
+      db.rollback();
+    }
+  }
+  if (description != null && !Images.isImageDescriptionValid(description)) {
+    throw new ClientComputeException("InvalidParameter","AMI descriptions must be less than 256 characters long");
+  }
+}
