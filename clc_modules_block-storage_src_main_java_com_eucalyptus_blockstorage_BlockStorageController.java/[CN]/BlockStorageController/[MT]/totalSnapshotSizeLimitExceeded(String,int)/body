@@ -1,18 +1,15 @@
 {
   int totalSnapshotSize=0;
   EntityTransaction dbTrans=Entities.get(SnapshotInfo.class);
-  Criteria query=Entities.createCriteria(SnapshotInfo.class);
-  query.setReadOnly(true);
-  query.add(Restrictions.not(Restrictions.and(Restrictions.and(Restrictions.eq("status",StorageProperties.Status.failed.toString()),Restrictions.eq("status",StorageProperties.Status.error.toString())),Restrictions.eq("status",StorageProperties.Status.deleted.toString()))));
   try {
-    List<SnapshotInfo> snapInfos=(List<SnapshotInfo>)query.list();
-    for (    SnapshotInfo sInfo : snapInfos) {
-      try {
-        totalSnapshotSize+=blockManager.getSnapshotSize(sInfo.getSnapshotId());
-      }
- catch (      EucalyptusCloudException e) {
-        LOG.error(e);
-      }
+    Criteria query=Entities.createCriteria(SnapshotInfo.class);
+    query.setReadOnly(true);
+    ImmutableSet<String> excludedStates=ImmutableSet.of(StorageProperties.Status.failed.toString(),StorageProperties.Status.error.toString(),StorageProperties.Status.deleted.toString());
+    query.add(Restrictions.not(Restrictions.in("status",excludedStates)));
+    HashSet<String> idSet=new HashSet<String>();
+    List<SnapshotInfo> snapshots=(List<SnapshotInfo>)query.list();
+    for (    SnapshotInfo snap : snapshots) {
+      totalSnapshotSize+=(snap.getSizeGb() != null && idSet.add(snap.getSnapshotId()) ? snap.getSizeGb() : 0);
     }
     int sizeLimitGB=WalrusInfo.getWalrusInfo().getStorageMaxTotalSnapshotSizeInGb();
     LOG.debug("Snapshot " + snapshotId + " checking snapshot total size of  "+ totalSnapshotSize+ " against limit of "+ sizeLimitGB);
