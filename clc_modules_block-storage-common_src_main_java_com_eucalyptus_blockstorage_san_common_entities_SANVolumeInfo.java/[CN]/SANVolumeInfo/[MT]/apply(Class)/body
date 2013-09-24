@@ -1,0 +1,40 @@
+{
+  EntityTransaction db=Entities.get(SANVolumeInfo.class);
+  try {
+    SANVolumeInfo example=new SANVolumeInfo();
+    example.setScName(null);
+    List<SANVolumeInfo> entities=Entities.query(example);
+    for (    SANVolumeInfo entry : entities) {
+      if (entry.getVolumeId().startsWith("snap-")) {
+        EntityTransaction snapDb=Entities.get(SnapshotInfo.class);
+        try {
+          SnapshotInfo exampleSnap=new SnapshotInfo(entry.getVolumeId());
+          exampleSnap.setScName(null);
+          List<SnapshotInfo> snaps=Entities.query(exampleSnap);
+          for (          SnapshotInfo snap : snaps) {
+            if (snap.getSizeGb() == null) {
+              snap.setSizeGb(entry.getSize());
+              LOG.debug("Upgrading: " + entry.getVolumeId() + " putting size from back-end to SnapshotInfo. Setting size to "+ snap.getSizeGb());
+            }
+ else {
+            }
+          }
+          snapDb.commit();
+        }
+  finally {
+          snapDb.rollback();
+          snapDb=null;
+        }
+      }
+ else {
+        LOG.debug("Skipping snapshot upgrade of " + entry.getVolumeId() + " because not a snapshot");
+      }
+    }
+    db.commit();
+    return true;
+  }
+ catch (  Exception ex) {
+    db.rollback();
+    throw Exceptions.toUndeclared(ex);
+  }
+}
