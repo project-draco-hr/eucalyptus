@@ -1,11 +1,14 @@
 {
-  ImageMetadata.Architecture imageArch=ImageMetadata.Architecture.x86_64;
+  final ImageMetadata.Architecture imageArch=ImageMetadata.Architecture.x86_64;
   ImageMetadata.Platform imagePlatform=ImageMetadata.Platform.linux;
   if (ImageMetadata.Platform.windows.name().equals(eki)) {
     imagePlatform=ImageMetadata.Platform.windows;
     eki=null;
   }
-  final BlockDeviceMappingItemType rootBlockDevice=Iterables.find(blockDeviceMappings,findEbsRoot(rootDeviceName));
+  final BlockDeviceMappingItemType rootBlockDevice=Iterables.find(blockDeviceMappings,findEbsRoot(rootDeviceName),null);
+  if (rootBlockDevice == null) {
+    throw new EucalyptusCloudException("Failed to create image, root device mapping not found: " + rootDeviceName);
+  }
   final String snapshotId=rootBlockDevice.getEbs().getSnapshotId();
   Snapshot snap;
   try {
@@ -25,11 +28,12 @@ catch (  ExecutionException ex) {
   final Long imageSizeBytes=suppliedVolumeSize * 1024l * 1024l* 1024l;
   final Boolean targetDeleteOnTermination=Boolean.TRUE.equals(rootBlockDevice.getEbs().getDeleteOnTermination());
   final String imageId=Crypto.generateId(snapshotId,ImageMetadata.Type.machine.getTypePrefix());
-  BlockStorageImageInfo ret=new BlockStorageImageInfo(userFullName,imageId,imageName,imageDescription,imageSizeBytes,imageArch,imagePlatform,eki,eri,snap.getDisplayName(),targetDeleteOnTermination,rootDeviceName);
+  final boolean mapRoot=DEFAULT_PARTITIONED_ROOT_DEVICE.equals(rootDeviceName);
+  BlockStorageImageInfo ret=new BlockStorageImageInfo(userFullName,imageId,imageName,imageDescription,imageSizeBytes,imageArch,imagePlatform,eki,eri,snap.getDisplayName(),targetDeleteOnTermination,mapRoot ? DEFAULT_ROOT_DEVICE : rootDeviceName);
   final EntityTransaction tx=Entities.get(BlockStorageImageInfo.class);
   try {
     ret=Entities.merge(ret);
-    ret.getDeviceMappings().addAll(Lists.transform(blockDeviceMappings,Images.deviceMappingGenerator(ret,suppliedVolumeSize)));
+    Iterables.addAll(ret.getDeviceMappings(),Iterables.transform(blockDeviceMappings,Images.deviceMappingGenerator(ret,suppliedVolumeSize,mapRoot ? Collections.singletonMap(DEFAULT_PARTITIONED_ROOT_DEVICE,DEFAULT_ROOT_DEVICE) : Collections.<String,String>emptyMap())));
     ret.setState(ImageMetadata.State.available);
     tx.commit();
     LOG.info("Registering image pk=" + ret.getDisplayName() + " ownerId="+ userFullName);

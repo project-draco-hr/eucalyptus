@@ -1,0 +1,43 @@
+{
+  return new Function<BlockDeviceMappingItemType,DeviceMapping>(){
+    @Override public DeviceMapping apply(    BlockDeviceMappingItemType input){
+      checkParam(input,notNullValue());
+      checkParam(input.getDeviceName(),notNullValue());
+      if (isEbsMapping(input)) {
+        final EbsDeviceMapping ebsInfo=input.getEbs();
+        Integer size=-1;
+        if (ebsInfo.getVolumeSize() != null) {
+          size=ebsInfo.getVolumeSize();
+        }
+ else         if (ebsInfo.getSnapshotId() != null) {
+          try {
+            Snapshot snap=Transactions.find(Snapshot.named(null,ebsInfo.getSnapshotId()));
+            size=snap.getVolumeSize();
+            if (ebsInfo.getVolumeSize() != null && ebsInfo.getVolumeSize() >= snap.getVolumeSize()) {
+              size=ebsInfo.getVolumeSize();
+            }
+          }
+ catch (          NoSuchElementException ex) {
+            throw Exceptions.toUndeclared(new MetadataException("Snapshot " + ebsInfo.getSnapshotId() + " does not exist"));
+          }
+catch (          ExecutionException ex) {
+            LOG.error("Unable to find snapshot " + ebsInfo.getSnapshotId(),ex);
+            throw Exceptions.toUndeclared(new MetadataException("Snapshot " + ebsInfo.getSnapshotId() + " does not exist"));
+          }
+        }
+ else {
+          size=rootVolSize;
+        }
+        final String mappedDeviceName=deviceNameMap.containsKey(input.getDeviceName()) ? deviceNameMap.get(input.getDeviceName()) : input.getDeviceName();
+        return new BlockStorageDeviceMapping(parent,mappedDeviceName,input.getEbs().getVirtualName(),ebsInfo.getSnapshotId(),size,ebsInfo.getDeleteOnTermination());
+      }
+ else       if (input.getVirtualName() != null) {
+        return new EphemeralDeviceMapping(parent,input.getDeviceName(),input.getVirtualName());
+      }
+ else {
+        return new SuppressDeviceMappping(parent,input.getDeviceName());
+      }
+    }
+  }
+;
+}
