@@ -3,9 +3,24 @@
   final Filter filter=Filters.generate(request.getFilterSet(),VmBundleTask.class);
   final EntityTransaction db=Entities.get(VmInstance.class);
   try {
-    final Predicate<? super VmInstance> requestedAndAccessible=CloudMetadatas.filteringFor(VmInstance.class).byId(toInstanceIds(request.getBundleIds())).byPredicate(Predicates.compose(filter.asPredicate(),VmInstances.bundleTask())).byPredicate(VmInstance.Filters.BUNDLING).byPrivileges().buildPredicate();
-    for (    final VmInstance v : VmInstances.list(null,filter.asCriterion(),filter.getAliases(),requestedAndAccessible)) {
-      reply.getBundleTasks().add(Bundles.transform(v.getRuntimeState().getBundleTask()));
+    final Predicate<? super VmBundleTask> filteredAndBundling=Predicates.and(filter.asPredicate(),VmBundleTask.Filters.BUNDLING);
+    Collection<VmBundleTask> cachedValues=Bundles.getPreviousBundleTasks().values();
+    final Map<String,VmBundleTask> cachedBundles=buildMap(Collections2.filter(cachedValues,filteredAndBundling));
+    final Predicate<? super VmInstance> requestedAndAccessible=CloudMetadatas.filteringFor(VmInstance.class).byId(toInstanceIds(request.getBundleIds())).byPrivileges().buildPredicate();
+    final Predicate<? super VmInstance> filteredInstances=Predicates.compose(filter.asPredicate(),VmInstances.bundleTask());
+    final Filter noFilters=Filters.generate(new ArrayList<edu.ucsb.eucalyptus.msgs.Filter>(),VmBundleTask.class);
+    final Collection<VmInstance> dbBundles=VmInstances.list(null,noFilters.asCriterion(),noFilters.getAliases(),requestedAndAccessible);
+    for (    final VmInstance v : dbBundles) {
+      if (filteredInstances.apply(v) && VmInstance.Filters.BUNDLING.apply(v)) {
+        LOG.debug("Getting current bundle for " + v.getInstanceId());
+        reply.getBundleTasks().add(Bundles.transform(v.getRuntimeState().getBundleTask()));
+      }
+ else {
+        if (!VmInstance.Filters.BUNDLING.apply(v) && cachedBundles.containsKey(v.getInstanceId())) {
+          LOG.debug("Getting previous bundle for " + v.getInstanceId());
+          reply.getBundleTasks().add(Bundles.transform(cachedBundles.get(v.getInstanceId())));
+        }
+      }
     }
   }
  catch (  Exception ex) {

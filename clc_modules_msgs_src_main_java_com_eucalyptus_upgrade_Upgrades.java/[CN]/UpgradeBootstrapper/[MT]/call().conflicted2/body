@@ -1,17 +1,23 @@
 {
-  for (  ComponentId c : ComponentIds.list()) {
-    for (    Version v : Version.upgradePath()) {
-      ComponentUpgradeInfo upgradeInfo=ComponentUpgradeInfo.get(v,c.getClass());
-      for (      Entry<Class,Predicate> p : upgradeInfo.getEntityUpgrades().entries()) {
-        try {
-          LOG.info("Executing @EntityUpgrade: " + p.getValue().getClass());
-          p.getValue().apply(p.getKey());
-        }
- catch (        Exception ex) {
-          throw Exceptions.toUndeclared("Upgrade failed during @EntityUpgrade while executing: " + p.getValue().getClass() + " for "+ p.getKey()+ " because of: "+ ex.getMessage(),ex);
-        }
+  try {
+    final Map<String,String> props=UpgradeState.getDatabaseProperties();
+    for (    final String ctx : PersistenceContexts.list()) {
+      final Properties p=new Properties();
+      p.putAll(props);
+      final String ctxUrl=String.format("jdbc:%s",ServiceUris.remote(Components.lookup(Database.class),DatabaseFilters.NEWVERSION.getVersionedName(ctx)));
+      p.put("hibernate.connection.url",ctxUrl);
+      final Ejb3Configuration config=new Ejb3Configuration();
+      config.setProperties(p);
+      for (      final Class c : PersistenceContexts.listEntities(ctx)) {
+        config.addAnnotatedClass(c);
       }
+      PersistenceContexts.registerPersistenceContext(ctx,config);
     }
+  }
+ catch (  final Exception e) {
+    LOG.fatal(e,e);
+    LOG.fatal("Failed to initialize the persistence layer.");
+    throw Exceptions.toUndeclared(e);
   }
   return true;
 }

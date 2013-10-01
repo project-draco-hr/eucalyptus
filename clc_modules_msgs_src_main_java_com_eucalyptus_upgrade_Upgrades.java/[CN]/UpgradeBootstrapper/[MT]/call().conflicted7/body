@@ -1,8 +1,17 @@
 {
-  LOG.info("Renaming upgraded databases");
-  for (  String databaseName : Iterables.filter(Databases.getBootstrapper().listDatabases(),DatabaseFilters.NEWVERSION)) {
-    LOG.info("Renaming upgraded database: " + databaseName + " => "+ DatabaseFilters.EUCALYPTUS.getVersionedName(databaseName));
-    Databases.getBootstrapper().renameDatabase(databaseName,DatabaseFilters.EUCALYPTUS.getVersionedName(databaseName));
+  for (  ComponentId c : ComponentIds.list()) {
+    for (    Version v : Version.upgradePath()) {
+      ComponentUpgradeInfo upgradeInfo=ComponentUpgradeInfo.get(v,c.getClass());
+      for (      Callable<Boolean> p : upgradeInfo.getPreUpgrades()) {
+        try {
+          LOG.info("Executing @PreUpgrade: " + p.getClass());
+          p.call();
+        }
+ catch (        Exception ex) {
+          throw Exceptions.toUndeclared("Upgrade failed during @PreUpgrade while executing: " + p.getClass() + " because of: "+ ex.getMessage(),ex);
+        }
+      }
+    }
   }
   return true;
 }
