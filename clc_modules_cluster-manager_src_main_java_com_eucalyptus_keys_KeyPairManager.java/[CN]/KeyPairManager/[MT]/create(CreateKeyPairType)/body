@@ -5,31 +5,38 @@
   if (!CharMatcher.ASCII.matchesAllOf(keyName)) {
     throw new ClientComputeException("InvalidParameterValue","Value (" + keyName + ") for parameter KeyName is invalid. Character sets beyond ASCII are not supported.");
   }
-  Supplier<SshKeyPair> allocator=new Supplier<SshKeyPair>(){
-    @Override public SshKeyPair get(){
-      try {
-        PrivateKey pk=KeyPairs.create(ctx.getUserFullName(),keyName);
-        reply.setKeyFingerprint(Certs.getFingerPrint(pk));
-        ByteArrayOutputStream byteOut=new ByteArrayOutputStream();
-        PEMWriter privOut=new PEMWriter(new OutputStreamWriter(byteOut));
+  try {
+    Supplier<SshKeyPair> allocator=new Supplier<SshKeyPair>(){
+      @Override public SshKeyPair get(){
         try {
-          privOut.writeObject(pk);
-          privOut.close();
+          PrivateKey pk=KeyPairs.create(ctx.getUserFullName(),keyName);
+          reply.setKeyFingerprint(Certs.getFingerPrint(pk));
+          ByteArrayOutputStream byteOut=new ByteArrayOutputStream();
+          PEMWriter privOut=new PEMWriter(new OutputStreamWriter(byteOut));
+          try {
+            privOut.writeObject(pk);
+            privOut.close();
+          }
+ catch (          IOException e) {
+            LOG.error(e);
+            throw new EucalyptusCloudException(e);
+          }
+          reply.setKeyName(keyName);
+          reply.setKeyMaterial(byteOut.toString());
+          return KeyPairs.lookup(ctx.getUserFullName(),keyName);
         }
- catch (        IOException e) {
-          LOG.error(e);
-          throw new EucalyptusCloudException(e);
+ catch (        Exception ex) {
+          throw new RuntimeException(ex);
         }
-        reply.setKeyName(keyName);
-        reply.setKeyMaterial(byteOut.toString());
-        return KeyPairs.lookup(ctx.getUserFullName(),keyName);
-      }
- catch (      Exception ex) {
-        throw new RuntimeException(ex);
       }
     }
-  }
 ;
-  RestrictedTypes.allocateUnitlessResource(allocator);
-  return reply;
+    RestrictedTypes.allocateUnitlessResource(allocator);
+    return reply;
+  }
+ catch (  final Exception ex) {
+    String cause=Exceptions.causeString(ex);
+    if (Exceptions.isCausedBy(ex,DuplicateMetadataException.class))     throw new ClientComputeException("InvalidKeyPair.Duplicate","The keypair '" + keyName + "' already exists.");
+ else     throw new EucalyptusCloudException("CreateKeyPair failed because: " + cause,ex);
+  }
 }
