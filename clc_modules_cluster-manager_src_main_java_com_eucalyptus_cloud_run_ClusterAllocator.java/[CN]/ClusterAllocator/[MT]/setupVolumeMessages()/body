@@ -17,7 +17,15 @@
         for (        BlockDeviceMappingItemType mapping : instanceDeviceMappings) {
           if (Images.isEbsMapping(mapping)) {
             LOG.debug("About to prepare volume for instance " + vm.getDisplayName() + " to be mapped to "+ mapping.getDeviceName()+ " device");
-            final Volume volume=Volumes.createStorageVolume(sc,this.allocInfo.getOwnerFullName(),mapping.getEbs().getSnapshotId(),mapping.getEbs().getVolumeSize() != null ? mapping.getEbs().getVolumeSize() : (mapping.getEbs().getSnapshotId() != null ? -1 : rootVolSizeInGb),this.allocInfo.getRequest());
+            int volumeSize=mapping.getEbs().getVolumeSize() != null ? mapping.getEbs().getVolumeSize() : -1;
+            if (volumeSize <= 0) {
+              if (mapping.getEbs().getSnapshotId() != null) {
+                final Snapshot originalSnapshot=Snapshots.lookup(null,mapping.getEbs().getSnapshotId());
+                volumeSize=originalSnapshot.getVolumeSize();
+              }
+ else               volumeSize=rootVolSizeInGb;
+            }
+            final Volume volume=Volumes.createStorageVolume(sc,this.allocInfo.getOwnerFullName(),mapping.getEbs().getSnapshotId(),volumeSize,this.allocInfo.getRequest());
             Boolean isRootDevice=mapping.getDeviceName().equals(rootDevName);
             if (mapping.getEbs().getDeleteOnTermination()) {
               vm.addPersistentVolume(mapping.getDeviceName(),volume,isRootDevice);
