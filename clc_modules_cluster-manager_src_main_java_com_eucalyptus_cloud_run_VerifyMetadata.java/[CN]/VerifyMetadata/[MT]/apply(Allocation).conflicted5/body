@@ -1,21 +1,53 @@
 {
-  RunInstancesType request=allocInfo.getRequest();
-  String zoneName=request.getAvailabilityZone();
-  if (Clusters.getInstance().listValues().isEmpty()) {
-    LOG.debug("enabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
-    LOG.debug("disabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
-    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
-  }
- else   if (Partitions.exists(zoneName)) {
-    Partition partition=Partitions.lookupByName(zoneName);
-    allocInfo.setPartition(partition);
-  }
- else   if (Partition.DEFAULT_NAME.equals(zoneName)) {
-    Partition partition=Partition.DEFAULT;
-    allocInfo.setPartition(partition);
-  }
+  final Context context=allocInfo.getContext();
+  final String instanceProfileArn=allocInfo.getRequest().getIamInstanceProfileArn();
+  final String instanceProfileName=allocInfo.getRequest().getIamInstanceProfileName();
+  if (!Strings.isNullOrEmpty(instanceProfileArn) || !Strings.isNullOrEmpty(instanceProfileName)) {
+    final InstanceProfile profile;
+    if (!Strings.isNullOrEmpty(instanceProfileArn))     try {
+      final Ern name=Ern.parse(instanceProfileArn);
+      if (!(name instanceof EuareResourceName)) {
+        throw new MetadataException("Invalid IAM instance profile ARN: " + instanceProfileArn);
+      }
+      profile=Accounts.lookupAccountById(name.getNamespace()).lookupInstanceProfileByName(((EuareResourceName)name).getName());
+      if (!Strings.isNullOrEmpty(instanceProfileName) && !instanceProfileName.equals(profile.getName())) {
+        throw new MetadataException(String.format("Invalid IAM instance profile name '%s' for ARN: %s",name,instanceProfileArn));
+      }
+    }
+ catch (    AuthException e) {
+      throw new NoSuchMetadataException("Invalid IAM instance profile ARN: " + instanceProfileArn,e);
+    }
+ else     if (!Strings.isNullOrEmpty(instanceProfileName))     try {
+      profile=context.getAccount().lookupInstanceProfileByName(instanceProfileName);
+    }
+ catch (    AuthException e) {
+      throw new NoSuchMetadataException("Invalid IAM instance profile name: " + instanceProfileName,e);
+    }
  else {
-    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
+      profile=null;
+    }
+    if (profile != null)     try {
+      final String profileArn=Accounts.getInstanceProfileArn(profile);
+      if (!context.hasAdministrativePrivileges() && !Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_INSTANCE_PROFILE,Accounts.getInstanceProfileFullName(profile),profile.getAccount(),PolicySpec.IAM_LISTINSTANCEPROFILES,context.getUser())) {
+        throw new IllegalMetadataAccessException(String.format("Not authorized to access instance profile with ARN %s for %s",profileArn,context.getUserFullName()));
+      }
+      final Role role=profile.getRole();
+      final String roleArn=role == null ? null : Accounts.getRoleArn(role);
+      if (role != null && !context.hasAdministrativePrivileges() && !Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_ROLE,Accounts.getRoleFullName(role),role.getAccount(),PolicySpec.IAM_PASSROLE,context.getUser())) {
+        throw new IllegalMetadataAccessException(String.format("Not authorized to pass role with ARN %s for %s",roleArn,context.getUserFullName()));
+      }
+      if (role != null) {
+        allocInfo.setInstanceProfileArn(profileArn);
+        allocInfo.setIamInstanceProfileId(profile.getInstanceProfileId());
+        allocInfo.setIamRoleArn(roleArn);
+      }
+ else {
+        throw new MetadataException("Role not found for IAM instance profile ARN: " + instanceProfileArn);
+      }
+    }
+ catch (    AuthException e) {
+      throw new MetadataException("IAM instance profile error",e);
+    }
   }
   return true;
 }
