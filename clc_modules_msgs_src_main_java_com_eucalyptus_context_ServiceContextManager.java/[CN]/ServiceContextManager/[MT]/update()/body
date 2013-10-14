@@ -9,7 +9,38 @@
       checkParam(this.context,notNullValue());
       try {
         this.context.start();
-        this.client=new MuleClient(this.context);
+        this.client=new MuleClient(this.context){
+          @Override protected InboundEndpoint getDefaultClientEndpoint(          final Service service,          final Object payload,          final boolean sync) throws MuleException {
+            if (!(service.getMessageSource() instanceof ServiceCompositeMessageSource)) {
+              throw new IllegalStateException("Only 'CompositeMessageSource' is supported with MuleClient.sendDirect() and MuleClient.dispatchDirect()");
+            }
+            InboundEndpoint endpoint=((ServiceCompositeMessageSource)service.getMessageSource()).getEndpoints().get(0);
+            if (endpoint != null) {
+              List<Transformer> transformers=endpoint.getTransformers();
+              if (transformers != null && !transformers.isEmpty()) {
+                if (TransformerUtils.isSourceTypeSupportedByFirst(transformers,payload.getClass())) {
+                  return endpoint;
+                }
+ else {
+                  EndpointBuilder builder=new EndpointURIEndpointBuilder(endpoint);
+                  builder.setTransformers(new LinkedList());
+                  builder.setExchangePattern(MessageExchangePattern.REQUEST_RESPONSE);
+                  return getMuleContext().getEndpointFactory().getInboundEndpoint(builder);
+                }
+              }
+ else {
+                return endpoint;
+              }
+            }
+ else {
+              EndpointBuilder builder=new EndpointURIEndpointBuilder("vm://mule.client",getMuleContext());
+              builder.setName("muleClientProvider");
+              endpoint=getMuleContext().getEndpointFactory().getInboundEndpoint(builder);
+            }
+            return endpoint;
+          }
+        }
+;
         this.endpointToService.clear();
         this.serviceToEndpoint.clear();
         for (        final Service service : this.context.getRegistry().lookupObjects(Service.class)) {
