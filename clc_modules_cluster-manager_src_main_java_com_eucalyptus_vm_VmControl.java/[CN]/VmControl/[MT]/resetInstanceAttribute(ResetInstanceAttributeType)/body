@@ -1,4 +1,59 @@
 {
   final ResetInstanceAttributeResponseType reply=request.getReply();
+  final EntityTransaction tx=Entities.get(VmInstance.class);
+  try {
+    final VmInstance vm=RestrictedTypes.doPrivileged(request.getInstanceId(),VmInstance.class);
+    if (VmState.STOPPED.equals(vm.getState())) {
+      if (request.getAttribute().equals("kernel")) {
+        String kernelId=vm.getBootRecord().getMachine().getKernelId();
+        if (kernelId == null) {
+          vm.getBootRecord().setKernel();
+        }
+ else {
+          KernelImageInfo kernelImg=Images.lookupKernel(kernelId);
+          if (!ImageMetadata.State.available.equals(kernelImg.getState())) {
+            throw new NoSuchElementException("InvalidAMIID.NotFound: Unable to start instance with deregistered/failed image : " + kernelImg.getImageName());
+          }
+          vm.getBootRecord().setKernel(kernelImg);
+        }
+        Entities.merge(vm);
+        tx.commit();
+      }
+ else       if (request.getAttribute().equals("ramdisk")) {
+        String ramdiskId=vm.getBootRecord().getMachine().getRamdiskId();
+        if (ramdiskId == null) {
+          vm.getBootRecord().setRamdisk();
+        }
+ else {
+          RamdiskImageInfo ramdiskImg=Images.lookupRamdisk(ramdiskId);
+          if (!ImageMetadata.State.available.equals(ramdiskImg.getState())) {
+            throw new NoSuchElementException("InvalidAMIID.NotFound: Unable to start instance with deregistered/failed image : " + ramdiskImg.getImageName());
+          }
+          vm.getBootRecord().setRamdisk(ramdiskImg);
+        }
+        Entities.merge(vm);
+        tx.commit();
+      }
+ else {
+      }
+      reply.set_return(true);
+    }
+ else {
+      throw new EucalyptusCloudException("IncorrectInstanceState: The instance '" + request.getInstanceId() + "' is not in the 'stopped' state.");
+    }
+  }
+ catch (  Exception ex) {
+    LOG.error(ex);
+    if (Exceptions.isCausedBy(ex,EucalyptusCloudException.class)) {
+      throw new ClientComputeException("IncorrectInstanceState","The instance '" + request.getInstanceId() + "' is not in the 'stopped' state.");
+    }
+ else     if (Exceptions.isCausedBy(ex,NoSuchElementException.class) && ex.toString().contains("InvalidAMIID.NotFound")) {
+      throw new ClientComputeException("InvalidAMIID.NotFound","The default " + request.getAttribute() + " does not exist");
+    }
+    throw new ClientComputeException("InvalidInstanceID.NotFound","The instance ID '" + request.getInstanceId() + "' does not exist");
+  }
+ finally {
+    if (tx.isActive())     tx.rollback();
+  }
   return reply;
 }
