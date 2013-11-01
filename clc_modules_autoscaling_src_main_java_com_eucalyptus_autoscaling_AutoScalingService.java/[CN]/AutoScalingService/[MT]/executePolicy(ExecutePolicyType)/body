@@ -10,7 +10,7 @@
  catch (    AutoScalingMetadataNotFoundException e) {
       throw new ValidationErrorException("Scaling policy not found: " + request.getPolicyName());
     }
-    autoScalingGroups.update(accountFullName,scalingPolicy.getAutoScalingGroupName(),new Callback<AutoScalingGroup>(){
+    final Callback<AutoScalingGroup> updateCallback=new Callback<AutoScalingGroup>(){
       @Override public void fire(      final AutoScalingGroup autoScalingGroup){
         final boolean isCloudWatch=Principals.isSameUser(Principals.systemUser(),Wrappers.unwrap(Context.class,Contexts.lookup()).getUser());
         if (isCloudWatch && !scalingProcessEnabled(ScalingProcessType.AlarmNotification,autoScalingGroup)) {
@@ -22,7 +22,10 @@
         setDesiredCapacityWithCooldown(autoScalingGroup,request.getHonorCooldown(),scalingPolicy.getCooldown(),desiredCapacity,String.format(isCloudWatch ? "a CloudWatch alarm triggered policy %1$s changing the desired capacity from %2$d to %3$d" : "a user request executed policy %1$s changing the desired capacity from %2$d to %3$d",scalingPolicy.getDisplayName(),autoScalingGroup.getDesiredCapacity(),desiredCapacity));
       }
     }
-);
+;
+    if (RestrictedTypes.filterPrivileged().apply(scalingPolicy)) {
+      autoScalingGroups.update(AccountFullName.getInstance(scalingPolicy.getOwnerAccountNumber()),scalingPolicy.getAutoScalingGroupName(),updateCallback);
+    }
   }
  catch (  Exception e) {
     handleException(e);
