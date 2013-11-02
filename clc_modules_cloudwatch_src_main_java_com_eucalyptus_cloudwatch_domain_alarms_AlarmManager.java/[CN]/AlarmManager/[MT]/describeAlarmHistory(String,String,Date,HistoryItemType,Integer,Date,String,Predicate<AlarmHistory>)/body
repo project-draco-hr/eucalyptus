@@ -1,0 +1,44 @@
+{
+  final List<AlarmHistory> results=Lists.newArrayList();
+  final EntityTransaction db=Entities.get(AlarmHistory.class);
+  try {
+    final Map<String,Collection<String>> accountToNamesMap=alarmName == null ? Collections.<String,Collection<String>>emptyMap() : buildAccountIdToAlarmNamesMap(accountId,Collections.singleton(alarmName));
+    boolean first=true;
+    String token=nextToken;
+    while (token != null || first) {
+      first=false;
+      final Date nextTokenCreatedTime=NextTokenUtils.getNextTokenCreatedTime(token,AlarmHistory.class,true);
+      final Criteria criteria=Entities.createCriteria(AlarmHistory.class);
+      final Junction disjunction=Restrictions.disjunction();
+      for (      final Map.Entry<String,Collection<String>> entry : accountToNamesMap.entrySet()) {
+        final Junction conjunction=Restrictions.conjunction();
+        conjunction.add(Restrictions.eq("accountId",entry.getKey()));
+        conjunction.add(Restrictions.in("alarmName",entry.getValue()));
+        disjunction.add(conjunction);
+      }
+      criteria.add(disjunction);
+      if (historyItemType != null) {
+        criteria.add(Restrictions.eq("historyItemType",historyItemType));
+      }
+      if (startDate != null) {
+        criteria.add(Restrictions.ge("timestamp",startDate));
+      }
+      if (endDate != null) {
+        criteria.add(Restrictions.le("timestamp",endDate));
+      }
+      NextTokenUtils.addNextTokenConstraints(maxRecords == null ? null : maxRecords - results.size(),token,nextTokenCreatedTime,criteria);
+      final List<AlarmHistory> alarmHistoryEntities=(List<AlarmHistory>)criteria.list();
+      Iterables.addAll(results,Iterables.filter(alarmHistoryEntities,filter));
+      token=maxRecords == null || (maxRecords != null && results.size() >= maxRecords) || alarmHistoryEntities.isEmpty() ? null : results.get(results.size() - 1).getNaturalId();
+    }
+    db.commit();
+  }
+ catch (  RuntimeException ex) {
+    Logs.extreme().error(ex,ex);
+    throw ex;
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+  return results;
+}

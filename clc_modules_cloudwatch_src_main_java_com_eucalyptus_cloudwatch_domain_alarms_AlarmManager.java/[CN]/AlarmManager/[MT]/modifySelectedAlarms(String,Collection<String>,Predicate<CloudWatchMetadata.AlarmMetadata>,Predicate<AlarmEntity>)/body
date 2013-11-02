@@ -1,0 +1,31 @@
+{
+  final Map<String,Collection<String>> accountToNamesMap=buildAccountIdToAlarmNamesMap(accountId,alarmNames);
+  final EntityTransaction db=Entities.get(AlarmEntity.class);
+  try {
+    final Criteria criteria=Entities.createCriteria(AlarmEntity.class);
+    final Junction disjunction=Restrictions.disjunction();
+    for (    final Map.Entry<String,Collection<String>> entry : accountToNamesMap.entrySet()) {
+      final Junction conjunction=Restrictions.conjunction();
+      conjunction.add(Restrictions.eq("accountId",entry.getKey()));
+      conjunction.add(Restrictions.in("alarmName",entry.getValue()));
+      disjunction.add(conjunction);
+    }
+    criteria.add(disjunction);
+    criteria.addOrder(Order.asc("creationTimestamp"));
+    criteria.addOrder(Order.asc("naturalId"));
+    final Collection<AlarmEntity> alarmEntities=(Collection<AlarmEntity>)criteria.list();
+    if (!Iterables.all(alarmEntities,filter)) {
+      return false;
+    }
+    Iterables.any(alarmEntities,update);
+    db.commit();
+    return true;
+  }
+ catch (  RuntimeException ex) {
+    Logs.extreme().error(ex,ex);
+    throw ex;
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+}
