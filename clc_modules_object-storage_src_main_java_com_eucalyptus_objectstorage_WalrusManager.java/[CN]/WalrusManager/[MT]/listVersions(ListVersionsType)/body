@@ -8,11 +8,13 @@
     List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
     Context ctx=Contexts.lookup();
     Account account=ctx.getAccount();
-    String prefix=request.getPrefix();
     int maxKeys=-1;
     String maxKeysString=request.getMaxKeys();
     if (maxKeysString != null) {
       maxKeys=Integer.parseInt(maxKeysString);
+      if (maxKeys < 0) {
+        throw new InvalidArgumentException("max-keys","Argument max-keys must be an integer between 0 and " + Integer.MAX_VALUE);
+      }
     }
  else {
       maxKeys=WalrusProperties.MAX_KEYS;
@@ -37,15 +39,14 @@
             throw new EucalyptusCloudException(e);
           }
         }
+        String prefix=request.getPrefix();
         String keyMarker=request.getKeyMarker();
         String versionMarker=request.getVersionIdMarker();
         String delimiter=request.getDelimiter();
         reply.setName(bucketName);
         reply.setIsTruncated(false);
         reply.setPrefix(prefix);
-        if (maxKeys >= 0) {
-          reply.setMaxKeys(maxKeys);
-        }
+        reply.setMaxKeys(maxKeys);
         reply.setDelimiter(delimiter);
         reply.setKeyMarker(keyMarker);
         reply.setVersionIdMarker(versionMarker);
@@ -183,7 +184,7 @@
         }
  while (resultKeyCount <= maxKeys);
         reply.setKeyEntries(keyEntries);
-        if (commonPrefixes != null && !commonPrefixes.isEmpty()) {
+        if (!commonPrefixes.isEmpty()) {
           ArrayList<CommonPrefixesEntry> commonPrefixesList=new ArrayList<CommonPrefixesEntry>();
           for (          String prefixEntry : commonPrefixes) {
             commonPrefixesList.add(new CommonPrefixesEntry().add(new PrefixEntry(prefixEntry)));
@@ -203,11 +204,9 @@
     db.commit();
     return reply;
   }
- catch (  Exception ex) {
-    LOG.error("Error listing versions for request: " + request,ex);
+  finally {
     if (db.isActive()) {
       db.rollback();
     }
-    throw new EucalyptusCloudException(ex);
   }
 }
