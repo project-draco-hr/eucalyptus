@@ -1,10 +1,10 @@
 {
-  DescribeAlarmsResponseType reply=request.getReply();
+  final DescribeAlarmsResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
   try {
-    checkActionPermission(PolicySpec.CLOUDWATCH_DESCRIBEALARMS,ctx);
+    final boolean showAll=request.getAlarms().remove("verbose");
     final OwnerFullName ownerFullName=ctx.getUserFullName();
-    final String accountId=ownerFullName.getAccountNumber();
+    final String accountId=ctx.hasAdministrativePrivileges() && showAll ? null : ownerFullName.getAccountNumber();
     final String actionPrefix=validateActionPrefix(request.getActionPrefix(),false);
     final String alarmNamePrefix=validateAlarmNamePrefix(request.getAlarmNamePrefix(),false);
     final Collection<String> alarmNames=validateAlarmNames(request.getAlarmNames(),false);
@@ -12,11 +12,11 @@
     final Integer maxRecords=validateMaxRecords(request.getMaxRecords());
     final String nextToken=request.getNextToken();
     final StateValue stateValue=validateStateValue(request.getStateValue(),false);
-    List<AlarmEntity> results=AlarmManager.describeAlarms(accountId,actionPrefix,alarmNamePrefix,alarmNames,maxRecords,stateValue,nextToken);
+    final List<AlarmEntity> results=AlarmManager.describeAlarms(accountId,actionPrefix,alarmNamePrefix,alarmNames,maxRecords,stateValue,nextToken,RestrictedTypes.<CloudWatchMetadata.AlarmMetadata>filterPrivileged());
     if (maxRecords != null && results.size() == maxRecords) {
       reply.getDescribeAlarmsResult().setNextToken(results.get(results.size() - 1).getNaturalId());
     }
-    MetricAlarms metricAlarms=new MetricAlarms();
+    final MetricAlarms metricAlarms=new MetricAlarms();
     metricAlarms.setMember(Lists.newArrayList(Collections2.<AlarmEntity,MetricAlarm>transform(results,TransformationFunctions.AlarmEntityToMetricAlarm.INSTANCE)));
     reply.getDescribeAlarmsResult().setMetricAlarms(metricAlarms);
   }
