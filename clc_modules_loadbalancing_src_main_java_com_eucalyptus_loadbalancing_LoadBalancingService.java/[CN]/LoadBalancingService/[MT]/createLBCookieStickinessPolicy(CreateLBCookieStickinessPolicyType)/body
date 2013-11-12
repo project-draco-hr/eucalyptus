@@ -1,4 +1,39 @@
 {
   CreateLBCookieStickinessPolicyResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String lbName=request.getLoadBalancerName();
+  final String policyName=request.getPolicyName();
+  final Long expiration=request.getCookieExpirationPeriod();
+  if (lbName == null || lbName.isEmpty())   throw new InvalidConfigurationRequestException("Loadbalancer name must be specified");
+  if (policyName == null || policyName.isEmpty())   throw new InvalidConfigurationRequestException("Policy name must be specified");
+  if (expiration == null || expiration.longValue() <= 0)   throw new InvalidConfigurationRequestException("Expiration period must be bigger than 0");
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ctx,lbName);
+  }
+ catch (  final NoSuchElementException ex) {
+    throw new AccessPointNotFoundException();
+  }
+catch (  final Exception ex) {
+    LOG.error("Failed to find the loadbalancer",ex);
+    throw new InternalFailure400Exception("Failed to find the loadbalancer");
+  }
+  if (lb != null && !LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
+    throw new AccessPointNotFoundException();
+  }
+  try {
+    final PolicyAttribute attr=new PolicyAttribute();
+    attr.setAttributeName("CookieExpirationPeriod");
+    attr.setAttributeValue(expiration.toString());
+    LoadBalancerPolicies.addLoadBalancerPolicy(lb,policyName,"LBCookieStickinessPolicyType",Lists.newArrayList(attr));
+  }
+ catch (  final LoadBalancingException ex) {
+    throw ex;
+  }
+catch (  final Exception ex) {
+    LOG.error("Failed to create policy",ex);
+    throw new InternalFailure400Exception("Failed to create policy",ex);
+  }
+  reply.set_return(true);
   return reply;
 }
