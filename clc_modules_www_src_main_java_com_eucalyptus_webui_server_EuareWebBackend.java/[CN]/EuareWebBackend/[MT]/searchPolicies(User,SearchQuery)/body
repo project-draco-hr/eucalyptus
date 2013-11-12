@@ -2,12 +2,13 @@
   if ((query.has(USER) || query.has(USERID)) && (query.has(GROUP) && query.has(GROUPID))) {
     throw new EucalyptusServiceException("Invalid policy search: can not have both user and group conditions.");
   }
-  List<SearchResultRow> results=Lists.newArrayList();
+  final List<SearchResultRow> results=Lists.newArrayList();
   try {
+    final Privileged.RequestUserContext requestUserContext=Privileged.requestUser(requestUser);
     if (query.hasOnlySingle(USERID)) {
       User user=Accounts.lookupUserById(query.getSingle(USERID).getValue());
       Account account=user.getAccount();
-      if (Privileged.allowListAndReadUserPolicy(requestUser,account,user)) {
+      if (Privileged.allowListAndReadUserPolicy(requestUserContext,account,user)) {
         for (        Policy policy : user.getPolicies()) {
           results.add(serializePolicy(policy,account,null,user));
         }
@@ -23,46 +24,43 @@
       }
     }
  else {
-      for (      Account account : getAccounts(query)) {
-        try {
-          for (          User user : getUsers(account,query)) {
-            try {
-              if (Privileged.allowListAndReadUserPolicy(requestUser,account,user)) {
-                for (                Policy policy : user.getPolicies()) {
-                  if (policyMatchQuery(policy,query)) {
-                    results.add(serializePolicy(policy,account,null,user));
-                  }
+      final List<Account> accounts=getAccounts(query);
+      forAllUsers(accounts,false,new IdentityCallback<User>(){
+        @Override void doWithIdentities(        final Map<String,Account> accountsById,        final Map<String,User> idMap,        final List<String> ids) throws AuthException {
+          final Map<String,List<Policy>> policiesByUserId=Accounts.listPoliciesForUsers(ids);
+          for (          final Map.Entry<String,List<Policy>> entry : policiesByUserId.entrySet()) {
+            final User user=idMap.get(entry.getKey());
+            if (user == null || !userListingMatchQuery(user,query))             continue;
+            final Account account=accountsById.get(user.getAccountNumber());
+            if (Privileged.allowListAndReadUserPolicy(requestUserContext,account,user)) {
+              for (              final Policy policy : entry.getValue()) {
+                if (policyMatchQuery(policy,query)) {
+                  results.add(serializePolicy(policy,account,null,user));
                 }
               }
             }
- catch (            Exception e) {
-              LOG.error(e,e);
-            }
           }
-        }
- catch (        Exception e) {
-          LOG.error(e,e);
-        }
-        try {
-          for (          Group group : getGroups(account,query)) {
-            try {
-              if (Privileged.allowReadGroupPolicy(requestUser,account,group)) {
-                for (                Policy policy : Privileged.listGroupPolicies(requestUser,account,group)) {
-                  if (policyMatchQuery(policy,query)) {
-                    results.add(serializePolicy(policy,account,group,null));
-                  }
-                }
-              }
-            }
- catch (            Exception e) {
-              LOG.error(e,e);
-            }
-          }
-        }
- catch (        Exception e) {
-          LOG.error(e,e);
         }
       }
+);
+      forAllGroups(accounts,new IdentityCallback<Group>(){
+        @Override void doWithIdentities(        final Map<String,Account> accountsById,        final Map<String,Group> idMap,        final List<String> ids) throws AuthException {
+          final Map<String,List<Policy>> policiesByGroupId=Accounts.listPoliciesForGroups(ids);
+          for (          final Map.Entry<String,List<Policy>> entry : policiesByGroupId.entrySet()) {
+            final Group group=idMap.get(entry.getKey());
+            if (group == null || !groupListingMatchQuery(group,query))             continue;
+            final Account account=accountsById.get(group.getAccountNumber());
+            if (Privileged.allowListAndReadGroupPolicy(requestUserContext,account,group)) {
+              for (              Policy policy : entry.getValue()) {
+                if (policyMatchQuery(policy,query)) {
+                  results.add(serializePolicy(policy,account,group,null));
+                }
+              }
+            }
+          }
+        }
+      }
+);
     }
   }
  catch (  Exception e) {

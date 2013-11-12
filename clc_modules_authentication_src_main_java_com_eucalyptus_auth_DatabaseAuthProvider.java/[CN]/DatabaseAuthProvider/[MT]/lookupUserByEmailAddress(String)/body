@@ -2,15 +2,9 @@
   if (email == null || "".equals(email)) {
     throw new AuthException("Empty email address to search");
   }
-  EntityTransaction tx=Entities.get(UserEntity.class);
-  UserEntity match=null;
+  final EntityTransaction tx=Entities.get(UserEntity.class);
   try {
-    Criteria c=Entities.createCriteria(UserEntity.class);
-    c.setCacheable(true);
-    c.createAlias("info","i");
-    c.add(Restrictions.eq("i." + CollectionPropertyNames.COLLECTION_ELEMENTS,email).ignoreCase());
-    c.setFetchMode("info",FetchMode.JOIN);
-    match=(UserEntity)c.uniqueResult();
+    final UserEntity match=(UserEntity)Entities.createCriteria(UserEntity.class).setCacheable(true).createAlias("info","i").add(Restrictions.eq("i." + CollectionPropertyNames.COLLECTION_ELEMENTS,email).ignoreCase()).setFetchMode("info",FetchMode.JOIN).setReadOnly(true).uniqueResult();
     if (match == null) {
       throw new AuthException(AuthException.NO_SUCH_USER);
     }
@@ -27,6 +21,7 @@
     if (!emailMatched) {
       throw new AuthException(AuthException.NO_SUCH_USER);
     }
+    return new DatabaseUserProxy(match);
   }
  catch (  AuthException e) {
     Debugging.logError(LOG,e,"Failed to find user by email address " + email);
@@ -37,7 +32,6 @@ catch (  Exception e) {
     throw new AuthException(AuthException.NO_SUCH_USER,e);
   }
  finally {
-    tx.commit();
+    tx.rollback();
   }
-  return new DatabaseUserProxy(match);
 }

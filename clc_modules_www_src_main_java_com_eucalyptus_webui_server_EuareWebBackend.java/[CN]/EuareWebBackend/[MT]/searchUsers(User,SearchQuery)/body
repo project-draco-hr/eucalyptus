@@ -1,10 +1,11 @@
 {
-  List<SearchResultRow> results=Lists.newArrayList();
+  final List<SearchResultRow> results=Lists.newArrayList();
   try {
+    final Privileged.RequestUserContext requestUserContext=Privileged.requestUser(requestUser);
     if (query.hasOnlySingle(ID)) {
       User user=Accounts.lookupUserById(query.getSingle(ID).getValue());
       Account account=user.getAccount();
-      if (Privileged.allowListAndReadUser(requestUser,account,user)) {
+      if (Privileged.allowListAndReadUser(requestUserContext,account,user)) {
         results.add(serializeUser(account,user));
       }
     }
@@ -13,7 +14,7 @@
       Account account=group.getAccount();
       for (      User user : group.getUsers()) {
         try {
-          if (Privileged.allowListAndReadUser(requestUser,account,user)) {
+          if (Privileged.allowListAndReadUser(requestUserContext,account,user)) {
             results.add(serializeUser(account,user));
           }
         }
@@ -26,7 +27,7 @@
       Account account=Accounts.lookupAccountById(query.getSingle(ACCOUNTID).getValue());
       for (      User user : account.getUsers()) {
         try {
-          if (Privileged.allowListAndReadUser(requestUser,account,user)) {
+          if (Privileged.allowListAndReadUser(requestUserContext,account,user)) {
             results.add(serializeUser(account,user));
           }
         }
@@ -36,25 +37,16 @@
       }
     }
  else {
-      for (      Account account : getAccounts(query)) {
-        try {
-          for (          User user : account.getUsers()) {
-            try {
-              if (userMatchQuery(user,query)) {
-                if (Privileged.allowListAndReadUser(requestUser,account,user)) {
-                  results.add(serializeUser(account,user));
-                }
-              }
-            }
- catch (            Exception e) {
-              LOG.error(e,e);
+      forAllUsers(getAccounts(query),true,new IdentityCallback<User>(){
+        @Override void doWithIdentity(        final Account account,        final User user) throws AuthException {
+          if (userMatchQuery(user,query)) {
+            if (Privileged.allowListAndReadUser(requestUserContext,account,user)) {
+              results.add(serializeUser(account,user));
             }
           }
         }
- catch (        Exception e) {
-          LOG.error(e,e);
-        }
       }
+);
     }
   }
  catch (  Exception e) {

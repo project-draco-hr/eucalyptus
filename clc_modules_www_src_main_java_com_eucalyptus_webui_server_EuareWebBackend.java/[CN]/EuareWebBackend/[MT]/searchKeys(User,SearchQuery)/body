@@ -1,33 +1,31 @@
 {
-  List<SearchResultRow> results=Lists.newArrayList();
+  final List<SearchResultRow> results=Lists.newArrayList();
   try {
+    final Privileged.RequestUserContext requestUserContext=Privileged.requestUser(requestUser);
     if (query.hasOnlySingle(USERID)) {
       User user=Accounts.lookupUserById(query.getSingle(USERID).getValue());
       Account account=user.getAccount();
-      for (      AccessKey key : Privileged.listAccessKeys(requestUser,account,user)) {
+      for (      AccessKey key : Privileged.listAccessKeys(requestUserContext,account,user)) {
         results.add(serializeKey(key,account,user));
       }
     }
  else {
-      for (      Account account : getAccounts(query)) {
-        try {
-          for (          User user : getUsers(account,query)) {
-            try {
-              for (              AccessKey key : Privileged.listAccessKeys(requestUser,account,user)) {
-                if (keyMatchQuery(key,query)) {
-                  results.add(serializeKey(key,account,user));
-                }
+      forAllUsers(getAccounts(query),false,new IdentityCallback<User>(){
+        @Override public void doWithIdentities(        final Map<String,Account> accountsById,        final Map<String,User> usersById,        final List<String> userIds) throws AuthException {
+          final Map<String,List<AccessKey>> accessKeysByUserId=Accounts.listAccessKeysForUsers(userIds);
+          for (          final Map.Entry<String,List<AccessKey>> entry : accessKeysByUserId.entrySet()) {
+            final User user=usersById.get(entry.getKey());
+            if (user == null)             continue;
+            final Account account=accountsById.get(user.getAccountNumber());
+            if (userListingMatchQuery(user,query) && Privileged.allowListAccessKeys(requestUserContext,account,user)) {
+              for (              AccessKey key : entry.getValue())               if (keyMatchQuery(key,query)) {
+                results.add(serializeKey(key,account,user));
               }
-            }
- catch (            Exception e) {
-              LOG.error(e,e);
             }
           }
         }
- catch (        Exception e) {
-          LOG.error(e,e);
-        }
       }
+);
     }
   }
  catch (  Exception e) {
