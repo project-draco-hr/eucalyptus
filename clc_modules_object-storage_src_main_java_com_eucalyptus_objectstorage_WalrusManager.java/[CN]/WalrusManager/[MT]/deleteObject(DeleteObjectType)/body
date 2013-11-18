@@ -15,13 +15,14 @@
       if (bucketInfo.isVersioningEnabled()) {
         ObjectInfo searchDeletedObjectInfo=new ObjectInfo(bucketName,objectKey);
         searchDeletedObjectInfo.setDeleted(true);
+        searchDeletedObjectInfo.setLast(true);
         try {
           dbObject.getUniqueEscape(searchDeletedObjectInfo);
           db.rollback();
-          throw new NoSuchEntityException(objectKey,logData);
+          LOG.debug("Object " + objectKey + " has a delete marker in bucket "+ bucketName+ " that is marked latest. Nothing to delete");
         }
  catch (        NoSuchEntityException ex) {
-          throw ex;
+          LOG.debug("Object " + objectKey + " not found in bucket "+ bucketName+ ". Nothing to delete");
         }
 catch (        EucalyptusCloudException ex) {
           ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
@@ -37,9 +38,9 @@ catch (        EucalyptusCloudException ex) {
           deleteMarker.setLastModified(new Date());
           deleteMarker.setVersionId(UUID.randomUUID().toString().replaceAll("-",""));
           dbObject.add(deleteMarker);
-          reply.setCode("200");
-          reply.setDescription("OK");
         }
+        reply.setCode("200");
+        reply.setDescription("OK");
       }
  else {
         ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
@@ -93,8 +94,6 @@ catch (              EucalyptusCloudException ex) {
               throw new EucalyptusCloudException("Non 'null' versioned object found in a versioning disabled bucket, not sure how to proceed with delete.");
             }
           }
-          reply.setCode("200");
-          reply.setDescription("OK");
           if (logData != null) {
             updateLogData(bucketInfo,logData);
             reply.setLogData(logData);
@@ -105,14 +104,17 @@ catch (              EucalyptusCloudException ex) {
             deleteMarker.setLast(true);
             deleteMarker.setOwnerId(account.getAccountNumber());
             deleteMarker.setLastModified(new Date());
-            deleteMarker.setVersionId(UUID.randomUUID().toString().replaceAll("-",""));
+            deleteMarker.setVersionId(WalrusProperties.NULL_VERSION_ID);
+            deleteMarker.setSize(0L);
             dbObject.add(deleteMarker);
           }
         }
  else {
           db.rollback();
-          throw new NoSuchEntityException(objectKey,logData);
+          LOG.debug("Object " + objectKey + " not found in bucket "+ bucketName+ ". Nothing to delete");
         }
+        reply.setCode("200");
+        reply.setDescription("OK");
       }
     }
  else {
