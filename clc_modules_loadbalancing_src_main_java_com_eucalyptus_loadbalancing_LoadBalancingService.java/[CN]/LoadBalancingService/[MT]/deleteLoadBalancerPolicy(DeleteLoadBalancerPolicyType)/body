@@ -1,4 +1,34 @@
 {
   final DeleteLoadBalancerPolicyResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String lbName=request.getLoadBalancerName();
+  final String policyName=request.getPolicyName();
+  if (lbName == null || lbName.isEmpty())   throw new InvalidConfigurationRequestException("Loadbalancer name must be specified");
+  if (policyName == null || policyName.isEmpty())   throw new InvalidConfigurationRequestException("policy name must be specified");
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ctx,lbName);
+  }
+ catch (  NoSuchElementException ex) {
+    throw new AccessPointNotFoundException();
+  }
+catch (  final Exception ex) {
+    LOG.error("Failed to find the loadbalancer",ex);
+    throw new InternalFailure400Exception("Failed to find the loadbalancer");
+  }
+  if (lb != null && !LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
+    throw new AccessPointNotFoundException();
+  }
+  try {
+    LoadBalancerPolicies.deleteLoadBalancerPolicy(lb,policyName);
+  }
+ catch (  final LoadBalancingException ex) {
+    throw ex;
+  }
+catch (  final Exception ex) {
+    LOG.error("Failed to delete policy",ex);
+    throw new InternalFailure400Exception("Failed to delete policy",ex);
+  }
+  reply.set_return(true);
   return reply;
 }
