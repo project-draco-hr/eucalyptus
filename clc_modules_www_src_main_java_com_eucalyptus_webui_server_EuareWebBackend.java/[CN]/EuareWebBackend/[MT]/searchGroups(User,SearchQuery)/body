@@ -1,10 +1,11 @@
 {
-  List<SearchResultRow> results=Lists.newArrayList();
+  final List<SearchResultRow> results=Lists.newArrayList();
   try {
+    final Privileged.RequestUserContext requestUserContext=Privileged.requestUser(requestUser);
     if (query.hasOnlySingle(ID)) {
       Group group=Accounts.lookupGroupById(query.getSingle(ID).getValue());
       Account account=group.getAccount();
-      if (Privileged.allowListGroup(requestUser,account,group)) {
+      if (Privileged.allowListGroup(requestUserContext,account,group)) {
         results.add(serializeGroup(account,group));
       }
     }
@@ -20,7 +21,7 @@
       for (      Group group : account.getGroups()) {
         try {
           if (!group.isUserGroup()) {
-            if (Privileged.allowListGroup(requestUser,account,group)) {
+            if (Privileged.allowListGroup(requestUserContext,account,group)) {
               results.add(serializeGroup(account,group));
             }
           }
@@ -31,25 +32,14 @@
       }
     }
  else {
-      for (      Account account : getAccounts(query)) {
-        try {
-          for (          Group group : account.getGroups()) {
-            try {
-              if (!group.isUserGroup() && groupMatchQuery(group,query)) {
-                if (Privileged.allowListGroup(requestUser,account,group)) {
-                  results.add(serializeGroup(account,group));
-                }
-              }
-            }
- catch (            Exception e) {
-              LOG.error(e,e);
-            }
+      forAllGroups(getAccounts(query),new IdentityCallback<Group>(){
+        @Override public void doWithIdentity(        final Account account,        final Group group) throws AuthException {
+          if (groupMatchQuery(group,query) && Privileged.allowListGroup(requestUserContext,account,group)) {
+            results.add(serializeGroup(account,group));
           }
         }
- catch (        Exception e) {
-          LOG.error(e,e);
-        }
       }
+);
     }
   }
  catch (  Exception e) {
