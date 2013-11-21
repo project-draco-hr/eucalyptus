@@ -1,21 +1,30 @@
 {
-  RunInstancesType request=allocInfo.getRequest();
-  String zoneName=request.getAvailabilityZone();
-  if (Clusters.getInstance().listValues().isEmpty()) {
-    LOG.debug("enabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
-    LOG.debug("disabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
-    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
+  final Context ctx=allocInfo.getContext();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  NetworkGroups.lookup(accountFullName,NetworkGroups.defaultNetworkName());
+  final Set<String> networkNames=Sets.newLinkedHashSet(allocInfo.getRequest().securityGroupNames());
+  final Set<String> networkIds=Sets.newLinkedHashSet(allocInfo.getRequest().securityGroupsIds());
+  if (networkNames.isEmpty() && networkIds.isEmpty()) {
+    networkNames.add(NetworkGroups.defaultNetworkName());
   }
- else   if (Partitions.exists(zoneName)) {
-    Partition partition=Partitions.lookupByName(zoneName);
-    allocInfo.setPartition(partition);
+  final List<NetworkGroup> groups=Lists.newArrayList();
+  for (  String groupName : networkNames) {
+    if (!Iterables.tryFind(groups,CollectionUtils.propertyPredicate(groupName,RestrictedTypes.toDisplayName())).isPresent()) {
+      groups.add(NetworkGroups.lookup(accountFullName,groupName));
+    }
   }
- else   if (Partition.DEFAULT_NAME.equals(zoneName)) {
-    Partition partition=Partition.DEFAULT;
-    allocInfo.setPartition(partition);
+  for (  String groupId : networkIds) {
+    if (!Iterables.tryFind(groups,CollectionUtils.propertyPredicate(groupId,NetworkGroups.groupId())).isPresent()) {
+      groups.add(NetworkGroups.lookupByGroupId(accountFullName,groupId));
+    }
   }
- else {
-    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
+  final Map<String,NetworkGroup> networkRuleGroups=Maps.newHashMap();
+  for (  final NetworkGroup group : groups) {
+    if (!RestrictedTypes.filterPrivileged().apply(group)) {
+      throw new IllegalMetadataAccessException("Not authorized to use network group " + group.getGroupId() + "/"+ group.getDisplayName()+ " for "+ ctx.getUser().getName());
+    }
+    networkRuleGroups.put(group.getDisplayName(),group);
   }
+  allocInfo.setNetworkRules(networkRuleGroups);
   return true;
 }
