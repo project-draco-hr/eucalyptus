@@ -1,20 +1,31 @@
 {
   List<SearchResultRow> results=Lists.newArrayList();
   try {
+    final Privileged.RequestUserContext requestUserContext=Privileged.requestUser(requestUser);
     if (query.hasOnlySingle(ID)) {
       Account account=Accounts.lookupAccountById(query.getSingle(ID).getValue());
-      if (Privileged.allowReadAccount(requestUser,account)) {
+      if (Privileged.allowReadAccount(requestUserContext,account)) {
         User admin=account.lookupAdmin();
         results.add(serializeAccount(account,admin.getRegistrationStatus()));
       }
     }
  else {
-      for (      Account account : Accounts.listAllAccounts()) {
+      final List<Account> accounts=Accounts.listAllAccounts();
+      final Set<String> registeredAccounts=Sets.newHashSet(Iterables.transform(Accounts.listAccountsByStatus(RegistrationStatus.REGISTERED),Accounts.toAccountNumber()));
+      final Set<String> approvedAccounts=Sets.newHashSet(Iterables.transform(Accounts.listAccountsByStatus(RegistrationStatus.APPROVED),Accounts.toAccountNumber()));
+      for (      final Account account : accounts) {
         try {
           if (accountMatchQuery(account,query)) {
-            if (Privileged.allowReadAccount(requestUser,account)) {
-              User admin=account.lookupAdmin();
-              results.add(serializeAccount(account,admin.getRegistrationStatus()));
+            if (Privileged.allowReadAccount(requestUserContext,account)) {
+              if (registeredAccounts.contains(account.getAccountNumber())) {
+                results.add(serializeAccount(account,RegistrationStatus.REGISTERED));
+              }
+ else               if (approvedAccounts.contains(account.getAccountNumber())) {
+                results.add(serializeAccount(account,RegistrationStatus.APPROVED));
+              }
+ else {
+                results.add(serializeAccount(account,RegistrationStatus.CONFIRMED));
+              }
             }
           }
         }

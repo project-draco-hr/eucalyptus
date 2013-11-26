@@ -1,33 +1,31 @@
 {
-  List<SearchResultRow> results=Lists.newArrayList();
+  final List<SearchResultRow> results=Lists.newArrayList();
   try {
+    final Privileged.RequestUserContext requestUserContext=Privileged.requestUser(requestUser);
     if (query.hasOnlySingle(USERID)) {
       User user=Accounts.lookupUserById(query.getSingle(USERID).getValue());
       Account account=user.getAccount();
-      for (      Certificate cert : Privileged.listSigningCertificates(requestUser,account,user)) {
+      for (      Certificate cert : Privileged.listSigningCertificates(requestUserContext,account,user)) {
         results.add(serializeCert(cert,account,user));
       }
     }
  else {
-      for (      Account account : getAccounts(query)) {
-        try {
-          for (          User user : getUsers(account,query)) {
-            try {
-              for (              Certificate cert : Privileged.listSigningCertificates(requestUser,account,user)) {
-                if (certMatchQuery(cert,query)) {
-                  results.add(serializeCert(cert,account,user));
-                }
+      forAllUsers(getAccounts(query),false,new IdentityCallback<User>(){
+        @Override public void doWithIdentities(        final Map<String,Account> accountsById,        final Map<String,User> usersById,        final List<String> userIds) throws AuthException {
+          final Map<String,List<Certificate>> certificatesByUserId=Accounts.listSigningCertificatesForUsers(userIds);
+          for (          final Map.Entry<String,List<Certificate>> entry : certificatesByUserId.entrySet()) {
+            final User user=usersById.get(entry.getKey());
+            if (user == null)             continue;
+            final Account account=accountsById.get(user.getAccountNumber());
+            if (userListingMatchQuery(user,query) && Privileged.allowListSigningCertificates(requestUserContext,account,user)) {
+              for (              Certificate cert : entry.getValue())               if (certMatchQuery(cert,query)) {
+                results.add(serializeCert(cert,account,user));
               }
-            }
- catch (            Exception e) {
-              LOG.error(e,e);
             }
           }
         }
- catch (        Exception e) {
-          LOG.error(e,e);
-        }
       }
+);
     }
   }
  catch (  Exception e) {

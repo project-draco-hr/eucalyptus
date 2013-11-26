@@ -78,7 +78,7 @@
             List<ObjectInfo> destinationObjectInfos=dbObject.queryEscape(destSearchObjectInfo);
             if (destinationObjectInfos.size() > 0) {
               destinationObjectInfo=destinationObjectInfos.get(0);
-              if (!destinationObjectInfo.canWrite(account.getAccountNumber())) {
+              if (!destinationObjectInfo.getDeleted() && !destinationObjectInfo.canWrite(account.getAccountNumber())) {
                 db.rollback();
                 throw new AccessDeniedException("Key",destinationKey);
               }
@@ -97,12 +97,12 @@
               }
             }
  else {
-              if (ctx.hasAdministrativePrivileges() || (destinationObjectInfo.canWriteACP(account.getAccountNumber()) && (destinationObjectInfo.isGlobalWriteACP() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECTACL,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(destinationBucket,destinationKey),null)))) {
+              if (ctx.hasAdministrativePrivileges() || (destinationObjectInfo.getDeleted() && Permissions.isAuthorized(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,sourceBucket,ctx.getAccount(),PolicySpec.S3_PUTOBJECT,ctx.getUser()) && Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,sourceBucket,PolicySpec.S3_PUTOBJECT,ctx.getUser(),sourceObjectInfo.getSize())) || (destinationObjectInfo.canWriteACP(account.getAccountNumber()) && (destinationObjectInfo.isGlobalWriteACP() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECTACL,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(destinationBucket,destinationKey),null)))) {
                 List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
                 destinationObjectInfo.addGrants(account.getAccountNumber(),foundDestinationBucketInfo.getOwnerId(),grantInfos,accessControlList);
                 destinationObjectInfo.setGrants(grantInfos);
               }
-              destinationObjectOldSize=destinationObjectInfo.getSize();
+              destinationObjectOldSize=destinationObjectInfo.getSize() == null ? 0L : destinationObjectInfo.getSize();
             }
             destinationObjectInfo.setSize(sourceObjectInfo.getSize());
             destinationObjectInfo.setStorageClass(sourceObjectInfo.getStorageClass());
@@ -135,7 +135,7 @@
             }
             if (addNew)             dbObject.add(destinationObjectInfo);
             reply.setEtag(etag);
-            reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.RFC822_DATETIME_PATTERN));
+            reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.ALT_ISO8601_DATE_PATTERN));
             if (foundDestinationBucketInfo.isVersioningEnabled()) {
               reply.setCopySourceVersionId(sourceVersionId);
               reply.setVersionId(destinationVersionId);

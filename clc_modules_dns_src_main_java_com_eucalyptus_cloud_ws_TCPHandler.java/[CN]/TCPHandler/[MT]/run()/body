@@ -1,18 +1,23 @@
 {
-  try {
-    int inputLength;
-    DataInputStream inStream=new DataInputStream(socket.getInputStream());
-    DataOutputStream outStream=new DataOutputStream(socket.getOutputStream());
-    inputLength=inStream.readUnsignedShort();
-    if (inputLength > DNSProperties.MAX_MESSAGE_SIZE) {
-      LOG.error("Maximum message size exceeded. Ignoring request.");
+  try (final Socket socket=this.socket){
+    socket.setSoTimeout(timeout_seconds * 1000);
+    final TimeLimiter limiter=new SimpleTimeLimiter(Threads.lookup(Dns.class,TCPHandler.class));
+    final byte[] inBytes=limiter.callWithTimeout(new Callable<byte[]>(){
+      @Override public byte[] call() throws Exception {
+        final DataInputStream inStream=new DataInputStream(socket.getInputStream());
+        final int inputLength=inStream.readUnsignedShort();
+        if (inputLength > DNSProperties.MAX_MESSAGE_SIZE) {
+          throw new IOException("Maximum message size exceeded. Ignoring request.");
+        }
+        byte[] inBytes=new byte[inputLength];
+        inStream.readFully(inBytes);
+        return inBytes;
+      }
     }
-    byte[] inBytes=new byte[inputLength];
-    inStream.readFully(inBytes);
-    Message query;
+,timeout_seconds,TimeUnit.SECONDS,false);
     byte[] response=null;
     try {
-      query=new Message(inBytes);
+      final Message query=new Message(inBytes);
       ConnectionHandler.setRemoteInetAddress(socket.getInetAddress());
       try {
         response=generateReply(query,inBytes,inBytes.length,socket);
@@ -29,10 +34,15 @@
  catch (    IOException exception) {
       LOG.error(exception);
     }
+    final DataOutputStream outStream=new DataOutputStream(socket.getOutputStream());
     outStream.writeShort(response.length);
     outStream.write(response);
+    outStream.flush();
   }
- catch (  IOException ex) {
+ catch (  UncheckedTimeoutException e) {
+    LOG.debug("Timeout reading request.");
+  }
+catch (  Exception ex) {
     LOG.error(ex);
   }
 }
