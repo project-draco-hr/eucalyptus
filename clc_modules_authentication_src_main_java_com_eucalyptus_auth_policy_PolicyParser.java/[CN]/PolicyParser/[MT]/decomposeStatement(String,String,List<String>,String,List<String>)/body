@@ -1,27 +1,28 @@
 {
-  Map<String,Set<String>> actionMap=Maps.newHashMap();
+  final SetMultimap<String,String> actionMap=HashMultimap.create();
   for (  String action : actions) {
     action=normalize(action);
-    String vendor=checkAction(action);
-    addToSetMap(actionMap,vendor,action);
+    final String vendor=checkAction(action);
+    actionMap.put(vendor,action);
   }
-  Map<String,Set<String>> resourceMap=Maps.newHashMap();
-  for (  String resource : resources) {
-    Ern ern=Ern.parse(resource);
-    addToSetMap(resourceMap,ern.getResourceType(),ern.getResourceName());
+  final SetMultimap<Pair<Optional<String>,String>,String> resourceMap=HashMultimap.create();
+  for (  final String resource : resources) {
+    final Ern ern=Ern.parse(resource);
+    resourceMap.put(Pair.lopair(Strings.emptyToNull(ern.getNamespace()),ern.getResourceType()),ern.getResourceName());
   }
-  boolean notAction=PolicySpec.NOTACTION.equals(actionElement);
-  boolean notResource=PolicySpec.NOTRESOURCE.equals(resourceElement);
-  List<AuthorizationEntity> results=Lists.newArrayList();
-  for (  Map.Entry<String,Set<String>> actionSetEntry : actionMap.entrySet()) {
-    String vendor=actionSetEntry.getKey();
-    Set<String> actionSet=actionSetEntry.getValue();
+  final boolean notAction=PolicySpec.NOTACTION.equals(actionElement);
+  final boolean notResource=PolicySpec.NOTRESOURCE.equals(resourceElement);
+  final List<AuthorizationEntity> results=Lists.newArrayList();
+  for (  final Map.Entry<String,Collection<String>> actionSetEntry : actionMap.asMap().entrySet()) {
+    final String vendor=actionSetEntry.getKey();
+    final Set<String> actionSet=(Set<String>)actionSetEntry.getValue();
     boolean added=false;
-    for (    Map.Entry<String,Set<String>> resourceSetEntry : resourceMap.entrySet()) {
-      String type=resourceSetEntry.getKey();
-      Set<String> resourceSet=resourceSetEntry.getValue();
+    for (    final Map.Entry<Pair<Optional<String>,String>,Collection<String>> resourceSetEntry : resourceMap.asMap().entrySet()) {
+      final Optional<String> accountIdOrName=resourceSetEntry.getKey().getLeft();
+      final String type=resourceSetEntry.getKey().getRight();
+      final Set<String> resourceSet=(Set<String>)resourceSetEntry.getValue();
       if (PolicySpec.ALL_ACTION.equals(vendor) || PolicySpec.ALL_RESOURCE.equals(type) || PolicySpec.isPermittedResourceVendor(vendor,PolicySpec.vendor(type))) {
-        results.add(new AuthorizationEntity(EffectType.valueOf(effect),type,actionSet,notAction,resourceSet,notResource));
+        results.add(new AuthorizationEntity(EffectType.valueOf(effect),accountIdOrName.orNull(),type,actionSet,notAction,resourceSet,notResource));
         added=true;
       }
     }
