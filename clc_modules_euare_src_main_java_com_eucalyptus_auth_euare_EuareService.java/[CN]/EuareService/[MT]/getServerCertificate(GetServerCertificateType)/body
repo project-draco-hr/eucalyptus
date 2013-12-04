@@ -1,3 +1,30 @@
 {
-  throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.NOT_IMPLEMENTED,"Operation not implemented");
+  final GetServerCertificateResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  String certName=request.getServerCertificateName();
+  if (certName == null || certName.length() <= 0)   throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_NAME,"Certificate name is empty");
+  try {
+    final ServerCertificate cert=Privileged.getServerCertificate(ctx.getUser(),certName);
+    final GetServerCertificateResultType result=new GetServerCertificateResultType();
+    final ServerCertificateType certType=new ServerCertificateType();
+    certType.setCertificateBody(cert.getCertificateBody());
+    certType.setCertificateChain(cert.getCertificateChain());
+    certType.setServerCertificateMetadata(getServerCertificateMetadata(cert));
+    result.setServerCertificate(certType);
+    reply.setGetServerCertificateResult(result);
+  }
+ catch (  final AuthException ex) {
+    if (AuthException.ACCESS_DENIED.equals(ex.getMessage()))     throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to get server certificate by " + ctx.getUser().getName());
+ else     if (AuthException.SERVER_CERT_NO_SUCH_ENTITY.equals(ex.getMessage()))     throw new EuareException(HttpResponseStatus.NOT_FOUND,EuareException.NO_SUCH_ENTITY,"Server ceritifcate " + certName + " does not exist");
+ else {
+      LOG.error("failed to get server certificate",ex);
+      throw new EuareException(HttpResponseStatus.INTERNAL_SERVER_ERROR,EuareException.INTERNAL_FAILURE);
+    }
+  }
+catch (  final Exception ex) {
+    LOG.error("failed to get server certificate",ex);
+    throw new EuareException(HttpResponseStatus.INTERNAL_SERVER_ERROR,EuareException.INTERNAL_FAILURE);
+  }
+  reply.set_return(true);
+  return reply;
 }

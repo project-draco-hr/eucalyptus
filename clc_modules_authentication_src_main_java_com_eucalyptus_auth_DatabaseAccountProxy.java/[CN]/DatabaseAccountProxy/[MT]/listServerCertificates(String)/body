@@ -1,0 +1,36 @@
+{
+  final EntityTransaction db=Entities.get(ServerCertificateEntity.class);
+  List<ServerCertificateEntity> result=null;
+  try {
+    result=Entities.query(ServerCertificateEntity.named(UserFullName.getInstance(this.lookupAdmin())),true);
+    db.rollback();
+  }
+ catch (  final Exception ex) {
+    db.rollback();
+    throw Exceptions.toUndeclared(ex);
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+  if (result == null)   return Lists.newArrayList();
+  final String prefix=pathPrefix.length() > 1 && pathPrefix.endsWith("/") ? pathPrefix.substring(0,pathPrefix.length() - 1) : pathPrefix;
+  List<ServerCertificateEntity> filtered=null;
+  if (prefix.equals("/")) {
+    filtered=result;
+  }
+ else {
+    filtered=Lists.newArrayList(Collections2.filter(result,new Predicate<ServerCertificateEntity>(){
+      @Override public boolean apply(      ServerCertificateEntity entity){
+        final String path=entity.getCertPath();
+        return path.startsWith(prefix) && (path.length() == prefix.length() || path.charAt(prefix.length()) == '/');
+      }
+    }
+));
+  }
+  return Lists.transform(filtered,new Function<ServerCertificateEntity,ServerCertificate>(){
+    @Override public ServerCertificate apply(    ServerCertificateEntity entity){
+      return ServerCertificates.ToServerCertificate.INSTANCE.apply(entity);
+    }
+  }
+);
+}
