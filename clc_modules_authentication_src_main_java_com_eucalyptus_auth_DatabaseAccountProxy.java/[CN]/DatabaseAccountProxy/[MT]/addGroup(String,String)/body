@@ -16,19 +16,17 @@
   if (DatabaseAuthUtils.checkGroupExists(groupName,this.delegate.getName())) {
     throw new AuthException(AuthException.GROUP_ALREADY_EXISTS);
   }
-  EntityWrapper<AccountEntity> db=EntityWrapper.get(AccountEntity.class);
-  try {
-    AccountEntity account=DatabaseAuthUtils.getUnique(db,AccountEntity.class,"name",this.delegate.getName());
+  try (final TransactionResource db=Entities.transactionFor(AccountEntity.class)){
+    AccountEntity account=DatabaseAuthUtils.getUnique(AccountEntity.class,"name",this.delegate.getName());
     GroupEntity group=new GroupEntity(groupName);
     group.setPath(path);
     group.setUserGroup(false);
     group.setAccount(account);
-    db.recast(GroupEntity.class).add(group);
+    Entities.persist(group);
     db.commit();
     return new DatabaseGroupProxy(group);
   }
  catch (  Exception e) {
-    db.rollback();
     Debugging.logError(LOG,e,"Failed to add group " + groupName + " in "+ this.delegate.getName());
     throw new AuthException(AuthException.GROUP_CREATE_FAILURE,e);
   }

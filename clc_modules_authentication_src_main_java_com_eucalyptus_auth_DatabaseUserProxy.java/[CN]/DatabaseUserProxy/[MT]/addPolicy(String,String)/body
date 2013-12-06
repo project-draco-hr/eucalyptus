@@ -15,24 +15,23 @@
     throw new PolicyParseException("Policy with Allow effect can not be assigned to account/account admin");
   }
   parsedPolicy.setName(name);
-  EntityWrapper<UserEntity> db=EntityWrapper.get(UserEntity.class);
-  try {
-    UserEntity userEntity=DatabaseAuthUtils.getUnique(db,UserEntity.class,"userId",this.delegate.getUserId());
+  try (final TransactionResource db=Entities.transactionFor(UserEntity.class)){
+    UserEntity userEntity=DatabaseAuthUtils.getUnique(UserEntity.class,"userId",this.delegate.getUserId());
     GroupEntity groupEntity=getUserGroupEntity(userEntity);
     if (groupEntity == null) {
       throw new RuntimeException("Can't find user group for user " + this.delegate.getName());
     }
-    db.recast(PolicyEntity.class).add(parsedPolicy);
+    Entities.persist(parsedPolicy);
     parsedPolicy.setGroup(groupEntity);
     for (    StatementEntity statement : parsedPolicy.getStatements()) {
-      db.recast(StatementEntity.class).add(statement);
+      Entities.persist(statement);
       statement.setPolicy(parsedPolicy);
       for (      AuthorizationEntity auth : statement.getAuthorizations()) {
-        db.recast(AuthorizationEntity.class).add(auth);
+        Entities.persist(auth);
         auth.setStatement(statement);
       }
       for (      ConditionEntity cond : statement.getConditions()) {
-        db.recast(ConditionEntity.class).add(cond);
+        Entities.persist(cond);
         cond.setStatement(statement);
       }
     }
@@ -41,7 +40,6 @@
     return new DatabasePolicyProxy(parsedPolicy);
   }
  catch (  Exception e) {
-    db.rollback();
     Debugging.logError(LOG,e,"Failed to attach policy for " + this.delegate.getName());
     throw new AuthException("Failed to attach policy",e);
   }

@@ -2,21 +2,19 @@
   if (Strings.isNullOrEmpty(name)) {
     throw new AuthException(AuthException.EMPTY_POLICY_NAME);
   }
-  EntityWrapper<UserEntity> db=EntityWrapper.get(UserEntity.class);
-  try {
-    UserEntity user=DatabaseAuthUtils.getUnique(db,UserEntity.class,"userId",this.delegate.getUserId());
+  try (final TransactionResource db=Entities.transactionFor(UserEntity.class)){
+    UserEntity user=DatabaseAuthUtils.getUnique(UserEntity.class,"userId",this.delegate.getUserId());
     GroupEntity group=getUserGroupEntity(user);
     if (group == null) {
       throw new RuntimeException("Can't find user group for user " + this.delegate.getName());
     }
     PolicyEntity policy=DatabaseAuthUtils.removeGroupPolicy(group,name);
     if (policy != null) {
-      db.recast(PolicyEntity.class).delete(policy);
+      Entities.delete(policy);
     }
     db.commit();
   }
  catch (  Exception e) {
-    db.rollback();
     Debugging.logError(LOG,e,"Failed to remove policy " + name + " in "+ this.delegate);
     throw new AuthException("Failed to remove policy",e);
   }
