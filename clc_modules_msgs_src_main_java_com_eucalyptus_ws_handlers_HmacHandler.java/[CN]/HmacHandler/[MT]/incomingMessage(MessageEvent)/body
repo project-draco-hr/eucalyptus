@@ -19,10 +19,12 @@
       }
     }
     final HmacCredentials credentials=new HmacCredentials(httpRequest.getCorrelationId(),variant,processParametersForVariant(httpRequest,variant),headers,httpRequest.getMethod().getName(),httpRequest.getServicePath(),body);
-    if (!allowTemporaryCredentials && credentials.getParameters().containsKey(SecurityParameter.SecurityToken.parameter())) {
+    SecurityContext.getLoginContext(credentials).login();
+    final Subject subject=Contexts.lookup(httpRequest.getCorrelationId()).getSubject();
+    final QueryIdCredential credential=Iterables.getFirst(subject.getPublicCredentials(QueryIdCredential.class),null);
+    if (credential == null || (credential.getType().isPresent() && !allowedTemporaryKeyTypes.contains(credential.getType().get()))) {
       throw new AuthenticationException("Temporary credentials forbidden for service");
     }
-    SecurityContext.getLoginContext(credentials).login();
     parameters.keySet().removeAll(variant.getParametersToRemove());
     parameters.remove(SecurityParameter.SecurityToken.parameter());
   }
