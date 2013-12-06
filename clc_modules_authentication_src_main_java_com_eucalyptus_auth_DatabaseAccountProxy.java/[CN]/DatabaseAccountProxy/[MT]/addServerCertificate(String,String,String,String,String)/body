@@ -1,0 +1,62 @@
+{
+  if (!ServerCertificateEntity.isCertificateNameValid(certName))   throw new AuthException(AuthException.INVALID_SERVER_CERT_NAME);
+  if (!ServerCertificateEntity.isCertificatePathValid(certPath))   throw new AuthException(AuthException.INVALID_SERVER_CERT_PATH);
+  String encPk=null;
+  String sessionKey=null;
+  try {
+    final MessageDigest digest=Digest.SHA256.get();
+    final byte[] salt=new byte[32];
+    Crypto.getSecureRandomSupplier().get().nextBytes(salt);
+    digest.update(this.lookupAdmin().getPassword().getBytes(Charsets.UTF_8));
+    digest.update(salt);
+    final SecretKey symmKey=new SecretKeySpec(digest.digest(),"AES");
+    Cipher cipher=Ciphers.AES_GCM.get();
+    final byte[] iv=new byte[32];
+    Crypto.getSecureRandomSupplier().get().nextBytes(iv);
+    cipher.init(Cipher.ENCRYPT_MODE,symmKey,new IvParameterSpec(iv));
+    final byte[] cipherText=cipher.doFinal(pk.getBytes());
+    encPk=new String(Base64.encode(Arrays.concatenate(iv,cipherText)));
+    final PublicKey euarePublicKey=SystemCredentials.lookup(Euare.class).getCertificate().getPublicKey();
+    cipher=Ciphers.RSA_PKCS1.get();
+    cipher.init(Cipher.WRAP_MODE,euarePublicKey);
+    byte[] wrappedKeyBytes=cipher.wrap(symmKey);
+    sessionKey=new String(Base64.encode(wrappedKeyBytes));
+  }
+ catch (  final Exception e) {
+    LOG.error("Failed to encrypt key",e);
+    throw Exceptions.toUndeclared(e);
+  }
+  try {
+    final ServerCertificate found=lookupServerCertificate(certName);
+    if (found != null)     throw new AuthException(AuthException.SERVER_CERT_ALREADY_EXISTS);
+  }
+ catch (  final NoSuchElementException|AuthException ex) {
+    ;
+  }
+catch (  final Exception ex) {
+    throw ex;
+  }
+  final String certId=Crypto.generateAlphanumericId(21,"ASC");
+  final EntityTransaction db=Entities.get(ServerCertificateEntity.class);
+  ServerCertificateEntity entity=null;
+  try {
+    final UserFullName accountAdmin=UserFullName.getInstance(this.lookupAdmin());
+    entity=new ServerCertificateEntity(accountAdmin,certName);
+    entity.setCertBody(certBody);
+    entity.setCertChain(certChain);
+    entity.setCertPath(certPath);
+    entity.setPrivateKey(encPk);
+    entity.setSessionKey(sessionKey);
+    entity.setCertId(certId);
+    Entities.persist(entity);
+    db.commit();
+  }
+ catch (  final Exception ex) {
+    LOG.error("Failed to persist server certificate entity",ex);
+    throw Exceptions.toUndeclared(ex);
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+  return ServerCertificates.ToServerCertificate.INSTANCE.apply(entity);
+}

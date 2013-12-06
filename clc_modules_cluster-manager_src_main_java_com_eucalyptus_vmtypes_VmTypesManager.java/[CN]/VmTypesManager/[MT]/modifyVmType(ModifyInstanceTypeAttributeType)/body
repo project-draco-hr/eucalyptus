@@ -1,6 +1,6 @@
 {
   final ModifyInstanceTypeAttributeResponseType reply=request.getReply();
-  if (Contexts.lookup().hasAdministrativePrivileges()) {
+  if (Contexts.lookup().isAdministrator()) {
     final Function<String,VmType> modifyFunc=new Function<String,VmType>(){
       @Override public VmType apply(      String vmTypeName){
         try {
@@ -26,28 +26,13 @@
     }
 ;
     try {
-      VmTypeDetails beforeDetails=new VmTypeDetails(){
-{
-          VmType before=VmTypes.lookup(request.getName());
-          this.setName(before.getName());
-          this.setDisk(before.getDisk());
-          this.setCpu(before.getCpu());
-          this.setMemory(before.getMemory());
-        }
+      final VmType before=VmTypes.lookup(request.getName());
+      if (!RestrictedTypes.filterPrivileged().apply(before)) {
+        throw new EucalyptusCloudException("Authorization failed.");
       }
-;
-      VmTypeDetails afterDetails=new VmTypeDetails(){
-{
-          VmType after=Entities.asTransaction(modifyFunc).apply(request.getName());
-          this.setName(after.getName());
-          this.setDisk(after.getDisk());
-          this.setCpu(after.getCpu());
-          this.setMemory(after.getMemory());
-        }
-      }
-;
-      reply.setPreviousInstanceType(beforeDetails);
-      reply.setInstanceType(afterDetails);
+      final VmType after=Entities.asTransaction(modifyFunc).apply(request.getName());
+      reply.setPreviousInstanceType(TypeMappers.transform(before,VmTypeDetails.class));
+      reply.setInstanceType(TypeMappers.transform(after,VmTypeDetails.class));
     }
  catch (    NoSuchMetadataException ex) {
       throw new EucalyptusCloudException("Failed to lookup the requested instance type: " + request.getName(),ex);
