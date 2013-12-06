@@ -1,18 +1,16 @@
 {
-  EntityWrapper<UserEntity> db=EntityWrapper.get(UserEntity.class);
-  try {
-    UserEntity user=DatabaseAuthUtils.getUnique(db,UserEntity.class,"userId",this.delegate.getUserId());
+  try (final TransactionResource db=Entities.transactionFor(UserEntity.class)){
+    UserEntity user=DatabaseAuthUtils.getUnique(UserEntity.class,"userId",this.delegate.getUserId());
     CertificateEntity certEntity=new CertificateEntity(X509CertHelper.fromCertificate(cert));
     certEntity.setActive(true);
     certEntity.setRevoked(false);
-    db.recast(CertificateEntity.class).add(certEntity);
+    Entities.persist(certEntity);
     certEntity.setUser(user);
     user.getCertificates().add(certEntity);
     db.commit();
     return new DatabaseCertificateProxy(certEntity);
   }
  catch (  Exception e) {
-    db.rollback();
     Debugging.logError(LOG,e,"Failed to get add certificate " + cert);
     throw new AuthException(e);
   }

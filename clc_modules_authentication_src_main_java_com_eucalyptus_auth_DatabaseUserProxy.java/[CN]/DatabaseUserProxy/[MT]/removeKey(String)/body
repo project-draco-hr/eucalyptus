@@ -2,16 +2,14 @@
   if (Strings.isNullOrEmpty(keyId)) {
     throw new AuthException(AuthException.EMPTY_KEY_ID);
   }
-  EntityWrapper<UserEntity> db=EntityWrapper.get(UserEntity.class);
-  try {
-    UserEntity user=DatabaseAuthUtils.getUnique(db,UserEntity.class,"userId",this.delegate.getUserId());
-    AccessKeyEntity keyEntity=DatabaseAuthUtils.getUnique(db.recast(AccessKeyEntity.class),AccessKeyEntity.class,"accessKey",keyId);
+  try (final TransactionResource db=Entities.transactionFor(UserEntity.class)){
+    UserEntity user=DatabaseAuthUtils.getUnique(UserEntity.class,"userId",this.delegate.getUserId());
+    AccessKeyEntity keyEntity=DatabaseAuthUtils.getUnique(AccessKeyEntity.class,"accessKey",keyId);
     user.getKeys().remove(keyEntity);
-    db.recast(AccessKeyEntity.class).delete(keyEntity);
+    Entities.delete(keyEntity);
     db.commit();
   }
  catch (  Exception e) {
-    db.rollback();
     Debugging.logError(LOG,e,"Failed to get delete key " + keyId);
     throw new AuthException(e);
   }

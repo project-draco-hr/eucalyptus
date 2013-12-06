@@ -9,22 +9,20 @@
   if (!recursive && userHasResourceAttached(userName,accountName)) {
     throw new AuthException(AuthException.USER_DELETE_CONFLICT);
   }
-  EntityWrapper<UserEntity> db=EntityWrapper.get(UserEntity.class);
-  try {
-    UserEntity user=DatabaseAuthUtils.getUniqueUser(db,userName,accountName);
+  try (final TransactionResource db=Entities.transactionFor(UserEntity.class)){
+    UserEntity user=DatabaseAuthUtils.getUniqueUser(userName,accountName);
     for (    GroupEntity ge : user.getGroups()) {
       if (ge.isUserGroup()) {
-        db.recast(GroupEntity.class).delete(ge);
+        Entities.delete(ge);
       }
  else {
         ge.getUsers().remove(user);
       }
     }
-    db.delete(user);
+    Entities.delete(user);
     db.commit();
   }
  catch (  Exception e) {
-    db.rollback();
     Debugging.logError(LOG,e,"Failed to delete user: " + userName + " in "+ accountName);
     throw new AuthException(AuthException.NO_SUCH_USER,e);
   }

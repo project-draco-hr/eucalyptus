@@ -8,27 +8,25 @@
   if (!recursive && !DatabaseAuthUtils.isAccountEmpty(accountName)) {
     throw new AuthException(AuthException.ACCOUNT_DELETE_CONFLICT);
   }
-  EntityWrapper<AccountEntity> db=EntityWrapper.get(AccountEntity.class);
-  try {
+  try (final TransactionResource db=Entities.transactionFor(AccountEntity.class)){
     if (recursive) {
-      List<GroupEntity> groups=(List<GroupEntity>)db.createCriteria(GroupEntity.class).setCacheable(true).createCriteria("account").setCacheable(true).add(Restrictions.eq("name",accountName)).list();
-      List<UserEntity> users=(List<UserEntity>)db.createCriteria(UserEntity.class).setCacheable(true).createCriteria("groups").setCacheable(true).add(Restrictions.eq("userGroup",true)).createCriteria("account").setCacheable(true).add(Restrictions.eq("name",accountName)).list();
+      List<GroupEntity> groups=(List<GroupEntity>)Entities.createCriteria(GroupEntity.class).setCacheable(true).createCriteria("account").setCacheable(true).add(Restrictions.eq("name",accountName)).list();
+      List<UserEntity> users=(List<UserEntity>)Entities.createCriteria(UserEntity.class).setCacheable(true).createCriteria("groups").setCacheable(true).add(Restrictions.eq("userGroup",true)).createCriteria("account").setCacheable(true).add(Restrictions.eq("name",accountName)).list();
       for (      GroupEntity g : groups) {
-        db.recast(GroupEntity.class).delete(g);
+        Entities.delete(g);
       }
       for (      UserEntity u : users) {
-        db.recast(UserEntity.class).delete(u);
+        Entities.delete(u);
       }
     }
-    AccountEntity account=(AccountEntity)db.createCriteria(AccountEntity.class).setCacheable(true).add(Restrictions.eq("name",accountName)).uniqueResult();
+    AccountEntity account=(AccountEntity)Entities.createCriteria(AccountEntity.class).setCacheable(true).add(Restrictions.eq("name",accountName)).uniqueResult();
     if (account == null) {
       throw new NoSuchElementException("Can not find account " + accountName);
     }
-    db.delete(account);
+    Entities.delete(account);
     db.commit();
   }
  catch (  Exception e) {
-    db.rollback();
     Debugging.logError(LOG,e,"Failed to delete account " + accountName);
     throw new AuthException(AuthException.NO_SUCH_ACCOUNT,e);
   }

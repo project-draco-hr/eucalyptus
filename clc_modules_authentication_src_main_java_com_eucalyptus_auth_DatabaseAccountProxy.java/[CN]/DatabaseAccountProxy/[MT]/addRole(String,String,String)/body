@@ -17,24 +17,20 @@
     throw new AuthException(AuthException.ROLE_ALREADY_EXISTS);
   }
   final PolicyEntity parsedPolicy=PolicyParser.getResourceInstance().parse(assumeRolePolicy);
-  final EntityWrapper<AccountEntity> db=EntityWrapper.get(AccountEntity.class);
-  try {
-    final AccountEntity account=DatabaseAuthUtils.getUnique(db,AccountEntity.class,"name",this.delegate.getName());
+  try (final TransactionResource db=Entities.transactionFor(AccountEntity.class)){
+    final AccountEntity account=DatabaseAuthUtils.getUnique(AccountEntity.class,"name",this.delegate.getName());
     final RoleEntity newRole=new RoleEntity(roleName);
     newRole.setRoleId(Crypto.generateAlphanumericId(21,"ARO"));
     newRole.setPath(path);
     newRole.setAccount(account);
     newRole.setAssumeRolePolicy(parsedPolicy);
     parsedPolicy.setName("assume-role-policy-for-" + newRole.getRoleId());
-    final RoleEntity persistedRole=db.recast(RoleEntity.class).persist(newRole);
+    final RoleEntity persistedRole=Entities.persist(newRole);
     db.commit();
     return new DatabaseRoleProxy(persistedRole);
   }
  catch (  Exception e) {
     Debugging.logError(LOG,e,"Failed to add role: " + roleName + " in "+ this.delegate.getName());
     throw new AuthException(AuthException.ROLE_CREATE_FAILURE,e);
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
 }

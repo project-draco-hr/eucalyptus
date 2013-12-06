@@ -16,21 +16,17 @@
   if (DatabaseAuthUtils.checkInstanceProfileExists(instanceProfileName,this.delegate.getName())) {
     throw new AuthException(AuthException.INSTANCE_PROFILE_ALREADY_EXISTS);
   }
-  final EntityWrapper<AccountEntity> db=EntityWrapper.get(AccountEntity.class);
-  try {
-    final AccountEntity account=DatabaseAuthUtils.getUnique(db,AccountEntity.class,"name",this.delegate.getName());
+  try (final TransactionResource db=Entities.transactionFor(AccountEntity.class)){
+    final AccountEntity account=DatabaseAuthUtils.getUnique(AccountEntity.class,"name",this.delegate.getName());
     final InstanceProfileEntity newInstanceProfile=new InstanceProfileEntity(instanceProfileName);
     newInstanceProfile.setPath(path);
     newInstanceProfile.setAccount(account);
-    final InstanceProfileEntity persistedInstanceProfile=db.recast(InstanceProfileEntity.class).persist(newInstanceProfile);
+    final InstanceProfileEntity persistedInstanceProfile=Entities.persist(newInstanceProfile);
     db.commit();
     return new DatabaseInstanceProfileProxy(persistedInstanceProfile);
   }
  catch (  Exception e) {
     Debugging.logError(LOG,e,"Failed to add instance profile: " + instanceProfileName + " in "+ this.delegate.getName());
     throw new AuthException(AuthException.INSTANCE_PROFILE_CREATE_FAILURE,e);
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
 }

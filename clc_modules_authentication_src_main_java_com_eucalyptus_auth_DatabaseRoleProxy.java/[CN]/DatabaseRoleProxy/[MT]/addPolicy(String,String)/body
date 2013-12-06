@@ -6,20 +6,16 @@
   }
   final PolicyEntity parsedPolicy=PolicyParser.getInstance().parse(policy);
   parsedPolicy.setName(name);
-  final EntityWrapper<RoleEntity> db=EntityWrapper.get(RoleEntity.class);
-  try {
-    final RoleEntity roleEntity=getRoleEntity(db);
+  try (final TransactionResource db=Entities.transactionFor(RoleEntity.class)){
+    final RoleEntity roleEntity=getRoleEntity();
     parsedPolicy.setRole(roleEntity);
     roleEntity.getPolicies().add(parsedPolicy);
-    final PolicyEntity persistedPolicyEntity=db.recast(PolicyEntity.class).persist(parsedPolicy);
+    final PolicyEntity persistedPolicyEntity=Entities.persist(parsedPolicy);
     db.commit();
     return new DatabasePolicyProxy(persistedPolicyEntity);
   }
  catch (  Exception e) {
     Debugging.logError(LOG,e,"Failed to attach policy for " + this.delegate.getName());
     throw new AuthException("Failed to attach policy",e);
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
 }
