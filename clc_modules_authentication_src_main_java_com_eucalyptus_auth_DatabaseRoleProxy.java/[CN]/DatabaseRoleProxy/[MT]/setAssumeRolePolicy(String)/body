@@ -1,21 +1,17 @@
 {
   final PolicyEntity parsedPolicy=PolicyParser.getResourceInstance().parse(policy);
   parsedPolicy.setName("assume-role-policy-for-" + getRoleId());
-  final EntityWrapper<RoleEntity> db=EntityWrapper.get(RoleEntity.class);
-  try {
-    final RoleEntity roleEntity=getRoleEntity(db);
+  try (final TransactionResource db=Entities.transactionFor(RoleEntity.class)){
+    final RoleEntity roleEntity=getRoleEntity();
     final PolicyEntity oldAssumeRolePolicy=roleEntity.getAssumeRolePolicy();
     roleEntity.setAssumeRolePolicy(parsedPolicy);
-    db.recast(PolicyEntity.class).delete(oldAssumeRolePolicy);
-    final PolicyEntity persistedPolicyEntity=db.recast(PolicyEntity.class).persist(parsedPolicy);
+    Entities.delete(oldAssumeRolePolicy);
+    final PolicyEntity persistedPolicyEntity=Entities.persist(parsedPolicy);
     db.commit();
     return new DatabasePolicyProxy(persistedPolicyEntity);
   }
  catch (  Exception e) {
     Debugging.logError(LOG,e,"Failed to set assume role policy for " + this.delegate.getName());
     throw new AuthException("Failed to set assume role policy",e);
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
 }
