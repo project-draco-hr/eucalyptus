@@ -19,10 +19,18 @@
     addr=InetAddress.getByName(hostName);
   }
  catch (  UnknownHostException ex1) {
-    LOG.error("Inavlid hostname: " + hostName + " failure: "+ ex1.getMessage(),ex1);
+    LOG.error("Invalid hostname: " + hostName + " failure: "+ ex1.getMessage(),ex1);
     throw new ServiceRegistrationException(builder.getClass().getSimpleName() + ": registration failed because the hostname " + hostName+ " is invalid: "+ ex1.getMessage(),ex1);
   }
   LOG.info("Using builder: " + builder.getClass().getSimpleName() + " for: "+ partition+ "."+ name+ "@"+ hostName+ ":"+ port);
+  if (builder.checkUpdate(partition,name,hostName,port)) {
+    final ServiceConfiguration configuration=ServiceConfigurations.lookupByName(builder.getComponentId().getClass(),name);
+    ServiceConfigurations.update(configuration,hostName,port);
+    ServiceConfigurations.store(configuration);
+    Components.updateConfiguration().apply(configuration);
+    LOG.info(String.format("Updated registration information to: %s.%s@%s:%d",partition,name,hostName,port));
+    return true;
+  }
   if (!builder.checkAdd(partition,name,hostName,port)) {
     LOG.info("Returning existing registration information for: " + partition + "."+ name+ "@"+ hostName+ ":"+ port);
     return true;
