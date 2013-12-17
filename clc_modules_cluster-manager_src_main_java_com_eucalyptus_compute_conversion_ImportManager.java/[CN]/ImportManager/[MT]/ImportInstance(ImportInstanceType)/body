@@ -1,7 +1,7 @@
 {
   LOG.info(request);
   final ImportInstanceResponseType reply=request.getReply();
-  ConversionTask task=new ConversionTask();
+  ImagingTask task=new ImagingTask(new ConversionTask(),ImportTaskState.NEW,0);
   ImportInstanceTaskDetails taskDetails=new ImportInstanceTaskDetails();
   final UserFullName ufn=Contexts.lookup().getUserFullName();
   for (  DiskImage diskImage : request.getDiskImageSet()) {
@@ -14,24 +14,22 @@
     volumeDetail.setAvailabilityZone("");
     volumeDetail.setVolume(new DiskImageVolumeDescription(diskImage.getVolume().getSize(),""));
     volumeDetail.setImage(new DiskImageDescription(imageDetails.getFormat(),imageDetails.getBytes(),imageDetails.getImportManifestUrl(),""));
-    volumeDetail.setStatus(ConversionState.active.name());
-    volumeDetail.setStatusMessage("Pending");
+    volumeDetail.setStatus(ImportTaskState.NEW.getExternalVolumeStateName());
+    volumeDetail.setStatusMessage(ImportTaskState.NEW.getExternalVolumeStatusMessage());
     taskDetails.getVolumes().add(volumeDetail);
   }
   String taskId=Crypto.generateId(request.getCorrelationId(),"import-i");
   final String instanceId=Crypto.generateId(request.getCorrelationId(),"i");
   final String reservationId=Crypto.generateId(request.getCorrelationId(),"r");
   final String imageId=Crypto.generateId(request.getCorrelationId(),"emi");
-  task.setConversionTaskId(taskId);
+  task.setId(taskId);
   Date expiration=Dates.hoursFromNow(CONVERSION_EXPIRATION_TIMEOUT);
-  task.setExpirationTime(expiration.toString());
-  task.setState(ConversionState.active.name());
-  task.setStatusMessage(LogUtil.dumpObject(request));
-  taskDetails.setInstanceId(instanceId);
+  task.getTask().setExpirationTime(expiration.toString());
+  task.getTask().setState(ImportTaskState.NEW.getExternalTaskStateName());
   taskDetails.setPlatform(request.getPlatform());
   taskDetails.setDescription(request.getDescription());
-  task.setImportInstance(taskDetails);
-  reply.setConversionTask(task);
-  tasks.put(taskId,task);
+  task.getTask().setImportInstance(taskDetails);
+  reply.setConversionTask(task.getTask());
+  putConversionTask(taskId,task);
   return reply;
 }
