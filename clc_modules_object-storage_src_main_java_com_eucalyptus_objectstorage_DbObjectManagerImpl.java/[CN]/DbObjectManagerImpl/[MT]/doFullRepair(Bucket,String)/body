@@ -1,0 +1,75 @@
+{
+  ObjectEntity searchExample=new ObjectEntity(bucket.getBucketName(),objectKey,null);
+  final Predicate<ObjectEntity> repairPredicate=new Predicate<ObjectEntity>(){
+    public boolean apply(    ObjectEntity example){
+      if (bucket.isVersioningDisabled()) {
+        try {
+          Criteria search=Entities.createCriteria(ObjectEntity.class);
+          List<ObjectEntity> results=search.add(Example.create(example)).add(ObjectEntity.QueryHelpers.getNotDeletingRestriction()).add(ObjectEntity.QueryHelpers.getNotPendingRestriction()).addOrder(Order.desc("objectModifiedTimestamp")).list();
+          if (results != null && results.size() > 0) {
+            try {
+              if (results.get(0).getIsLatest()) {
+                results.get(0).makeLatest();
+              }
+              for (              ObjectEntity obj : results.subList(1,results.size())) {
+                LOG.trace("Marking object " + obj.getBucketName() + "/"+ obj.getObjectUuid()+ " for deletion because it is not latest.");
+                obj.makeNotLatest();
+                obj.markForDeletion();
+              }
+            }
+ catch (            IndexOutOfBoundsException e) {
+            }
+          }
+        }
+ catch (        NoSuchElementException e) {
+        }
+catch (        Exception e) {
+          LOG.error("Error consolidationg Object records for " + example.getBucketName() + "/"+ example.getObjectKey());
+          return false;
+        }
+      }
+ else {
+        try {
+          Criteria search=Entities.createCriteria(ObjectEntity.class);
+          List<ObjectEntity> results=search.add(Example.create(example)).add(ObjectEntity.QueryHelpers.getNotDeletingRestriction()).add(ObjectEntity.QueryHelpers.getNotPendingRestriction()).addOrder(Order.desc("objectModifiedTimestamp")).list();
+          ObjectEntity lastViewed=null;
+          if (results != null && results.size() > 0) {
+            try {
+              results.get(0).makeLatest();
+              for (              ObjectEntity obj : results.subList(1,results.size())) {
+                LOG.trace("Marking object " + obj.getBucketName() + "/"+ obj.getObjectUuid()+ " as no longer latest version");
+                obj.makeNotLatest();
+                if (obj.isNullVersioned()) {
+                  if (lastViewed != null && lastViewed.isNullVersioned()) {
+                    LOG.trace("Marking object " + obj.getBucketName() + "/"+ obj.getObjectUuid()+ " for deletion because it is not latest.");
+                    obj.markForDeletion();
+                  }
+                  lastViewed=obj;
+                }
+ else {
+                  lastViewed=null;
+                }
+              }
+            }
+ catch (            IndexOutOfBoundsException e) {
+            }
+          }
+        }
+ catch (        NoSuchElementException e) {
+        }
+catch (        Exception e) {
+          LOG.error("Error consolidationg Object records for " + example.getBucketName() + "/"+ example.getObjectKey());
+          return false;
+        }
+      }
+      return true;
+    }
+  }
+;
+  try {
+    Entities.asTransaction(repairPredicate).apply(searchExample);
+  }
+ catch (  final Throwable f) {
+    LOG.error("Error in version/null repair",f);
+  }
+}

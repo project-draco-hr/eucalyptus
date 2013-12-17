@@ -1,0 +1,51 @@
+{
+  DeleteObjectType deleteRequest=null;
+  DeleteObjectResponseType deleteResponse=null;
+  ObjectStorageProviderClient client=ObjectStorageProviders.getInstance();
+  LOG.trace("Reaping " + obj.getBucketName() + "/"+ obj.getObjectUuid()+ ".");
+  deleteRequest=new DeleteObjectType();
+  User requestUser=null;
+  try {
+    requestUser=Accounts.lookupUserById(obj.getOwnerIamUserId());
+  }
+ catch (  AuthException e) {
+    LOG.trace("User with id " + obj.getOwnerIamUserId() + " not found during object reaping. Trying account admin for canonicalId "+ obj.getOwnerCanonicalId());
+    try {
+      requestUser=Accounts.lookupAccountByCanonicalId(obj.getOwnerCanonicalId()).lookupAdmin();
+    }
+ catch (    AuthException ex) {
+      LOG.trace("Account admin for canonicalId " + obj.getOwnerCanonicalId() + " not found. Cannot remove object with uuid "+ obj.getBucketName()+ "/"+ obj.getObjectUuid());
+      throw ex;
+    }
+  }
+  if (requestUser.getKeys() != null && requestUser.getKeys().size() > 0) {
+    deleteRequest.setAccessKeyID(requestUser.getKeys().get(0).getAccessKey());
+  }
+ else {
+    LOG.trace("No access keys found for user " + requestUser.getUserId() + " using admin accound for user");
+    User admin=requestUser.getAccount().lookupAdmin();
+    if (admin.getKeys() != null && admin.getKeys().size() > 0) {
+      deleteRequest.setAccessKeyID(admin.getKeys().get(0).getAccessKey());
+    }
+ else {
+      LOG.error("Cannot find a valid AccessKeyId for backend request for user " + requestUser.getUserId() + " or account "+ requestUser.getAccount().getAccountNumber()+ " admin");
+      throw new AuthException("Could not setup auth properly for delete request");
+    }
+  }
+  deleteRequest.setUser(requestUser);
+  deleteRequest.setBucket(obj.getBucketName());
+  deleteRequest.setKey(obj.getObjectUuid());
+  try {
+    deleteResponse=client.deleteObject(deleteRequest);
+    if (HttpResponseStatus.NO_CONTENT.equals(deleteResponse.getStatus()) || HttpResponseStatus.OK.equals(deleteResponse.getStatus())) {
+      Transactions.delete(obj);
+    }
+ else {
+      LOG.trace("Backend did not confirm deletion of " + deleteRequest.getBucket() + "/"+ deleteRequest.getKey()+ " via request: "+ deleteRequest.toString());
+      throw new Exception("Object could not be confirmed as deleted.");
+    }
+  }
+ catch (  EucalyptusCloudException ex) {
+    LOG.trace("Error in response from backend on deletion request for object on backend: " + deleteRequest.getBucket() + "/"+ deleteRequest.getKey());
+  }
+}

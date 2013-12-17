@@ -1,0 +1,26 @@
+{
+  String date;
+  String verifyDate;
+  if (httpRequest.containsHeader("x-amz-date")) {
+    date="";
+    verifyDate=httpRequest.getHeader("x-amz-date");
+  }
+ else {
+    date=httpRequest.getAndRemoveHeader(SecurityParameter.Date.toString());
+    verifyDate=date;
+    if (date == null || date.length() <= 0)     throw new AccessDeniedException("User authentication failed. Date must be specified.");
+  }
+  try {
+    Date dateToVerify=DateUtil.parseDate(verifyDate);
+    Date currentDate=new Date();
+    if (Math.abs(currentDate.getTime() - dateToVerify.getTime()) > ObjectStorageProperties.EXPIRATION_LIMIT) {
+      LOG.error("Incoming ObjectStorage message is expired. Current date: " + currentDate.toString() + " Message's Verification Date: "+ dateToVerify.toString());
+      throw new AccessDeniedException("Message expired. Sorry.");
+    }
+  }
+ catch (  Exception ex) {
+    LOG.error("Cannot parse date: " + verifyDate);
+    throw new AccessDeniedException("Unable to parse date.");
+  }
+  return date;
+}

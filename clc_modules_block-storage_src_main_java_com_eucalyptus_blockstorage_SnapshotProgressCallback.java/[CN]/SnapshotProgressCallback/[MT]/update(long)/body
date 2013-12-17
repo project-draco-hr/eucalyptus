@@ -1,0 +1,37 @@
+{
+  final int progress=(int)((bytesSoFar * 100) / uploadSize);
+  if (progress - lastProgress < PROGRESS_TICK) {
+    return;
+  }
+ else {
+    lastProgress=progress;
+    LOG.debug("Queueing snap update for progress: " + String.valueOf(progress));
+    Threads.enqueue(myConfig,1,new Callable<Boolean>(){
+      @Override public Boolean call() throws Exception {
+        LOG.debug("Executing snap update for progress: " + String.valueOf(progress));
+        EntityTransaction db=Entities.get(SnapshotInfo.class);
+        SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
+        try {
+          SnapshotInfo foundSnapshotInfo=Entities.uniqueResult(snapshotInfo);
+          StorageProperties.Status snapStatus=StorageProperties.Status.valueOf(foundSnapshotInfo.getStatus());
+          if (StorageProperties.Status.pending.equals(snapStatus) || StorageProperties.Status.creating.equals(snapStatus)) {
+            foundSnapshotInfo.setProgress(String.valueOf(progress));
+          }
+          db.commit();
+          return true;
+        }
+ catch (        Exception ex) {
+          failed();
+          LOG.error("Error updating snapshot upload progress in DB.",ex);
+          return false;
+        }
+ finally {
+          if (db != null && db.isActive()) {
+            db.rollback();
+          }
+        }
+      }
+    }
+);
+  }
+}

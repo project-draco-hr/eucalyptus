@@ -1,0 +1,44 @@
+{
+  LOG.info("Testing object listing");
+  int entityCount=10;
+  ObjectEntity testEntity=null;
+  String key="objectkey";
+  String bucketName="testbucket_" + UUID.randomUUID().toString().replace("-","");
+  ArrayList<ObjectEntity> testEntities=new ArrayList<ObjectEntity>(entityCount);
+  final boolean useVersioning=false;
+  CallableWithRollback<PutObjectResponseType,Boolean> fakeModifier=new CallableWithRollback<PutObjectResponseType,Boolean>(){
+    @Override public PutObjectResponseType call() throws S3Exception, Exception {
+      return getFakeSuccessfulPUTResponse(useVersioning);
+    }
+    @Override public Boolean rollback(    PutObjectResponseType arg) throws S3Exception, Exception {
+      return true;
+    }
+  }
+;
+  try {
+    for (int i=0; i < entityCount; i++) {
+      testEntity=generateFakeValidEntity(bucketName,key + String.valueOf(i),false);
+      testEntities.add(testEntity);
+      ObjectManagers.getInstance().create(bucketName,testEntity,fakeModifier);
+    }
+    PaginatedResult<ObjectEntity> r=ObjectManagers.getInstance().listPaginated(bucketName,100,null,null,null);
+    for (    ObjectEntity e : r.getEntityList()) {
+      System.out.println(e.toString());
+    }
+    Assert.assertTrue(r.getEntityList().size() == entityCount);
+  }
+ catch (  Exception e) {
+    LOG.error("Transaction error",e);
+    Assert.fail("Failed getting listing");
+  }
+ finally {
+    for (    ObjectEntity obj : testEntities) {
+      try {
+        ObjectManagers.getInstance().delete(obj,null);
+      }
+ catch (      Exception e) {
+        LOG.error("Error deleteing entity: " + obj.toString(),e);
+      }
+    }
+  }
+}

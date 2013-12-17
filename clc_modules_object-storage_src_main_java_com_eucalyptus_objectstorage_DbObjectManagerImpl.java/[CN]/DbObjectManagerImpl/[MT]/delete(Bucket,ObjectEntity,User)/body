@@ -1,0 +1,95 @@
+{
+  if (bucket.isVersioningDisabled()) {
+    if (!ObjectEntity.NULL_VERSION_STRING.equals(objectToDelete.getVersionId()) && objectToDelete.getVersionId() != null) {
+      throw new IllegalArgumentException("Cannot delete specific versionId on non-versioned bucket");
+    }
+    final ObjectStorageProviderClient osp;
+    try {
+      osp=ObjectStorageProviders.getInstance();
+    }
+ catch (    NoSuchElementException e) {
+      LOG.error("No provider client configured. Cannot execute delete operation",e);
+      throw e;
+    }
+    final Long objectSize=objectToDelete.getSize();
+    ObjectEntity example=new ObjectEntity(bucket.getBucketName(),objectToDelete.getObjectKey(),ObjectEntity.NULL_VERSION_STRING);
+    Predicate<ObjectEntity> markObjectNulls=new Predicate<ObjectEntity>(){
+      @Override public boolean apply(      ObjectEntity objectExample){
+        List<ObjectEntity> objectRecords=null;
+        try {
+          objectRecords=Entities.query(objectExample);
+          if (objectRecords != null) {
+            for (            ObjectEntity object : objectRecords) {
+              try {
+                object.markForDeletion();
+              }
+ catch (              Exception e) {
+                LOG.error("Error calling backend in object delete: " + object.toString(),e);
+              }
+            }
+          }
+        }
+ catch (        NoSuchElementException e) {
+        }
+catch (        final Throwable f) {
+          return false;
+        }
+        return true;
+      }
+    }
+;
+    if (!Entities.asTransaction(markObjectNulls).apply(example)) {
+      throw new EucalyptusCloudException("Failed to mark records for deletion");
+    }
+    final DeleteObjectType deleteReq=new DeleteObjectType();
+    deleteReq.setBucket(bucket.getBucketName());
+    deleteReq.setUser(requestUser);
+    try {
+      deleteReq.setAccessKeyID(requestUser.getKeys().get(0).getAccessKey());
+    }
+ catch (    final Throwable f) {
+      LOG.error("Error getting access key for user: " + requestUser.getUserId());
+      throw new Exception("Request user has no active access key to use for backend request");
+    }
+    Predicate<ObjectEntity> deleteObjectExact=new Predicate<ObjectEntity>(){
+      @Override public boolean apply(      ObjectEntity object){
+        try {
+          deleteReq.setKey(object.getObjectUuid());
+          Logs.extreme().debug("Removing backend object for s3 object " + deleteReq.getBucket() + "/"+ deleteReq.getKey());
+          DeleteObjectResponseType response=osp.deleteObject(deleteReq);
+          if (HttpResponseStatus.NO_CONTENT.equals(response.getStatus()) || HttpResponseStatus.NOT_FOUND.equals(response.getStatus()) || HttpResponseStatus.OK.equals(response.getStatus())) {
+            Logs.extreme().debug("Removing entity for s3 object " + object.getBucketName() + "/"+ object.getObjectUuid());
+            return true;
+          }
+ else {
+            LOG.error("Error removing backend object for s3 object " + object.getBucketName() + "/"+ object.getObjectUuid()+ " got response "+ response.getStatus().toString()+ " - "+ response.getStatusMessage());
+          }
+        }
+ catch (        Exception e) {
+          LOG.error("Error calling backend in object delete: " + object.toString(),e);
+        }
+        return false;
+      }
+    }
+;
+    try {
+      if (!Transactions.deleteAll(example,deleteObjectExact)) {
+        LOG.warn("Some objects not cleaned during delete operation, will remove asyncrounously later");
+      }
+    }
+ catch (    final Throwable f) {
+      LOG.error("Error doing backend object deletion transaction",f);
+    }
+    try {
+      BucketManagers.getInstance().updateBucketSize(bucket.getBucketName(),-(objectSize.longValue()));
+    }
+ catch (    NoSuchElementException e) {
+    }
+catch (    Exception e) {
+      LOG.warn("Error updating bucket size for removal of object:" + bucket.getBucketName() + "/"+ objectToDelete.getObjectKey());
+    }
+  }
+ else {
+    throw new Exception("Versioning found not-disabled, versioned buckets not supported yet");
+  }
+}

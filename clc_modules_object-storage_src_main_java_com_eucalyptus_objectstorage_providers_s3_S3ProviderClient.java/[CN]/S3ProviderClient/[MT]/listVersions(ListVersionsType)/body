@@ -1,0 +1,67 @@
+{
+  ListVersionsResponseType reply=(ListVersionsResponseType)request.getReply();
+  User requestUser=getRequestUser(request);
+  try {
+    AmazonS3Client s3Client=getS3Client(requestUser,requestUser.getUserId());
+    ListVersionsRequest listVersionsRequest=new ListVersionsRequest(request.getBucket(),request.getPrefix(),request.getKeyMarker(),request.getVersionIdMarker(),request.getDelimiter(),Integer.parseInt(request.getMaxKeys()));
+    VersionListing result=s3Client.listVersions(listVersionsRequest);
+    CanonicalUser owner=null;
+    try {
+      owner=AclUtils.buildCanonicalUser(requestUser.getAccount());
+    }
+ catch (    AuthException e) {
+      LOG.error("Error getting request user's account during bucket version listing",e);
+      owner=null;
+      throw new AccountProblemException("Account for user " + requestUser.getUserId());
+    }
+    reply.setBucket(request.getBucket());
+    reply.setMaxKeys(result.getMaxKeys());
+    reply.setDelimiter(result.getDelimiter());
+    reply.setNextKeyMarker(result.getNextKeyMarker());
+    reply.setNextVersionIdMarker(result.getNextVersionIdMarker());
+    reply.setIsTruncated(result.isTruncated());
+    reply.setVersionIdMarker(result.getVersionIdMarker());
+    reply.setKeyMarker(result.getKeyMarker());
+    if (result.getCommonPrefixes() != null && result.getCommonPrefixes().size() > 0) {
+      reply.setCommonPrefixesList(new ArrayList<CommonPrefixesEntry>());
+      for (      String s : result.getCommonPrefixes()) {
+        reply.getCommonPrefixesList().add(new CommonPrefixesEntry(s));
+      }
+    }
+    ArrayList<KeyEntry> versions=new ArrayList<KeyEntry>();
+    VersionEntry v=null;
+    DeleteMarkerEntry d=null;
+    for (    S3VersionSummary summary : result.getVersionSummaries()) {
+      if (!summary.isDeleteMarker()) {
+        v=new VersionEntry();
+        v.setKey(summary.getKey());
+        v.setVersionId(summary.getVersionId());
+        v.setLastModified(OSGUtil.dateToHeaderFormattedString(summary.getLastModified()));
+        v.setEtag(summary.getETag());
+        v.setIsLatest(summary.isLatest());
+        v.setOwner(owner);
+        v.setSize(summary.getSize());
+        versions.add(v);
+      }
+ else {
+        d=new DeleteMarkerEntry();
+        d.setIsLatest(summary.isLatest());
+        d.setKey(summary.getKey());
+        d.setLastModified(OSGUtil.dateToHeaderFormattedString(summary.getLastModified()));
+        d.setOwner(owner);
+        d.setVersionId(summary.getVersionId());
+        versions.add(d);
+      }
+    }
+    reply.setKeyEntries(versions);
+  }
+ catch (  AmazonServiceException ex) {
+    LOG.error("Got service error from backend: " + ex.getMessage(),ex);
+    throw new EucalyptusCloudException(ex);
+  }
+catch (  AmazonClientException ex) {
+    LOG.error("Got client error from internal Amazon Client: " + ex.getMessage(),ex);
+    throw new EucalyptusCloudException(ex);
+  }
+  return reply;
+}

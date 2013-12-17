@@ -1,0 +1,42 @@
+{
+  logRequest(request);
+  Bucket fakeBucket=new Bucket();
+  fakeBucket.setBucketName("fakebucket");
+  fakeBucket.setOwnerCanonicalId(Contexts.lookup().getAccount().getCanonicalId());
+  request.setBucket(fakeBucket.getBucketName());
+  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,fakeBucket,null,0)) {
+    ListAllMyBucketsResponseType response=(ListAllMyBucketsResponseType)request.getReply();
+    Account accnt=null;
+    try {
+      accnt=Contexts.lookup(request.getCorrelationId()).getAccount();
+      if (accnt == null) {
+        throw new NoSuchContextException();
+      }
+    }
+ catch (    NoSuchContextException e) {
+      try {
+        accnt=Accounts.lookupUserByAccessKeyId(request.getAccessKeyID()).getAccount();
+      }
+ catch (      AuthException ex) {
+        LOG.error("Could not retrieve canonicalId for user with accessKey: " + request.getAccessKeyID());
+        throw new InternalErrorException();
+      }
+    }
+    try {
+      List<Bucket> listing=BucketManagers.getInstance().list(accnt.getCanonicalId(),false,null);
+      response.setBucketList(generateBucketListing(listing));
+      response.setOwner(AclUtils.buildCanonicalUser(accnt));
+      return response;
+    }
+ catch (    Exception e) {
+      throw new InternalErrorException();
+    }
+  }
+ else {
+    AccessDeniedException ex=new AccessDeniedException();
+    ex.setResource("ListAllMyBuckets");
+    ex.setMessage("Insufficient permissions to list buckets. Check with your account administrator");
+    ex.setResourceType("Service");
+    throw ex;
+  }
+}

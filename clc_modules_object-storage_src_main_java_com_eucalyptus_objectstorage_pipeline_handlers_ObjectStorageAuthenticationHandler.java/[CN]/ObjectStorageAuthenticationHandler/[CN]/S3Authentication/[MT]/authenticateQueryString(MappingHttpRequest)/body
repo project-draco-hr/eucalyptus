@@ -1,0 +1,51 @@
+{
+  Map<String,String> parameters=httpRequest.getParameters();
+  String verb=httpRequest.getMethod().getName();
+  String content_md5=httpRequest.getHeader("Content-MD5");
+  content_md5=content_md5 == null ? "" : content_md5;
+  String content_type=httpRequest.getHeader(ObjectStorageProperties.CONTENT_TYPE);
+  content_type=content_type == null ? "" : content_type;
+  String addrString=getS3AddressString(httpRequest);
+  String accesskeyid=parameters.remove(SecurityParameter.AWSAccessKeyId.toString());
+  try {
+    String signature=parameters.remove(SecurityParameter.Signature.toString());
+    if (signature == null) {
+      throw new AccessDeniedException("User authentication failed. Null signature.");
+    }
+    String expires=parameters.remove(SecurityParameter.Expires.toString());
+    if (expires == null) {
+      throw new AccessDeniedException("Authentication failed. Expires must be specified.");
+    }
+    String securityToken=parameters.get(SecurityParameter.SecurityToken.toString());
+    if (checkExpires(expires)) {
+      String canonicalizedAmzHeaders=getCanonicalizedAmzHeaders(httpRequest);
+      String stringToSign=verb + "\n" + content_md5+ "\n"+ content_type+ "\n"+ Long.parseLong(expires)+ "\n"+ canonicalizedAmzHeaders+ addrString;
+      try {
+        SecurityContext.getLoginContext(new ObjectStorageWrappedCredentials(httpRequest.getCorrelationId(),stringToSign,accesskeyid,signature,securityToken)).login();
+      }
+ catch (      Exception ex) {
+        if (addrString.startsWith("/services/objectStorage")) {
+          try {
+            String modifiedAddrString=addrString.replaceFirst("/services/objectStorage","");
+            stringToSign=verb + "\n" + content_md5+ "\n"+ content_type+ "\n"+ Long.parseLong(expires)+ "\n"+ canonicalizedAmzHeaders+ modifiedAddrString;
+            SecurityContext.getLoginContext(new ObjectStorageWrappedCredentials(httpRequest.getCorrelationId(),stringToSign,accesskeyid,signature,securityToken)).login();
+          }
+ catch (          Exception ex2) {
+            LOG.error(ex2);
+            throw new AccessDeniedException();
+          }
+        }
+ else {
+          LOG.error(ex);
+          throw new AccessDeniedException();
+        }
+      }
+    }
+ else {
+      throw new AccessDeniedException("Cannot process request. Expired.");
+    }
+  }
+ catch (  Exception ex) {
+    throw new AccessDeniedException("Could not verify request " + ex.getMessage());
+  }
+}

@@ -1,9 +1,9 @@
 {
   if (!StorageProperties.enableSnapshots) {
-    LOG.error("Snapshot functionality disabled. Please check connection to Walrus");
-    throw new EucalyptusCloudException("could not connect to Walrus.");
+    LOG.error("Snapshot functionality disabled. Please check connection to ObjectStorage");
+    throw new EucalyptusCloudException("could not connect to ObjectStorage.");
   }
-  String snapshotLocation="snapshots" + "/" + snapshotId;
+  String snapshotLocation="snap-" + snapshotId;
   String tmpUncompressedFileName=null;
   String tmpCompressedFileName=null;
   File tmpCompressedFile=null;
@@ -19,29 +19,11 @@
     throw new EucalyptusCloudException("Could not get a temporary file for snapshot download after " + maxRetry + " attempts");
   }
   try {
-    HttpReader snapshotGetter=new HttpReader(snapshotLocation,null,tmpCompressedFile,"GetWalrusSnapshot","");
-    snapshotGetter.run();
+    snapshotOps.downloadSnapshot(StorageProperties.SNAPSHOT_BUCKET,snapshotLocation,new File(tmpUncompressedFileName));
   }
  catch (  Exception ex) {
     cleanupFile(tmpCompressedFile);
-    throw new EucalyptusCloudException("Failed to download snapshot " + snapshotId + " from Walrus",ex);
-  }
-  try {
-    CommandOutput output=SystemUtil.runWithRawOutput(new String[]{"/bin/gunzip",tmpCompressedFile.getAbsolutePath()});
-    if (output.returnValue != 0) {
-      throw new EucalyptusCloudException("Failed to uncompress snapshot " + snapshotId + " due to: "+ output.error);
-    }
-  }
- catch (  Exception ex) {
-    if (ex instanceof EucalyptusCloudException) {
-      throw (EucalyptusCloudException)ex;
-    }
- else {
-      throw new EucalyptusCloudException("Failed to uncompress and/or move snapshot " + snapshotId,ex);
-    }
-  }
- finally {
-    cleanupFile(tmpCompressedFile);
+    throw new EucalyptusCloudException("Failed to download snapshot " + snapshotId + " from ObjectStorage",ex);
   }
   return tmpUncompressedFileName;
 }

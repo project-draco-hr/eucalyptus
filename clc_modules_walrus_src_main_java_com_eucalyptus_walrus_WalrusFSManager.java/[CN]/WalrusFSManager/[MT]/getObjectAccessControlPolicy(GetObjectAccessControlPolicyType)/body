@@ -1,0 +1,65 @@
+{
+  GetObjectAccessControlPolicyResponseType reply=(GetObjectAccessControlPolicyResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  String objectKey=request.getKey();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
+  String ownerId=null;
+  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
+  BucketLogData logData;
+  AccessControlList accessControlList=new AccessControlList();
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+    searchObjectInfo.setVersionId(request.getVersionId());
+    if (request.getVersionId() == null) {
+      searchObjectInfo.setLast(true);
+    }
+    searchObjectInfo.setDeleted(false);
+    List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
+    if (objectInfos.size() > 0) {
+      ObjectInfo objectInfo=objectInfos.get(0);
+      if (ctx.hasAdministrativePrivileges() || (objectInfo.canReadACP(account.getAccountNumber()) && (objectInfo.isGlobalReadACP() || Lookups.checkPrivilege(PolicySpec.S3_GETOBJECTACL,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,objectKey),null)))) {
+        if (logData != null) {
+          updateLogData(bucket,logData);
+          logData.setObjectSize(objectInfo.getSize());
+          reply.setLogData(logData);
+        }
+        ownerId=objectInfo.getOwnerId();
+        ArrayList<Grant> grants=new ArrayList<Grant>();
+        List<GrantInfo> grantInfos=objectInfo.getGrants();
+        objectInfo.readPermissions(grants);
+        addGrants(grants,grantInfos);
+        accessControlList.setGrants(grants);
+      }
+ else {
+        db.rollback();
+        throw new AccessDeniedException("Key",objectKey,logData);
+      }
+    }
+ else {
+      db.rollback();
+      throw new NoSuchEntityException(objectKey,logData);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  AccessControlPolicy accessControlPolicy=new AccessControlPolicy();
+  try {
+    Account ownerInfo=Accounts.lookupAccountById(ownerId);
+    accessControlPolicy.setOwner(new CanonicalUser(ownerInfo.getCanonicalId(),ownerInfo.getName()));
+    accessControlPolicy.setAccessControlList(accessControlList);
+  }
+ catch (  AuthException e) {
+    throw new AccessDeniedException("Key",objectKey,logData);
+  }
+  reply.setAccessControlPolicy(accessControlPolicy);
+  db.commit();
+  return reply;
+}

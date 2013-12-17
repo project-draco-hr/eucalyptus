@@ -1,0 +1,36 @@
+{
+  String bucket="testbucket";
+  String key="testkey";
+  String versionId=null;
+  String requestId=UUID.randomUUID().toString();
+  long contentLength=100;
+  final boolean useVersioning=false;
+  User usr=Principals.systemUser();
+  ObjectEntity object1=new ObjectEntity();
+  try {
+    object1.initializeForCreate(bucket,key,versionId,requestId,contentLength,usr);
+  }
+ catch (  Exception e) {
+    LOG.error(e);
+  }
+  CallableWithRollback<PutObjectResponseType,Boolean> fakeModifier=new CallableWithRollback<PutObjectResponseType,Boolean>(){
+    @Override public PutObjectResponseType call() throws S3Exception, Exception {
+      return getFakeSuccessfulPUTResponse(useVersioning);
+    }
+    @Override public Boolean rollback(    PutObjectResponseType arg) throws S3Exception, Exception {
+      return true;
+    }
+  }
+;
+  try {
+    ObjectManagers.getInstance().create(bucket,object1,fakeModifier);
+    Assert.assertTrue(ObjectManagers.getInstance().exists(bucket,key,null,null));
+    ObjectEntity object2=ObjectManagers.getInstance().get(bucket,key,null);
+    Assert.assertTrue(object2.equals(object1));
+    ObjectManagers.getInstance().delete(object2,null);
+    Assert.assertFalse(ObjectManagers.getInstance().exists(bucket,key,null,null));
+  }
+ catch (  Exception e) {
+    LOG.error(e);
+  }
+}
