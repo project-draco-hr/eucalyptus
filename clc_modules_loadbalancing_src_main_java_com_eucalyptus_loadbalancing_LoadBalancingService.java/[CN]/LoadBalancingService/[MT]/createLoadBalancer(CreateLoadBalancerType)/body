@@ -18,6 +18,23 @@
     throw new InvalidConfigurationRequestException("Loadbalancer name must not exceed 32 characters");
   }
   if (request.getListeners() != null && request.getListeners().getMember() != null)   LoadBalancers.validateListener(request.getListeners().getMember());
+  Collection<Listener> listeners=request.getListeners().getMember();
+  try {
+    for (    final Listener l : listeners) {
+      if ("HTTPS".equals(l.getProtocol().toUpperCase()) || "SSL".equals(l.getProtocol().toUpperCase())) {
+        final String certArn=l.getSSLCertificateId();
+        if (certArn == null || certArn.length() <= 0)         throw new InvalidConfigurationRequestException("SSLCertificateId is required for HTTPS or SSL protocol");
+        LoadBalancers.checkSSLCertificate(ctx.getUser().getUserId(),certArn);
+      }
+    }
+  }
+ catch (  Exception ex) {
+    if (!(ex instanceof LoadBalancingException)) {
+      LOG.error("failed to check SSL certificate Id",ex);
+      ex=new InternalFailure400Exception("failed to check SSL certificate Id",ex);
+    }
+    throw (LoadBalancingException)ex;
+  }
   final Supplier<LoadBalancer> allocator=new Supplier<LoadBalancer>(){
     @Override public LoadBalancer get(){
       try {
@@ -93,7 +110,6 @@ catch (    Exception ex) {
     final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
     throw new InternalFailure400Exception(String.format("Failed to create the loadbalancer: %s",reason),e);
   }
-  Collection<Listener> listeners=request.getListeners().getMember();
   if (listeners != null && listeners.size() > 0) {
     LoadBalancers.createLoadbalancerListener(lbName,ctx,Lists.newArrayList(listeners));
     try {
@@ -105,7 +121,6 @@ catch (    Exception ex) {
     }
  catch (    EventFailedException e) {
       LOG.error("failed to handle createListener event",e);
-      rollback.apply(lbName);
       final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
       throw new InternalFailure400Exception(String.format("Faild to setup the listener: %s",reason),e);
     }
