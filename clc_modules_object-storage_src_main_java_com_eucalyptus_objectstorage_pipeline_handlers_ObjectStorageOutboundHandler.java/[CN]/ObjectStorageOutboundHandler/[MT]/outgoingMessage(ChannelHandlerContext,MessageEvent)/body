@@ -1,0 +1,48 @@
+{
+  if (event.getMessage() instanceof MappingHttpResponse) {
+    MappingHttpResponse httpResponse=(MappingHttpResponse)event.getMessage();
+    BaseMessage msg=(BaseMessage)httpResponse.getMessage();
+    if (msg instanceof PutObjectResponseType) {
+      PutObjectResponseType putObjectResponse=(PutObjectResponseType)msg;
+      httpResponse.addHeader(HttpHeaders.Names.ETAG,'\"' + putObjectResponse.getEtag() + '\"');
+      if (putObjectResponse.getLastModified() != null) {
+        httpResponse.addHeader(HttpHeaders.Names.LAST_MODIFIED,OSGUtil.dateToHeaderFormattedString(putObjectResponse.getLastModified()));
+      }
+      if (putObjectResponse.getVersionId() != null) {
+        httpResponse.addHeader(ObjectStorageProperties.X_AMZ_VERSION_ID,putObjectResponse.getVersionId());
+      }
+    }
+ else     if (msg instanceof PostObjectResponseType) {
+      PostObjectResponseType postObjectResponse=(PostObjectResponseType)msg;
+      String redirectUrl=postObjectResponse.getRedirectUrl();
+      if (redirectUrl != null) {
+        httpResponse.addHeader(HttpHeaders.Names.LOCATION,redirectUrl);
+        httpResponse.setStatus(HttpResponseStatus.SEE_OTHER);
+        httpResponse.setMessage(null);
+      }
+ else {
+        Integer successCode=postObjectResponse.getSuccessCode();
+        if (successCode != null) {
+          if (successCode != 201) {
+            httpResponse.setMessage(null);
+            httpResponse.setStatus(new HttpResponseStatus(successCode,"OK"));
+          }
+ else {
+            httpResponse.setStatus(new HttpResponseStatus(successCode,"Created"));
+          }
+        }
+      }
+      event.getFuture().addListener(ChannelFutureListener.CLOSE);
+    }
+ else     if (msg instanceof CopyObjectResponseType) {
+      CopyObjectResponseType copyResponse=(CopyObjectResponseType)msg;
+      if (copyResponse.getVersionId() != null)       httpResponse.addHeader("x-amz-version-id",copyResponse.getVersionId());
+      if (copyResponse.getCopySourceVersionId() != null)       httpResponse.addHeader("x-amz-copy-source-version-id",copyResponse.getCopySourceVersionId());
+    }
+ else     if (msg instanceof CreateBucketResponseType) {
+      httpResponse.setStatus(HttpResponseStatus.OK);
+      httpResponse.setMessage(null);
+      event.getFuture().addListener(ChannelFutureListener.CLOSE);
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  List<ScheduledJobInfo> jobs=null;
+  EntityTransaction tran=Entities.get(ScheduledJobInfo.class);
+  try {
+    jobs=Entities.query(new ScheduledJobInfo());
+    tran.commit();
+  }
+ catch (  Exception ex) {
+    LOG.error("exception encountered while populating walrus scheduled jobs from database - " + ex.getMessage());
+  }
+ finally {
+    if (tran.isActive()) {
+      tran.rollback();
+    }
+  }
+  if (jobs != null && jobs.size() > 0) {
+    int jobIdx=1;
+    for (    ScheduledJobInfo job : jobs) {
+      Class jobClass=null;
+      try {
+        jobClass=Class.forName(job.getJobClassName());
+      }
+ catch (      ClassNotFoundException e) {
+        LOG.error("attempting to add job of type " + job.getJobClassName() + ", but the class was not found, job will not be added");
+      }
+      if (jobClass != null) {
+        try {
+          JobDetail jobDetail=newJob(jobClass).withIdentity("job" + jobIdx,WALRUS_JOB_GROUP).build();
+          CronTrigger trigger=newTrigger().withIdentity("trigger" + jobIdx,WALRUS_JOB_GROUP).withSchedule(CronScheduleBuilder.cronSchedule(job.getCronSchedule())).build();
+          scheduler.scheduleJob(jobDetail,trigger);
+          LOG.info("job named job" + jobIdx + " added to group WalrusJobs using class "+ job.getJobClassName()+ " with cron schedule '"+ job.getCronSchedule()+ "'");
+        }
+ catch (        SchedulerException se) {
+          LOG.error("while attempting to schedule job using class " + job.getJobClassName() + " an exception occurred with message - "+ se.getMessage());
+        }
+      }
+ else {
+        LOG.error("job was not scheduled because class " + job.getJobClassName() + " was either not found or invalid");
+      }
+      jobIdx++;
+    }
+  }
+ else {
+    LOG.debug("jobs were either not found in the database, or an exception occurred while querying " + "for scheduled jobs");
+  }
+}

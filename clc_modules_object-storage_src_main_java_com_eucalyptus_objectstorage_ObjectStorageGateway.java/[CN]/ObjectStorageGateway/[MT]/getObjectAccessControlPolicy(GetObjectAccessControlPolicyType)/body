@@ -1,0 +1,39 @@
+{
+  logRequest(request);
+  ObjectEntity objectEntity=null;
+  Bucket bucket=null;
+  try {
+    bucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
+  }
+ catch (  NoSuchElementException e) {
+    throw new NoSuchBucketException(request.getBucket());
+  }
+catch (  Exception e) {
+    LOG.error("Error getting metadata for object " + request.getBucket() + " "+ request.getKey());
+    throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
+  }
+  try {
+    objectEntity=ObjectManagers.getInstance().get(bucket,request.getKey(),request.getVersionId());
+  }
+ catch (  NoSuchElementException e) {
+    throw new NoSuchKeyException(request.getBucket());
+  }
+catch (  Exception e) {
+    LOG.error("Error getting metadata for object " + request.getBucket() + " "+ request.getKey());
+    throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
+  }
+  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,null,objectEntity,0)) {
+    GetObjectAccessControlPolicyResponseType reply=(GetObjectAccessControlPolicyResponseType)request.getReply();
+    reply.setBucket(request.getBucket());
+    try {
+      reply.setAccessControlPolicy(objectEntity.getAccessControlPolicy());
+    }
+ catch (    Exception e) {
+      throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
+    }
+    return reply;
+  }
+ else {
+    throw new AccessDeniedException(request.getBucket());
+  }
+}

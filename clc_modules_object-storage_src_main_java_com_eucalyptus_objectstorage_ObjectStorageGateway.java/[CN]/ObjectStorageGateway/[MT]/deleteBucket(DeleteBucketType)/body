@@ -1,0 +1,54 @@
+{
+  logRequest(request);
+  Bucket bucket=null;
+  try {
+    bucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
+  }
+ catch (  NoSuchElementException e) {
+    bucket=null;
+  }
+catch (  Exception e) {
+    throw new InternalErrorException(request.getBucket());
+  }
+  if (bucket == null) {
+    DeleteBucketResponseType reply=(DeleteBucketResponseType)request.getReply();
+    reply.setStatus(HttpResponseStatus.NO_CONTENT);
+    reply.setStatusMessage("NoContent");
+    return reply;
+  }
+ else {
+    if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,null,0)) {
+      try {
+        if (!BucketManagers.getInstance().isEmpty(bucket)) {
+          throw new BucketNotEmptyException(bucket.getBucketName());
+        }
+ else {
+          BucketManagers.getInstance().delete(bucket,new CallableWithRollback<DeleteBucketResponseType,Boolean>(){
+            @Override public DeleteBucketResponseType call() throws Exception {
+              return ospClient.deleteBucket(request);
+            }
+            @Override public Boolean rollback(            DeleteBucketResponseType arg) throws Exception {
+              return true;
+            }
+          }
+);
+          DeleteBucketResponseType reply=(DeleteBucketResponseType)request.getReply();
+          reply.set_return(true);
+          reply.setStatus(HttpResponseStatus.NO_CONTENT);
+          reply.setStatusMessage("NoContent");
+          return reply;
+        }
+      }
+ catch (      S3Exception s3ex) {
+        throw s3ex;
+      }
+catch (      Exception e) {
+        LOG.error("Transaction error deleting bucket " + request.getBucket(),e);
+        throw new InternalErrorException(request.getBucket());
+      }
+    }
+ else {
+      throw new AccessDeniedException(request.getBucket());
+    }
+  }
+}

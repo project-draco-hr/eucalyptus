@@ -1,0 +1,41 @@
+{
+  String existingValue=(String)t.getValue();
+  List<ServiceConfiguration> objConfigs=null;
+  try {
+    objConfigs=ServiceConfigurations.list(ObjectStorage.class);
+  }
+ catch (  NoSuchElementException e) {
+    throw new ConfigurablePropertyException("No ObjectStorage configurations found");
+  }
+  final String proposedValue=newValue;
+  final Set<String> validEntries=Sets.newHashSet();
+  EntityTransaction tx=Entities.get(ObjectStorageConfiguration.class);
+  try {
+    if (!Iterables.any(Components.lookup(ObjectStorage.class).services(),new Predicate<ServiceConfiguration>(){
+      @Override public boolean apply(      ServiceConfiguration config){
+        if (config.isVmLocal()) {
+          validEntries.addAll(ObjectStorageProviders.list());
+          return ObjectStorageProviders.contains(proposedValue);
+        }
+ else {
+          try {
+            ObjectStorageConfiguration objConfig=Entities.uniqueResult((ObjectStorageConfiguration)config);
+            for (            String entry : Splitter.on(",").split(objConfig.getAvailableClients())) {
+              validEntries.add(entry);
+            }
+            return validEntries.contains(proposedValue);
+          }
+ catch (          Exception e) {
+            return false;
+          }
+        }
+      }
+    }
+)) {
+      throw new ConfigurablePropertyException("Cannot modify " + t.getQualifiedName() + "."+ t.getFieldName()+ " new value is not a valid value.  "+ "Legal values are: "+ Joiner.on(",").join(validEntries));
+    }
+  }
+  finally {
+    tx.rollback();
+  }
+}

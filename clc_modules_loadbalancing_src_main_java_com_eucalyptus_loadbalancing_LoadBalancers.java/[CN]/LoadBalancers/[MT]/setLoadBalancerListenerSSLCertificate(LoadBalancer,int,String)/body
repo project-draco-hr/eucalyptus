@@ -1,0 +1,31 @@
+{
+  final Collection<LoadBalancerListenerCoreView> listeners=lb.getListeners();
+  LoadBalancerListenerCoreView listener=null;
+  for (  final LoadBalancerListenerCoreView l : listeners) {
+    if (l.getLoadbalancerPort() == lbPort) {
+      listener=l;
+      break;
+    }
+  }
+  if (listener == null)   throw new ListenerNotFoundException();
+  if (!(PROTOCOL.HTTPS.equals(listener.getProtocol()) || PROTOCOL.SSL.equals(listener.getProtocol())))   throw new InvalidConfigurationRequestException("Listener's protocol is not HTTPS or SSL");
+  checkSSLCertificate(lb.getOwnerUserId(),certArn);
+  final EntityTransaction db=Entities.get(LoadBalancerListener.class);
+  try {
+    final LoadBalancerListener update=Entities.uniqueResult(LoadBalancerListener.named(lb,lbPort));
+    update.setSSLCertificateId(certArn);
+    Entities.persist(update);
+    db.commit();
+  }
+ catch (  final NoSuchElementException ex) {
+    db.rollback();
+    throw new ListenerNotFoundException();
+  }
+catch (  final Exception ex) {
+    db.rollback();
+    throw Exceptions.toUndeclared(ex);
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+}

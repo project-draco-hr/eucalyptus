@@ -1,0 +1,77 @@
+{
+  CompleteMultipartUploadResponseType reply=(CompleteMultipartUploadResponseType)request.getReply();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
+  String bucketName=request.getBucket();
+  String objectKey=request.getKey();
+  List<Part> requestParts=request.getParts();
+  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && (bucket.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
+      try {
+        ObjectInfo searchManifest=new ObjectInfo(bucketName,objectKey);
+        searchManifest.setUploadId(request.getUploadid());
+        searchManifest.setManifest(Boolean.TRUE);
+        EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+        ObjectInfo foundManifest=dbObject.uniqueResultEscape(searchManifest);
+        if (foundManifest != null) {
+          ObjectInfo searchPart=new ObjectInfo(bucketName,objectKey);
+          searchPart.setUploadId(request.getUploadid());
+          searchPart.setManifest(Boolean.FALSE);
+          List<ObjectInfo> foundParts=dbObject.queryEscape(searchPart);
+          if (foundParts != null && foundParts.size() > 0) {
+            if (requestParts != null && requestParts.size() > foundParts.size()) {
+              throw new EucalyptusCloudException("One or more parts has not been uploaded yet. Either upload the part or fix the manifest");
+            }
+ else {
+              Map<Integer,ObjectInfo> partsMap=new HashMap<Integer,ObjectInfo>(foundParts.size());
+              for (              ObjectInfo foundPart : foundParts) {
+                foundPart.setCleanup(Boolean.TRUE);
+                foundPart.setUploadComplete(Boolean.TRUE);
+                partsMap.put(foundPart.getPartNumber(),foundPart);
+              }
+              ObjectInfo lookupPart=null;
+              for (              Part requestPart : requestParts) {
+                if ((lookupPart=partsMap.get(requestPart.getPartNumber())) != null) {
+                  lookupPart.setCleanup(Boolean.FALSE);
+                }
+ else {
+                  throw new EucalyptusCloudException("Part not found");
+                }
+              }
+              foundManifest.setCleanup(Boolean.FALSE);
+              foundManifest.setUploadComplete(Boolean.TRUE);
+              db.commit();
+            }
+          }
+ else {
+            throw new EucalyptusCloudException("No parts found in the database");
+          }
+        }
+ else {
+          throw new EucalyptusCloudException("Multipart upload ID is invalid.");
+        }
+      }
+ catch (      Exception ex) {
+        db.rollback();
+        throw new EucalyptusCloudException(ex);
+      }
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException("Bucket",bucketName);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  reply.setLocation(request.getBucket() + '/' + request.getKey());
+  reply.setBucket(request.getBucket());
+  reply.setKey(request.getKey());
+  reply.setEtag(Crypto.generateAlphanumericId(16,""));
+  return reply;
+}

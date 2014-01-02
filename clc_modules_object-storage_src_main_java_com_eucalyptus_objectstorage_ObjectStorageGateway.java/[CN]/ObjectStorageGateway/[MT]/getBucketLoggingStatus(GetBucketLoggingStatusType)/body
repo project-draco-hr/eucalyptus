@@ -1,0 +1,45 @@
+{
+  logRequest(request);
+  Bucket bucket=null;
+  try {
+    bucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
+  }
+ catch (  NoSuchElementException e) {
+    throw new NoSuchBucketException(request.getBucket());
+  }
+catch (  Exception e) {
+    throw new InternalErrorException(request.getBucket());
+  }
+  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,null,0)) {
+    GetBucketLoggingStatusResponseType reply=(GetBucketLoggingStatusResponseType)request.getReply();
+    LoggingEnabled loggingConfig=new LoggingEnabled();
+    if (bucket.getLoggingEnabled()) {
+      Bucket targetBucket=null;
+      try {
+        targetBucket=BucketManagers.getInstance().get(bucket.getTargetBucket(),false,null);
+      }
+ catch (      Exception e) {
+        LOG.error("Error locating target bucket info for bucket " + request.getBucket() + " on target bucket "+ bucket.getTargetBucket(),e);
+      }
+      TargetGrants grants=new TargetGrants();
+      try {
+        grants.setGrants(targetBucket.getAccessControlPolicy().getAccessControlList().getGrants());
+      }
+ catch (      Exception e) {
+        LOG.error("Error populating target grants for bucket " + request.getBucket() + " for target "+ targetBucket.getBucketName(),e);
+        grants.setGrants(new ArrayList<Grant>());
+      }
+      loggingConfig.setTargetBucket(bucket.getTargetBucket());
+      loggingConfig.setTargetPrefix(bucket.getTargetPrefix());
+      loggingConfig.setTargetGrants(grants);
+      reply.setLoggingEnabled(loggingConfig);
+    }
+ else {
+      reply.setLoggingEnabled(null);
+    }
+    return reply;
+  }
+ else {
+    throw new AccessDeniedException(request.getBucket());
+  }
+}
