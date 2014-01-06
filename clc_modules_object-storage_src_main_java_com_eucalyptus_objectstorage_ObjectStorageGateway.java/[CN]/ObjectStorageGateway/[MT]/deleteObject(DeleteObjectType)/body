@@ -1,0 +1,44 @@
+{
+  logRequest(request);
+  Bucket bucket=null;
+  ObjectEntity objectEntity=null;
+  try {
+    bucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
+  }
+ catch (  NoSuchElementException e) {
+    throw new NoSuchBucketException(request.getBucket());
+  }
+catch (  Exception e) {
+    LOG.error("Error getting bucket metadata for bucket " + request.getBucket());
+    throw new InternalErrorException(request.getBucket());
+  }
+  try {
+    objectEntity=ObjectManagers.getInstance().get(bucket,request.getKey(),null);
+  }
+ catch (  NoSuchElementException e) {
+    DeleteObjectResponseType reply=(DeleteObjectResponseType)request.getReply();
+    reply.setStatus(HttpResponseStatus.NO_CONTENT);
+    reply.setStatusMessage("No Content");
+    return reply;
+  }
+catch (  Exception e) {
+    LOG.error("Error getting bucket metadata for bucket " + request.getBucket());
+    throw new InternalErrorException(request.getBucket());
+  }
+  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,0)) {
+    try {
+      ObjectManagers.getInstance().delete(bucket,objectEntity,Contexts.lookup().getUser());
+      DeleteObjectResponseType reply=(DeleteObjectResponseType)request.getReply();
+      reply.setStatus(HttpResponseStatus.NO_CONTENT);
+      reply.setStatusMessage("No Content");
+      return reply;
+    }
+ catch (    Exception e) {
+      LOG.error("Transaction error during delete object: " + request.getBucket() + "/"+ request.getKey(),e);
+      throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
+    }
+  }
+ else {
+    throw new AccessDeniedException(request.getBucket() + "/" + request.getKey());
+  }
+}

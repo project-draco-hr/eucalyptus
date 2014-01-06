@@ -2,7 +2,7 @@
   CreateStorageSnapshotResponseType reply=(CreateStorageSnapshotResponseType)request.getReply();
   StorageProperties.updateWalrusUrl();
   if (!StorageProperties.enableSnapshots) {
-    LOG.error("Snapshots have been disabled. Please check connection to Walrus.");
+    LOG.error("Snapshots have been disabled. Please check connection to ObjectStorage.");
     return reply;
   }
   String volumeId=request.getVolumeId();
@@ -38,8 +38,9 @@ catch (  final Throwable e) {
     }
  else {
       if (StorageProperties.shouldEnforceUsageLimits && totalSnapshotSizeLimitExceeded(snapshotId,sourceVolumeInfo.getSize())) {
-        LOG.info("Snapshot " + snapshotId + " exceeds total snapshot size limit of "+ WalrusInfo.getWalrusInfo().getStorageMaxTotalSnapshotSizeInGb());
-        throw new EntityTooLargeException(snapshotId);
+        int maxSize=ObjectStorageGatewayInfo.getObjectStorageGatewayInfo().getStorageMaxTotalSnapshotSizeInGb();
+        LOG.info("Snapshot " + snapshotId + " exceeds total snapshot size limit of "+ maxSize+ "GB");
+        throw new SnapshotTooLargeException(snapshotId,maxSize);
       }
       SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
       EntityTransaction snapTrans=Entities.get(SnapshotInfo.class);
@@ -51,6 +52,8 @@ catch (  final Throwable e) {
         snapshotInfo.setProgress("0");
         snapshotInfo.setSizeGb(sourceVolumeInfo.getSize());
         snapshotInfo.setStatus(StorageProperties.Status.creating.toString());
+        String snapshotLocation="snap-" + snapshotId;
+        snapshotInfo.setSnapshotLocation(snapshotLocation);
         String snapPointId=null;
         try {
           snapPointId=blockManager.createSnapshotPoint(volumeId,snapshotId);
@@ -87,8 +90,7 @@ catch (  final Throwable e) {
  finally {
           Entities.persist(snapshotInfo);
         }
-        String snapshotSet="snapset-" + UUID.randomUUID();
-        Snapshotter snapshotter=new Snapshotter(snapshotSet,volumeId,snapshotId,snapPointId);
+        Snapshotter snapshotter=new Snapshotter(snapshotLocation,volumeId,snapshotId,snapPointId);
         snapshotService.add(snapshotter);
         reply.setSnapshotId(snapshotId);
         reply.setVolumeId(volumeId);

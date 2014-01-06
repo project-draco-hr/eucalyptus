@@ -1,0 +1,25 @@
+{
+  Map<String,String> fields=new HashMap<String,String>();
+  String policy=httpRequest.getHeader(ObjectStorageProperties.Headers.S3UploadPolicy.toString());
+  fields.put(ObjectStorageProperties.FormField.policy.toString(),policy);
+  String policySignature=httpRequest.getHeader(ObjectStorageProperties.Headers.S3UploadPolicySignature.toString());
+  if (policySignature == null)   throw new AccessDeniedException("Policy signature must be specified with policy.");
+  String awsAccessKeyId=httpRequest.getHeader(SecurityParameter.AWSAccessKeyId.toString());
+  if (awsAccessKeyId == null)   throw new AccessDeniedException("AWSAccessKeyID must be specified.");
+  fields.put(ObjectStorageProperties.FormField.signature.toString(),policySignature);
+  fields.put(SecurityParameter.AWSAccessKeyId.toString(),awsAccessKeyId);
+  String acl=httpRequest.getHeader(ObjectStorageProperties.AMZ_ACL.toString());
+  if (acl != null)   fields.put(ObjectStorageProperties.FormField.acl.toString(),acl);
+  String operationPath=httpRequest.getServicePath().replaceAll(ObjectStorageProperties.objectStorageServicePath,"");
+  String[] target=OSGUtil.getTarget(operationPath);
+  if (target != null) {
+    fields.put(ObjectStorageProperties.FormField.bucket.toString(),target[0]);
+    if (target.length > 1)     fields.put(ObjectStorageProperties.FormField.key.toString(),target[1]);
+  }
+  try {
+    UploadPolicyChecker.checkPolicy(httpRequest,fields);
+  }
+ catch (  AuthenticationException aex) {
+    throw new AccessDeniedException(aex.getMessage());
+  }
+}

@@ -1,0 +1,33 @@
+{
+  DefaultHttpResponse httpResponse=createHttpResponse(response);
+  if (!Strings.isNullOrEmpty(response.getCorrelationId())) {
+    httpResponse.setHeader(ObjectStorageProperties.AMZ_REQUEST_ID,response.getCorrelationId());
+  }
+  final Channel channel=ctx.getChannel();
+  if (channel.isConnected()) {
+    ChannelFuture writeFuture=Channels.future(ctx.getChannel());
+    if (response.getDataInputStream() != null) {
+      writeFuture.addListener(new ChannelFutureListener(){
+        @Override public void operationComplete(        ChannelFuture future){
+          InputStream input=response.getDataInputStream();
+          final ChunkedDataStream dataStream=new ChunkedDataStream(new PushbackInputStream(input));
+          ChannelFuture bodyWriteFuture=Channels.future(future.getChannel());
+          bodyWriteFuture.addListener(new ChannelFutureListener(){
+            @Override public void operationComplete(            ChannelFuture future) throws Exception {
+              dataStream.close();
+              Contexts.clear(response.getCorrelationId());
+              ChannelFutureListener.CLOSE.operationComplete(future);
+            }
+          }
+);
+          Channels.write(ctx,bodyWriteFuture,dataStream);
+        }
+      }
+);
+    }
+ else {
+      writeFuture.addListener(ChannelFutureListener.CLOSE);
+    }
+    Channels.write(ctx,writeFuture,httpResponse);
+  }
+}

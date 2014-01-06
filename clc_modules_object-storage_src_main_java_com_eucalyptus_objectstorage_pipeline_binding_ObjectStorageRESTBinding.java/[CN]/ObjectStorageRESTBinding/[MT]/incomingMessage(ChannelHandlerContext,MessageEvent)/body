@@ -1,0 +1,29 @@
+{
+  if (event.getMessage() instanceof MappingHttpRequest) {
+    MappingHttpRequest httpRequest=(MappingHttpRequest)event.getMessage();
+    BaseMessage msg=(BaseMessage)this.bind(httpRequest);
+    httpRequest.setMessage(msg);
+    if (msg instanceof ObjectStorageDataGetRequestType) {
+      ObjectStorageDataGetRequestType getObject=(ObjectStorageDataGetRequestType)msg;
+      getObject.setChannel(ctx.getChannel());
+    }
+    if (msg instanceof ObjectStorageDataRequestType) {
+      String expect=httpRequest.getHeader(HttpHeaders.Names.EXPECT);
+      if (expect != null) {
+        if (expect.toLowerCase().equals("100-continue")) {
+          HttpResponse response=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.CONTINUE);
+          DownstreamMessageEvent newEvent=new DownstreamMessageEvent(ctx.getChannel(),event.getFuture(),response,null);
+          final Channel channel=ctx.getChannel();
+          if (channel.isConnected()) {
+            ChannelFuture writeFuture=Channels.future(ctx.getChannel());
+            Channels.write(ctx,writeFuture,response);
+          }
+          ctx.sendDownstream(newEvent);
+        }
+      }
+      ObjectStorageDataRequestType request=(ObjectStorageDataRequestType)msg;
+      request.setIsChunked(httpRequest.isChunked());
+      handleData(request,httpRequest.getContent());
+    }
+  }
+}

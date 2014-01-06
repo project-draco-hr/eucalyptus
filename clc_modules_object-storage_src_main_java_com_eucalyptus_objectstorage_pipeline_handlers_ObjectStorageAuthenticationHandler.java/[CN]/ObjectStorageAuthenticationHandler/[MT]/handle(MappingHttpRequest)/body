@@ -1,0 +1,31 @@
+{
+  Map<String,String> parameters=httpRequest.getParameters();
+  if (httpRequest.containsHeader(SecurityParameter.Authorization.toString())) {
+    String authHeader=httpRequest.getAndRemoveHeader(SecurityParameter.Authorization.toString());
+    Map<AuthorizationField,String> authMap=processAuthorizationHeader(authHeader);
+    if (EUCA_AUTH_TYPE.equals(authMap.get(AuthorizationField.Type))) {
+      EucaAuthentication.authenticate(httpRequest,authMap);
+    }
+ else     if (AWS_AUTH_TYPE.equals(authMap.get(AuthorizationField.Type))) {
+      S3Authentication.authenticate(httpRequest,authMap);
+    }
+ else {
+      throw new AccessDeniedException("Malformed Authentication Header");
+    }
+  }
+ else {
+    if (parameters.containsKey(SecurityParameter.AWSAccessKeyId.toString())) {
+      S3Authentication.authenticateQueryString(httpRequest);
+    }
+ else {
+      try {
+        Context ctx=Contexts.lookup(httpRequest.getCorrelationId());
+        ctx.setUser(Principals.nobodyUser());
+      }
+ catch (      NoSuchContextException e) {
+        LOG.error(e,e);
+        throw new AccessDeniedException();
+      }
+    }
+  }
+}

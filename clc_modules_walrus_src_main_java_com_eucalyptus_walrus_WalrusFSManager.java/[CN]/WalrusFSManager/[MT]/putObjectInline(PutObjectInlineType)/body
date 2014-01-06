@@ -1,0 +1,153 @@
+{
+  PutObjectInlineResponseType reply=(PutObjectInlineResponseType)request.getReply();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
+  String bucketName=request.getBucket();
+  String objectKey=request.getKey();
+  String md5="";
+  Long oldBucketSize=0L;
+  Date lastModified;
+  AccessControlList accessControlList=request.getAccessControlList();
+  if (accessControlList == null) {
+    accessControlList=new AccessControlList();
+  }
+  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
+    long objSize=0;
+    try {
+      objSize=Long.valueOf(request.getContentLength());
+    }
+ catch (    NumberFormatException e) {
+      LOG.error("Invalid content length " + request.getContentLength());
+      objSize=1L;
+    }
+    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && (bucket.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      ObjectInfo searchObjectInfo=new ObjectInfo();
+      searchObjectInfo.setBucketName(bucketName);
+      ObjectInfo foundObject=null;
+      List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
+      for (      ObjectInfo objectInfo : objectInfos) {
+        if (objectInfo.getObjectKey().equals(objectKey)) {
+          if (!objectInfo.canWrite(account.getAccountNumber())) {
+            db.rollback();
+            throw new AccessDeniedException("Key",objectKey,logData);
+          }
+          foundObject=objectInfo;
+          oldBucketSize=-foundObject.getSize();
+          break;
+        }
+      }
+      String objectName;
+      Long oldObjectSize=0L;
+      if (foundObject == null) {
+        foundObject=new ObjectInfo(bucketName,objectKey);
+        foundObject.setOwnerId(account.getAccountNumber());
+        List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+        foundObject.addGrants(account.getAccountNumber(),bucket.getOwnerId(),grantInfos,accessControlList);
+        foundObject.setGrants(grantInfos);
+        objectName=UUID.randomUUID().toString();
+        foundObject.setObjectName(objectName);
+        dbObject.add(foundObject);
+      }
+ else {
+        if (ctx.hasAdministrativePrivileges() || foundObject.canWriteACP(account.getAccountNumber())) {
+          List<GrantInfo> grantInfos=foundObject.getGrants();
+          foundObject.addGrants(account.getAccountNumber(),bucket.getOwnerId(),grantInfos,accessControlList);
+        }
+        objectName=foundObject.getObjectName();
+        oldObjectSize=foundObject.getSize();
+      }
+      foundObject.setObjectKey(objectKey);
+      try {
+        if (request.getBase64Data().getBytes().length > WalrusProperties.MAX_INLINE_DATA_SIZE) {
+          db.rollback();
+          throw new InlineDataTooLargeException(bucketName + "/" + objectKey);
+        }
+        byte[] base64Data=Hashes.base64decode(request.getBase64Data()).getBytes();
+        foundObject.setObjectName(objectName);
+        Long size=(long)base64Data.length;
+        if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
+          db.rollback();
+          LOG.error("Quota exceeded in Walrus putObject");
+          throw new EntityTooLargeException("Key",objectKey,logData);
+        }
+        boolean success=false;
+        int retryCount=0;
+        do {
+          try {
+            incrementBucketSize(bucketName,objectKey,oldBucketSize,size);
+            success=true;
+          }
+ catch (          EntityTooLargeException ex) {
+            db.rollback();
+            throw ex;
+          }
+catch (          NoSuchBucketException ex) {
+            db.rollback();
+            throw ex;
+          }
+catch (          RollbackException ex) {
+            retryCount++;
+            LOG.trace("retrying update: " + bucketName);
+          }
+catch (          EucalyptusCloudException ex) {
+            db.rollback();
+            throw ex;
+          }
+        }
+ while (!success && (retryCount < 5));
+        try {
+          FileIO fileIO=storageManager.prepareForWrite(bucketName,objectName);
+          if (fileIO != null) {
+            fileIO.write(base64Data);
+            fileIO.finish();
+          }
+        }
+ catch (        Exception ex) {
+          db.rollback();
+          throw new EucalyptusCloudException(ex);
+        }
+        md5=Hashes.getHexString(Digest.MD5.get().digest(base64Data));
+        foundObject.setEtag(md5);
+        foundObject.setSize(size);
+        if (request.getMetaData() != null)         foundObject.replaceMetaData(request.getMetaData());
+        foundObject.setStorageClass("STANDARD");
+        lastModified=new Date();
+        foundObject.setLastModified(lastModified);
+        if (logData != null) {
+          updateLogData(bucket,logData);
+          logData.setObjectSize(size);
+          reply.setLogData(logData);
+        }
+        try {
+          fireObjectCreationEvent(foundObject.getBucketName(),foundObject.getObjectKey(),foundObject.getVersionId(),ctx.getUser().getUserId(),foundObject.getSize(),oldObjectSize);
+        }
+ catch (        Exception ex) {
+          LOG.debug("Failed to fire reporting event for walrus inline PUT object operation",ex);
+        }
+      }
+ catch (      Exception ex) {
+        LOG.error(ex);
+        db.rollback();
+        throw new EucalyptusCloudException(bucketName);
+      }
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException("Bucket",bucketName,logData);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  db.commit();
+  reply.setEtag(md5);
+  reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.RFC822_DATETIME_PATTERN));
+  return reply;
+}

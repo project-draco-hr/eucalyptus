@@ -1,10 +1,13 @@
 {
   final GetServerCertificateResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
   final Context ctx=Contexts.lookup();
-  String certName=request.getServerCertificateName();
+  final User requestUser=ctx.getUser();
+  final Account account=getRealAccount(ctx,request.getDelegateAccount());
+  final String certName=request.getServerCertificateName();
   if (certName == null || certName.length() <= 0)   throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.INVALID_NAME,"Certificate name is empty");
   try {
-    final ServerCertificate cert=Privileged.getServerCertificate(ctx.getUser(),certName);
+    final ServerCertificate cert=Privileged.getServerCertificate(requestUser,account,certName);
     final GetServerCertificateResultType result=new GetServerCertificateResultType();
     final ServerCertificateType certType=new ServerCertificateType();
     certType.setCertificateBody(cert.getCertificateBody());
@@ -14,8 +17,8 @@
     reply.setGetServerCertificateResult(result);
   }
  catch (  final AuthException ex) {
-    if (AuthException.ACCESS_DENIED.equals(ex.getMessage()))     throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to get server certificate by " + ctx.getUser().getName());
- else     if (AuthException.SERVER_CERT_NO_SUCH_ENTITY.equals(ex.getMessage()))     throw new EuareException(HttpResponseStatus.NOT_FOUND,EuareException.NO_SUCH_ENTITY,"Server ceritifcate " + certName + " does not exist");
+    if (AuthException.ACCESS_DENIED.equals(ex.getMessage()))     throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to get server certificate by " + requestUser.getName());
+ else     if (AuthException.SERVER_CERT_NO_SUCH_ENTITY.equals(ex.getMessage()))     throw new EuareException(HttpResponseStatus.NOT_FOUND,EuareException.NO_SUCH_ENTITY,"Server certificate " + certName + " does not exist");
  else {
       LOG.error("failed to get server certificate",ex);
       throw new EuareException(HttpResponseStatus.INTERNAL_SERVER_ERROR,EuareException.INTERNAL_FAILURE);

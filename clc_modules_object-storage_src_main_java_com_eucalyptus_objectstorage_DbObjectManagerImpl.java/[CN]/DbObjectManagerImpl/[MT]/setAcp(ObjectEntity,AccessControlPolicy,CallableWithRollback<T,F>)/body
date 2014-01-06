@@ -1,0 +1,49 @@
+{
+  T result=null;
+  try {
+    EntityTransaction db=Entities.get(ObjectEntity.class);
+    try {
+      if (resourceModifier != null) {
+        result=resourceModifier.call();
+      }
+      ObjectEntity extantEntity=null;
+      extantEntity=Entities.merge(object);
+      extantEntity.setAcl(acp);
+      db.commit();
+      return result;
+    }
+ catch (    Exception e) {
+      LOG.error("Error updating ACP on object " + object.getBucketName() + "/"+ object.getObjectKey()+ "?versionId="+ object.getVersionId());
+      throw e;
+    }
+ finally {
+      if (db != null && db.isActive()) {
+        db.rollback();
+      }
+    }
+  }
+ catch (  S3Exception e) {
+    LOG.error("Error setting ACP on backend for object: " + object.getBucketName() + "/"+ object.getObjectKey());
+    try {
+      if (resourceModifier != null) {
+        resourceModifier.rollback(result);
+      }
+    }
+ catch (    Exception ex) {
+      LOG.error("Error rolling back object ACP put",ex);
+    }
+    throw e;
+  }
+catch (  Exception e) {
+    LOG.error("Error setting ACP on backend for object: " + object.getBucketName() + "/"+ object.getObjectKey());
+    try {
+      if (resourceModifier != null) {
+        resourceModifier.rollback(result);
+      }
+    }
+ catch (    Exception ex) {
+      LOG.error("Error rolling back object ACP put",ex);
+    }
+    throw new InternalErrorException(object.getBucketName() + "/" + object.getObjectKey()+ "?versionId="+ object.getVersionId());
+  }
+}

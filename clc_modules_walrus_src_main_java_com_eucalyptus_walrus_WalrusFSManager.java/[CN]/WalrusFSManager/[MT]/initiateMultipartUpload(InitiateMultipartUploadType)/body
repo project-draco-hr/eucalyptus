@@ -1,0 +1,60 @@
+{
+  InitiateMultipartUploadResponseType reply=(InitiateMultipartUploadResponseType)request.getReply();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
+  String bucketName=request.getBucket();
+  String objectKey=request.getKey();
+  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && (bucket.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+      List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
+      if (objectInfos.size() == 1 && objectInfos.get(0).getUploadId() == null) {
+        throw new EucalyptusCloudException("A single part upload exists for the same bucket and key, intiate multipart uplaod with a different key for now");
+      }
+      if (Iterables.any(objectInfos,new Predicate<ObjectInfo>(){
+        @Override public boolean apply(        @Nullable ObjectInfo arg0){
+          return arg0.getPartNumber() != null || arg0.getManifest();
+        }
+      }
+)) {
+        throw new EucalyptusCloudException("Multipart upload is in progress for the same bucket and key, either abort or complete the upload");
+      }
+      String objectName;
+      ObjectInfo manifest=new ObjectInfo(bucketName,objectKey);
+      manifest.setOwnerId(account.getAccountNumber());
+      objectName=UUID.randomUUID().toString();
+      manifest.setObjectName(objectName);
+      manifest.setUploadId(Crypto.generateAlphanumericId(64,""));
+      manifest.setManifest(Boolean.TRUE);
+      manifest.setUploadComplete(Boolean.FALSE);
+      manifest.setCleanup(Boolean.FALSE);
+      manifest.setSize(0L);
+      manifest.setVersionId(UUID.randomUUID().toString().replaceAll("-",""));
+      dbObject.add(manifest);
+      try {
+        dbObject.commit();
+      }
+ catch (      RollbackException ex) {
+        dbObject.rollback();
+        LOG.error("Error comitting new object entity to database",ex);
+      }
+      reply.setUploadId(manifest.getUploadId());
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException("Bucket",bucketName);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
+  reply.setBucket(bucketName);
+  reply.setKey(objectKey);
+  return reply;
+}
