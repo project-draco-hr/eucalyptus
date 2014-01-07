@@ -1,0 +1,35 @@
+{
+  ListPartsResponseType reply=(ListPartsResponseType)request.getReply();
+  User requestUser=getRequestUser(request);
+  AmazonS3Client s3Client=getS3Client(requestUser,request.getAccessKeyID());
+  String bucketName=request.getBucket();
+  String key=request.getKey();
+  String uploadId=request.getUploadId();
+  try {
+    ListPartsRequest listPartsRequest=new ListPartsRequest(bucketName,key,uploadId);
+    listPartsRequest.setMaxParts(request.getMaxParts());
+    listPartsRequest.setPartNumberMarker(request.getPartNumberMarker());
+    PartListing listing=s3Client.listParts(listPartsRequest);
+    reply.setBucket(bucketName);
+    reply.setKey(key);
+    reply.setUploadId(uploadId);
+    Initiator initiator=new Initiator(listing.getInitiator().getId(),listing.getInitiator().getDisplayName());
+    reply.setInitiator(initiator);
+    CanonicalUser owner=new CanonicalUser(listing.getOwner().getId(),listing.getOwner().getDisplayName());
+    reply.setOwner(owner);
+    reply.setStorageClass(listing.getStorageClass());
+    reply.setPartNumberMarker(listing.getPartNumberMarker());
+    reply.setNextPartNumberMarker(listing.getNextPartNumberMarker());
+    reply.setMaxParts(listing.getMaxParts());
+    reply.setIsTruncated(listing.isTruncated());
+    List<PartSummary> parts=listing.getParts();
+    List<Part> replyParts=reply.getParts();
+    for (    PartSummary part : parts) {
+      replyParts.add(new Part(part.getPartNumber(),part.getETag(),part.getLastModified(),part.getSize()));
+    }
+  }
+ catch (  Exception ex) {
+    throw new EucalyptusCloudException("Cannot list parts for upload: " + uploadId,ex);
+  }
+  return reply;
+}
