@@ -1,3 +1,38 @@
 {
-  return null;
+  ListMultipartUploadsResponseType reply=(ListMultipartUploadsResponseType)request.getReply();
+  User requestUser=getRequestUser(request);
+  AmazonS3Client s3Client=getS3Client(requestUser,request.getAccessKeyID());
+  String bucketName=request.getBucket();
+  ListMultipartUploadsRequest listMultipartUploadsRequest=new ListMultipartUploadsRequest(bucketName);
+  listMultipartUploadsRequest.setMaxUploads(request.getMaxUploads());
+  listMultipartUploadsRequest.setKeyMarker(request.getKeyMarker());
+  listMultipartUploadsRequest.setDelimiter(request.getDelimiter());
+  listMultipartUploadsRequest.setPrefix(request.getPrefix());
+  listMultipartUploadsRequest.setUploadIdMarker(request.getUploadIdMarker());
+  try {
+    MultipartUploadListing listing=s3Client.listMultipartUploads(listMultipartUploadsRequest);
+    reply.setBucket(listing.getBucketName());
+    reply.setKeyMarker(listing.getKeyMarker());
+    reply.setUploadIdMarker(listing.getUploadIdMarker());
+    reply.setNextKeyMarker(listing.getNextKeyMarker());
+    reply.setNextUploadIdMarker(listing.getNextUploadIdMarker());
+    reply.setMaxUploads(listing.getMaxUploads());
+    reply.setIsTruncated(listing.isTruncated());
+    reply.setPrefix(listing.getPrefix());
+    reply.setDelimiter(listing.getDelimiter());
+    List<String> commonPrefixes=listing.getCommonPrefixes();
+    List<MultipartUpload> multipartUploads=listing.getMultipartUploads();
+    List<com.eucalyptus.storage.msgs.s3.Upload> uploads=reply.getUploads();
+    List<CommonPrefixesEntry> prefixes=reply.getCommonPrefixes();
+    for (    MultipartUpload multipartUpload : multipartUploads) {
+      uploads.add(new com.eucalyptus.storage.msgs.s3.Upload(multipartUpload.getKey(),multipartUpload.getUploadId(),new Initiator(multipartUpload.getInitiator().getId(),multipartUpload.getInitiator().getDisplayName()),new CanonicalUser(multipartUpload.getOwner().getId(),multipartUpload.getOwner().getDisplayName()),multipartUpload.getStorageClass(),multipartUpload.getInitiated()));
+    }
+    for (    String commonPrefix : commonPrefixes) {
+      prefixes.add(new CommonPrefixesEntry(commonPrefix));
+    }
+    return reply;
+  }
+ catch (  Exception ex) {
+    throw new EucalyptusCloudException("Cannot list multipart uploads for bucket: " + bucketName,ex);
+  }
 }
