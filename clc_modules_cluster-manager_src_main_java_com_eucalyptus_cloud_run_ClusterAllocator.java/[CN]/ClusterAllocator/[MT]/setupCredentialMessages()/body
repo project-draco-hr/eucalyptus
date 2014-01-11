@@ -10,9 +10,8 @@
   this.allocInfo.setUserData(payload);
   try {
     final KeyPair kp=Certs.generateKeyPair();
-    final PublicKey pubKey=kp.getPublic();
-    final PrivateKey privKey=kp.getPrivate();
-    final String b64PubKey=B64.standard.encString(pubKey.getEncoded());
+    final X509Certificate kpCert=Certs.generateCertificate(kp,String.format("Certificate-for-%s/%s",this.allocInfo.getOwnerFullName().getAccountName(),this.allocInfo.getOwnerFullName().getUserName()));
+    final String b64PubKey=PEMFiles.fromCertificate(kpCert);
     final ServiceConfiguration euare=Topology.lookup(Euare.class);
     final SignCertificateType req=new SignCertificateType();
     req.setCertificate(b64PubKey);
@@ -27,7 +26,7 @@
     final byte[] iv=new byte[12];
     Crypto.getSecureRandomSupplier().get().nextBytes(iv);
     cipher.init(Cipher.ENCRYPT_MODE,symmKey,new IvParameterSpec(iv));
-    final byte[] cipherText=cipher.doFinal(privKey.getEncoded());
+    final byte[] cipherText=cipher.doFinal(Base64.encode(PEMFiles.getBytes(kp.getPrivate())));
     final String encPrivKey=new String(Base64.encode(Arrays.concatenate(iv,cipherText)));
     X509Certificate nodeCert=this.allocInfo.getPartition().getNodeCertificate();
     cipher=Ciphers.RSA_PKCS1.get();
@@ -35,7 +34,7 @@
     byte[] symmkey=cipher.doFinal(symmKey.getEncoded());
     final String encSymmKey=new String(Base64.encode(symmkey));
     X509Certificate euareCert=SystemCredentials.lookup(Euare.class).getCertificate();
-    final String b64EuarePubkey=new String(Base64.encode(euareCert.getPublicKey().getEncoded()));
+    final String b64EuarePubkey=PEMFiles.fromCertificate(euareCert);
     final String credential=String.format("%s\n%s\n%s\n%s\n%s",b64EuarePubkey,b64PubKey,sig,encSymmKey,encPrivKey);
     this.allocInfo.setCredential(credential);
   }
