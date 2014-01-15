@@ -2,11 +2,8 @@
   final GetImpersonationTokenResponseType reply=request.getReply();
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
   final Context ctx=Contexts.lookup();
-  final Subject subject=ctx.getSubject();
   final User requestUser=ctx.getUser();
   final User impersonated;
-  final Iterable<AccessKey> impersonatedKeys;
-  final String impersonatedToken;
   final Account impersonatedAccount;
   try {
     if (!Strings.isNullOrEmpty(request.getUserId())) {
@@ -16,20 +13,16 @@
       Account account=Accounts.lookupAccountByName(request.getAccountAlias());
       impersonated=account.lookupUserByName(request.getUserName());
     }
-    impersonatedKeys=impersonated.getKeys();
-    impersonatedToken=impersonated.getToken();
     impersonatedAccount=impersonated.getAccount();
   }
  catch (  AuthException e) {
     throw new TokensException(TokensException.Code.ValidationError,e.getMessage());
   }
-  if (!Permissions.isAuthorized(VENDOR_STS,IAM_RESOURCE_USER,Accounts.getUserFullName(impersonated),impersonatedAccount,PolicySpec.STS_GETIMPERSONATIONTOKEN,requestUser)) {
+  if (!ctx.isAdministrator() || !Permissions.isAuthorized(VENDOR_STS,IAM_RESOURCE_USER,Accounts.getUserFullName(impersonated),impersonatedAccount,PolicySpec.STS_GETIMPERSONATIONTOKEN,requestUser)) {
     throw new EucalyptusCloudException("Permission denied");
   }
-  final Optional<AccessKey> accessKey=Iterables.tryFind(impersonatedKeys,AccessKeys.isActive());
-  final String accessToken=accessKey.isPresent() ? null : impersonatedToken;
   try {
-    final SecurityToken token=SecurityTokenManager.issueSecurityToken(impersonated,accessKey.orNull(),accessToken,Objects.firstNonNull(request.getDurationSeconds(),(int)TimeUnit.HOURS.toSeconds(12)));
+    final SecurityToken token=SecurityTokenManager.issueSecurityToken(impersonated,Objects.firstNonNull(request.getDurationSeconds(),(int)TimeUnit.HOURS.toSeconds(12)));
     reply.setResult(GetImpersonationTokenResultType.forCredentials(token.getAccessKeyId(),token.getSecretKey(),token.getToken(),token.getExpires()));
   }
  catch (  final SecurityTokenValidationException e) {
