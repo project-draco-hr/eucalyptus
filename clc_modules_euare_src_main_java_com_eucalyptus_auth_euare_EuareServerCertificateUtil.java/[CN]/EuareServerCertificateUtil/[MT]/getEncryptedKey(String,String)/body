@@ -1,0 +1,25 @@
+{
+  final ServerCertificate targetCert=lookupServerCertificate(certArn);
+  final MessageDigest digest=Digest.SHA256.get();
+  final byte[] salt=new byte[32];
+  Crypto.getSecureRandomSupplier().get().nextBytes(salt);
+  digest.update(salt);
+  final SecretKey symmKey=new SecretKeySpec(digest.digest(),"AES");
+  try {
+    Cipher cipher=Ciphers.AES_CBC.get();
+    final byte[] iv=new byte[16];
+    Crypto.getSecureRandomSupplier().get().nextBytes(iv);
+    cipher.init(Cipher.ENCRYPT_MODE,symmKey,new IvParameterSpec(iv));
+    final byte[] cipherText=cipher.doFinal(Base64.encode(targetCert.getPrivateKey().getBytes()));
+    final String encPrivKey=new String(Base64.encode(Arrays.concatenate(iv,cipherText)));
+    X509Certificate x509Cert=PEMFiles.toCertificate(certPem);
+    cipher=Ciphers.RSA_PKCS1.get();
+    cipher.init(Cipher.ENCRYPT_MODE,x509Cert.getPublicKey());
+    byte[] symmkey=cipher.doFinal(symmKey.getEncoded());
+    final String b64SymKey=new String(Base64.encode(symmkey));
+    return String.format("%s\n%s",b64SymKey,encPrivKey);
+  }
+ catch (  final Exception ex) {
+    throw Exceptions.toUndeclared(ex);
+  }
+}
