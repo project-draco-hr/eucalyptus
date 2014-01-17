@@ -1,0 +1,58 @@
+{
+  try {
+    for (    Resource resource : template.getResourceList()) {
+      new TemplateParser().reevaluateResources(template);
+      StackEvent stackEvent=new StackEvent();
+      stackEvent.setStackId(stack.getStackId());
+      stackEvent.setStackName(stack.getStackName());
+      stackEvent.setLogicalResourceId(resource.getLogicalResourceId());
+      stackEvent.setPhysicalResourceId(resource.getPhysicalResourceId());
+      stackEvent.setEventId(UUID.randomUUID().toString());
+      stackEvent.setResourceProperties(resource.getPropertiesJSON().toString());
+      stackEvent.setResourceType(resource.getType());
+      stackEvent.setResourceStatus(StackResourceEntity.Status.CREATE_IN_PROGRESS.toString());
+      stackEvent.setResourceStatusReason("Part of stack");
+      stackEvent.setTimestamp(new Date());
+      StackEventEntityManager.addStackEvent(stackEvent,accountId);
+      StackResource stackResource=new StackResource();
+      stackResource.setResourceStatus(StackResourceEntity.Status.CREATE_IN_PROGRESS.toString());
+      stackResource.setPhysicalResourceId(resource.getPhysicalResourceId());
+      stackResource.setLogicalResourceId(resource.getLogicalResourceId());
+      stackResource.setDescription("");
+      stackResource.setResourceStatusReason("Part of stack");
+      stackResource.setResourceType(resource.getType());
+      stackResource.setStackName(stack.getStackName());
+      stackResource.setStackId(stack.getStackId());
+      StackResourceEntityManager.addStackResource(stackResource,resource.getMetadataJSON(),accountId);
+      try {
+        resource.create();
+        StackResourceEntityManager.updatePhysicalResourceId(stack.getStackName(),resource.getLogicalResourceId(),resource.getPhysicalResourceId(),accountId);
+        StackResourceEntityManager.updateStatus(stack.getStackName(),resource.getLogicalResourceId(),StackResourceEntity.Status.CREATE_COMPLETE,"Complete!",accountId);
+        stackEvent.setEventId(UUID.randomUUID().toString());
+        stackEvent.setResourceStatus(StackResourceEntity.Status.CREATE_COMPLETE.toString());
+        stackEvent.setResourceStatusReason("Complete!");
+        stackEvent.setPhysicalResourceId(resource.getPhysicalResourceId());
+        stackEvent.setTimestamp(new Date());
+        StackEventEntityManager.addStackEvent(stackEvent,accountId);
+        template.getReferenceMap().get(resource.getLogicalResourceId()).setReady(true);
+        template.getReferenceMap().get(resource.getLogicalResourceId()).setReferenceValue(resource.referenceValue());
+      }
+ catch (      Exception ex) {
+        LOG.error(ex,ex);
+        StackResourceEntityManager.updateStatus(stack.getStackName(),resource.getLogicalResourceId(),StackResourceEntity.Status.CREATE_FAILED,"" + ex.getMessage(),accountId);
+        stackEvent.setEventId(UUID.randomUUID().toString());
+        stackEvent.setResourceStatus(StackResourceEntity.Status.CREATE_FAILED.toString());
+        stackEvent.setTimestamp(new Date());
+        stackEvent.setResourceStatusReason("" + ex.getMessage());
+        stackEvent.setPhysicalResourceId(resource.getPhysicalResourceId());
+        StackEventEntityManager.addStackEvent(stackEvent,accountId);
+        throw ex;
+      }
+    }
+    StackEntityManager.updateStatus(stack.getStackName(),StackEntity.Status.CREATE_COMPLETE,"Complete!",accountId);
+  }
+ catch (  Exception ex2) {
+    LOG.error(ex2,ex2);
+    StackEntityManager.updateStatus(stack.getStackName(),StackEntity.Status.CREATE_FAILED,ex2.getMessage(),accountId);
+  }
+}

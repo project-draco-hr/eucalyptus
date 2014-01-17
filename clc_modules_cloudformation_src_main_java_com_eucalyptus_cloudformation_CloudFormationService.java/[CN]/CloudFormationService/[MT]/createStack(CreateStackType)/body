@@ -1,4 +1,47 @@
 {
   CreateStackResponseType reply=request.getReply();
+  try {
+    final Context ctx=Contexts.lookup();
+    User user=ctx.getUser();
+    String userId=user.getUserId();
+    String accountId=user.getAccount().getAccountNumber();
+    String stackName=request.getStackName();
+    String templateBody=request.getTemplateBody();
+    if (stackName == null)     throw new ValidationErrorException("Stack name is null");
+    if (templateBody == null)     throw new ValidationErrorException("template body is null");
+    List<Parameter> parameters=null;
+    if (request.getParameters() != null && request.getParameters().getMember() != null) {
+      parameters=request.getParameters().getMember();
+    }
+    Template template=new TemplateParser().parse(templateBody,parameters);
+    for (    Resource resource : template.getResourceList()) {
+      resource.setEffectiveUserId(userId);
+    }
+    Stack stack=new Stack();
+    stack.setStackName(stackName);
+    stack.setStackId(UUID.randomUUID().toString());
+    stack.setDescription(template.getDescription());
+    ArrayList<Parameter> templateParameters=Lists.newArrayList();
+    for (    Template.Parameter templateParameter : template.getParameterList()) {
+      Parameter parameter=new Parameter();
+      parameter.setParameterValue(templateParameter.getParameterValue());
+      parameter.setParameterKey(templateParameter.getParameterKey());
+    }
+    Parameters stackParameters=new Parameters();
+    stackParameters.setMember(templateParameters);
+    stack.setParameters(stackParameters);
+    stack.setStackStatus(StackEntity.Status.CREATE_IN_PROGRESS.toString());
+    stack.setStackStatusReason("User initiated");
+    stack.setDisableRollback(true);
+    StackEntityManager.addStack(stack,accountId);
+    new StackCreator(stack,templateBody,template,accountId).start();
+    CreateStackResult createStackResult=new CreateStackResult();
+    createStackResult.setStackId(stack.getStackId());
+    reply.setCreateStackResult(createStackResult);
+  }
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+    throw new ValidationErrorException(ex.getMessage());
+  }
   return reply;
 }
