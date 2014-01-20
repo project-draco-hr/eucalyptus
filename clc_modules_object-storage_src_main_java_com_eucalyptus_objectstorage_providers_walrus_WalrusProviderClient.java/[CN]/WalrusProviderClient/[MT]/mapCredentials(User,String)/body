@@ -1,9 +1,35 @@
 {
+  if (requestUser == null && requestAWSAccessKeyId == null) {
+    throw new IllegalArgumentException("Null user and access key");
+  }
+  AccessKey userKey=null;
   try {
-    AccessKey userKey=requestUser.getKey(requestAWSAccessKeyId);
-    return new BasicAWSCredentials(userKey.getAccessKey(),userKey.getSecretKey());
+    userKey=requestUser.getKey(requestAWSAccessKeyId);
   }
  catch (  AuthException e) {
-    throw new NoSuchElementException("No valid key found");
+    LOG.trace("No valid access key for user " + requestUser.getUserId() + " found. Checking against system user");
+    userKey=null;
   }
+  if (userKey == null) {
+    if (Principals.systemUser().equals(requestUser)) {
+      try {
+        List<AccessKey> eucaAdminKeys=Accounts.lookupSystemAdmin().getKeys();
+        if (eucaAdminKeys != null && eucaAdminKeys.size() > 0) {
+          userKey=eucaAdminKeys.get(0);
+        }
+ else {
+          userKey=null;
+        }
+      }
+ catch (      AuthException e) {
+        LOG.trace("Exception looking up system admin keys for walrus credential mapping. User: " + requestUser.getUserId(),e);
+        userKey=null;
+      }
+    }
+    if (userKey == null) {
+      LOG.error("No key found for user " + requestUser.getUserId() + " . Cannot map credentials for call to Walrus backend for data operation");
+      throw new AuthException("No access key found for backend call to Walrus for UserId: " + requestUser.getUserId());
+    }
+  }
+  return new BasicAWSCredentials(userKey.getAccessKey(),userKey.getSecretKey());
 }
