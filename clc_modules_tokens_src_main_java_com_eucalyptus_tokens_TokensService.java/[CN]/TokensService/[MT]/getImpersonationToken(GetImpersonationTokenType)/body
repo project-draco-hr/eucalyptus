@@ -1,0 +1,35 @@
+{
+  final GetImpersonationTokenResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final User requestUser=ctx.getUser();
+  final User impersonated;
+  final Account impersonatedAccount;
+  try {
+    if (!Strings.isNullOrEmpty(request.getUserId())) {
+      impersonated=Accounts.lookupUserById(request.getUserId());
+    }
+ else {
+      Account account=Accounts.lookupAccountByName(request.getAccountAlias());
+      impersonated=account.lookupUserByName(request.getUserName());
+    }
+    impersonatedAccount=impersonated.getAccount();
+  }
+ catch (  AuthException e) {
+    throw new TokensException(TokensException.Code.ValidationError,e.getMessage());
+  }
+  if (!ctx.isAdministrator() || !Permissions.isAuthorized(VENDOR_STS,IAM_RESOURCE_USER,Accounts.getUserFullName(impersonated),impersonatedAccount,PolicySpec.STS_GETIMPERSONATIONTOKEN,requestUser)) {
+    throw new EucalyptusCloudException("Permission denied");
+  }
+  try {
+    final SecurityToken token=SecurityTokenManager.issueSecurityToken(impersonated,Objects.firstNonNull(request.getDurationSeconds(),(int)TimeUnit.HOURS.toSeconds(12)));
+    reply.setResult(GetImpersonationTokenResultType.forCredentials(token.getAccessKeyId(),token.getSecretKey(),token.getToken(),token.getExpires()));
+  }
+ catch (  final SecurityTokenValidationException e) {
+    throw new TokensException(TokensException.Code.ValidationError,e.getMessage());
+  }
+catch (  final AuthException e) {
+    throw new EucalyptusCloudException(e.getMessage(),e);
+  }
+  return reply;
+}

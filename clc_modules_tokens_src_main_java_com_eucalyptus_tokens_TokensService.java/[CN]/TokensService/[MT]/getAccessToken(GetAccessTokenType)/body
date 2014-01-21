@@ -1,0 +1,22 @@
+{
+  final GetAccessTokenResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final Subject subject=ctx.getSubject();
+  final User requestUser=ctx.getUser();
+  final AccountUsername accountUsername=Iterables.getFirst(subject.getPublicCredentials(AccountUsername.class),null);
+  if (accountUsername == null || !accountUsername.getAccount().equals(ctx.getAccount().getName()) || !accountUsername.getUsername().equals(requestUser.getName())) {
+    throw new EucalyptusCloudException("Invalid authentication");
+  }
+  try {
+    final SecurityToken token=SecurityTokenManager.issueSecurityToken(requestUser,Objects.firstNonNull(request.getDurationSeconds(),(int)TimeUnit.HOURS.toSeconds(12)));
+    reply.setResult(GetAccessTokenResultType.forCredentials(token.getAccessKeyId(),token.getSecretKey(),token.getToken(),token.getExpires()));
+  }
+ catch (  final SecurityTokenValidationException e) {
+    throw new TokensException(TokensException.Code.ValidationError,e.getMessage());
+  }
+catch (  final AuthException e) {
+    throw new EucalyptusCloudException(e.getMessage(),e);
+  }
+  return reply;
+}
