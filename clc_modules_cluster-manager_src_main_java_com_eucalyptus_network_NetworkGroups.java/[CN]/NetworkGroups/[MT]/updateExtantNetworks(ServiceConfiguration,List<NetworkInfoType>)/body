@@ -40,7 +40,7 @@
             if (Reference.State.EXTANT.equals(exNet.getState())) {
               exNet.setState(Reference.State.RELEASING);
             }
- else             if (Reference.State.PENDING.equals(exNet.getState()) && exNet.lastUpdateMillis() > 60L * 1000 * NetworkGroups.NETWORK_TAG_PENDING_TIMEOUT) {
+ else             if (Reference.State.PENDING.equals(exNet.getState()) && isTimedOut(exNet.lastUpdateMillis(),NetworkGroups.NETWORK_TAG_PENDING_TIMEOUT)) {
               exNet.setState(Reference.State.RELEASING);
             }
  else             if (Reference.State.RELEASING.equals(exNet.getState())) {
@@ -63,5 +63,26 @@
   }
  catch (  MetadataException ex) {
     LOG.error(ex);
+  }
+  final Set<String> taggedNetworkIndicies=Sets.newHashSet(CollectionUtils.<String>listJoin().apply(Lists.transform(activeNetworks,NetworkIndexTransform.INSTANCE)));
+  try (final TransactionResource db=Entities.transactionFor(PrivateNetworkIndex.class)){
+    for (    final PrivateNetworkIndex index : Entities.query(PrivateNetworkIndex.inState(Reference.State.PENDING),Entities.queryOptions().build())) {
+      if (isTimedOut(index.lastUpdateMillis(),NetworkGroups.NETWORK_INDEX_PENDING_TIMEOUT)) {
+        if (taggedNetworkIndicies.contains(index.getDisplayName())) {
+          LOG.warn(String.format("Pending network index (%s) timed out, setting state to EXTANT",index.getDisplayName()));
+          index.setState(Reference.State.EXTANT);
+        }
+ else {
+          LOG.warn(String.format("Pending network index (%s) timed out, tearing down",index.getDisplayName()));
+          index.release();
+          index.teardown();
+        }
+      }
+    }
+    db.commit();
+  }
+ catch (  final Exception ex) {
+    LOG.debug(ex);
+    Logs.extreme().error(ex,ex);
   }
 }
