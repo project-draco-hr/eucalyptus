@@ -1,8 +1,36 @@
 {
-  UploadPartResponseType reply=(UploadPartResponseType)request.getReply();
-  User requestUser=getRequestUser(request);
-  AmazonS3Client s3Client=getS3Client(requestUser,request.getAccessKeyID());
   String bucketName=request.getBucket();
   String key=request.getKey();
-  return reply;
+  try {
+    User requestUser=getRequestUser(request);
+    AmazonS3Client s3Client=getS3Client(requestUser,request.getAccessKeyID());
+    UploadPartResult result=null;
+    try {
+      UploadPartRequest uploadPartRequest=new UploadPartRequest();
+      uploadPartRequest.setBucketName(bucketName);
+      uploadPartRequest.setKey(key);
+      uploadPartRequest.setInputStream(request.getData());
+      uploadPartRequest.setUploadId(request.getUploadId());
+      uploadPartRequest.setPartNumber(Integer.valueOf(request.getPartNumber()));
+      uploadPartRequest.setMd5Digest(request.getContentMD5());
+      uploadPartRequest.setPartSize(Long.valueOf(request.getContentLength()));
+      result=s3Client.uploadPart(uploadPartRequest);
+    }
+ catch (    Exception e) {
+      LOG.error("Error upload part  to backend",e);
+      throw e;
+    }
+    UploadPartResponseType reply=(UploadPartResponseType)request.getReply();
+    if (result == null) {
+      throw new EucalyptusCloudException("Null result. Internal error");
+    }
+ else {
+      reply.setEtag(result.getETag());
+      reply.setLastModified(new Date());
+    }
+    return reply;
+  }
+ catch (  Exception e) {
+    throw new EucalyptusCloudException(e);
+  }
 }
