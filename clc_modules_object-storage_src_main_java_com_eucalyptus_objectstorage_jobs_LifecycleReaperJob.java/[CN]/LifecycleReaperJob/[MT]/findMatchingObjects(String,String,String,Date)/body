@@ -1,0 +1,43 @@
+{
+  try {
+    LifecycleRule retrievedRule=BucketLifecycleManagers.getInstance().getLifecycleRuleForReaping(ruleId,bucketName);
+    if (retrievedRule == null) {
+      return Collections.EMPTY_LIST;
+    }
+  }
+ catch (  ObjectStorageException e) {
+    LOG.error("exception caught while attempting to retrieve lifecycle rule with id - " + ruleId + " in bucket - "+ bucketName+ " with message "+ e.getMessage());
+  }
+  Calendar ageCal=Calendar.getInstance();
+  ageCal.setTime(age);
+  Calendar queryCal=Calendar.getInstance();
+  queryCal.set(Calendar.DAY_OF_MONTH,ageCal.get(Calendar.DAY_OF_MONTH));
+  queryCal.set(Calendar.MONTH,ageCal.get(Calendar.MONTH));
+  queryCal.set(Calendar.YEAR,ageCal.get(Calendar.YEAR));
+  queryCal.set(Calendar.HOUR_OF_DAY,0);
+  queryCal.set(Calendar.MINUTE,0);
+  queryCal.set(Calendar.SECOND,0);
+  queryCal.set(Calendar.MILLISECOND,0);
+  List<ObjectEntity> results=null;
+  try (TransactionResource tran=Entities.transactionFor(ObjectEntity.class)){
+    ObjectEntity example=new ObjectEntity();
+    example.setBucketName(bucketName);
+    Criterion criterion=Restrictions.and(Restrictions.like("objectKey",objPrefix,MatchMode.START),Restrictions.lt("creationTimestamp",queryCal.getTime()));
+    results=Entities.query(example,true,criterion,Collections.EMPTY_MAP);
+    tran.commit();
+  }
+ catch (  Exception ex) {
+    LOG.error("exception caught while retrieving objects prefix with " + objPrefix + " from bucket "+ bucketName+ ", error message - "+ ex.getMessage());
+    return Collections.EMPTY_LIST;
+  }
+  if (results == null || results.size() == 0) {
+    LOG.debug("there were no objects in bucket " + bucketName + " with prefix "+ objPrefix);
+    return Collections.EMPTY_LIST;
+  }
+  List<String> objectKeys=Lists.newArrayList();
+  for (  ObjectEntity objectInfo : results) {
+    objectKeys.add(objectInfo.getObjectKey());
+  }
+  LOG.debug("found " + objectKeys.size() + " matching objects in bucket "+ bucketName);
+  return objectKeys;
+}

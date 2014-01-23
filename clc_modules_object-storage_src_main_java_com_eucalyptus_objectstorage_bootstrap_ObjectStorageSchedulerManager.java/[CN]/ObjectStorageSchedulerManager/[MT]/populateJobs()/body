@@ -1,0 +1,47 @@
+{
+  boolean foundLifecycleCleanup=false;
+  boolean foundDeletedObjectReaper=false;
+  boolean foundDeletedBucketReaper=false;
+  List<ScheduledJob> jobs=null;
+  try (TransactionResource tran=Entities.transactionFor(ScheduledJob.class)){
+    jobs=Entities.query(new ScheduledJob());
+    tran.commit();
+  }
+ catch (  Exception ex) {
+    LOG.error("exception encountered while populating ObjectStorageGateway scheduled jobs from database - " + ex.getMessage());
+  }
+  int jobIdx=1;
+  if (jobs != null && jobs.size() > 0) {
+    for (    ScheduledJob job : jobs) {
+      scheduleJobInQuartz(job.getJobClassName(),job.getJobSchedule(),jobIdx);
+      jobIdx++;
+      if (!foundLifecycleCleanup) {
+        foundLifecycleCleanup=checkForLifecycleCleanupJob(job.getJobClassName());
+      }
+      if (!foundDeletedObjectReaper) {
+        foundDeletedObjectReaper=checkForDeletedObjectReaperJob(job.getJobClassName());
+      }
+      if (!foundDeletedBucketReaper) {
+        foundDeletedBucketReaper=checkForDeletedBucketReaperJob(job.getJobClassName());
+      }
+    }
+  }
+ else {
+    LOG.debug("jobs were either not found in the database, or an exception occurred while querying " + "for scheduled jobs");
+  }
+  if (!foundDeletedObjectReaper) {
+    saveJobToDb(OBJECT_REAPER_CLASSNAME,OBJECT_REAPER_DEFAULT_SCHEDULE,"performs upstream deletes of objects that have been deleted in the object storage gateway");
+    scheduleJobInQuartz(OBJECT_REAPER_CLASSNAME,OBJECT_REAPER_DEFAULT_SCHEDULE,jobIdx);
+    jobIdx++;
+  }
+  if (!foundDeletedBucketReaper) {
+    saveJobToDb(BUCKET_REAPER_CLASSNAME,BUCKET_REAPER_DEFAULT_SCHEDULE,"performs upstream deletes of buckets that have been deleted in the object storage gateway");
+    scheduleJobInQuartz(BUCKET_REAPER_CLASSNAME,BUCKET_REAPER_DEFAULT_SCHEDULE,jobIdx);
+    jobIdx++;
+  }
+  if (!foundLifecycleCleanup) {
+    saveJobToDb(LIFECYCLE_CLEANUP_CLASSNAME,LIFECYCLE_CLEANUP_DEFAULT_SCHEDULE,"processes bucket lifecycle rules");
+    scheduleJobInQuartz(LIFECYCLE_CLEANUP_CLASSNAME,LIFECYCLE_CLEANUP_DEFAULT_SCHEDULE,jobIdx);
+    jobIdx++;
+  }
+}
