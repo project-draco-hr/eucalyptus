@@ -29,7 +29,39 @@ catch (  Exception e) {
     throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
   }
   if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,0)) {
-    return ospClient.initiateMultipartUpload(request);
+    AccessControlPolicy acp=new AccessControlPolicy();
+    acp.setAccessControlList(request.getAccessControlList());
+    try {
+      acp=AclUtils.processNewResourcePolicy(requestUser,acp,bucket.getOwnerCanonicalId());
+    }
+ catch (    Exception e) {
+      LOG.error("Error processing ACL for put object " + objectEntity.getResourceFullName(),e);
+      throw new MalformedACLErrorException(objectEntity.getResourceFullName());
+    }
+    try {
+      objectEntity.setAcl(acp);
+    }
+ catch (    Exception e) {
+      LOG.error("Error encountered setting object ACP for " + objectEntity.getResourceFullName() + " . Failing put operation",e);
+      throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
+    }
+    final String fullObjectKey=objectEntity.getObjectUuid();
+    request.setKey(fullObjectKey);
+    try {
+      ObjectManagers.getInstance().createPending(bucket,objectEntity);
+    }
+ catch (    Exception e) {
+      throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
+    }
+    InitiateMultipartUploadResponseType response=ospClient.initiateMultipartUpload(request);
+    objectEntity.setUploadId(response.getUploadId());
+    try {
+      ObjectManagers.getInstance().updateObject(bucket,objectEntity);
+    }
+ catch (    Exception e) {
+      throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
+    }
+    return response;
   }
  else {
     throw new AccessDeniedException(request.getBucket() + "/" + request.getKey());
