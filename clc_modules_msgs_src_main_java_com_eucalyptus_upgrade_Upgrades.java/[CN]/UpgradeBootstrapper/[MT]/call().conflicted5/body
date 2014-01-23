@@ -1,8 +1,17 @@
 {
-  if (BootstrapArgs.isCloudController() && (BootstrapArgs.isUpgradeSystem() || !UpgradeEventLog.exists())) {
-    return true;
+  for (  ComponentId c : ComponentIds.list()) {
+    for (    Version v : Version.upgradePath()) {
+      ComponentUpgradeInfo upgradeInfo=ComponentUpgradeInfo.get(v,c.getClass());
+      for (      Entry<Class,Predicate> p : upgradeInfo.getEntityUpgrades().entries()) {
+        try {
+          LOG.info("Executing @EntityUpgrade: " + p.getValue().getClass());
+          p.getValue().apply(p.getKey());
+        }
+ catch (        Exception ex) {
+          throw Exceptions.toUndeclared("Upgrade failed during @EntityUpgrade while executing: " + p.getValue().getClass() + " for "+ p.getKey()+ " because of: "+ ex.getMessage(),ex);
+        }
+      }
+    }
   }
- else {
-    return false;
-  }
+  return true;
 }
