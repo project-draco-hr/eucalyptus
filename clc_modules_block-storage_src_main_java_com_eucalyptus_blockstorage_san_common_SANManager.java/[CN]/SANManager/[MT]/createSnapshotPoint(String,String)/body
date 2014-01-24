@@ -1,6 +1,24 @@
 {
   if (connectionManager != null) {
-    return connectionManager.createSnapshotPoint(parentVolumeId,volumeId);
+    String sanParentVolumeId=null;
+    EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
+    try {
+      SANVolumeInfo parentVolInfo=db.getUnique(new SANVolumeInfo(parentVolumeId));
+      if (parentVolInfo == null || StringUtils.isBlank(parentVolInfo.getSanVolumeId())) {
+        throw new EucalyptusCloudException("Backend ID not found for " + parentVolumeId);
+      }
+      sanParentVolumeId=parentVolInfo.getSanVolumeId();
+    }
+ catch (    EucalyptusCloudException ex) {
+      LOG.error(parentVolumeId + ": Failed to lookup source volume entity",ex);
+      throw new EucalyptusCloudException("Failed to lookup source snapshot volume for " + parentVolumeId,ex);
+    }
+ finally {
+      db.commit();
+    }
+    String sanVolumeId=resourceIdOnSan(volumeId);
+    LOG.info("Creating backend snapshot point " + sanVolumeId + " mapping to "+ volumeId+ " from backend parent volume "+ sanParentVolumeId+ " mapping to "+ parentVolumeId);
+    return connectionManager.createSnapshotPoint(sanParentVolumeId,sanVolumeId);
   }
  else {
     throw new EucalyptusCloudException("Cannot create snapshot point, no SAN provider found");
