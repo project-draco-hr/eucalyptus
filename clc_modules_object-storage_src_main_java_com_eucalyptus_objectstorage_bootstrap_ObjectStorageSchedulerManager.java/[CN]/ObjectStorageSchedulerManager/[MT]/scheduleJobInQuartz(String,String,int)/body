@@ -1,0 +1,38 @@
+{
+  Class jobClass=null;
+  try {
+    jobClass=Class.forName(jobClassName);
+  }
+ catch (  ClassNotFoundException e) {
+    LOG.error("attempting to add job of type " + jobClassName + ", but the class was not found, job will not be added");
+  }
+  if (jobClass != null) {
+    try {
+      JobDetail jobDetail=newJob(jobClass).withIdentity("job" + jobIdx,OSG_JOB_GROUP).build();
+      if (schedule != null && schedule.startsWith("interval:")) {
+        String jobSchedule=schedule.substring("interval:".length(),schedule.length());
+        int intervalSecs;
+        try {
+          intervalSecs=Integer.parseInt(jobSchedule.trim());
+          Trigger trigger=newTrigger().withIdentity("trigger" + jobIdx,OSG_JOB_GROUP).withSchedule(simpleSchedule().withIntervalInSeconds(intervalSecs).repeatForever()).startAt(futureDate(intervalSecs + jobIdx,DateBuilder.IntervalUnit.SECOND)).build();
+          scheduler.scheduleJob(jobDetail,trigger);
+          LOG.info("job named job" + jobIdx + " added to group "+ OSG_JOB_GROUP+ " using class "+ jobClassName+ " with interval schedule '"+ schedule+ "'");
+        }
+ catch (        NumberFormatException nfe) {
+          LOG.error("failed to schedule job with class name - " + jobClassName + " because the interval - "+ jobSchedule+ " failed to be parsed as an integer");
+        }
+      }
+ else {
+        CronTrigger trigger=newTrigger().withIdentity("trigger" + jobIdx,OSG_JOB_GROUP).withSchedule(CronScheduleBuilder.cronSchedule(schedule)).build();
+        scheduler.scheduleJob(jobDetail,trigger);
+        LOG.info("job named job" + jobIdx + " added to group "+ OSG_JOB_GROUP+ " using class "+ jobClassName+ " with cron schedule '"+ schedule+ "'");
+      }
+    }
+ catch (    SchedulerException se) {
+      LOG.error("while attempting to schedule job using class " + jobClassName + " an exception occurred with message - "+ se.getMessage());
+    }
+  }
+ else {
+    LOG.error("job was not scheduled because class " + jobClassName + " was either not found or invalid");
+  }
+}

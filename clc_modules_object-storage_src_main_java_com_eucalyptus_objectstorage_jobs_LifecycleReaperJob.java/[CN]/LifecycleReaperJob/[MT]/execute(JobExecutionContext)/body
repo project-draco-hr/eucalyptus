@@ -1,0 +1,41 @@
+{
+  LOG.info("beginning Object Lifecycle processing");
+  LOG.debug("retrieving Object Lifecycle rules from the database");
+  List<LifecycleRule> rules=null;
+  try {
+    rules=BucketLifecycleManagers.getInstance().getLifecycleRules();
+  }
+ catch (  Exception ex) {
+    LOG.error("exception occurred while retrieving lifecycle rules - " + ex.getMessage());
+    throw new JobExecutionException("exception occurred while retrieving lifecycle rules",ex);
+  }
+  if (rules != null && rules.size() > 0) {
+    LOG.debug("found " + rules.size() + " Object Lifecycle rules");
+    for (    LifecycleRule rule : rules) {
+      if (rule.getEnabled() != null && rule.getEnabled().booleanValue()) {
+        LOG.debug("rule id - " + rule.getRuleId() + " on bucket "+ rule.getBucketName()+ " processing");
+        String ruleId=rule.getRuleId();
+        String bucketName=rule.getBucketName();
+        String prefix=rule.getPrefix();
+        if (rule.getExpirationDate() != null) {
+          processExpirationByDate(ruleId,bucketName,prefix,rule.getExpirationDate());
+        }
+ else         if (rule.getExpirationDays() != null) {
+          processExpirationByDays(ruleId,bucketName,prefix,rule.getExpirationDays());
+        }
+        if (rule.getTransitionDate() != null) {
+          processTransitionByDate(ruleId,bucketName,prefix,rule.getTransitionDate());
+        }
+ else         if (rule.getTransitionDays() != null) {
+          processTransitionByDays(ruleId,bucketName,prefix,rule.getExpirationDays());
+        }
+      }
+ else {
+        LOG.debug("rule id - " + rule.getRuleId() + " on bucket "+ rule.getBucketName()+ " is not enabled");
+      }
+    }
+  }
+ else {
+    LOG.info("there are no rules to process");
+  }
+}

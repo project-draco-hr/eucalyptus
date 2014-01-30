@@ -4,11 +4,6 @@
   try {
     SANVolumeInfo volInfo=new SANVolumeInfo(snapshotId);
     SANVolumeInfo foundVolInfo=db.getUnique(volInfo);
-    SANVolumeInfo volumeInfo=new SANVolumeInfo(snapshotId,foundVolInfo.getIqn(),sizeExpected);
-    volumeInfo.setStatus(foundVolInfo.getStatus());
-    volumeInfo.setSnapshotOf(foundVolInfo.getSnapshotOf());
-    volumeInfo.setStoreUser(foundVolInfo.getStoreUser());
-    db.add(volumeInfo);
     LOG.debug("Found an existing snapshot record for " + snapshotId + " and will use that lun and record.");
     return null;
   }
@@ -18,9 +13,11 @@
     db.commit();
   }
   LOG.debug(snapshotId + " not found on this SC's SAN. Now creating a lun on the SAN for the snapshot to be copied from ObjectStorage.");
+  String sanSnapshotId=resourceIdOnSan(snapshotId);
   String iqn=null;
   try {
-    iqn=connectionManager.createSnapshotHolder(snapshotId,actualSizeInMB);
+    LOG.info("Creating backend snapshot holder " + sanSnapshotId + " mapping to "+ snapshotId);
+    iqn=connectionManager.createSnapshotHolder(sanSnapshotId,actualSizeInMB);
   }
  catch (  EucalyptusCloudException e) {
     LOG.error("Could not create a volume to hold snapshot " + snapshotId);
@@ -34,7 +31,8 @@
       }
       Integer lun=-1;
       try {
-        lun=connectionManager.addInitiatorRule(snapshotId,scIqn);
+        LOG.info("Exporting backend snapshot holder " + sanSnapshotId + " mapping to "+ snapshotId+ " to SC host IQN "+ scIqn);
+        lun=connectionManager.addInitiatorRule(sanSnapshotId,scIqn);
       }
  catch (      EucalyptusCloudException attEx) {
         LOG.debug("Failed to setup attachment for snapshot " + snapshotId + " to SC",attEx);
@@ -50,14 +48,15 @@
  catch (      Exception connEx) {
         LOG.debug("Failed to connect SC to snapshot volume on SAN for snapshot " + snapshotId + ". Detaching and cleaning up.");
         try {
-          connectionManager.removeInitiatorRule(snapshotId,scIqn);
+          LOG.info("Unexporting backend snapshot holder " + sanSnapshotId + " mapping to "+ snapshotId+ " from SC host IQN "+ scIqn);
+          connectionManager.removeInitiatorRule(sanSnapshotId,scIqn);
         }
  catch (        EucalyptusCloudException detEx) {
           LOG.debug("Could not detach snapshot volume " + snapshotId + " during cleanup of failed connection");
         }
         throw new EucalyptusCloudException("Could not connect SC to target snapshot volume to prep for snapshot download from ObjectStorage",connEx);
       }
-      SANVolumeInfo snapInfo=new SANVolumeInfo(snapshotId,iqn,sizeExpected);
+      SANVolumeInfo snapInfo=new SANVolumeInfo(snapshotId,iqn,sizeExpected).withSanVolumeId(sanSnapshotId);
       db=StorageProperties.getEntityWrapper();
       db.add(snapInfo);
       db.commit();

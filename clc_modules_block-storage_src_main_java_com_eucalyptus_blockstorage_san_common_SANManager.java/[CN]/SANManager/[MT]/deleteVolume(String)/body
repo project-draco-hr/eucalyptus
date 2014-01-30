@@ -1,12 +1,25 @@
 {
-  if (connectionManager.deleteVolume(volumeId)) {
-    EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
+  String sanVolumeId=null;
+  EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
+  try {
+    SANVolumeInfo volumeInfo=db.getUnique(new SANVolumeInfo(volumeId));
+    if (volumeInfo == null || StringUtils.isBlank(volumeInfo.getSanVolumeId())) {
+      throw new EucalyptusCloudException(volumeId + ": Backend ID not found");
+    }
+    sanVolumeId=volumeInfo.getSanVolumeId();
+  }
+  finally {
+    db.commit();
+  }
+  LOG.info("Deleting backend volume " + sanVolumeId + " mapping to "+ volumeId);
+  if (connectionManager.deleteVolume(sanVolumeId)) {
+    db=StorageProperties.getEntityWrapper();
     try {
-      SANVolumeInfo snapInfo=db.getUnique(new SANVolumeInfo(volumeId));
+      SANVolumeInfo snapInfo=db.getUnique(new SANVolumeInfo(volumeId).withSanVolumeId(sanVolumeId));
       db.delete(snapInfo);
     }
  catch (    EucalyptusCloudException ex) {
-      LOG.error("Failed to update the database",ex);
+      LOG.error(volumeId + ": Failed to delete database entity post volume deletion",ex);
     }
  finally {
       db.commit();
