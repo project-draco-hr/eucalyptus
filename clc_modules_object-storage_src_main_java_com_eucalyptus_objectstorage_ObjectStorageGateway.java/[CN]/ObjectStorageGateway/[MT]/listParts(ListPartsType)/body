@@ -17,7 +17,47 @@ catch (  Exception e) {
     throw new InternalErrorException();
   }
   if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,0)) {
-    return ospClient.listParts(request);
+    int maxParts=1000;
+    try {
+      if (request.getMaxParts() != null) {
+        maxParts=request.getMaxParts();
+      }
+    }
+ catch (    NumberFormatException e) {
+      LOG.error("Failed to parse max parts from request properly: " + request.getMaxParts(),e);
+      throw new InvalidArgumentException("maxParts");
+    }
+    try {
+      ObjectEntity parent=ObjectManagers.getInstance().getObject(bucket,request.getUploadId());
+      Initiator initiator=new Initiator(parent.getOwnerIamUserId(),parent.getOwnerIamUserDisplayName());
+      reply.setInitiator(initiator);
+      CanonicalUser owner=new CanonicalUser(parent.getOwnerCanonicalId(),parent.getOwnerDisplayName());
+      reply.setOwner(owner);
+      reply.setStorageClass(parent.getStorageClass());
+      reply.setPartNumberMarker(request.getPartNumberMarker());
+      reply.setMaxParts(request.getMaxParts());
+      reply.setBucket(bucketName);
+      reply.setKey(objectKey);
+      reply.setUploadId(request.getUploadId());
+    }
+ catch (    Exception e) {
+      throw new NoSuchUploadException(request.getUploadId());
+    }
+    try {
+      PaginatedResult<ObjectEntity> result=ObjectManagers.getInstance().listPartsForUpload(bucket,objectKey,request.getUploadId(),request.getPartNumberMarker(),maxParts);
+      reply.setIsTruncated(result.getIsTruncated());
+      if (result.getLastEntry() instanceof ObjectEntity) {
+        reply.setNextPartNumberMarker(((ObjectEntity)result.getLastEntry()).getPartNumber());
+      }
+      for (      ObjectEntity entity : result.getEntityList()) {
+        List<Part> replyParts=reply.getParts();
+        replyParts.add(new Part(entity.getPartNumber(),entity.geteTag(),entity.getLastUpdateTimestamp(),entity.getSize()));
+      }
+    }
+ catch (    Exception e) {
+      throw new InternalErrorException(e.getMessage());
+    }
+    return reply;
   }
  else {
     throw new AccessDeniedException(request.getBucket() + "/" + request.getKey());
