@@ -7,16 +7,19 @@
   }
   EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
   try {
-    BucketInfo searchBucket=new BucketInfo();
-    searchBucket.setOwnerId(account.getAccountNumber());
-    searchBucket.setHidden(false);
-    List<BucketInfo> bucketInfoList=db.queryEscape(searchBucket);
     ArrayList<BucketListEntry> buckets=new ArrayList<BucketListEntry>();
-    for (    BucketInfo bucketInfo : bucketInfoList) {
-      if (ctx.hasAdministrativePrivileges()) {
+    if (ctx.hasAdministrativePrivileges() || Lookups.checkPrivilege(PolicySpec.S3_LISTALLMYBUCKETS,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,"fakebucket",account.getAccountNumber())) {
+      BucketInfo searchBucket=new BucketInfo();
+      searchBucket.setOwnerId(account.getAccountNumber());
+      searchBucket.setHidden(false);
+      List<BucketInfo> bucketInfoList=db.queryEscape(searchBucket);
+      for (      BucketInfo bucketInfo : bucketInfoList) {
         try {
           if (bucketHasSnapshots(bucketInfo.getBucketName())) {
             continue;
+          }
+ else {
+            buckets.add(new BucketListEntry(bucketInfo.getBucketName(),DateUtils.format(bucketInfo.getCreationDate().getTime(),DateUtils.ALT_ISO8601_DATE_PATTERN)));
           }
         }
  catch (        Exception e) {
@@ -24,11 +27,11 @@
           continue;
         }
       }
-      if (ctx.hasAdministrativePrivileges() || Lookups.checkPrivilege(PolicySpec.S3_LISTALLMYBUCKETS,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketInfo.getBucketName(),bucketInfo.getOwnerId())) {
-        buckets.add(new BucketListEntry(bucketInfo.getBucketName(),DateUtils.format(bucketInfo.getCreationDate().getTime(),DateUtils.ALT_ISO8601_DATE_PATTERN)));
-      }
+      db.commit();
     }
-    db.commit();
+ else {
+      throw new AccessDeniedException("s3:listallmybuckets");
+    }
     try {
       CanonicalUserType owner=new CanonicalUserType(account.getCanonicalId(),account.getName());
       ListAllMyBucketsList bucketList=new ListAllMyBucketsList();
