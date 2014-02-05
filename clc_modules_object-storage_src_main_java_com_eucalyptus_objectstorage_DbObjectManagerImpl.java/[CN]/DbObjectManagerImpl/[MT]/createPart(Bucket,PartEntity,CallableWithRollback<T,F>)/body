@@ -1,0 +1,59 @@
+{
+  T result=null;
+  try {
+    PartEntity savedEntity=null;
+    try {
+      savedEntity=Transactions.saveDirect(part);
+    }
+ catch (    TransactionException e) {
+      LOG.error("Transaction error creating initial object metadata for " + part.getResourceFullName(),e);
+    }
+catch (    Exception e) {
+      LOG.error("Error creating initial object metadata for " + part.getResourceFullName(),e);
+    }
+    if (resourceModifier != null) {
+      result=resourceModifier.call();
+      Date updatedDate=null;
+      if (result != null) {
+        if (result.getLastModified() != null) {
+          updatedDate=result.getLastModified();
+        }
+ else {
+          updatedDate=new Date();
+        }
+        savedEntity.finalizeCreation(updatedDate,result.getEtag());
+      }
+ else {
+        throw new Exception("Backend returned null result");
+      }
+    }
+ else {
+      savedEntity.finalizeCreation(new Date(),"");
+    }
+    return result;
+  }
+ catch (  S3Exception e) {
+    LOG.error("Error creating part: " + bucket.getBucketName() + "/"+ part.getObjectKey());
+    try {
+      if (resourceModifier != null) {
+        resourceModifier.rollback(result);
+      }
+    }
+ catch (    Exception ex) {
+      LOG.error("Error rolling back part create",ex);
+    }
+    throw e;
+  }
+catch (  Exception e) {
+    LOG.error("Error creating part: " + bucket.getBucketName() + "/"+ part.getObjectKey());
+    try {
+      if (resourceModifier != null) {
+        resourceModifier.rollback(result);
+      }
+    }
+ catch (    Exception ex) {
+      LOG.error("Error rolling back part create",ex);
+    }
+    throw new InternalErrorException(part.getBucketName() + "/" + part.getObjectKey());
+  }
+}
