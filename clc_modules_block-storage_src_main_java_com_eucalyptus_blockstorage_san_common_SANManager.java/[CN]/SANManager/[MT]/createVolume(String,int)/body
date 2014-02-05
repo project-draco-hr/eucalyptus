@@ -1,9 +1,53 @@
 {
-  String iqn=connectionManager.createVolume(volumeId,size);
-  if (iqn != null) {
-    SANVolumeInfo volumeInfo=new SANVolumeInfo(volumeId,iqn,size);
-    EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
-    db.add(volumeInfo);
+  String sanVolumeId=resourceIdOnSan(volumeId);
+  SANVolumeInfo volumeInfo=new SANVolumeInfo(volumeId);
+  EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
+  try {
+    SANVolumeInfo existingVol=db.getUnique(volumeInfo);
+    if (connectionManager.volumeExists(existingVol.getSanVolumeId())) {
+      throw new VolumeAlreadyExistsException("Volume already exists on storage backend for " + volumeId);
+    }
+ else {
+      LOG.debug(volumeId + ": Found the database entity but the volume does not exist on SAN. Deleting the database entity");
+      db.delete(existingVol);
+    }
+  }
+ catch (  Exception ex) {
+    if (ex instanceof VolumeAlreadyExistsException) {
+      throw ex;
+    }
+  }
+ finally {
     db.commit();
+  }
+  try {
+    db=StorageProperties.getEntityWrapper();
+    db.add(volumeInfo.withSanVolumeId(sanVolumeId).withSize(size));
+  }
+ catch (  Exception ex) {
+    LOG.error(volumeId + ": Failed to add database entity",ex);
+    throw new EucalyptusCloudException("Failed to add database entity for " + volumeId,ex);
+  }
+ finally {
+    db.commit();
+  }
+  LOG.info("Creating backend volume " + sanVolumeId + " mapping to "+ volumeId);
+  String iqn=connectionManager.createVolume(sanVolumeId,size);
+  if (iqn != null) {
+    try {
+      db=StorageProperties.getEntityWrapper();
+      SANVolumeInfo existingVol=db.getUnique(volumeInfo);
+      existingVol.setIqn(iqn);
+    }
+ catch (    Exception ex) {
+      LOG.error(volumeId + ": Failed to update database entity with IQN post volume creation");
+      throw new EucalyptusCloudException("Failed to update database entity with IQN post volume creation for " + volumeId,ex);
+    }
+ finally {
+      db.commit();
+    }
+  }
+ else {
+    throw new EucalyptusCloudException("Unable to create volume: " + volumeId);
   }
 }

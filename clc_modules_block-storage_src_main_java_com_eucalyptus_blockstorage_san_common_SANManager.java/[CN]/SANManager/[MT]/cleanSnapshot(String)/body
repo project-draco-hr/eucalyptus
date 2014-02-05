@@ -1,23 +1,29 @@
 {
+  String sanSnapshotId=null;
   EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
   try {
     SANVolumeInfo volumeInfo=db.getUnique(new SANVolumeInfo(snapshotId));
+    if (volumeInfo == null || StringUtils.isBlank(volumeInfo.getSanVolumeId())) {
+      throw new EucalyptusCloudException(snapshotId + ": Backend ID not found");
+    }
+    sanSnapshotId=volumeInfo.getSanVolumeId();
   }
  catch (  EucalyptusCloudException ex) {
-    LOG.debug("Snapshot not found: " + snapshotId);
+    LOG.debug(snapshotId + ": Snapshot not found",ex);
     return;
   }
  finally {
     db.commit();
   }
-  if (connectionManager.deleteVolume(snapshotId)) {
+  LOG.info("Deleting backend snapshot " + sanSnapshotId + " mapping to "+ snapshotId);
+  if (connectionManager.deleteVolume(sanSnapshotId)) {
     try {
       db=StorageProperties.getEntityWrapper();
-      SANVolumeInfo snapInfo=db.getUnique(new SANVolumeInfo(snapshotId));
+      SANVolumeInfo snapInfo=db.getUnique(new SANVolumeInfo(snapshotId).withSanVolumeId(sanSnapshotId));
       db.delete(snapInfo);
     }
  catch (    EucalyptusCloudException ex) {
-      LOG.error("Unable to clean failed snapshot: " + snapshotId);
+      LOG.error(snapshotId + ": Unable to clean failed snapshot",ex);
       return;
     }
  finally {

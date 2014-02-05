@@ -1,25 +1,69 @@
 {
-  int size=-1;
+  String sanVolumeId=resourceIdOnSan(volumeId);
+  String sanParentVolumeId=null;
+  SANVolumeInfo volInfo=new SANVolumeInfo(volumeId);
   EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
+  int size=-1;
   try {
-    SANVolumeInfo parentVolumeInfo=db.getUnique(new SANVolumeInfo(parentVolumeId));
+    try {
+      SANVolumeInfo parentVolumeInfo=db.getUnique(new SANVolumeInfo(parentVolumeId));
+      if (parentVolumeInfo == null || StringUtils.isBlank(parentVolumeInfo.getSanVolumeId())) {
+        throw new EucalyptusCloudException("Backend ID not found for " + parentVolumeId);
+      }
+      sanParentVolumeId=parentVolumeInfo.getSanVolumeId();
+      size=parentVolumeInfo.getSize();
+    }
+ catch (    EucalyptusCloudException ex) {
+      LOG.error(volumeId + ": Failed to lookup source volume entity",ex);
+      throw new EucalyptusCloudException("Failed to lookup source volume entity for " + parentVolumeId,ex);
+    }
+    try {
+      SANVolumeInfo existingVol=db.getUnique(volInfo);
+      if (connectionManager.snapshotExists(existingVol.getSanVolumeId())) {
+        throw new VolumeAlreadyExistsException("Volume already exists on storage backend for " + volumeId);
+      }
+ else {
+        LOG.debug(volumeId + ": Found the database entity but the volume does not exist on SAN. Deleting the database entity");
+        db.delete(existingVol);
+      }
+    }
+ catch (    Exception ex) {
+      if (ex instanceof VolumeAlreadyExistsException) {
+        throw ex;
+      }
+    }
+  }
+  finally {
     db.commit();
-    size=parentVolumeInfo.getSize();
   }
- catch (  EucalyptusCloudException ex) {
-    LOG.error(ex);
-    db.rollback();
-    throw ex;
-  }
-  String iqn=connectionManager.cloneVolume(volumeId,parentVolumeId);
-  if (iqn != null) {
-    SANVolumeInfo volumeInfo=new SANVolumeInfo(volumeId,iqn,size);
+  try {
     db=StorageProperties.getEntityWrapper();
-    db.add(volumeInfo);
+    db.add(volInfo.withSanVolumeId(sanVolumeId).withSize(size));
+  }
+ catch (  Exception ex) {
+    LOG.error(volumeId + ": Failed to add database entity" + volumeId,ex);
+    throw new EucalyptusCloudException("Failed to add database entity for " + volumeId,ex);
+  }
+ finally {
     db.commit();
+  }
+  LOG.info("Cloning backend volume " + sanVolumeId + " mapping to "+ volumeId+ " from backend volume "+ sanParentVolumeId+ " mapping to "+ parentVolumeId);
+  String iqn=connectionManager.cloneVolume(sanVolumeId,sanParentVolumeId);
+  if (iqn != null) {
+    try {
+      db=StorageProperties.getEntityWrapper();
+      SANVolumeInfo existingVol=db.getUnique(volInfo);
+      existingVol.setIqn(iqn);
+    }
+ catch (    Exception ex) {
+      LOG.error(volumeId + ": Failed to update database entity with IQN post volume creation");
+      throw new EucalyptusCloudException("Failed to update database entity with IQN post volume creation for " + volumeId,ex);
+    }
+ finally {
+      db.commit();
+    }
   }
  else {
-    db.rollback();
     throw new EucalyptusCloudException("Unable to create volume: " + volumeId);
   }
 }

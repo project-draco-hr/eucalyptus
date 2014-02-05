@@ -1,0 +1,40 @@
+{
+  AbortMultipartUploadResponseType reply=(AbortMultipartUploadResponseType)request.getReply();
+  logRequest(request);
+  ObjectEntity objectEntity=null;
+  Bucket bucket=null;
+  try {
+    bucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
+    objectEntity=ObjectManagers.getInstance().get(bucket,request.getKey(),null);
+    request.setKey(objectEntity.getObjectUuid());
+  }
+ catch (  NoSuchElementException e) {
+    throw new NoSuchBucketException(request.getBucket());
+  }
+catch (  Exception e) {
+    throw new InternalErrorException();
+  }
+  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,0)) {
+    AbortMultipartUploadResponseType response=ospClient.abortMultipartUpload(request);
+    Bucket bucketWithParts;
+    try {
+      bucketWithParts=BucketManagers.getInstance().get(request.getBucket(),false,null);
+    }
+ catch (    NoSuchElementException e) {
+      throw new NoSuchBucketException(request.getBucket());
+    }
+catch (    Exception e) {
+      throw new InternalErrorException();
+    }
+    try {
+      ObjectManagers.getInstance().removeParts(bucketWithParts,request.getUploadId());
+    }
+ catch (    Exception e) {
+      throw new InternalErrorException("Could not remove parts for: " + request.getUploadId());
+    }
+    return response;
+  }
+ else {
+    throw new AccessDeniedException(request.getBucket() + "/" + request.getKey());
+  }
+}

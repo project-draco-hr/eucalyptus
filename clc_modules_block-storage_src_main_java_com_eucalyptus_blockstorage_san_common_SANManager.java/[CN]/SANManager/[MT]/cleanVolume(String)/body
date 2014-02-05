@@ -1,19 +1,25 @@
 {
+  String sanVolumeId=null;
   EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
   try {
     SANVolumeInfo volumeInfo=db.getUnique(new SANVolumeInfo(volumeId));
+    if (volumeInfo == null || StringUtils.isBlank(volumeInfo.getSanVolumeId())) {
+      throw new EucalyptusCloudException(volumeId + ": Backend ID not found");
+    }
+    sanVolumeId=volumeInfo.getSanVolumeId();
   }
  catch (  EucalyptusCloudException ex) {
-    LOG.debug("Volume not found: " + volumeId);
+    LOG.debug(volumeId + ": Volume not found",ex);
     return;
   }
  finally {
     db.commit();
   }
-  if (connectionManager.deleteVolume(volumeId)) {
+  LOG.info("Deleting backend volume " + sanVolumeId + " mapping to "+ volumeId);
+  if (connectionManager.deleteVolume(sanVolumeId)) {
     db=StorageProperties.getEntityWrapper();
     try {
-      SANVolumeInfo volumeInfo=db.getUnique(new SANVolumeInfo(volumeId));
+      SANVolumeInfo volumeInfo=db.getUnique(new SANVolumeInfo(volumeId).withSanVolumeId(sanVolumeId));
       db.delete(volumeInfo);
     }
  catch (    EucalyptusCloudException ex) {
