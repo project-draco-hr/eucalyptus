@@ -1,0 +1,42 @@
+{
+  final String asgName=String.format("asg-euca-internal-imaging-%s",this.getGroupId());
+  boolean asgFound=false;
+  try {
+    final DescribeAutoScalingGroupsResponseType response=EucalyptusActivityTasks.getInstance().describeAutoScalingGroups(Lists.newArrayList(asgName));
+    final List<AutoScalingGroupType> groups=response.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember();
+    if (groups.size() > 0 && groups.get(0).getAutoScalingGroupName().equals(asgName)) {
+      asgFound=true;
+    }
+  }
+ catch (  final Exception ex) {
+    asgFound=false;
+  }
+  if (asgFound) {
+    createdAutoScalingGroup=asgName;
+    return true;
+  }
+  String launchConfigName=null;
+  try {
+    launchConfigName=this.getResult(CreateLaunchConfiguration.class);
+  }
+ catch (  final Exception ex) {
+    throw new ImagingServiceActionException("failed to find the launch configuration name",ex);
+  }
+  List<String> availabilityZones=Lists.newArrayList();
+  try {
+    final List<ClusterInfoType> clusters=EucalyptusActivityTasks.getInstance().describeAvailabilityZones(false);
+    for (    final ClusterInfoType c : clusters)     availabilityZones.add(c.getZoneName());
+  }
+ catch (  final Exception ex) {
+    throw new ImagingServiceActionException("failed to lookup availability zones",ex);
+  }
+  final int capacity=NUM_INSTANCES;
+  try {
+    EucalyptusActivityTasks.getInstance().createAutoScalingGroup(asgName,availabilityZones,capacity,launchConfigName);
+    this.createdAutoScalingGroup=asgName;
+  }
+ catch (  Exception ex) {
+    throw new ImagingServiceActionException("Failed to create autoscaling group",ex);
+  }
+  return true;
+}

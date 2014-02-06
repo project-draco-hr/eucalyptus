@@ -1,0 +1,32 @@
+{
+  final String certName=String.format("%s-%s",DEFAULT_SERVER_CERT_NAME_PREFIX,this.getGroupId());
+  final String certPath=DEFAULT_SERVER_CERT_PATH;
+  try {
+    final ServerCertificateType cert=EucalyptusActivityTasks.getInstance().getServerCertificate(certName);
+    if (cert != null && cert.getServerCertificateMetadata() != null)     this.createdServerCert=cert.getServerCertificateMetadata().getServerCertificateName();
+  }
+ catch (  final Exception ex) {
+    this.createdServerCert=null;
+  }
+  if (this.createdServerCert == null) {
+    String certPem=null;
+    String pkPem=null;
+    try {
+      final KeyPair kp=Certs.generateKeyPair();
+      final X509Certificate kpCert=Certs.generateCertificate(kp,String.format("Certificate-for-imaging-service/%s",this.getGroupId()));
+      certPem=new String(PEMFiles.getBytes(kpCert));
+      pkPem=new String(PEMFiles.getBytes(kp));
+    }
+ catch (    final Exception ex) {
+      throw new ImagingServiceActionException("failed generating server cert",ex);
+    }
+    try {
+      EucalyptusActivityTasks.getInstance().uploadServerCertificate(certName,certPath,certPem,pkPem,null);
+      this.createdServerCert=certName;
+    }
+ catch (    final Exception ex) {
+      throw new ImagingServiceActionException("failed to upload server cert",ex);
+    }
+  }
+  return true;
+}
