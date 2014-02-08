@@ -1,32 +1,16 @@
 {
-  try {
-    final ServiceConfiguration ccConfig=Topology.lookup(ClusterController.class,Partitions.lookupByName(config.getPartition()));
-    DescribeServicesResponseType reply=Nodes.send(config,new DescribeServicesType());
-    for (    ServiceStatusType status : reply.getServiceStatuses()) {
-      if (config.getName().equals(status.getServiceId().getName())) {
-        Component.State reportedState=Component.State.ENABLED;
-        try {
-          reportedState=Component.State.valueOf(Strings.nullToEmpty(status.getLocalState()).toUpperCase());
-          LOG.debug("Found service status for " + config.getName() + ": "+ reportedState);
-        }
- catch (        IllegalArgumentException e) {
-          LOG.debug("Failed to get service status for " + config.getName() + "; got "+ status.getLocalState());
-        }
-        if (Component.State.NOTREADY.equals(reportedState)) {
-          throw Faults.failure(config,new RuntimeException(Joiner.on(",").join(status.getDetails())));
-        }
+  final ServiceConfiguration ccConfig=Nodes.lookupClusterController(config);
+  if (!Component.State.ENABLED.apply(ccConfig) || (Component.State.DISABLED.apply(ccConfig) && ccConfig.lookupStateMachine().isBusy())) {
+    throw Faults.failure(config,Exceptions.noSuchElement("Failed to find ENABLED Cluster Controller for " + config));
+  }
  else {
-          throw Faults.advisory(config,new RuntimeException(Joiner.on(",").join(status.getDetails())));
-        }
-      }
+    NodeInfo nodeInfo=Nodes.lookupNodeInfo(ccConfig).apply(config.getName());
+    if (nodeInfo.getLastException() == null) {
+      String checkMessage=Joiner.on(' ').useForNull("<null>").join(nodeInfo.getLastSeen(),nodeInfo.getLastState(),nodeInfo.getLastMessage());
+      throw Faults.advisory(config,checkMessage);
     }
-  }
- catch (  Faults.CheckException e) {
-    throw e;
-  }
-catch (  Exception e) {
-    LOG.error(e);
-    LOG.debug(e,e);
-    throw Faults.failure(config,e);
+ else {
+      throw nodeInfo.getLastException();
+    }
   }
 }

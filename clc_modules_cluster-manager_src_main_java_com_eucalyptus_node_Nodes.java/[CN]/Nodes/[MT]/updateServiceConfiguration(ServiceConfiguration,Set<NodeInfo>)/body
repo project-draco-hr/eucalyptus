@@ -1,0 +1,108 @@
+{
+  Function<NodeInfo,ServiceConfiguration> setupNode=(Function<NodeInfo,ServiceConfiguration>)new Function<NodeInfo,ServiceConfiguration>(){
+    @Nullable @Override public ServiceConfiguration apply(    @Nullable NodeInfo input){
+      if (Component.State.ENABLED.apply(ccConfig) && !ccConfig.lookupStateMachine().isBusy()) {
+        ServiceConfiguration ncConfig=Nodes.lookup(ccConfig,input.getName());
+        Component component=Components.lookup(NodeController.class);
+        if (!component.hasService(ncConfig)) {
+          component.setup(ncConfig);
+          try {
+            Topology.disable(ncConfig);
+          }
+ catch (          Exception e) {
+            LOG.debug(e,e);
+          }
+        }
+        return ncConfig;
+      }
+      return Nodes.lookup(ccConfig,input.getName());
+    }
+  }
+;
+  Predicate<NodeInfo> disableNodes=(Predicate<NodeInfo>)new Predicate<NodeInfo>(){
+    @Override public boolean apply(    @Nullable NodeInfo nodeInfo){
+      try {
+        Topology.disable(Nodes.lookup(ccConfig,nodeInfo.getName()));
+      }
+ catch (      Exception e) {
+      }
+      return true;
+    }
+  }
+;
+  if (Component.State.DISABLED.ordinal() >= ccConfig.lookupState().ordinal()) {
+    Iterables.filter(nodeInfoSet,disableNodes);
+  }
+  Function<ServiceStatusType,String> statusToName=new Function<ServiceStatusType,String>(){
+    @Nullable @Override public String apply(    @Nullable ServiceStatusType status){
+      return status.getServiceId().getName();
+    }
+  }
+;
+  Iterable<ServiceConfiguration> nodesConfigs=Iterables.transform(nodeInfoSet,setupNode);
+  if (!nodeInfoSet.isEmpty()) {
+    DescribeServicesResponseType reply=Nodes.send(new DescribeServicesType(),toArray(nodesConfigs,ServiceConfiguration.class));
+    Map<String,ServiceStatusType> statusMap=Maps.uniqueIndex(reply.getServiceStatuses(),statusToName);
+    Map<String,NodeInfo> nodeInfoMap=Maps.uniqueIndex(nodeInfoSet,new Function<NodeInfo,String>(){
+      @Nullable @Override public String apply(      @Nullable NodeInfo nodeInfo){
+        return nodeInfo.getName();
+      }
+    }
+);
+    for (    ServiceConfiguration ncConfig : nodesConfigs) {
+      Component.State reportedState=Component.State.ENABLED;
+      ServiceStatusType status=statusMap.get(ncConfig.getName());
+      final NodeInfo nodeInfo=nodeInfoMap.get(ncConfig.getName());
+      String lastMessage=null;
+      Faults.CheckException checkException=null;
+      TransitionRecord<ServiceConfiguration,Component.State,Component.Transition> tr=null;
+      try {
+        lastMessage=Joiner.on("\n").join(status.getDetails());
+        tr=ncConfig.lookupStateMachine().getTransitionRecord();
+        try {
+          reportedState=Component.State.valueOf(Strings.nullToEmpty(status.getLocalState()).toUpperCase());
+          lastMessage=Joiner.on('\n').join(lastMessage,"Found service status for " + ncConfig.getName() + ": "+ reportedState);
+        }
+ catch (        IllegalArgumentException e) {
+          lastMessage=Joiner.on('\n').join(lastMessage,"Failed to get service status for " + ncConfig.getName() + "; got "+ status.getLocalState());
+        }
+        if (ncConfig.lookupStateMachine().isBusy()) {
+          if (!ncConfig.lookupState().equals(reportedState)) {
+            lastMessage=Joiner.on('\n').join(lastMessage,"Found state mismatch for node " + ncConfig.getName() + ": reported="+ reportedState+ " local="+ ncConfig.getStateMachine());
+          }
+ else {
+            lastMessage=Joiner.on('\n').join(lastMessage,"Found state for node " + ncConfig.getName() + ": reported="+ reportedState+ " local="+ ncConfig.getStateMachine());
+          }
+        }
+ else {
+          try {
+            if (Component.State.ENABLED.equals(reportedState)) {
+              Topology.enable(ncConfig);
+            }
+ else             if (!Component.State.STOPPED.apply(ncConfig)) {
+              Topology.disable(ncConfig);
+              if (Component.State.NOTREADY.equals(reportedState)) {
+                checkException=Faults.failure(ncConfig,Joiner.on(",").join(status.getDetails()));
+              }
+            }
+ else {
+              Topology.stop(ncConfig);
+            }
+          }
+ catch (          Exception e) {
+            LOG.debug(e,e);
+            if (checkException != null) {
+              LOG.debug(checkException);
+            }
+            checkException=Faults.failure(ncConfig,e,Objects.firstNonNull(checkException,Faults.advisory(ncConfig,lastMessage)));
+          }
+        }
+      }
+  finally {
+        checkException=Objects.firstNonNull(checkException,Faults.advisory(ncConfig,lastMessage));
+        nodeInfo.touch(reportedState,lastMessage,checkException);
+        Faults.submit(ncConfig,tr,checkException);
+      }
+    }
+  }
+}
