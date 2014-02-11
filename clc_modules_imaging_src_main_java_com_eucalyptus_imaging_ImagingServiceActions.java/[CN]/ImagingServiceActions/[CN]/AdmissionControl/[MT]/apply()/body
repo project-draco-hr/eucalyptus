@@ -1,0 +1,58 @@
+{
+  boolean asgFound=false;
+  try {
+    final DescribeAutoScalingGroupsResponseType resp=EucalyptusActivityTasks.getInstance().describeAutoScalingGroups(null);
+    final List<AutoScalingGroupType> groups=resp.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember();
+    for (    final AutoScalingGroupType asg : groups) {
+      if (asg.getAutoScalingGroupName().contains(this.getGroupId())) {
+        asgFound=true;
+        break;
+      }
+    }
+  }
+ catch (  final Exception ex) {
+    asgFound=false;
+  }
+  if (asgFound)   return false;
+  final String emi=ImagingServiceProperties.IMAGING_EMI;
+  List<ImageDetails> images=null;
+  try {
+    images=EucalyptusActivityTasks.getInstance().describeImages(Lists.newArrayList(emi));
+    if (images == null || images.size() <= 0 || !images.get(0).getImageId().toLowerCase().equals(emi.toLowerCase()))     throw new ImagingServiceActionException("No imaging service EMI is found");
+  }
+ catch (  final ImagingServiceActionException ex) {
+    throw ex;
+  }
+catch (  final Exception ex) {
+    throw new ImagingServiceActionException("failed to validate the imaging service EMI",ex);
+  }
+  List<ClusterInfoType> clusters=null;
+  try {
+    clusters=EucalyptusActivityTasks.getInstance().describeAvailabilityZones(true);
+  }
+ catch (  final Exception ex) {
+    throw new ImagingServiceActionException("failed to validate the zones",ex);
+  }
+  final String instanceType=ImagingServiceProperties.IMAGING_INSTANCE_TYPE;
+  int numVm=1;
+  boolean resourceAvailable=false;
+  for (  final ClusterInfoType cluster : clusters) {
+    final int capacity=findAvailableResources(clusters,cluster.getZoneName(),instanceType);
+    if (numVm <= capacity) {
+      resourceAvailable=true;
+      break;
+    }
+  }
+  if (!resourceAvailable)   throw new ImagingServiceActionException("not enough resource in the cloud");
+  final String keyName=ImagingServiceProperties.IMAGING_VM_KEYNAME;
+  if (keyName != null && keyName.length() > 0) {
+    try {
+      final List<DescribeKeyPairsResponseItemType> keypairs=EucalyptusActivityTasks.getInstance().describeKeyPairs(Lists.newArrayList(keyName));
+      if (keypairs == null || keypairs.size() <= 0 || !keypairs.get(0).getKeyName().equals(keyName))       throw new Exception();
+    }
+ catch (    Exception ex) {
+      throw new ImagingServiceActionException(String.format("The configured keyname %s is not found",ImagingServiceProperties.IMAGING_VM_KEYNAME));
+    }
+  }
+  return true;
+}

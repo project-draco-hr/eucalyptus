@@ -106,8 +106,11 @@
       resourceId=request.getBucket();
     }
  else     if (PolicySpec.S3_RESOURCE_OBJECT.equals(resourceType)) {
-      resourceId=request.getKey();
+      resourceId=request.getFullResource();
     }
+  }
+  if (allowAdmin && requestUser.isSystemUser() && iamPermissionsAllow(requestUser,requiredActions,resourceType,resourceId,resourceAllocationSize)) {
+    return true;
   }
   if (requiredBucketACLPermissions == null && requiredObjectACLPermissions == null) {
     throw new IllegalArgumentException("No requires-permission actions found in request class annotations, cannot process.");
@@ -132,14 +135,11 @@
     }
   }
   aclAllow=(allowOwnerOnly ? resourceOwnerAccount.getAccountNumber().equals(requestAccount.getAccountNumber()) : aclAllow);
-  Boolean iamAllow=true;
   if (aclAllow && isUserAnonymous(requestUser)) {
     return true;
   }
  else {
-    for (    String action : requiredActions) {
-      iamAllow=iamAllow && Permissions.isAuthorized(PolicySpec.VENDOR_S3,resourceType,resourceId,null,action,requestUser) && Permissions.canAllocate(PolicySpec.VENDOR_S3,resourceType,resourceId,action,requestUser,resourceAllocationSize);
-    }
+    Boolean iamAllow=iamPermissionsAllow(requestUser,requiredActions,resourceType,resourceId,resourceAllocationSize);
     return aclAllow && iamAllow;
   }
 }

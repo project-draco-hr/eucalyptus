@@ -1,0 +1,42 @@
+{
+  String certName=null;
+  String certArn=null;
+  try {
+    roleName=this.getResult(IamRoleSetup.class);
+  }
+ catch (  final Exception ex) {
+    throw new ImagingServiceActionException("failed to find the created role name",ex);
+  }
+  try {
+    certName=this.getResult(UploadServerCertificate.class);
+  }
+ catch (  final Exception ex) {
+    throw new ImagingServiceActionException("failed to find the uploaded cert name",ex);
+  }
+  try {
+    final ServerCertificateType cert=EucalyptusActivityTasks.getInstance().getServerCertificate(certName);
+    certArn=cert.getServerCertificateMetadata().getArn();
+  }
+ catch (  final Exception ex) {
+    throw new ImagingServiceActionException("failed to lookup server certificate",ex);
+  }
+  final String policyName=String.format("%s-%s",SERVER_CERT_ROLE_POLICY_NAME_PREFIX,this.getGroupId());
+  final String rolePolicyDoc=ROLE_SERVER_CERT_POLICY_DOCUMENT.replace("CERT_ARN_PLACEHOLDER",certArn);
+  try {
+    final GetRolePolicyResult rolePolicy=EucalyptusActivityTasks.getInstance().getRolePolicy(roleName,policyName);
+    if (rolePolicy != null && policyName.equals(rolePolicy.getPolicyName()))     this.createdPolicyName=policyName;
+  }
+ catch (  final Exception ex) {
+    ;
+  }
+  if (this.createdPolicyName == null) {
+    try {
+      EucalyptusActivityTasks.getInstance().putRolePolicy(roleName,policyName,rolePolicyDoc);
+      createdPolicyName=policyName;
+    }
+ catch (    final Exception ex) {
+      throw new ImagingServiceActionException("failed to authorize server certificate",ex);
+    }
+  }
+  return true;
+}
