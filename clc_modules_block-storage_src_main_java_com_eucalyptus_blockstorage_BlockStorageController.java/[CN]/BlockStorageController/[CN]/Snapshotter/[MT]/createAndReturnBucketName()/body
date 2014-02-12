@@ -1,0 +1,40 @@
+{
+  String bucket=null;
+  int bucketCreationRetries=SnapshotTransferConfiguration.DEFAULT_BUCKET_CREATION_RETRIES;
+  do {
+    bucketCreationRetries--;
+    if (StringUtils.isBlank(bucket)) {
+      try {
+        bucket=SnapshotTransferConfiguration.getInstance().getSnapshotBucket();
+      }
+ catch (      Exception ex1) {
+        try {
+          bucket=SnapshotTransferConfiguration.updateBucketName(StorageProperties.SNAPSHOT_BUCKET_PREFIX + UUID.randomUUID().toString().replaceAll("-","")).getSnapshotBucket();
+        }
+ catch (        Exception ex2) {
+          bucket=StorageProperties.SNAPSHOT_BUCKET_PREFIX + UUID.randomUUID().toString().replaceAll("-","");
+        }
+      }
+    }
+    try {
+      snapshotOps.createBucket(bucket);
+      break;
+    }
+ catch (    Exception ex) {
+      if (bucketCreationRetries > 0) {
+        LOG.info("Unable to create snapshot upload bucket " + bucket + ". Will retry with a different bucket name");
+        try {
+          bucket=SnapshotTransferConfiguration.updateBucketName(StorageProperties.SNAPSHOT_BUCKET_PREFIX + UUID.randomUUID().toString().replaceAll("-","")).getSnapshotBucket();
+        }
+ catch (        Exception ex2) {
+          bucket=StorageProperties.SNAPSHOT_BUCKET_PREFIX + UUID.randomUUID().toString().replaceAll("-","");
+        }
+      }
+ else {
+        throw new EucalyptusCloudException("Unable to create bucket for snapshot uploads after " + SnapshotTransferConfiguration.DEFAULT_BUCKET_CREATION_RETRIES + " retries");
+      }
+    }
+  }
+ while (bucketCreationRetries > 0);
+  return bucket;
+}

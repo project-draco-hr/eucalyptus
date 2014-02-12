@@ -14,24 +14,52 @@
           foundSnapshotInfos=db.query(snapshotInfo);
           if (foundSnapshotInfos.size() == 0) {
             int snapSizeGb=0;
+            String snapshotLocation=null;
+            String bucket=null;
+            String key=null;
             snapshotInfo.setScName(null);
             List<SnapshotInfo> otherSnapshotInfos=db.query(snapshotInfo);
             if (otherSnapshotInfos != null && otherSnapshotInfos.size() > 0) {
               for (              SnapshotInfo otherSnap : otherSnapshotInfos) {
+                if (StringUtils.isBlank(snapshotLocation)) {
+                  snapshotLocation=otherSnap.getSnapshotLocation();
+                }
                 if (otherSnap.getSizeGb() != null && otherSnap.getSizeGb() > 0) {
                   snapSizeGb=otherSnap.getSizeGb();
+                }
+                if (StringUtils.isNotBlank(snapshotLocation) && snapSizeGb > 0) {
                   break;
+                }
+ else {
+                  continue;
                 }
               }
             }
             db.commit();
             if (snapSizeGb <= 0) {
-              snapSizeGb=getSnapshotSize(snapshotId);
+              if (StringUtils.isBlank(snapshotLocation)) {
+                throw new EucalyptusCloudException("Cannot fetch the size of snapshot from OSG as the location (bucket and key) is unknown for " + snapshotId);
+              }
+              String[] names=SnapshotInfo.getSnapshotBucketKeyNames(snapshotLocation);
+              bucket=names[0];
+              key=names[1];
+              snapSizeGb=getSnapshotSize(bucket,key);
+              if (snapSizeGb <= 0) {
+                throw new EucalyptusCloudException("Size of snapshot " + snapshotId + " fetched from OSG: "+ snapSizeGb+ ". Cannot prep snapshot holder on the storage backend");
+              }
             }
             if (!blockManager.getFromBackend(snapshotId,snapSizeGb)) {
+              if (StringUtils.isBlank(bucket) || StringUtils.isBlank(key)) {
+                String[] names=SnapshotInfo.getSnapshotBucketKeyNames(snapshotLocation);
+                bucket=names[0];
+                key=names[1];
+                if (StringUtils.isBlank(bucket) || StringUtils.isBlank(key)) {
+                  throw new EucalyptusCloudException("Snapshot location (bucket and or key) is unknown for " + snapshotId + ". Cannot download snapshot");
+                }
+              }
               String tmpSnapshotFileName=null;
               try {
-                tmpSnapshotFileName=getSnapshot(snapshotId);
+                tmpSnapshotFileName=getSnapshot(bucket,key);
                 File snapFile=new File(tmpSnapshotFileName);
                 if (!snapFile.exists()) {
                   throw new EucalyptusCloudException("Unable to find snapshot " + snapshotId + "on SC");
@@ -78,6 +106,7 @@
             snapshotInfo.setProgress("100");
             snapshotInfo.setStartTime(new Date());
             snapshotInfo.setSizeGb(snapSizeGb);
+            snapshotInfo.setSnapshotLocation(snapshotLocation);
             snapshotInfo.setStatus(StorageProperties.Status.available.toString());
             db.add(snapshotInfo);
             db.commit();
