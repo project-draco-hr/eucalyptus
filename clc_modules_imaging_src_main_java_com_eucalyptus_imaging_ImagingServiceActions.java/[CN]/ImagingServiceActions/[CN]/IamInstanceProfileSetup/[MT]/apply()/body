@@ -1,0 +1,49 @@
+{
+  final String profilePath=DEFAULT_INSTANCE_PROFILE_PATH_PREFIX;
+  final String profileName=String.format("%s-%s",DEFAULT_INSTANCE_PROFILE_NAME_PREFIX,this.getGroupId());
+  final String roleName=this.getResult(IamRoleSetup.class);
+  try {
+    List<InstanceProfileType> instanceProfiles=EucalyptusActivityTasks.getInstance().listInstanceProfiles(profilePath);
+    for (    InstanceProfileType ip : instanceProfiles) {
+      if (profileName.equals(ip.getInstanceProfileName())) {
+        instanceProfile=ip;
+        break;
+      }
+    }
+  }
+ catch (  Exception ex) {
+    throw new ImagingServiceActionException("Failed to list instance profiles",ex);
+  }
+  if (instanceProfile == null) {
+    try {
+      instanceProfile=EucalyptusActivityTasks.getInstance().createInstanceProfile(profileName,profilePath);
+    }
+ catch (    Exception ex) {
+      throw new ImagingServiceActionException("Failed to create instance profile",ex);
+    }
+  }
+  if (instanceProfile == null)   throw new ImagingServiceActionException("No instance profile for imaging service VM is found");
+  try {
+    List<RoleType> roles=instanceProfile.getRoles().getMember();
+    boolean roleFound=false;
+    for (    RoleType role : roles) {
+      if (role.getRoleName().equals(roleName)) {
+        roleFound=true;
+        this.attachedRole=role.getRoleName();
+        break;
+      }
+    }
+    if (!roleFound)     throw new NoSuchElementException();
+  }
+ catch (  Exception ex) {
+    if (roleName == null)     throw new ImagingServiceActionException("No role name is found for imaging service VMs");
+    try {
+      EucalyptusActivityTasks.getInstance().addRoleToInstanceProfile(this.instanceProfile.getInstanceProfileName(),roleName);
+      this.attachedRole=roleName;
+    }
+ catch (    Exception ex2) {
+      throw new ImagingServiceActionException("Failed to add role to the instance profile",ex2);
+    }
+  }
+  return true;
+}

@@ -1,18 +1,19 @@
 {
   AttachVolumeResponseType reply=(AttachVolumeResponseType)request.getReply();
   final String deviceName=request.getDevice();
-  final String volumeId=request.getVolumeId();
+  final String volumeId=normalizeVolumeIdentifier(request.getVolumeId());
+  final String instanceId=normalizeInstanceIdentifier(request.getInstanceId());
   final Context ctx=Contexts.lookup();
   if (deviceName == null || deviceName.endsWith("sda") || deviceName.endsWith("sdb") || !validateDeviceName(deviceName)) {
     throw new ClientComputeException("InvalidParameterValue","Value (" + deviceName + ") for parameter device is invalid.");
   }
   VmInstance vm=null;
   try {
-    vm=RestrictedTypes.doPrivileged(request.getInstanceId(),VmInstance.class);
+    vm=RestrictedTypes.doPrivileged(instanceId,VmInstance.class);
   }
  catch (  NoSuchElementException ex) {
     LOG.debug(ex,ex);
-    throw new EucalyptusCloudException("Instance does not exist: " + request.getInstanceId(),ex);
+    throw new EucalyptusCloudException("Instance does not exist: " + instanceId,ex);
   }
 catch (  Exception ex) {
     LOG.debug(ex,ex);
@@ -24,7 +25,7 @@ catch (  Exception ex) {
   AccountFullName ownerFullName=ctx.getUserFullName().asAccountFullName();
   Volume volume=Volumes.lookup(ownerFullName,volumeId);
   if (!RestrictedTypes.filterPrivileged().apply(volume)) {
-    throw new EucalyptusCloudException("Not authorized to attach volume " + request.getVolumeId() + " by "+ ctx.getUser().getName());
+    throw new EucalyptusCloudException("Not authorized to attach volume " + volumeId + " by "+ ctx.getUser().getName());
   }
   try {
     vm.lookupVolumeAttachmentByDevice(deviceName);
@@ -34,7 +35,7 @@ catch (  Exception ex) {
   }
   try {
     VmInstances.lookupVolumeAttachment(volumeId);
-    throw new EucalyptusCloudException("Volume already attached: " + request.getVolumeId());
+    throw new EucalyptusCloudException("Volume already attached: " + volumeId);
   }
  catch (  NoSuchElementException ex1) {
   }
@@ -42,7 +43,7 @@ catch (  Exception ex) {
   ServiceConfiguration sc=Topology.lookup(Storage.class,volPartition);
   ServiceConfiguration scVm=Topology.lookup(Storage.class,vm.lookupPartition());
   if (!sc.equals(scVm)) {
-    throw new EucalyptusCloudException("Can only attach volumes in the same zone: " + request.getVolumeId());
+    throw new EucalyptusCloudException("Can only attach volumes in the same zone: " + volumeId);
   }
   ServiceConfiguration ccConfig=Topology.lookup(ClusterController.class,vm.lookupPartition());
   GetVolumeTokenResponseType scGetTokenResponse;

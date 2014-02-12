@@ -1,0 +1,64 @@
+{
+  if (currentNode == null)   return;
+  if (currentNode.isArray()) {
+    for (int i=0; i < currentNode.size(); i++) {
+      conditionDependencyCrawl(originalConditionName,currentNode.get(i),conditionDependencyManager,template,resourceReferences,unresolvedConditionDependencies);
+    }
+  }
+ else   if (!currentNode.isObject()) {
+    return;
+  }
+  IntrinsicFunction.MatchResult ifMatcher=IntrinsicFunctions.IF.evaluateMatch(currentNode);
+  if (ifMatcher.isMatch()) {
+    IntrinsicFunctions.IF.validateArgTypesWherePossible(ifMatcher);
+    String conditionName=currentNode.get(FunctionEvaluation.FN_IF).get(0).textValue();
+    if (!template.getConditionMap().containsKey(conditionName)) {
+      unresolvedConditionDependencies.add(conditionName);
+    }
+ else {
+      conditionDependencyManager.addDependency(originalConditionName,conditionName);
+    }
+    return;
+  }
+  IntrinsicFunction.MatchResult conditionMatcher=IntrinsicFunctions.CONDITION.evaluateMatch(currentNode);
+  if (conditionMatcher.isMatch()) {
+    IntrinsicFunctions.CONDITION.validateArgTypesWherePossible(conditionMatcher);
+    String conditionName=currentNode.get(FunctionEvaluation.CONDITION_STR).textValue();
+    if (!template.getConditionMap().containsKey(conditionName)) {
+      unresolvedConditionDependencies.add(conditionName);
+    }
+ else {
+      conditionDependencyManager.addDependency(originalConditionName,conditionName);
+    }
+    return;
+  }
+  IntrinsicFunction.MatchResult refMatcher=IntrinsicFunctions.REF.evaluateMatch(currentNode);
+  if (refMatcher.isMatch()) {
+    IntrinsicFunctions.REF.validateArgTypesWherePossible(refMatcher);
+    String refName=currentNode.get(FunctionEvaluation.REF_STR).textValue();
+    if (!template.getReferenceMap().containsKey(refName) || template.getReferenceMap().get(refName) == null || template.getReferenceMap().get(refName).getReferenceType() == Template.ReferenceType.Resource) {
+      resourceReferences.add(refName);
+    }
+    return;
+  }
+  IntrinsicFunction.MatchResult fnAttMatcher=IntrinsicFunctions.GET_ATT.evaluateMatch(currentNode);
+  if (fnAttMatcher.isMatch()) {
+    IntrinsicFunctions.GET_ATT.validateArgTypesWherePossible(refMatcher);
+    String refName=currentNode.get(FunctionEvaluation.FN_GET_ATT).get(0).textValue();
+    String attName=currentNode.get(FunctionEvaluation.FN_GET_ATT).get(1).textValue();
+    if (template.getResourceMap().containsKey(refName)) {
+      Resource resource=template.getResourceMap().get(refName);
+      if (!ResourceAttributeResolver.resourceHasAttribute(resource,attName)) {
+        throw new ValidationErrorException("Template error: resource " + refName + " does not support attribute type "+ attName+ " in Fn::GetAtt");
+      }
+ else {
+        resourceReferences.add(refName);
+      }
+    }
+    return;
+  }
+  List<String> fieldNames=Lists.newArrayList(currentNode.fieldNames());
+  for (  String fieldName : fieldNames) {
+    conditionDependencyCrawl(originalConditionName,currentNode.get(fieldName),conditionDependencyManager,template,resourceReferences,unresolvedConditionDependencies);
+  }
+}

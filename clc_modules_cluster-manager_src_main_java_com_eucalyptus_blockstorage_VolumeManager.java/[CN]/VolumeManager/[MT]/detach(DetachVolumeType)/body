@@ -1,20 +1,22 @@
 {
-  DetachVolumeResponseType reply=(DetachVolumeResponseType)request.getReply();
-  Context ctx=Contexts.lookup();
+  final DetachVolumeResponseType reply=(DetachVolumeResponseType)request.getReply();
+  final String volumeId=normalizeVolumeIdentifier(request.getVolumeId());
+  final String instanceId=normalizeOptionalInstanceIdentifier(request.getInstanceId());
+  final Context ctx=Contexts.lookup();
   Volume vol;
   try {
-    vol=Volumes.lookup(ctx.getUserFullName().asAccountFullName(),request.getVolumeId());
+    vol=Volumes.lookup(ctx.getUserFullName().asAccountFullName(),volumeId);
   }
  catch (  Exception ex1) {
-    throw new EucalyptusCloudException("Volume does not exist: " + request.getVolumeId());
+    throw new EucalyptusCloudException("Volume does not exist: " + volumeId);
   }
   if (!RestrictedTypes.filterPrivileged().apply(vol)) {
-    throw new EucalyptusCloudException("Not authorized to detach volume " + request.getVolumeId() + " by "+ ctx.getUser().getName());
+    throw new EucalyptusCloudException("Not authorized to detach volume " + volumeId + " by "+ ctx.getUser().getName());
   }
   VmInstance vm=null;
   AttachedVolume volume=null;
   try {
-    VmVolumeAttachment vmVolAttach=VmInstances.lookupTransientVolumeAttachment(request.getVolumeId());
+    VmVolumeAttachment vmVolAttach=VmInstances.lookupTransientVolumeAttachment(volumeId);
     volume=VmVolumeAttachment.asAttachedVolume(vmVolAttach.getVmInstance()).apply(vmVolAttach);
     vm=vmVolAttach.getVmInstance();
   }
@@ -33,13 +35,13 @@
     throw Exceptions.toUndeclared("Cannot detach a volume from an instance which is currently migrating: " + vm.getInstanceId() + " "+ vm.getMigrationTask());
   }
   if (volume == null) {
-    throw new EucalyptusCloudException("Volume is not attached: " + request.getVolumeId());
+    throw new EucalyptusCloudException("Volume is not attached: " + volumeId);
   }
   if (!RestrictedTypes.filterPrivileged().apply(vm)) {
-    throw new EucalyptusCloudException("Not authorized to detach volume from instance " + request.getInstanceId() + " by "+ ctx.getUser().getName());
+    throw new EucalyptusCloudException("Not authorized to detach volume from instance " + instanceId + " by "+ ctx.getUser().getName());
   }
-  if (!vm.getInstanceId().equals(request.getInstanceId()) && request.getInstanceId() != null && !request.getInstanceId().equals("")) {
-    throw new EucalyptusCloudException("Volume is not attached to instance: " + request.getInstanceId());
+  if (instanceId != null && !vm.getInstanceId().equals(instanceId)) {
+    throw new EucalyptusCloudException("Volume is not attached to instance: " + instanceId);
   }
   if (request.getDevice() != null && !request.getDevice().equals("") && !volume.getDevice().equals(request.getDevice())) {
     throw new EucalyptusCloudException("Volume is not attached to device: " + request.getDevice());
@@ -80,7 +82,7 @@
     VolumeDetachCallback ncDetach=new VolumeDetachCallback(request);
     AsyncRequests.newRequest(ncDetach).dispatch(cluster.getConfiguration());
   }
-  vm.updateVolumeAttachment(request.getVolumeId(),AttachmentState.detaching);
+  vm.updateVolumeAttachment(volumeId,AttachmentState.detaching);
   volume.setStatus("detaching");
   reply.setDetachedVolume(volume);
   Volumes.fireUsageEvent(vol,VolumeEvent.forVolumeDetach(vm.getInstanceUuid(),vm.getInstanceId()));

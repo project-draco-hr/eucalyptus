@@ -1,13 +1,10 @@
 {
   final DescribeSecurityGroupsResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  final Set<String> nameOrIdSet=Sets.newHashSet();
-  nameOrIdSet.addAll(request.getSecurityGroupSet());
-  nameOrIdSet.addAll(request.getSecurityGroupIdSet());
-  boolean showAll=nameOrIdSet.remove("verbose");
+  final boolean showAll=request.getSecurityGroupSet().remove("verbose") || request.getSecurityGroupIdSet().remove("verbose");
   NetworkGroups.createDefault(ctx.getUserFullName());
   final Filter filter=Filters.generate(request.getFilterSet(),NetworkGroup.class);
-  final Predicate<? super NetworkGroup> requestedAndAccessible=CloudMetadatas.filteringFor(NetworkGroup.class).byPredicate(Predicates.or(CloudMetadatas.filterById(nameOrIdSet),CloudMetadatas.filterByProperty(nameOrIdSet,NetworkGroups.groupId()))).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
+  final Predicate<? super NetworkGroup> requestedAndAccessible=CloudMetadatas.filteringFor(NetworkGroup.class).byPredicate(Predicates.or(request.getSecurityGroupSet().isEmpty() && request.getSecurityGroupIdSet().isEmpty() ? Predicates.<NetworkGroup>alwaysTrue() : Predicates.<NetworkGroup>alwaysFalse(),request.getSecurityGroupSet().isEmpty() ? Predicates.<NetworkGroup>alwaysFalse() : CloudMetadatas.<NetworkGroup>filterById(request.getSecurityGroupSet()),request.getSecurityGroupIdSet().isEmpty() ? Predicates.<NetworkGroup>alwaysFalse() : CloudMetadatas.filterByProperty(normalizeGroupIdentifiers(request.getSecurityGroupIdSet()),NetworkGroups.groupId()))).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
   final OwnerFullName ownerFn=Contexts.lookup().isAdministrator() && showAll ? null : AccountFullName.getInstance(ctx.getAccount());
   final Iterable<SecurityGroupItemType> securityGroupItems=Transactions.filteredTransform(NetworkGroup.withOwner(ownerFn),filter.asCriterion(),filter.getAliases(),requestedAndAccessible,TypeMappers.lookup(NetworkGroup.class,SecurityGroupItemType.class));
   final Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(NetworkGroup.class).getResourceTagMap(AccountFullName.getInstance(ctx.getAccount()),Iterables.transform(securityGroupItems,SecurityGroupItemToGroupId.INSTANCE));

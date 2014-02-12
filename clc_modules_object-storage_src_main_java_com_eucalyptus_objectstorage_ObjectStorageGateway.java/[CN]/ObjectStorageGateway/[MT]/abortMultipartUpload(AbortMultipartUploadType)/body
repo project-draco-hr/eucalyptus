@@ -1,0 +1,48 @@
+{
+  AbortMultipartUploadResponseType reply=(AbortMultipartUploadResponseType)request.getReply();
+  logRequest(request);
+  ObjectEntity objectEntity=null;
+  Bucket bucket=null;
+  try {
+    bucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
+  }
+ catch (  NoSuchElementException e) {
+    throw new NoSuchBucketException(request.getBucket());
+  }
+catch (  Exception e) {
+    throw new InternalErrorException(e.getMessage());
+  }
+  try {
+    objectEntity=ObjectManagers.getInstance().getObject(bucket,request.getKey(),request.getUploadId());
+    request.setKey(objectEntity.getObjectUuid());
+  }
+ catch (  NoSuchElementException e) {
+    throw new NoSuchKeyException(request.getBucket() + "/" + request.getKey());
+  }
+catch (  Exception e) {
+    throw new InternalErrorException(e.getMessage());
+  }
+  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,0)) {
+    AbortMultipartUploadResponseType response=ospClient.abortMultipartUpload(request);
+    Bucket bucketWithParts;
+    try {
+      bucketWithParts=BucketManagers.getInstance().get(request.getBucket(),false,null);
+    }
+ catch (    NoSuchElementException e) {
+      throw new NoSuchBucketException(request.getBucket());
+    }
+catch (    Exception e) {
+      throw new InternalErrorException();
+    }
+    try {
+      ObjectManagers.getInstance().removeParts(bucketWithParts,request.getUploadId());
+    }
+ catch (    Exception e) {
+      throw new InternalErrorException("Could not remove parts for: " + request.getUploadId());
+    }
+    return response;
+  }
+ else {
+    throw new AccessDeniedException(request.getBucket() + "/" + request.getKey());
+  }
+}
