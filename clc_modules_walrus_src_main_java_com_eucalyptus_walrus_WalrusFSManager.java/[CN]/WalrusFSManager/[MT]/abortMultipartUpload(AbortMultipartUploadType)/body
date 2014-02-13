@@ -1,4 +1,51 @@
 {
   AbortMultipartUploadResponseType reply=(AbortMultipartUploadResponseType)request.getReply();
+  Context ctx=Contexts.lookup();
+  Account account=ctx.getAccount();
+  String bucketName=request.getBucket();
+  String objectKey=request.getKey();
+  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
+  BucketInfo bucketInfo=new BucketInfo(bucketName);
+  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
+  if (bucketList.size() > 0) {
+    BucketInfo bucket=bucketList.get(0);
+    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && (bucket.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
+      try {
+        PartInfo searchManifest=new PartInfo(bucketName,objectKey);
+        searchManifest.setUploadId(request.getUploadId());
+        EntityWrapper<PartInfo> dbPart=db.recast(PartInfo.class);
+        PartInfo foundManifest=dbPart.uniqueResultEscape(searchManifest);
+        if (foundManifest != null) {
+          PartInfo searchPart=new PartInfo(bucketName,objectKey);
+          searchPart.setUploadId(request.getUploadId());
+          List<PartInfo> foundParts=dbPart.queryEscape(searchPart);
+          if (foundParts != null && foundParts.size() > 0) {
+            for (            PartInfo part : foundParts) {
+              part.markForCleanup();
+            }
+          }
+ else {
+            throw new EucalyptusCloudException("No parts found for upload: " + request.getUploadId());
+          }
+          db.commit();
+        }
+ else {
+          throw new EucalyptusCloudException("Multipart upload ID is invalid.");
+        }
+      }
+ catch (      Exception ex) {
+        db.rollback();
+        throw new EucalyptusCloudException(ex);
+      }
+    }
+ else {
+      db.rollback();
+      throw new AccessDeniedException("Bucket",bucketName);
+    }
+  }
+ else {
+    db.rollback();
+    throw new NoSuchBucketException(bucketName);
+  }
   return reply;
 }

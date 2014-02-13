@@ -50,67 +50,6 @@
             httpResponse.addHeader(WalrusProperties.AMZ_META_HEADER_PREFIX + metaDataInfo.getName(),metaDataInfo.getValue());
           }
         }
-        if (getTorrent) {
-          if (objectInfo.isGlobalRead()) {
-            if (!WalrusProperties.enableTorrents) {
-              LOG.warn("Bittorrent support has been disabled. Please check pre-requisites");
-              throw new EucalyptusCloudException("Torrents disabled");
-            }
-            EntityWrapper<TorrentInfo> dbTorrent=EntityWrapper.get(TorrentInfo.class);
-            TorrentInfo torrentInfo=new TorrentInfo(bucketName,objectKey);
-            TorrentInfo foundTorrentInfo;
-            String absoluteObjectPath=storageManager.getObjectPath(bucketName,objectName);
-            try {
-              foundTorrentInfo=dbTorrent.getUniqueEscape(torrentInfo);
-            }
- catch (            EucalyptusCloudException ex) {
-              String torrentFile=objectName + ".torrent";
-              String torrentFilePath=storageManager.getObjectPath(bucketName,torrentFile);
-              TorrentCreator torrentCreator=new TorrentCreator(absoluteObjectPath,objectKey,objectName,torrentFilePath,WalrusProperties.getTrackerUrl());
-              try {
-                torrentCreator.create();
-              }
- catch (              Exception e) {
-                LOG.error(e);
-                throw new EucalyptusCloudException("could not create torrent file " + torrentFile);
-              }
-              torrentInfo.setTorrentFile(torrentFile);
-              dbTorrent.add(torrentInfo);
-              foundTorrentInfo=torrentInfo;
-            }
-            dbTorrent.commit();
-            String torrentFile=foundTorrentInfo.getTorrentFile();
-            String torrentFilePath=storageManager.getObjectPath(bucketName,torrentFile);
-            TorrentClient torrentClient=new TorrentClient(torrentFilePath,absoluteObjectPath);
-            Torrents.addClient(bucketName + objectKey,torrentClient);
-            torrentClient.start();
-            String key=bucketName + "." + objectKey;
-            String randomKey=key + "." + Hashes.getRandom(10);
-            request.setRandomKey(randomKey);
-            File torrent=new File(torrentFilePath);
-            if (torrent.exists()) {
-              Date lastModified=objectInfo.getLastModified();
-              db.commit();
-              long torrentLength=torrent.length();
-              if (logData != null) {
-                updateLogData(bucket,logData);
-                logData.setObjectSize(torrentLength);
-              }
-              storageManager.sendObject(request,httpResponse,bucketName,torrentFile,torrentLength,null,DateUtils.format(lastModified.getTime(),DateUtils.RFC822_DATETIME_PATTERN),"application/x-bittorrent","attachment; filename=" + objectKey + ".torrent;",request.getIsCompressed(),null,logData);
-              return null;
-            }
- else {
-              db.rollback();
-              String errorString="Could not get torrent file " + torrentFilePath;
-              LOG.error(errorString);
-              throw new EucalyptusCloudException(errorString);
-            }
-          }
- else {
-            db.rollback();
-            throw new AccessDeniedException("Key",objectKey,logData);
-          }
-        }
         Date lastModified=objectInfo.getLastModified();
         Long size=objectInfo.getSize();
         String etag=objectInfo.getEtag();
@@ -126,35 +65,46 @@
           versionId=objectInfo.getVersionId();
         }
         if (request.getGetData()) {
-          if (request.getInlineData()) {
-            if ((size * 4) > WalrusProperties.MAX_INLINE_DATA_SIZE) {
-              throw new InlineDataTooLargeException(bucketName + "/" + objectKey);
+          if (objectInfo.isMultipart()) {
+            String inlineData=getMultipartData(httpResponse,objectInfo,request,reply);
+            if (inlineData != null) {
+              reply.setBase64Data(inlineData);
             }
-            byte[] bytes=new byte[102400];
-            int bytesRead=0, offset=0;
-            String base64Data="";
-            try {
-              FileIO fileIO=storageManager.prepareForRead(bucketName,objectName);
-              while ((bytesRead=fileIO.read(offset)) > 0) {
-                ByteBuffer buffer=fileIO.getBuffer();
-                if (buffer != null) {
-                  buffer.get(bytes,0,bytesRead);
-                  base64Data+=new String(bytes,0,bytesRead);
-                  offset+=bytesRead;
-                }
-              }
-              fileIO.finish();
+ else {
+              return null;
             }
- catch (            Exception e) {
-              LOG.error(e,e);
-              throw new EucalyptusCloudException(e);
-            }
-            reply.setBase64Data(Hashes.base64encode(base64Data));
           }
  else {
-            reply.setHasStreamingData(true);
-            storageManager.sendObject(request,httpResponse,bucketName,objectName,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.RFC822_DATETIME_PATTERN),contentType,contentDisposition,request.getIsCompressed(),versionId,logData);
-            return null;
+            if (request.getInlineData()) {
+              if ((size * 4) > WalrusProperties.MAX_INLINE_DATA_SIZE) {
+                throw new InlineDataTooLargeException(bucketName + "/" + objectKey);
+              }
+              byte[] bytes=new byte[102400];
+              int bytesRead=0, offset=0;
+              String base64Data="";
+              try {
+                FileIO fileIO=storageManager.prepareForRead(bucketName,objectName);
+                while ((bytesRead=fileIO.read(offset)) > 0) {
+                  ByteBuffer buffer=fileIO.getBuffer();
+                  if (buffer != null) {
+                    buffer.get(bytes,0,bytesRead);
+                    base64Data+=new String(bytes,0,bytesRead);
+                    offset+=bytesRead;
+                  }
+                }
+                fileIO.finish();
+              }
+ catch (              Exception e) {
+                LOG.error(e,e);
+                throw new EucalyptusCloudException(e);
+              }
+              reply.setBase64Data(Hashes.base64encode(base64Data));
+            }
+ else {
+              reply.setHasStreamingData(true);
+              storageManager.sendObject(request,httpResponse,bucketName,objectName,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.RFC822_DATETIME_PATTERN),contentType,contentDisposition,request.getIsCompressed(),versionId,logData);
+              return null;
+            }
           }
         }
  else {

@@ -24,43 +24,29 @@
     }
  catch (    NumberFormatException e) {
       LOG.error("Invalid content length " + request.getContentLength());
-      objSize=1L;
+      throw new EucalyptusCloudException("Missing Content-Length");
     }
     if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && (bucket.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
-      if (logData != null) {
-        reply.setLogData(logData);
-      }
       String objectName=null;
-      String versionId=null;
-      Long oldObjectSize=0L;
-      ObjectInfo objectInfo=null;
+      PartInfo partInfo=null;
       try {
-        objectName=UUID.randomUUID().toString();
-        ObjectInfo searchManifest=new ObjectInfo(bucketName,objectKey);
+        PartInfo searchManifest=new PartInfo(bucketName,objectKey);
         searchManifest.setUploadId(uploadId);
-        searchManifest.setManifest(Boolean.TRUE);
-        searchManifest.setUploadComplete(Boolean.FALSE);
         searchManifest.setCleanup(Boolean.FALSE);
-        EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-        ObjectInfo foundManifest=dbObject.uniqueResultEscape(searchManifest);
+        EntityWrapper<PartInfo> dbPart=db.recast(PartInfo.class);
+        PartInfo foundManifest=dbPart.uniqueResultEscape(searchManifest);
         if (foundManifest != null) {
-          versionId=foundManifest.getVersionId();
-          objectInfo=new ObjectInfo(bucketName,objectKey);
-          objectInfo.setOwnerId(account.getAccountNumber());
-          objectInfo.setObjectName(objectName);
-          objectInfo.setUploadId(uploadId);
-          objectInfo.setPartNumber(partNumber);
-          objectInfo.setManifest(Boolean.FALSE);
-          objectInfo.setUploadComplete(Boolean.FALSE);
-          objectInfo.setCleanup(Boolean.FALSE);
-          objectInfo.setVersionId(versionId);
-          dbObject.add(objectInfo);
+          partInfo=PartInfo.create(bucketName,objectKey,account);
+          partInfo.setUploadId(uploadId);
+          partInfo.setPartNumber(partNumber);
+          partInfo.setCleanup(Boolean.FALSE);
+          objectName=partInfo.getObjectName();
+          dbPart.add(partInfo);
         }
  else {
           throw new EucalyptusCloudException("Multipart upload ID is invalid. Intitiate a multipart upload request before uploading the parts");
         }
-        String bucketOwnerId=bucket.getOwnerId();
-        dbObject.commit();
+        dbPart.commit();
       }
  catch (      Exception ex) {
         throw new EucalyptusCloudException(ex);
@@ -140,34 +126,6 @@ synchronized (monitor) {
               LOG.error("Quota exceeded for Walrus putObject");
               throw new EntityTooLargeException("Key",objectKey);
             }
-            boolean success=false;
-            int retryCount=0;
-            do {
-              try {
-                incrementBucketSize(bucketName,objectKey,oldBucketSize,size);
-                success=true;
-              }
- catch (              EntityTooLargeException ex) {
-                cleanupTempObject(ctx,bucketName,tempObjectName);
-                messenger.removeQueue(key,randomKey);
-                throw ex;
-              }
-catch (              NoSuchBucketException ex) {
-                cleanupTempObject(ctx,bucketName,tempObjectName);
-                messenger.removeQueue(key,randomKey);
-                throw ex;
-              }
-catch (              RollbackException ex) {
-                retryCount++;
-                LOG.trace("retrying update: " + bucketName);
-              }
-catch (              EucalyptusCloudException ex) {
-                cleanupTempObject(ctx,bucketName,tempObjectName);
-                messenger.removeQueue(key,randomKey);
-                throw ex;
-              }
-            }
- while (!success && (retryCount < 5));
             try {
               if (fileIO != null) {
                 fileIO.finish();
@@ -180,100 +138,31 @@ catch (              EucalyptusCloudException ex) {
               throw new EucalyptusCloudException(objectKey);
             }
             lastModified=new Date();
-            ObjectInfo searchObject=new ObjectInfo(bucketName,objectKey);
-            searchObject.setVersionId(versionId);
-            searchObject.setPartNumber(partNumber);
-            searchObject.setUploadId(uploadId);
-            EntityWrapper<ObjectInfo> dbObject=EntityWrapper.get(ObjectInfo.class);
-            ObjectInfo foundObject;
+            PartInfo searchPart=new PartInfo(bucketName,objectKey);
+            searchPart.setObjectName(objectName);
+            searchPart.setPartNumber(partNumber);
+            searchPart.setUploadId(uploadId);
+            EntityWrapper<PartInfo> dbPart=EntityWrapper.get(PartInfo.class);
+            PartInfo foundPart=null;
             try {
-              foundObject=dbObject.getUniqueEscape(searchObject);
-              if (ctx.hasAdministrativePrivileges() || foundObject.canWriteACP(account.getAccountNumber())) {
-                List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-                foundObject.setGrants(grantInfos);
-              }
-              if (WalrusProperties.enableTorrents) {
-                EntityWrapper<TorrentInfo> dbTorrent=dbObject.recast(TorrentInfo.class);
-                TorrentInfo torrentInfo=new TorrentInfo(bucketName,objectKey);
-                List<TorrentInfo> torrentInfos=dbTorrent.queryEscape(torrentInfo);
-                if (torrentInfos.size() > 0) {
-                  TorrentInfo foundTorrentInfo=torrentInfos.get(0);
-                  TorrentClient torrentClient=Torrents.getClient(bucketName + objectKey);
-                  if (torrentClient != null) {
-                    torrentClient.bye();
-                  }
-                  dbTorrent.delete(foundTorrentInfo);
-                }
-              }
- else {
-                LOG.warn("Bittorrent support has been disabled. Please check pre-requisites");
-              }
+              foundPart=dbPart.getUniqueEscape(searchPart);
             }
  catch (            EucalyptusCloudException ex) {
-              if (objectInfo != null) {
-                foundObject=objectInfo;
-              }
- else {
-                dbObject.rollback();
-                throw new EucalyptusCloudException("Unable to update object: " + bucketName + "/"+ objectKey);
-              }
+              dbPart.rollback();
+              throw new EucalyptusCloudException("Unable to update part: " + bucketName + "/"+ objectKey+ " uploadId: "+ uploadId+ " partNumber: "+ partNumber);
             }
-            foundObject.setEtag(md5);
-            foundObject.setSize(size);
-            foundObject.setLastModified(lastModified);
-            foundObject.setStorageClass("STANDARD");
-            foundObject.setLast(true);
-            foundObject.setDeleted(false);
+            foundPart.setEtag(md5);
+            foundPart.setSize(size);
+            foundPart.setLastModified(lastModified);
+            foundPart.setCleanup(false);
+            foundPart.setStorageClass("STANDARD");
             reply.setSize(size);
-            if (logData != null) {
-              logData.setObjectSize(size);
-              updateLogData(bucket,logData);
-            }
-            if (objectInfo != null) {
-              dbObject.add(foundObject);
-            }
-            success=false;
             try {
-              dbObject.commit();
-              success=true;
+              dbPart.commit();
             }
  catch (            RollbackException ex) {
-              dbObject.rollback();
+              dbPart.rollback();
               LOG.error(ex,ex);
-            }
-            dbObject=EntityWrapper.get(ObjectInfo.class);
-            List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObject);
-            for (            ObjectInfo objInfo : objectInfos) {
-              if (!success) {
-                if (objInfo.getLast()) {
-                  lastModified=objInfo.getLastModified();
-                  md5=objInfo.getEtag();
-                }
-                success=true;
-              }
-              if (!versionId.equals(objInfo.getVersionId())) {
-                objInfo.setLast(false);
-              }
-            }
-            dbObject.commit();
-            dbObject=EntityWrapper.get(ObjectInfo.class);
-            ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
-            deleteMarker.setDeleted(true);
-            deleteMarker.setUploadId(uploadId);
-            deleteMarker.setPartNumber(partNumber);
-            ObjectInfo foundDeleteMarker=null;
-            try {
-              foundDeleteMarker=dbObject.getUniqueEscape(deleteMarker);
-              dbObject.delete(foundDeleteMarker);
-            }
- catch (            Exception ex) {
-              if (foundDeleteMarker != null) {
-                LOG.error("Deletion of delete marker failed for: " + bucketName + "/"+ objectKey,ex);
-              }
-            }
-            dbObject.commit();
-            if (logData != null) {
-              logData.setTurnAroundTime(Long.parseLong(new String(dataMessage.getPayload())));
             }
             WalrusMonitor monitor=messenger.getMonitor(key);
 synchronized (monitor) {
@@ -283,13 +172,7 @@ synchronized (monitor) {
             }
             messenger.clearQueues(key);
             messenger.removeQueue(key,randomKey);
-            LOG.info("Transfer complete: " + key);
-            try {
-              fireObjectCreationEvent(bucketName,objectKey,versionId,ctx.getUser().getUserId(),size,oldObjectSize);
-            }
- catch (            Exception ex) {
-              LOG.debug("Failed to fire reporting event for walrus PUT object operation",ex);
-            }
+            LOG.info("Transfer complete: " + key + " uploadId: "+ uploadId+ " partNumber: "+ partNumber);
             break;
           }
  else {

@@ -12,39 +12,114 @@
     BucketInfo bucket=bucketList.get(0);
     if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && (bucket.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
       try {
-        ObjectInfo searchManifest=new ObjectInfo(bucketName,objectKey);
+        PartInfo searchManifest=new PartInfo(bucketName,objectKey);
         searchManifest.setUploadId(request.getUploadId());
-        searchManifest.setManifest(Boolean.TRUE);
-        EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-        ObjectInfo foundManifest=dbObject.uniqueResultEscape(searchManifest);
+        EntityWrapper<PartInfo> dbPart=db.recast(PartInfo.class);
+        PartInfo foundManifest=dbPart.uniqueResultEscape(searchManifest);
         if (foundManifest != null) {
-          ObjectInfo searchPart=new ObjectInfo(bucketName,objectKey);
+          long oldBucketSize=0L;
+          long oldObjectSize=0L;
+          String versionId=null;
+          if (bucket.isVersioningEnabled()) {
+            versionId=foundManifest.getVersionId();
+          }
+ else {
+            versionId=WalrusProperties.NULL_VERSION_ID;
+            ObjectInfo searchObject=new ObjectInfo(bucketName,objectKey);
+            searchObject.setVersionId(versionId);
+            EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+            try {
+              ObjectInfo foundObject=dbObject.getUniqueEscape(searchObject);
+              if (!foundObject.canWrite(account.getAccountNumber())) {
+                db.rollback();
+                throw new AccessDeniedException("Key",objectKey);
+              }
+              if (foundManifest.getGrants().size() > 0 && (!foundObject.canWriteACP(account.getAccountNumber()))) {
+                db.rollback();
+                throw new AccessDeniedException("Key",objectKey);
+              }
+              oldObjectSize=foundObject.getSize() == null ? 0L : foundObject.getSize();
+              oldBucketSize=-oldObjectSize;
+            }
+ catch (            AccessDeniedException ex) {
+              throw ex;
+            }
+catch (            EucalyptusCloudException ex) {
+            }
+          }
+          PartInfo searchPart=new PartInfo(bucketName,objectKey);
           searchPart.setUploadId(request.getUploadId());
-          searchPart.setManifest(Boolean.FALSE);
-          List<ObjectInfo> foundParts=dbObject.queryEscape(searchPart);
+          List<PartInfo> foundParts=dbPart.queryEscape(searchPart);
+          String eTagString="";
+          long size=0;
           if (foundParts != null && foundParts.size() > 0) {
             if (requestParts != null && requestParts.size() > foundParts.size()) {
               throw new EucalyptusCloudException("One or more parts has not been uploaded yet. Either upload the part or fix the manifest");
             }
  else {
-              Map<Integer,ObjectInfo> partsMap=new HashMap<Integer,ObjectInfo>(foundParts.size());
-              for (              ObjectInfo foundPart : foundParts) {
+              Map<Integer,PartInfo> partsMap=new HashMap<Integer,PartInfo>(foundParts.size());
+              for (              PartInfo foundPart : foundParts) {
                 foundPart.setCleanup(Boolean.TRUE);
-                foundPart.setUploadComplete(Boolean.TRUE);
                 partsMap.put(foundPart.getPartNumber(),foundPart);
               }
-              ObjectInfo lookupPart=null;
+              PartInfo lookupPart=null;
               for (              Part requestPart : requestParts) {
                 if ((lookupPart=partsMap.get(requestPart.getPartNumber())) != null) {
                   lookupPart.setCleanup(Boolean.FALSE);
+                  eTagString+=lookupPart.getEtag();
+                  size+=lookupPart.getSize();
                 }
  else {
                   throw new EucalyptusCloudException("Part not found");
                 }
               }
+              MessageDigest digest=Digest.MD5.get();
+              digest.update(eTagString.getBytes());
+              final String eTag=Hashes.bytesToHex(digest.digest());
+              foundManifest.setEtag(eTag);
               foundManifest.setCleanup(Boolean.FALSE);
-              foundManifest.setUploadComplete(Boolean.TRUE);
+              if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
+                LOG.error("Quota exceeded for Walrus putObject");
+                throw new EntityTooLargeException("Key",objectKey);
+              }
+              boolean success=false;
+              int retryCount=0;
+              do {
+                try {
+                  incrementBucketSize(bucketName,objectKey,oldBucketSize,size);
+                  success=true;
+                }
+ catch (                EntityTooLargeException ex) {
+                  throw ex;
+                }
+catch (                NoSuchBucketException ex) {
+                  throw ex;
+                }
+catch (                RollbackException ex) {
+                  retryCount++;
+                  LOG.trace("retrying update: " + bucketName);
+                }
+catch (                EucalyptusCloudException ex) {
+                  throw ex;
+                }
+              }
+ while (!success && (retryCount < 5));
+              ObjectInfo objectInfo=new ObjectInfo(bucketName,objectKey);
+              objectInfo.setCleanup(false);
+              objectInfo.setEtag(eTag);
+              objectInfo.setUploadId(foundManifest.getUploadId());
+              objectInfo.setDeleted(false);
+              objectInfo.setSize(size);
+              objectInfo.setLastModified(new Date());
+              objectInfo.setStorageClass(foundManifest.getStorageClass());
+              objectInfo.updateGrants(foundManifest);
+              EntityWrapper<ObjectInfo> dbOject=db.recast(ObjectInfo.class);
+              dbOject.add(objectInfo);
               db.commit();
+              reply.setEtag(foundManifest.getEtag());
+              reply.setLocation("Walrus" + foundManifest.getBucketName() + "/"+ foundManifest.getObjectKey());
+              reply.setBucket(foundManifest.getBucketName());
+              reply.setKey(foundManifest.getObjectKey());
             }
           }
  else {
@@ -72,6 +147,5 @@
   reply.setLocation(request.getBucket() + '/' + request.getKey());
   reply.setBucket(request.getBucket());
   reply.setKey(request.getKey());
-  reply.setEtag(Crypto.generateAlphanumericId(16,""));
   return reply;
 }
