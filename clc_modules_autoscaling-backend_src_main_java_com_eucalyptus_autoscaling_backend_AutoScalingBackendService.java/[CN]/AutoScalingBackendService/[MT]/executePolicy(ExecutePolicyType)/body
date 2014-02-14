@@ -1,0 +1,34 @@
+{
+  final ExecutePolicyResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  try {
+    final ScalingPolicyView scalingPolicy;
+    try {
+      scalingPolicy=scalingPolicies.lookup(accountFullName,request.getAutoScalingGroupName(),request.getPolicyName(),TypeMappers.lookup(ScalingPolicy.class,ScalingPolicyView.class));
+    }
+ catch (    AutoScalingMetadataNotFoundException e) {
+      throw new ValidationErrorException("Scaling policy not found: " + request.getPolicyName());
+    }
+    final Callback<AutoScalingGroup> updateCallback=new Callback<AutoScalingGroup>(){
+      @Override public void fire(      final AutoScalingGroup autoScalingGroup){
+        final boolean isCloudWatch=Contexts.lookup().isPrivileged();
+        if (isCloudWatch && !scalingProcessEnabled(ScalingProcessType.AlarmNotification,autoScalingGroup)) {
+          logger.debug("Ignoring policy execution due to alarm notification suspension");
+          return;
+        }
+        failIfScaling(activityManager,autoScalingGroup);
+        final Integer desiredCapacity=scalingPolicy.getAdjustmentType().adjustCapacity(autoScalingGroup.getDesiredCapacity(),scalingPolicy.getScalingAdjustment(),Objects.firstNonNull(scalingPolicy.getMinAdjustmentStep(),0),Objects.firstNonNull(autoScalingGroup.getMinSize(),0),Objects.firstNonNull(autoScalingGroup.getMaxSize(),Integer.MAX_VALUE));
+        setDesiredCapacityWithCooldown(autoScalingGroup,request.getHonorCooldown(),scalingPolicy.getCooldown(),desiredCapacity,String.format(isCloudWatch ? "a CloudWatch alarm triggered policy %1$s changing the desired capacity from %2$d to %3$d" : "a user request executed policy %1$s changing the desired capacity from %2$d to %3$d",scalingPolicy.getDisplayName(),autoScalingGroup.getDesiredCapacity(),desiredCapacity));
+      }
+    }
+;
+    if (RestrictedTypes.filterPrivileged().apply(scalingPolicy)) {
+      autoScalingGroups.update(AccountFullName.getInstance(scalingPolicy.getOwnerAccountNumber()),scalingPolicy.getAutoScalingGroupName(),updateCallback);
+    }
+  }
+ catch (  Exception e) {
+    handleException(e);
+  }
+  return reply;
+}

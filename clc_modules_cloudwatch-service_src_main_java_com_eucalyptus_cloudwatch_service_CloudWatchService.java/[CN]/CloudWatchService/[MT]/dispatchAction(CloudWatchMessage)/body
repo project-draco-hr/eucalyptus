@@ -1,0 +1,17 @@
+{
+  final User user=Contexts.lookup().getUser();
+  if (!Permissions.isAuthorized(PolicySpec.VENDOR_AUTOSCALING,PolicySpec.ALL_RESOURCE,"",null,getIamActionByMessageType(message),user)) {
+    throw new EucalyptusWebServiceException("UnauthorizedOperation",Role.Sender,"You are not authorized to perform this operation.");
+  }
+  try {
+    final CloudWatchBackendMessage out=(CloudWatchBackendMessage)mapper.readValue(mapper.valueToTree(message),Class.forName(message.getClass().getName().replace(".common.msgs.",".common.backend.msgs.")));
+    final BaseMessage result=AsyncRequests.sendSyncWithCurrentIdentity(Topology.lookup(CloudWatchBackend.class),out);
+    final CloudWatchMessage response=(CloudWatchMessage)mapper.readValue(mapper.valueToTree(result),message.getReply().getClass());
+    response.setCorrelationId(message.getCorrelationId());
+    return response;
+  }
+ catch (  Exception e) {
+    Exceptions.findAndRethrow(e,EucalyptusWebServiceException.class,EucalyptusCloudException.class);
+    throw new EucalyptusCloudException(e);
+  }
+}
