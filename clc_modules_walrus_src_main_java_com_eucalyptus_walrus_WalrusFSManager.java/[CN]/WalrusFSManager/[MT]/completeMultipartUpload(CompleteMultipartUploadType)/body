@@ -75,7 +75,6 @@ catch (            EucalyptusCloudException ex) {
  else {
               Map<Integer,PartInfo> partsMap=new HashMap<Integer,PartInfo>(foundParts.size());
               for (              PartInfo foundPart : foundParts) {
-                foundPart.setCleanup(Boolean.TRUE);
                 partsMap.put(foundPart.getPartNumber(),foundPart);
               }
               PartInfo lookupPart=null;
@@ -84,6 +83,7 @@ catch (            EucalyptusCloudException ex) {
                   lookupPart.setCleanup(Boolean.FALSE);
                   eTagString+=lookupPart.getEtag();
                   size+=lookupPart.getSize();
+                  partsMap.remove(lookupPart.getPartNumber());
                 }
  else {
                   throw new EucalyptusCloudException("Part not found");
@@ -91,7 +91,7 @@ catch (            EucalyptusCloudException ex) {
               }
               MessageDigest digest=Digest.MD5.get();
               digest.update(eTagString.getBytes());
-              final String eTag=Hashes.bytesToHex(digest.digest());
+              final String eTag="uuid-" + Hashes.bytesToHex(digest.digest());
               foundManifest.setEtag(eTag);
               foundManifest.setCleanup(Boolean.FALSE);
               if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
@@ -128,14 +128,23 @@ catch (                EucalyptusCloudException ex) {
               objectInfo.setSize(size);
               objectInfo.setLastModified(new Date());
               objectInfo.setStorageClass(foundManifest.getStorageClass());
+              objectInfo.setContentDisposition(foundManifest.getContentDisposition());
+              objectInfo.setContentType(foundManifest.getContentType());
+              objectInfo.setLast(true);
+              objectInfo.setDeleted(false);
               objectInfo.updateGrants(foundManifest);
               EntityWrapper<ObjectInfo> dbOject=db.recast(ObjectInfo.class);
               dbOject.add(objectInfo);
+              Set<Integer> keys=partsMap.keySet();
+              for (              Integer key : keys) {
+                partsMap.get(key).markForCleanup();
+              }
               db.commit();
               reply.setEtag(foundManifest.getEtag());
               reply.setLocation("Walrus" + foundManifest.getBucketName() + "/"+ foundManifest.getObjectKey());
               reply.setBucket(foundManifest.getBucketName());
               reply.setKey(foundManifest.getObjectKey());
+              firePartsCleanupTask(foundManifest.getBucketName(),request.getKey(),request.getUploadId());
             }
           }
  else {
