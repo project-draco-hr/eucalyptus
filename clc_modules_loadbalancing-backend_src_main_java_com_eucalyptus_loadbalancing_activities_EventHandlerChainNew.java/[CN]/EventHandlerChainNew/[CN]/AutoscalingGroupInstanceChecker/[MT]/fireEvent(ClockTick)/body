@@ -1,0 +1,224 @@
+{
+  if (Bootstrap.isFinished() && Topology.isEnabledLocally(LoadBalancingBackend.class) && Topology.isEnabled(Eucalyptus.class)) {
+    EntityTransaction db=Entities.get(LoadBalancerAutoScalingGroup.class);
+    List<LoadBalancerAutoScalingGroup> groups=Lists.newArrayList();
+    Map<String,LoadBalancerAutoScalingGroup> allGroupMap=new ConcurrentHashMap<String,LoadBalancerAutoScalingGroup>();
+    try {
+      groups=Entities.query(LoadBalancerAutoScalingGroup.named(),true);
+      db.commit();
+      for (      LoadBalancerAutoScalingGroup g : groups) {
+        allGroupMap.put(g.getName(),g);
+      }
+    }
+ catch (    NoSuchElementException ex) {
+      db.rollback();
+    }
+catch (    Exception ex) {
+      db.rollback();
+    }
+ finally {
+      if (db.isActive())       db.rollback();
+    }
+    Map<String,LoadBalancerAutoScalingGroup> groupToQuery=new ConcurrentHashMap<String,LoadBalancerAutoScalingGroup>();
+    final Date current=new Date(System.currentTimeMillis());
+    for (    final LoadBalancerAutoScalingGroup group : groups) {
+      final Date lastUpdate=group.getLastUpdateTimestamp();
+      int elapsedSec=(int)((current.getTime() - lastUpdate.getTime()) / 1000.0);
+      if (elapsedSec > AUTOSCALE_GROUP_CHECK_INTERVAL_SEC) {
+        db=Entities.get(LoadBalancerAutoScalingGroup.class);
+        try {
+          LoadBalancerAutoScalingGroup update=Entities.uniqueResult(group);
+          update.setLastUpdateTimestamp(current);
+          Entities.persist(update);
+          db.commit();
+        }
+ catch (        NoSuchElementException ex) {
+          db.rollback();
+        }
+catch (        Exception ex) {
+          db.rollback();
+        }
+ finally {
+          if (db.isActive())           db.rollback();
+        }
+        groupToQuery.put(group.getName(),group);
+      }
+    }
+    if (groupToQuery.size() <= 0)     return;
+    List<AutoScalingGroupType> queriedGroups=Lists.newArrayList();
+    try {
+      DescribeAutoScalingGroupsResponseType response=EucalyptusActivityTasks.getInstance().describeAutoScalingGroups(Lists.newArrayList(groupToQuery.keySet()));
+      DescribeAutoScalingGroupsResult result=response.getDescribeAutoScalingGroupsResult();
+      AutoScalingGroupsType asgroups=result.getAutoScalingGroups();
+      queriedGroups=asgroups.getMember();
+    }
+ catch (    Exception ex) {
+      LOG.error("Failed to describe autoscaling groups",ex);
+      return;
+    }
+    Map<String,LoadBalancerServoInstance> servoMap=new ConcurrentHashMap<String,LoadBalancerServoInstance>();
+    db=Entities.get(LoadBalancerServoInstance.class);
+    try {
+      final List<LoadBalancerServoInstance> result=Entities.query(LoadBalancerServoInstance.named(),true);
+      db.commit();
+      for (      LoadBalancerServoInstance inst : result) {
+        servoMap.put(inst.getInstanceId(),inst);
+      }
+    }
+ catch (    NoSuchElementException ex) {
+      db.rollback();
+    }
+catch (    Exception ex) {
+      db.rollback();
+    }
+ finally {
+      if (db.isActive())       db.rollback();
+    }
+    final List<LoadBalancerServoInstance> newServos=Lists.newArrayList();
+    final Map<String,Instance> foundInstances=new ConcurrentHashMap<String,Instance>();
+    for (    final AutoScalingGroupType asg : queriedGroups) {
+      Instances instances=asg.getInstances();
+      if (instances != null && instances.getMember() != null && instances.getMember().size() > 0) {
+        for (        final Instance instance : instances.getMember()) {
+          String instanceId=instance.getInstanceId();
+          foundInstances.put(instanceId,instance);
+          if (!servoMap.containsKey(instanceId)) {
+            try {
+              final LoadBalancerAutoScalingGroup group=allGroupMap.get(asg.getAutoScalingGroupName());
+              if (group == null)               throw new IllegalArgumentException("The group with name " + asg.getAutoScalingGroupName() + " not found in the database");
+              final LoadBalancerCoreView lbView=group.getLoadBalancer();
+              LoadBalancer lb=null;
+              try {
+                lb=LoadBalancerEntityTransform.INSTANCE.apply(lbView);
+              }
+ catch (              final Exception ex) {
+                LOG.error("unable to transfrom loadbalancer from the viewer",ex);
+                throw ex;
+              }
+              LoadBalancerZoneCoreView zoneView=null;
+              for (              final LoadBalancerZoneCoreView z : lb.getZones()) {
+                if (z.getName().equals(instance.getAvailabilityZone())) {
+                  zoneView=z;
+                  break;
+                }
+              }
+              if (zoneView == null)               throw new Exception("No availability zone with name=" + instance.getAvailabilityZone() + " found for loadbalancer "+ lb.getDisplayName());
+              final LoadBalancerSecurityGroupCoreView sgroupView=lb.getGroup();
+              if (sgroupView == null)               throw new Exception("No security group is found for loadbalancer " + lb.getDisplayName());
+              final LoadBalancerDnsRecordCoreView dnsView=lb.getDns();
+              LoadBalancerZone zone=null;
+              LoadBalancerSecurityGroup sgroup=null;
+              LoadBalancerDnsRecord dns=null;
+              try {
+                zone=LoadBalancerZoneEntityTransform.INSTANCE.apply(zoneView);
+                sgroup=LoadBalancerSecurityGroupEntityTransform.INSTANCE.apply(sgroupView);
+                dns=LoadBalancerDnsRecordEntityTransform.INSTANCE.apply(dnsView);
+              }
+ catch (              final Exception ex) {
+                LOG.error("unable to transform entity",ex);
+                throw ex;
+              }
+              final LoadBalancerServoInstance newInstance=LoadBalancerServoInstance.newInstance(zone,sgroup,dns,group,instanceId);
+              newServos.add(newInstance);
+            }
+ catch (            Exception ex) {
+              LOG.error("Failed to construct new servo instance",ex);
+              continue;
+            }
+          }
+        }
+      }
+    }
+    if (newServos.size() > 0) {
+      db=Entities.get(LoadBalancerServoInstance.class);
+      try {
+        for (        LoadBalancerServoInstance instance : newServos) {
+          Entities.persist(instance);
+        }
+        db.commit();
+      }
+ catch (      Exception ex) {
+        db.rollback();
+        LOG.error("Failed to persist the servo instance record",ex);
+      }
+ finally {
+        if (db.isActive())         db.rollback();
+      }
+    }
+    List<LoadBalancerServoInstanceCoreView> servoRecords=Lists.newArrayList();
+    for (    String groupName : groupToQuery.keySet()) {
+      final LoadBalancerAutoScalingGroup group=groupToQuery.get(groupName);
+      servoRecords.addAll(group.getServos());
+    }
+    for (    LoadBalancerServoInstanceCoreView instanceView : servoRecords) {
+      if (!foundInstances.containsKey(instanceView.getInstanceId()) && !instanceView.getState().equals(LoadBalancerServoInstance.STATE.Retired)) {
+        LoadBalancerServoInstance instance=null;
+        try {
+          instance=LoadBalancerServoInstanceEntityTransform.INSTANCE.apply(instanceView);
+        }
+ catch (        final Exception ex) {
+          LOG.error("unable to transform servo instance from the view",ex);
+          continue;
+        }
+        db=Entities.get(LoadBalancerServoInstance.class);
+        try {
+          final LoadBalancerServoInstance update=Entities.uniqueResult(instance);
+          update.setState(LoadBalancerServoInstance.STATE.Error);
+          Entities.persist(update);
+          db.commit();
+        }
+ catch (        NoSuchElementException ex) {
+          db.rollback();
+        }
+catch (        Exception ex) {
+          db.rollback();
+        }
+ finally {
+          if (db.isActive())           db.rollback();
+        }
+      }
+ else {
+        Instance instanceCurrent=foundInstances.get(instanceView.getInstanceId());
+        final String healthState=instanceCurrent.getHealthStatus();
+        final String lifecycleState=instanceCurrent.getLifecycleState();
+        LoadBalancerServoInstance.STATE curState=instanceView.getState();
+        LoadBalancerServoInstance.STATE newState=curState;
+        if (healthState != null && !healthState.equals("Healthy")) {
+          newState=LoadBalancerServoInstance.STATE.Error;
+        }
+ else         if (lifecycleState != null) {
+          if (lifecycleState.equals("Pending"))           newState=LoadBalancerServoInstance.STATE.Pending;
+ else           if (lifecycleState.equals("Quarantined"))           newState=LoadBalancerServoInstance.STATE.Error;
+ else           if (lifecycleState.equals("InService"))           newState=LoadBalancerServoInstance.STATE.InService;
+ else           if (lifecycleState.equals("Terminating") || lifecycleState.equals("Terminated"))           newState=LoadBalancerServoInstance.STATE.OutOfService;
+        }
+        if (!curState.equals(LoadBalancerServoInstance.STATE.Retired) && !curState.equals(newState)) {
+          LoadBalancerServoInstance instance=null;
+          try {
+            instance=LoadBalancerServoInstanceEntityTransform.INSTANCE.apply(instanceView);
+          }
+ catch (          final Exception ex) {
+            LOG.error("unable to transform servo instance from the view",ex);
+            continue;
+          }
+          db=Entities.get(LoadBalancerServoInstance.class);
+          try {
+            final LoadBalancerServoInstance update=Entities.uniqueResult(instance);
+            update.setState(newState);
+            Entities.persist(update);
+            db.commit();
+          }
+ catch (          NoSuchElementException ex) {
+            db.rollback();
+          }
+catch (          Exception ex) {
+            db.rollback();
+          }
+ finally {
+            if (db.isActive())             db.rollback();
+          }
+        }
+      }
+    }
+  }
+}
