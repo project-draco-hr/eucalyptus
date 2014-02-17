@@ -1,0 +1,45 @@
+{
+  if (info.getPhysicalResourceId() == null)   return;
+  TerminateInstancesType terminateInstancesType=new TerminateInstancesType();
+  terminateInstancesType.setInstancesSet(Lists.newArrayList(info.getPhysicalResourceId()));
+  final ComponentId componentId=ComponentIds.lookup(Eucalyptus.class);
+  ServiceConfiguration configuration;
+  if (componentId.isAlwaysLocal() || (BootstrapArgs.isCloudController() && componentId.isCloudLocal() && !componentId.isRegisterable())) {
+    configuration=ServiceConfigurations.createEphemeral(componentId);
+  }
+ else {
+    configuration=Topology.lookup(Eucalyptus.class);
+  }
+  terminateInstancesType.setEffectiveUserId(info.getEffectiveUserId());
+  AsyncRequests.<TerminateInstancesType,TerminateInstancesResponseType>sendSync(configuration,terminateInstancesType);
+  boolean terminated=false;
+  for (int i=0; i < 24; i++) {
+    Thread.sleep(5000L);
+    DescribeInstancesType describeInstancesType=new DescribeInstancesType();
+    describeInstancesType.setInstancesSet(Lists.newArrayList(info.getPhysicalResourceId()));
+    describeInstancesType.setEffectiveUserId(info.getEffectiveUserId());
+    DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.<DescribeInstancesType,DescribeInstancesResponseType>sendSync(configuration,describeInstancesType);
+    if ("terminated".equals(describeInstancesResponseType.getReservationSet().get(0).getInstancesSet().get(0).getStateName())) {
+      terminated=true;
+      break;
+    }
+  }
+  if (!terminated)   throw new Exception("Timeout");
+  terminateInstancesType=new TerminateInstancesType();
+  terminateInstancesType.setInstancesSet(Lists.newArrayList(info.getPhysicalResourceId()));
+  terminateInstancesType.setEffectiveUserId(info.getEffectiveUserId());
+  AsyncRequests.<TerminateInstancesType,TerminateInstancesResponseType>sendSync(configuration,terminateInstancesType);
+  terminated=false;
+  for (int i=0; i < 24; i++) {
+    Thread.sleep(5000L);
+    DescribeInstancesType describeInstancesType=new DescribeInstancesType();
+    describeInstancesType.setInstancesSet(Lists.newArrayList(info.getPhysicalResourceId()));
+    describeInstancesType.setEffectiveUserId(info.getEffectiveUserId());
+    DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.<DescribeInstancesType,DescribeInstancesResponseType>sendSync(configuration,describeInstancesType);
+    if (describeInstancesResponseType.getReservationSet().size() == 0) {
+      terminated=true;
+      break;
+    }
+  }
+  if (!terminated)   throw new Exception("Timeout");
+}

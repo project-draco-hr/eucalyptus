@@ -1,5 +1,5 @@
 {
-  JsonNode resourcesJsonNode=JSONHelper.checkObject(templateJsonNode,TemplateSection.Resources.toString());
+  JsonNode resourcesJsonNode=JsonHelper.checkObject(templateJsonNode,TemplateSection.Resources.toString());
   List<String> resourceKeys=(List<String>)Lists.newArrayList(resourcesJsonNode.fieldNames());
   Set<String> commonParametersAndResources=Sets.intersection(Sets.newHashSet(resourceKeys),template.getReferenceMap().keySet());
   if (!commonParametersAndResources.isEmpty()) {
@@ -9,7 +9,7 @@
     Template.Reference reference=new Template.Reference();
     reference.setReady(false);
     reference.setReferenceName(resourceKey);
-    reference.setReferenceValue(null);
+    reference.setReferenceValueJson(null);
     reference.setReferenceType(Template.ReferenceType.Resource);
     template.getReferenceMap().put(resourceKey,reference);
   }
@@ -52,46 +52,42 @@
         throw new ValidationErrorException("Template format error: DependsOn must be a string or list of strings.");
       }
     }
-    Resource resource=template.getResourceMap().get(resourceKey);
-    JsonNode metadataNode=JSONHelper.checkObject(resourceJsonNode,ResourceKey.Metadata.toString());
+    ResourceInfo resourceInfo=template.getResourceMap().get(resourceKey);
+    JsonNode metadataNode=JsonHelper.checkObject(resourceJsonNode,ResourceKey.Metadata.toString());
     if (metadataNode != null) {
       FunctionEvaluation.validateNonConditionSectionArgTypesWherePossible(metadataNode);
-      resource.setMetadataJsonNode(metadataNode);
+      resourceInfo.setMetadataJson(JsonHelper.getStringFromJsonNode(metadataNode));
     }
-    JsonNode propertiesNode=JSONHelper.checkObject(resourceJsonNode,ResourceKey.Properties.toString());
+    JsonNode propertiesNode=JsonHelper.checkObject(resourceJsonNode,ResourceKey.Properties.toString());
     if (propertiesNode != null) {
       FunctionEvaluation.validateNonConditionSectionArgTypesWherePossible(propertiesNode);
-      resource.setPropertiesJsonNode(propertiesNode);
+      resourceInfo.setPropertiesJson(JsonHelper.getStringFromJsonNode(propertiesNode));
     }
-    JsonNode updatePolicyNode=JSONHelper.checkObject(resourceJsonNode,ResourceKey.UpdatePolicy.toString());
+    JsonNode updatePolicyNode=JsonHelper.checkObject(resourceJsonNode,ResourceKey.UpdatePolicy.toString());
     if (propertiesNode != null) {
       FunctionEvaluation.validateNonConditionSectionArgTypesWherePossible(propertiesNode);
-      resource.setUpdatePolicyJsonNode(updatePolicyNode);
+      resourceInfo.setUpdatePolicyJson(JsonHelper.getStringFromJsonNode(updatePolicyNode));
     }
-    resource.setLogicalResourceId(resourceKey);
+    resourceInfo.setLogicalResourceId(resourceKey);
     resourceDependencyCrawl(resourceKey,metadataNode,resourceDependencies,template,unresolvedResourceDependencies);
     resourceDependencyCrawl(resourceKey,propertiesNode,resourceDependencies,template,unresolvedResourceDependencies);
     resourceDependencyCrawl(resourceKey,updatePolicyNode,resourceDependencies,template,unresolvedResourceDependencies);
-    String deletionPolicy=JSONHelper.getString(resourceJsonNode,ResourceKey.DeletionPolicy.toString());
+    String deletionPolicy=JsonHelper.getString(resourceJsonNode,ResourceKey.DeletionPolicy.toString());
     if (deletionPolicy != null) {
       if (!DeletionPolicyValues.Delete.toString().equals(deletionPolicy) && !DeletionPolicyValues.Retain.equals(deletionPolicy) && !DeletionPolicyValues.Snapshot.equals(deletionPolicy)) {
         throw new ValidationErrorException("Template format error: Unrecognized DeletionPolicy " + deletionPolicy + " for resource "+ resourceKey);
       }
-      if (DeletionPolicyValues.Snapshot.equals(deletionPolicy) && !resource.supportsSnapshots()) {
-        throw new ValidationErrorException("Template error: resource type " + resource.getType() + " does not support deletion policy Snapshot");
+      if (DeletionPolicyValues.Snapshot.equals(deletionPolicy) && !resourceInfo.isSupportsSnapshot()) {
+        throw new ValidationErrorException("Template error: resource type " + resourceInfo.getType() + " does not support deletion policy Snapshot");
       }
-      resource.setDeletionPolicy(deletionPolicy);
+      resourceInfo.setDeletionPolicy(deletionPolicy);
     }
-    String conditionKey=JSONHelper.getString(resourceJsonNode,ResourceKey.Condition.toString());
+    String conditionKey=JsonHelper.getString(resourceJsonNode,ResourceKey.Condition.toString());
     if (conditionKey != null) {
       if (!template.getConditionMap().containsKey(conditionKey)) {
         throw new ValidationErrorException("Template format error: Condition " + conditionKey + "  is not defined.");
       }
-      Template.Condition condition=template.getConditionMap().get(conditionKey);
-      if (!condition.isReady()) {
-        throw new ValidationErrorException("Condition " + conditionKey + " has not been evaluated");
-      }
-      resource.setAllowedByCondition(FunctionEvaluation.evaluateBoolean(condition.getConditionValue()));
+      resourceInfo.setAllowedByCondition(template.getConditionMap().get(conditionKey));
     }
   }
   if (!unresolvedResourceDependencies.isEmpty()) {

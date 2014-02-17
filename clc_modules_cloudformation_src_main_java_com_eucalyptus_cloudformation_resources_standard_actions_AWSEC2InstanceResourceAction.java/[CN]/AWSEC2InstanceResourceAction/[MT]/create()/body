@@ -1,0 +1,80 @@
+{
+  RunInstancesType runInstancesType=new RunInstancesType();
+  runInstancesType.setImageId(properties.getImageId());
+  if (properties.getAvailabilityZone() != null && !properties.getAvailabilityZone().isEmpty()) {
+    runInstancesType.setAvailabilityZone(properties.getAvailabilityZone());
+  }
+  if (properties.getBlockDeviceMappings() != null && !properties.getBlockDeviceMappings().isEmpty()) {
+    runInstancesType.setBlockDeviceMapping(convertBlockDeviceMappings(properties.getBlockDeviceMappings()));
+  }
+  if (properties.getBlockDeviceMappings() != null) {
+    runInstancesType.setDisableTerminate(properties.getDisableApiTermination());
+  }
+  if (properties.getEbsOptimized() != null) {
+    runInstancesType.setEbsOptimized(properties.getEbsOptimized());
+  }
+  if (properties.getIamInstanceProfile() != null && !properties.getIamInstanceProfile().isEmpty()) {
+    runInstancesType.setIamInstanceProfileName(properties.getIamInstanceProfile());
+  }
+  if (properties.getInstanceType() != null && !properties.getInstanceType().isEmpty()) {
+    runInstancesType.setInstanceType(properties.getInstanceType());
+  }
+  if (properties.getKernelId() != null && !properties.getKernelId().isEmpty()) {
+    runInstancesType.setKernelId(properties.getKernelId());
+  }
+  if (properties.getKeyName() != null && !properties.getKeyName().isEmpty()) {
+    runInstancesType.setKeyName(properties.getKeyName());
+  }
+  if (properties.getMonitoring() != null) {
+    runInstancesType.setMonitoring(properties.getMonitoring());
+  }
+  if (properties.getPlacementGroupName() != null && !properties.getPlacementGroupName().isEmpty()) {
+    runInstancesType.setPlacementGroup(properties.getPlacementGroupName());
+  }
+  if (properties.getPrivateIpAddress() != null && !properties.getPrivateIpAddress().isEmpty()) {
+    runInstancesType.setPrivateIpAddress(properties.getPrivateIpAddress());
+  }
+  if (properties.getRamdiskId() != null && !properties.getRamdiskId().isEmpty()) {
+    runInstancesType.setRamdiskId(properties.getRamdiskId());
+  }
+  if (properties.getSecurityGroups() != null && !properties.getSecurityGroups().isEmpty()) {
+    runInstancesType.setSecurityGroups(convertSecurityGroups(properties.getSecurityGroups()));
+  }
+  if (properties.getSubnetId() != null && !properties.getSubnetId().isEmpty()) {
+    runInstancesType.setSubnetId(properties.getSubnetId());
+  }
+  if (properties.getUserData() != null && !properties.getUserData().isEmpty()) {
+    runInstancesType.setUserData(properties.getUserData());
+  }
+  runInstancesType.setMinCount(1);
+  runInstancesType.setMaxCount(1);
+  final ComponentId componentId=ComponentIds.lookup(Eucalyptus.class);
+  ServiceConfiguration configuration;
+  if (componentId.isAlwaysLocal() || (BootstrapArgs.isCloudController() && componentId.isCloudLocal() && !componentId.isRegisterable())) {
+    configuration=ServiceConfigurations.createEphemeral(componentId);
+  }
+ else {
+    configuration=Topology.lookup(Eucalyptus.class);
+  }
+  runInstancesType.setEffectiveUserId(info.getEffectiveUserId());
+  RunInstancesResponseType runInstancesResponseType=AsyncRequests.<RunInstancesType,RunInstancesResponseType>sendSync(configuration,runInstancesType);
+  info.setPhysicalResourceId(runInstancesResponseType.getRsvInfo().getInstancesSet().get(0).getInstanceId());
+  for (int i=0; i < 24; i++) {
+    Thread.sleep(5000L);
+    DescribeInstancesType describeInstancesType=new DescribeInstancesType();
+    describeInstancesType.setInstancesSet(Lists.newArrayList(info.getPhysicalResourceId()));
+    describeInstancesType.setEffectiveUserId(info.getEffectiveUserId());
+    DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.<DescribeInstancesType,DescribeInstancesResponseType>sendSync(configuration,describeInstancesType);
+    RunningInstancesItemType runningInstancesItemType=describeInstancesResponseType.getReservationSet().get(0).getInstancesSet().get(0);
+    if ("running".equals(runningInstancesItemType.getStateName())) {
+      info.setPrivateIp(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getPrivateIpAddress())));
+      info.setPublicIp(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getIpAddress())));
+      info.setAvailabilityZone(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getPlacement())));
+      info.setPrivateDnsName(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getPrivateDnsName())));
+      info.setPublicDnsName(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getDnsName())));
+      info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(info.getPhysicalResourceId())));
+      return;
+    }
+  }
+  throw new Exception("Timeout");
+}
