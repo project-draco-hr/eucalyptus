@@ -1,11 +1,29 @@
 {
   final GetInstanceImportTaskResponseType reply=request.getReply();
   try {
-    final VolumeImagingTask task=(VolumeImagingTask)AbstractTaskScheduler.getScheduler().getNext();
-    if (task != null) {
-      reply.setImportTaskId(task.getTask().getConversionTaskId());
-      reply.setManifestUrl(task.getDownloadManifestUrl());
-      ImagingTasks.setState(task,ImportTaskState.DOWNLOADING,null);
+    final VolumeImagingTask volumeTask=(VolumeImagingTask)AbstractTaskScheduler.getScheduler().getNext();
+    if (volumeTask != null) {
+      ConversionTask conversionTask=volumeTask.getTask();
+      try {
+        String manifestLocation=null;
+        if (conversionTask.getImportVolume() != null) {
+          final ImportVolumeTaskDetails details=conversionTask.getImportVolume();
+          manifestLocation=DownloadManifestFactory.generateDownloadManifest(new ImageManifestFile(details.getImage().getImportManifestUrl(),ImportImageManifest.INSTANCE),null,conversionTask.getConversionTaskId(),1);
+        }
+ else         if (conversionTask.getImportInstance() != null) {
+          final ImportInstanceTaskDetails details=conversionTask.getImportInstance();
+          manifestLocation=DownloadManifestFactory.generateDownloadManifest(new ImageManifestFile(details.getVolumes().get(0).getImage().getImportManifestUrl(),ImportImageManifest.INSTANCE),null,conversionTask.getConversionTaskId(),1);
+          ImagingTasks.setDownloadManifestUrl(volumeTask,manifestLocation);
+        }
+        ImagingTasks.setDownloadManifestUrl(volumeTask,manifestLocation);
+        ImagingTasks.setState(volumeTask,ImportTaskState.DOWNLOADING,null);
+        reply.setImportTaskId(volumeTask.getTask().getConversionTaskId());
+        reply.setManifestUrl(manifestLocation);
+        reply.setVolumeId(volumeTask.getVolumeId());
+      }
+ catch (      InvalidBaseManifestException ex) {
+        ImagingTasks.setState(volumeTask,ImportTaskState.FAILED,null);
+      }
     }
   }
  catch (  final Exception ex) {
