@@ -2,8 +2,7 @@
   final ModifyInstanceAttributeResponseType reply=request.getReply();
   final String instanceId=normalizeIdentifier(request.getInstanceId());
   Context ctx=Contexts.lookup();
-  final EntityTransaction tx=Entities.get(VmInstance.class);
-  try {
+  try (final TransactionResource tx=Entities.transactionFor(VmInstance.class)){
     final VmInstance vm=RestrictedTypes.doPrivileged(instanceId,VmInstance.class);
     if (request.getBlockDeviceMappingAttribute() != null) {
       boolean isValidBlockDevice=false;
@@ -73,8 +72,8 @@
         }
       }
  else       if (request.getUserDataValue() != null) {
-        byte[] userData=request.getUserDataValue().getBytes();
-        if (userData != null && userData.length > Integer.parseInt(VmInstances.USER_DATA_MAX_SIZE_KB) * 1024) {
+        byte[] userData=B64.standard.dec(request.getUserDataValue());
+        if (userData.length > Integer.parseInt(VmInstances.USER_DATA_MAX_SIZE_KB) * 1024) {
           throw new InvalidMetadataException("User data may not exceed " + VmInstances.USER_DATA_MAX_SIZE_KB + " KB");
         }
         vm.getBootRecord().setUserData(userData);
@@ -113,9 +112,6 @@
       throw new ClientComputeException("InvalidParameterValue","User data is limited to 16384 bytes");
     }
     throw new ClientComputeException("InvalidInstanceID.NotFound","The instance ID '" + instanceId + "' does not exist");
-  }
- finally {
-    if (tx.isActive())     tx.rollback();
   }
   return reply;
 }
