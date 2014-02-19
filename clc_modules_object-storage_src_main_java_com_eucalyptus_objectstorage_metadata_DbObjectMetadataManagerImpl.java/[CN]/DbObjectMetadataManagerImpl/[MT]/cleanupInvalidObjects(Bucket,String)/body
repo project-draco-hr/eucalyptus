@@ -1,0 +1,33 @@
+{
+  ObjectEntity searchExample=new ObjectEntity(bucket,objectKey,null);
+  final Predicate<ObjectEntity> repairPredicate=new Predicate<ObjectEntity>(){
+    public boolean apply(    ObjectEntity example){
+      try {
+        SET_LATEST_PREDICATE.apply(example);
+        ObjectEntity searchExample=new ObjectEntity().withKey(objectKey).withBucket(bucket).withState(ObjectState.extant).withVersionId(ObjectStorageProperties.NULL_VERSION_ID);
+        searchExample.setIsLatest(false);
+        List<ObjectEntity> results=Entities.query(searchExample);
+        if (results != null && results.size() > 0) {
+          for (          ObjectEntity obj : results) {
+            LOG.trace("Marking object " + obj.getObjectUuid() + " as no longer latest version");
+            obj=transitionObjectToState(obj,ObjectState.deleting);
+          }
+        }
+      }
+ catch (      NoSuchElementException e) {
+      }
+catch (      Exception e) {
+        LOG.error("Error consolidationg Object records for " + example.getBucket().getBucketName() + "/"+ example.getObjectKey());
+        return false;
+      }
+      return true;
+    }
+  }
+;
+  try {
+    Entities.asTransaction(repairPredicate).apply(searchExample);
+  }
+ catch (  final Throwable f) {
+    LOG.error("Error in version/null repair",f);
+  }
+}

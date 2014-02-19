@@ -1,14 +1,15 @@
 {
-  if (!BindingManager.bindingMap.containsKey(bindingName)) {
-    try {
-      BindingManager.getBinding(bindingName).seed(seedClass);
-      Logs.exhaust().trace("Seeding binding " + bindingName + " for class "+ seedClass.getCanonicalName());
-      EventRecord.here(BindingManager.class,EventType.BINDING_SEEDED,bindingName,seedClass.getName()).trace();
-      return true;
-    }
- catch (    BindingException e) {
-      throw BootstrapException.error("Failed to seed binding " + bindingName + " with class "+ seedClass,e);
+  boolean seeded=trySeed(key(bindingName),seedClass);
+  if (BaseMessage.class.isAssignableFrom(seedClass)) {
+    Class<?> messageClass=seedClass;
+    while (messageClass != BaseMessage.class) {
+      final ComponentMessage componentMessage=messageClass.getAnnotation(ComponentMessage.class);
+      if (componentMessage != null) {
+        seeded=seeded || trySeed(key(Optional.<Class<? extends ComponentId>>fromNullable(componentMessage.value()),bindingName),seedClass);
+        break;
+      }
+      messageClass=messageClass.getSuperclass();
     }
   }
-  return false;
+  return seeded;
 }

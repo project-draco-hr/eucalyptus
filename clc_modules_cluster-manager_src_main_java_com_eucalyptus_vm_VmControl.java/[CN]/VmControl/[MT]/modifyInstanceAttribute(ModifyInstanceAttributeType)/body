@@ -1,9 +1,9 @@
 {
   final ModifyInstanceAttributeResponseType reply=request.getReply();
+  final String instanceId=normalizeIdentifier(request.getInstanceId());
   Context ctx=Contexts.lookup();
-  final EntityTransaction tx=Entities.get(VmInstance.class);
-  try {
-    final VmInstance vm=RestrictedTypes.doPrivileged(request.getInstanceId(),VmInstance.class);
+  try (final TransactionResource tx=Entities.transactionFor(VmInstance.class)){
+    final VmInstance vm=RestrictedTypes.doPrivileged(instanceId,VmInstance.class);
     if (request.getBlockDeviceMappingAttribute() != null) {
       boolean isValidBlockDevice=false;
       Set<VmVolumeAttachment> persistentVolumes=vm.getBootRecord().getPersistentVolumes();
@@ -26,7 +26,7 @@
     }
  else {
       if (!VmState.STOPPED.equals(vm.getDisplayState())) {
-        throw new EucalyptusCloudException("IncorrectInstanceState: " + "The instance '" + request.getInstanceId() + "' is not in the 'stopped' state.");
+        throw new EucalyptusCloudException("IncorrectInstanceState: " + "The instance '" + instanceId + "' is not in the 'stopped' state.");
       }
       if (request.getInstanceTypeValue() != null) {
         VmType vmType=VmTypes.lookup(request.getInstanceTypeValue());
@@ -72,8 +72,8 @@
         }
       }
  else       if (request.getUserDataValue() != null) {
-        byte[] userData=request.getUserDataValue().getBytes();
-        if (userData != null && userData.length > Integer.parseInt(VmInstances.USER_DATA_MAX_SIZE_KB) * 1024) {
+        byte[] userData=B64.standard.dec(request.getUserDataValue());
+        if (userData.length > Integer.parseInt(VmInstances.USER_DATA_MAX_SIZE_KB) * 1024) {
           throw new InvalidMetadataException("User data may not exceed " + VmInstances.USER_DATA_MAX_SIZE_KB + " KB");
         }
         vm.getBootRecord().setUserData(userData);
@@ -88,7 +88,7 @@
  catch (  Exception ex) {
     LOG.error(ex);
     if (Exceptions.isCausedBy(ex,EucalyptusCloudException.class)) {
-      throw new ClientComputeException("IncorrectInstanceState","The instance '" + request.getInstanceId() + "' is not in the 'stopped' state.");
+      throw new ClientComputeException("IncorrectInstanceState","The instance '" + instanceId + "' is not in the 'stopped' state.");
     }
  else     if (Exceptions.isCausedBy(ex,NoSuchMetadataException.class)) {
       throw new ClientComputeException("InvalidInstanceAttributeValue","The instanceType '" + request.getInstanceTypeValue() + "' is invalid.");
@@ -111,10 +111,7 @@
  else     if (Exceptions.isCausedBy(ex,InvalidMetadataException.class)) {
       throw new ClientComputeException("InvalidParameterValue","User data is limited to 16384 bytes");
     }
-    throw new ClientComputeException("InvalidInstanceID.NotFound","The instance ID '" + request.getInstanceId() + "' does not exist");
-  }
- finally {
-    if (tx.isActive())     tx.rollback();
+    throw new ClientComputeException("InvalidInstanceID.NotFound","The instance ID '" + instanceId + "' does not exist");
   }
   return reply;
 }

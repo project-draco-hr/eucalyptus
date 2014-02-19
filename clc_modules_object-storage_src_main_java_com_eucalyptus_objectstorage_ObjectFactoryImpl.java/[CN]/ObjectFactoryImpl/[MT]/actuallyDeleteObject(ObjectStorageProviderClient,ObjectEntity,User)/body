@@ -1,0 +1,41 @@
+{
+  try {
+    entity=ObjectMetadataManagers.getInstance().transitionObjectToState(entity,ObjectState.deleting);
+  }
+ catch (  Exception e) {
+    LOG.debug("Could not mark metadata for deletion",e);
+    throw e;
+  }
+  DeleteObjectType deleteRequest;
+  DeleteObjectResponseType deleteResponse;
+  LOG.trace("Deleting object " + entity.getObjectUuid() + ".");
+  deleteRequest=new DeleteObjectType();
+  if (requestUser == null) {
+    try {
+      requestUser=Accounts.lookupSystemAdmin();
+    }
+ catch (    AuthException e) {
+      LOG.trace("System admin account not found for object deletion. Cannot remove object with uuid " + entity.getObjectUuid());
+      throw new AccountProblemException("Eucalyptus/Admin");
+    }
+  }
+  try {
+    deleteRequest.setUser(requestUser);
+    deleteRequest.setBucket(entity.getBucket().getBucketUuid());
+    deleteRequest.setKey(entity.getObjectUuid());
+    deleteResponse=provider.deleteObject(deleteRequest);
+    if (HttpResponseStatus.NO_CONTENT.equals(deleteResponse.getStatus()) || HttpResponseStatus.OK.equals(deleteResponse.getStatus())) {
+      Transactions.delete(entity);
+    }
+ else {
+      LOG.trace("Backend did not confirm deletion of " + deleteRequest.getBucket() + "/"+ deleteRequest.getKey()+ " via request: "+ deleteRequest.toString());
+      throw new Exception("Object could not be confirmed as deleted.");
+    }
+  }
+ catch (  EucalyptusCloudException ex) {
+    LOG.trace("Error in response from backend on deletion request for object on backend: " + deleteRequest.getBucket() + "/"+ deleteRequest.getKey());
+  }
+catch (  Exception e) {
+    LOG.warn("Error deleting object on backend. Will retry later",e);
+  }
+}

@@ -1,30 +1,33 @@
 {
-  PutInstanceImportTaskStatusResponseType reply=request.getReply();
-  LOG.debug(request);
-  ImportTaskState status;
+  final PutInstanceImportTaskStatusResponseType reply=request.getReply();
+  reply.setCancelled(false);
   try {
-    status=ImportTaskState.fromString(request.getStatus());
-  }
- catch (  IllegalArgumentException ex) {
-    LOG.debug("Invalid conversions status");
-    reply.setStatusMessage("Invalid status");
-    reply.set_return(false);
-    return reply;
-  }
-  ImagingTask task=ImportManager.getConversionTask(request.getImportTaskId());
-  if (task == null) {
-    LOG.debug("Invalid conversions task id");
-    reply.setStatusMessage("Invalid task id");
-    reply.set_return(false);
-    return reply;
-  }
-  if (task != null) {
-    if ((status == ImportTaskState.CONVERTING || status == ImportTaskState.CONVERTED) && request.getBytesConverted() > 0) {
-      ImportManager.putConversionTask(request.getImportTaskId(),new ImagingTask(task.getTask(),status,request.getBytesConverted()));
+    final String taskId=request.getImportTaskId();
+    ImagingTask imagingTask=null;
+    try {
+      imagingTask=ImagingTasks.lookup(taskId);
     }
- else {
-      ImportManager.putConversionTask(request.getImportTaskId(),new ImagingTask(task.getTask(),status,task.getBytesProcessed()));
+ catch (    final Exception ex) {
+      LOG.warn("imaging task with " + taskId + " is not found");
+      reply.setCancelled(true);
     }
-  }
-  return reply;
+    if (imagingTask != null) {
+      final WorkerTaskState workerState=WorkerTaskState.fromString(request.getStatus());
+switch (workerState) {
+case EXTANT:
+        ;
+      break;
+case DONE:
+    ImagingTasks.setState(imagingTask,ImportTaskState.COMPLETED,null);
+  break;
+case FAILED:
+ImagingTasks.setState(imagingTask,ImportTaskState.FAILED,request.getStatusMessage());
+break;
+}
+}
+}
+ catch (final Exception ex) {
+LOG.error("Failed to update the task's state",ex);
+}
+return reply;
 }

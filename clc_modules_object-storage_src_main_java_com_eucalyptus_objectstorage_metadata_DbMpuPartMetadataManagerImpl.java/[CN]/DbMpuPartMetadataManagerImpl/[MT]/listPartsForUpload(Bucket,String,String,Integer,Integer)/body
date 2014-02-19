@@ -1,0 +1,59 @@
+{
+  EntityTransaction db=Entities.get(PartEntity.class);
+  try {
+    PaginatedResult<PartEntity> result=new PaginatedResult<PartEntity>();
+    HashSet<String> commonPrefixes=new HashSet<String>();
+    if (maxParts >= 0) {
+      final int queryStrideSize=maxParts + 1;
+      PartEntity searchPart=new PartEntity(bucket,objectKey,uploadId).withState(ObjectState.extant);
+      Criteria objCriteria=Entities.createCriteria(PartEntity.class);
+      objCriteria.setReadOnly(true);
+      objCriteria.setFetchSize(queryStrideSize);
+      objCriteria.add(Example.create(searchPart));
+      objCriteria.addOrder(Order.asc("partNumber"));
+      objCriteria.addOrder(Order.desc("objectModifiedTimestamp"));
+      objCriteria.setMaxResults(queryStrideSize);
+      if (partNumberMarker != null) {
+        objCriteria.add(Restrictions.gt("partNumber",partNumberMarker));
+      }
+      objCriteria=getSearchByBucket(objCriteria,bucket);
+      List<PartEntity> partInfos=null;
+      int resultKeyCount=0;
+      String[] parts=null;
+      int pages=0;
+      do {
+        parts=null;
+        objCriteria.setFirstResult(pages++ * queryStrideSize);
+        partInfos=(List<PartEntity>)objCriteria.list();
+        if (partInfos == null) {
+          break;
+        }
+        for (        PartEntity partRecord : partInfos) {
+          if (resultKeyCount == maxParts) {
+            result.setIsTruncated(true);
+            resultKeyCount++;
+            break;
+          }
+          result.getEntityList().add(partRecord);
+          result.setLastEntry(partRecord);
+          resultKeyCount++;
+        }
+        if (resultKeyCount <= maxParts && partInfos.size() <= maxParts) {
+          break;
+        }
+      }
+ while (resultKeyCount <= maxParts);
+    }
+ else {
+      throw new IllegalArgumentException("MaxKeys must be positive integer");
+    }
+    return result;
+  }
+ catch (  Exception e) {
+    LOG.error("Error generating paginated parts list for upload ID " + uploadId,e);
+    throw e;
+  }
+ finally {
+    db.rollback();
+  }
+}

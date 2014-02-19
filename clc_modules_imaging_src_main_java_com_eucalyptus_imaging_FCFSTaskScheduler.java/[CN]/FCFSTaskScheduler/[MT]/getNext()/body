@@ -1,0 +1,26 @@
+{
+  List<ImagingTask> allTasks=null;
+  List<ImagingTask> pendingTasks=Lists.newArrayList();
+  try {
+    try (final TransactionResource db=Entities.transactionFor(VolumeImagingTask.class)){
+      allTasks=Entities.query(ImagingTask.named());
+    }
+     for (    final ImagingTask t : allTasks) {
+      if (ImportTaskState.PENDING.equals(t.getState()))       pendingTasks.add(t);
+ else       if (ImportTaskState.CONVERTING.equals(t.getState()) && t instanceof InstanceImagingTask)       pendingTasks.add(t);
+    }
+    ImagingTask oldestTask=null;
+    Date oldest=new Date(Long.MAX_VALUE);
+    for (    final ImagingTask task : pendingTasks) {
+      if (oldest.after(task.getCreationTimestamp())) {
+        oldest=task.getCreationTimestamp();
+        oldestTask=task;
+      }
+    }
+    return oldestTask;
+  }
+ catch (  final Exception ex) {
+    LOG.error("failed to schedule the task to imaging worker",ex);
+    return null;
+  }
+}

@@ -1,20 +1,26 @@
 {
-  logRequest(request);
-  Bucket listBucket=null;
-  try {
-    listBucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
+  Bucket bucket=getBucketAndCheckAuthorization(request);
+  int maxKeys=ObjectStorageProperties.MAX_KEYS;
+  if (!Strings.isNullOrEmpty(request.getMaxKeys())) {
+    try {
+      maxKeys=Integer.parseInt(request.getMaxKeys());
+      if (maxKeys < 0 || maxKeys > ObjectStorageProperties.MAX_KEYS) {
+        throw new InvalidArgumentException(request.getMaxKeys());
+      }
+    }
+ catch (    NumberFormatException e) {
+      throw new InvalidArgumentException(request.getMaxKeys());
+    }
   }
- catch (  NoSuchElementException e) {
-    throw new NoSuchBucketException(request.getBucket());
+  try {
+    PaginatedResult<ObjectEntity> versionListing=ObjectMetadataManagers.getInstance().listVersionsPaginated(bucket,maxKeys,request.getPrefix(),request.getDelimiter(),request.getKeyMarker(),request.getVersionIdMarker(),true);
+  }
+ catch (  S3Exception e) {
+    throw e;
   }
 catch (  Exception e) {
-    LOG.error("Error getting bucket metadata for bucket " + request.getBucket());
-    throw new InternalErrorException(request.getBucket());
+    LOG.warn("Error listing versions for bucket " + request.getBucket());
+    throw new InternalErrorException(e);
   }
-  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,listBucket,null,0)) {
-    throw new NotImplementedException("GET ?versions");
-  }
- else {
-    throw new AccessDeniedException(request.getBucket());
-  }
+  throw new NotImplementedException("GET ?versions");
 }

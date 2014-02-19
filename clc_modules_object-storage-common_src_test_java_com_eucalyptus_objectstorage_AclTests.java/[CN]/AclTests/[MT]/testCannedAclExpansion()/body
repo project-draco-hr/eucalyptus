@@ -1,19 +1,67 @@
 {
-  String bucketCanonicalId="12o391aahabadosidvawerg-bucket";
-  String objectCanonicalId="1asfasf2o391aosidvawerg-object";
+  String bucketCanonicalId=account1CanonicalId;
+  String objectCanonicalId=account1CanonicalId;
   HashMap<AccessControlList,AccessControlList> testPolicyMap=new HashMap<AccessControlList,AccessControlList>();
-  AccessControlList acl=new AccessControlList();
-  acl.setGrants(new ArrayList<Grant>());
-  boolean doFail=false;
-  for (  Map.Entry<AccessControlList,AccessControlList> entry : testPolicyMap.entrySet()) {
+  HashMap<ObjectStorageProperties.CannedACL,AccessControlList> realAclMap=new HashMap<ObjectStorageProperties.CannedACL,AccessControlList>();
+  HashMap<ObjectStorageProperties.CannedACL,AccessControlList> msgAclMap=new HashMap<ObjectStorageProperties.CannedACL,AccessControlList>();
+  AccessControlList realAcl;
+  realAcl=new AccessControlList();
+  realAcl.setGrants(new ArrayList<Grant>());
+  realAcl.getGrants().add(new Grant(new Grantee(new CanonicalUser(objectCanonicalId,"")),Permission.FULL_CONTROL.toString()));
+  realAclMap.put(ObjectStorageProperties.CannedACL.private_only,realAcl);
+  realAcl=new AccessControlList();
+  realAcl.setGrants(new ArrayList<Grant>());
+  realAcl.getGrants().add(new Grant(new Grantee(new CanonicalUser(objectCanonicalId,"")),Permission.FULL_CONTROL.toString()));
+  realAcl.getGrants().add(new Grant(new Grantee(new Group(ObjectStorageProperties.S3_GROUP.ALL_USERS_GROUP.toString())),Permission.READ.toString()));
+  realAclMap.put(ObjectStorageProperties.CannedACL.public_read,realAcl);
+  realAcl=new AccessControlList();
+  realAcl.setGrants(new ArrayList<Grant>());
+  realAcl.getGrants().add(new Grant(new Grantee(new CanonicalUser(objectCanonicalId,"")),Permission.FULL_CONTROL.toString()));
+  realAcl.getGrants().add(new Grant(new Grantee(new Group(ObjectStorageProperties.S3_GROUP.ALL_USERS_GROUP.toString())),Permission.WRITE.toString()));
+  realAcl.getGrants().add(new Grant(new Grantee(new Group(ObjectStorageProperties.S3_GROUP.ALL_USERS_GROUP.toString())),Permission.READ.toString()));
+  realAclMap.put(ObjectStorageProperties.CannedACL.public_read_write,realAcl);
+  realAcl=new AccessControlList();
+  realAcl.setGrants(new ArrayList<Grant>());
+  realAcl.getGrants().add(new Grant(new Grantee(new CanonicalUser(objectCanonicalId,"")),Permission.FULL_CONTROL.toString()));
+  realAcl.getGrants().add(new Grant(new Grantee(new Group(ObjectStorageProperties.S3_GROUP.AWS_EXEC_READ.toString())),Permission.READ.toString()));
+  realAclMap.put(ObjectStorageProperties.CannedACL.aws_exec_read,realAcl);
+  realAcl=new AccessControlList();
+  realAcl.setGrants(new ArrayList<Grant>());
+  realAcl.getGrants().add(new Grant(new Grantee(new CanonicalUser(objectCanonicalId,"")),Permission.FULL_CONTROL.toString()));
+  realAcl.getGrants().add(new Grant(new Grantee(new Group(ObjectStorageProperties.S3_GROUP.AUTHENTICATED_USERS_GROUP.toString())),Permission.READ.toString()));
+  realAclMap.put(ObjectStorageProperties.CannedACL.authenticated_read,realAcl);
+  realAcl=new AccessControlList();
+  realAcl.setGrants(new ArrayList<Grant>());
+  realAcl.getGrants().add(new Grant(new Grantee(new CanonicalUser(objectCanonicalId,"")),Permission.FULL_CONTROL.toString()));
+  realAcl.getGrants().add(new Grant(new Grantee(new CanonicalUser(bucketCanonicalId,"")),Permission.READ.toString()));
+  realAclMap.put(ObjectStorageProperties.CannedACL.bucket_owner_read,realAcl);
+  realAcl=new AccessControlList();
+  realAcl.setGrants(new ArrayList<Grant>());
+  realAcl.getGrants().add(new Grant(new Grantee(new CanonicalUser(objectCanonicalId,"")),Permission.FULL_CONTROL.toString()));
+  realAcl.getGrants().add(new Grant(new Grantee(new CanonicalUser(bucketCanonicalId,"")),Permission.FULL_CONTROL.toString()));
+  realAclMap.put(ObjectStorageProperties.CannedACL.bucket_owner_full_control,realAcl);
+  realAcl=new AccessControlList();
+  realAcl.setGrants(new ArrayList<Grant>());
+  realAcl.getGrants().add(new Grant(new Grantee(new CanonicalUser(objectCanonicalId,"")),Permission.FULL_CONTROL.toString()));
+  realAcl.getGrants().add(new Grant(new Grantee(new Group(ObjectStorageProperties.S3_GROUP.LOGGING_GROUP.toString())),Permission.WRITE.toString()));
+  realAclMap.put(ObjectStorageProperties.CannedACL.log_delivery_write,realAcl);
+  for (  ObjectStorageProperties.CannedACL cannedAcl : ObjectStorageProperties.CannedACL.values()) {
+    AccessControlList fakeAcl=new AccessControlList();
+    fakeAcl.setGrants(new ArrayList<Grant>());
+    fakeAcl.getGrants().add(new Grant(new Grantee(new CanonicalUser("","")),cannedAcl.toString()));
+    msgAclMap.put(cannedAcl,fakeAcl);
+  }
+  assert(!checkExpansion(AclUtils.expandCannedAcl(msgAclMap.get(ObjectStorageProperties.CannedACL.private_only),bucketCanonicalId,objectCanonicalId),realAclMap.get(ObjectStorageProperties.CannedACL.bucket_owner_full_control)));
+  for (  ObjectStorageProperties.CannedACL cannedAcl : ObjectStorageProperties.CannedACL.values()) {
     try {
-      Assert.assertTrue("Expansion check failed",checkExpansion(AclUtils.expandCannedAcl(entry.getKey(),bucketCanonicalId,objectCanonicalId),entry.getValue()));
+      System.out.println("Checking expansion of canned acl: " + cannedAcl.toString());
+      AccessControlList list=AclUtils.expandCannedAcl(msgAclMap.get(cannedAcl),bucketCanonicalId,objectCanonicalId);
+      assert(checkExpansion(list,realAclMap.get(cannedAcl)));
+      System.out.println("Expansion of canned acl: " + cannedAcl.toString() + " passed with: "+ list.toString());
     }
  catch (    Exception e) {
-      System.err.println("Error in check: " + e.getMessage());
       e.printStackTrace();
-      doFail=true;
+      fail("Exception in expansion or check for acl " + cannedAcl.toString() + " with error "+ e.getMessage());
     }
   }
-  if (doFail)   fail();
 }

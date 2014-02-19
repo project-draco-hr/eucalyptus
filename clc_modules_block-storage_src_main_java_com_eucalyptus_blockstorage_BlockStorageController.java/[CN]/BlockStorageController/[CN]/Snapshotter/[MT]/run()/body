@@ -9,6 +9,7 @@
     }
     Boolean shouldTransferSnapshots=true;
     List<String> returnValues=null;
+    String snapshotLocation=null;
     try {
       if (!isSnapshotMarkedFailed(snapshotId)) {
         shouldTransferSnapshots=StorageInfo.getStorageInfo().getShouldTransferSnapshots();
@@ -23,17 +24,19 @@
     }
     if (shouldTransferSnapshots) {
       if (returnValues.size() < 2) {
-        throw new EucalyptusCloudException("Unable to transfer snapshot");
+        throw new EucalyptusCloudException("Snapshot file unknown. Cannot transfer snapshot");
       }
       snapshotFileName=returnValues.get(0);
       String snapshotSize=returnValues.get(1);
       int retry=StorageInfo.getStorageInfo().getMaxSnapTransferRetries();
       boolean transferSuccess=false;
+      String bucket=createAndReturnBucketName();
+      verifySnapshotFileIsReadable();
       int backoffTime=1;
       while (!transferSuccess) {
         if (!isSnapshotMarkedFailed(snapshotId)) {
           try {
-            transferSnapshot(snapshotSize);
+            transferSnapshot(bucket,snapshotId,snapshotSize);
             transferSuccess=true;
           }
  catch (          Exception e) {
@@ -53,6 +56,7 @@
           throw new EucalyptusCloudException("Snapshot " + this.snapshotId + " marked as failed by another thread");
         }
       }
+      snapshotLocation=SnapshotInfo.generateSnapshotLocationURI(SnapshotTransferConfiguration.OSG,bucket,snapshotId);
       try {
         LOG.debug("Finalizing snapshot " + snapshotId + " post upload");
         blockManager.finishVolume(snapshotId);
@@ -69,6 +73,7 @@
       snapshotInfo.setStatus(StorageProperties.Status.available.toString());
       snapshotInfo.setProgress("100");
       snapshotInfo.setSnapPointId(null);
+      snapshotInfo.setSnapshotLocation(snapshotLocation);
     }
  catch (    EucalyptusCloudException e) {
       LOG.error(e);

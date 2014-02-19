@@ -1,0 +1,43 @@
+{
+  Bucket deletingBucket;
+  try {
+    deletingBucket=BucketMetadataManagers.getInstance().transitionBucketToState(bucketToDelete,BucketState.deleting);
+  }
+ catch (  IllegalResourceStateException e) {
+    LOG.error("CorrelationId: " + correlationId + " Unexpected resource state on delete update.",e);
+    throw e;
+  }
+catch (  MetadataOperationFailureException e) {
+    LOG.error("CorrelationId: " + correlationId + " Could not transition bucket "+ bucketToDelete.toString()+ " to 'deleting' state.",e);
+    throw e;
+  }
+  Predicate<Bucket> deleteBucket=new Predicate<Bucket>(){
+    public boolean apply(    Bucket bucket){
+      DeleteBucketResponseType response;
+      DeleteBucketType deleteRequest=new DeleteBucketType();
+      deleteRequest.setBucket(bucket.getBucketUuid());
+      try {
+        backendProvider.deleteBucket(deleteRequest);
+        BucketMetadataManagers.getInstance().deleteBucketMetadata(bucket);
+        return true;
+      }
+ catch (      Exception e) {
+        LOG.warn("Got error during bucket cleanup. Will retry",e);
+        return false;
+      }
+    }
+  }
+;
+  try {
+    Entities.asTransaction(Bucket.class,deleteBucket).apply(deletingBucket);
+  }
+ catch (  Exception e) {
+    try {
+      Bucket foundBucket=BucketMetadataManagers.getInstance().lookupBucket(bucketToDelete.getBucketName());
+      LOG.error("CorrelationId: " + correlationId + " Error deleting bucket "+ bucketToDelete.toString(),e);
+      throw new InternalErrorException(bucketToDelete.getBucketName());
+    }
+ catch (    Exception ex) {
+    }
+  }
+}

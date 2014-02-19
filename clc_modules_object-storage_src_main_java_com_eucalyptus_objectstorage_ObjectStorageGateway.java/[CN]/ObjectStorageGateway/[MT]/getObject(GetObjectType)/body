@@ -1,63 +1,52 @@
 {
-  logRequest(request);
-  ObjectEntity objectEntity=null;
-  Bucket bucket=null;
+  ObjectEntity objectEntity=getObjectEntityAndCheckPermissions(request,request.getVersionId());
+  request.setKey(objectEntity.getObjectUuid());
+  request.setBucket(objectEntity.getBucket().getBucketUuid());
+  GetObjectResponseType reply;
   try {
-    bucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
-    objectEntity=ObjectManagers.getInstance().get(bucket,request.getKey(),request.getVersionId());
+    reply=ospClient.getObject(request);
   }
- catch (  NoSuchElementException e) {
-    throw new NoSuchKeyException(request.getBucket() + "/" + request.getKey()+ "?versionId="+ request.getVersionId());
+ catch (  Exception e) {
+    InternalErrorException ex=new InternalErrorException(objectEntity.getResourceFullName());
+    ex.initCause(e);
+    throw ex;
   }
-catch (  Exception e) {
-    if (e.getCause() instanceof NoSuchElementException) {
-      throw new NoSuchKeyException(request.getBucket() + "/" + request.getKey()+ "?versionId="+ request.getVersionId());
+  reply.setLastModified(objectEntity.getObjectModifiedTimestamp());
+  reply.setEtag(objectEntity.geteTag());
+  reply.setVersionId(objectEntity.geteTag());
+  reply.setHasStreamingData(true);
+  if (request.getInlineData()) {
+    if (reply.getSize() * 4 > ObjectStorageProperties.MAX_INLINE_DATA_SIZE) {
+      LOG.error("Base64 encoded object size: " + reply.getSize() + " exceeds maximum inline response size: "+ ObjectStorageProperties.MAX_INLINE_DATA_SIZE+ "bytes. Cannot return response.");
+      throw new InlineDataTooLargeException(request.getBucket() + "/" + request.getKey());
     }
-    LOG.error(e);
-    throw new InternalErrorException(request.getBucket() + "/" + request.getKey()+ " , version= "+ request.getVersionId());
-  }
-  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,0)) {
-    request.setKey(objectEntity.getObjectUuid());
-    GetObjectResponseType reply=ospClient.getObject(request);
-    if (request.getInlineData()) {
-      if (reply.getSize() * 4 > ObjectStorageProperties.MAX_INLINE_DATA_SIZE) {
-        LOG.error("Base64 encoded object size: " + reply.getSize() + " exceeds maximum inline response size: "+ ObjectStorageProperties.MAX_INLINE_DATA_SIZE+ "bytes. Cannot return response.");
-        throw new InlineDataTooLargeException(request.getBucket() + "/" + request.getKey());
+    byte[] buffer=new byte[ObjectStorageProperties.IO_CHUNK_SIZE];
+    int readLength;
+    ByteArrayOutputStream data=new ByteArrayOutputStream();
+    try {
+      while ((readLength=reply.getDataInputStream().read(buffer)) >= 0) {
+        data.write(buffer,0,readLength);
       }
-      byte[] buffer=new byte[ObjectStorageProperties.IO_CHUNK_SIZE];
-      int readLength=-1;
-      ByteArrayOutputStream data=new ByteArrayOutputStream();
-      try {
-        while ((readLength=reply.getDataInputStream().read(buffer)) >= 0) {
-          data.write(buffer,0,readLength);
-        }
-        reply.setBase64Data(B64.url.encString(data.toByteArray()));
-      }
- catch (      BufferOverflowException e) {
-        LOG.error("Maximum inline response size: " + ObjectStorageProperties.MAX_INLINE_DATA_SIZE + "bytes exceeded. Cannot return response.",e);
-        throw new InlineDataTooLargeException(request.getBucket() + "/" + request.getKey());
-      }
-catch (      IOException e) {
-        LOG.error("Error reading data to write into in-line response",e);
-        throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
-      }
+      reply.setBase64Data(B64.url.encString(data.toByteArray()));
+    }
+ catch (    BufferOverflowException e) {
+      LOG.error("Maximum inline response size: " + ObjectStorageProperties.MAX_INLINE_DATA_SIZE + "bytes exceeded. Cannot return response.",e);
+      throw new InlineDataTooLargeException(request.getBucket() + "/" + request.getKey());
+    }
+catch (    IOException e) {
+      LOG.error("Error reading data to write into in-line response",e);
+      throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
+    }
  finally {
-        try {
-          reply.getDataInputStream().close();
-        }
- catch (        IOException ex) {
-          LOG.error("Could not close inputstream for data content on inline-data GetObject.",ex);
-        }
-        reply.setDataInputStream(null);
-        reply.setHasStreamingData(false);
+      try {
+        reply.getDataInputStream().close();
       }
+ catch (      IOException ex) {
+        LOG.error("Could not close inputstream for data content on inline-data GetObject.",ex);
+      }
+      reply.setDataInputStream(null);
+      reply.setHasStreamingData(false);
     }
- else {
-      reply.setHasStreamingData(true);
-    }
-    return reply;
   }
- else {
-    throw new AccessDeniedException(request.getBucket() + "/" + request.getKey()+ "?versionId="+ request.getVersionId());
-  }
+  return reply;
 }

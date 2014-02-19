@@ -1,0 +1,90 @@
+{
+  Set<String> tempParameterKeys=Sets.newHashSet(parameterJsonNode.fieldNames());
+  for (  ParameterKey validParameterKey : ParameterKey.values()) {
+    tempParameterKeys.remove(validParameterKey.toString());
+  }
+  if (!tempParameterKeys.isEmpty()) {
+    throw new ValidationErrorException("Invalid template parameter property or properties " + tempParameterKeys);
+  }
+  Template.Parameter parameter=new Template.Parameter();
+  String type=JSONHelper.getString(parameterJsonNode,ParameterKey.Type.toString());
+  if (type == null) {
+    throw new ValidationErrorException("Template format error: Every " + TemplateSection.Parameters + " object "+ "must contain a "+ ParameterKey.Type+ " member.");
+  }
+  Template.ParameterType parameterType=null;
+  try {
+    parameterType=Template.ParameterType.valueOf(type);
+  }
+ catch (  Exception ex) {
+    throw new ValidationErrorException("Template format error: Unrecognized parameter type: " + type);
+  }
+  JsonNode allowedValuesJsonNode=JSONHelper.checkArray(parameterJsonNode,ParameterKey.AllowedValues.toString());
+  if (allowedValuesJsonNode != null) {
+    String[] allowedValues=new String[allowedValuesJsonNode.size()];
+    for (int index=0; index < allowedValues.length; index++) {
+      String errorMsg="Every " + ParameterKey.AllowedValues + "value must be a string.";
+      String allowedValue=JSONHelper.getString(allowedValuesJsonNode,index,errorMsg);
+      if (allowedValue == null) {
+        throw new ValidationErrorException("Template format error: " + errorMsg);
+      }
+      allowedValues[index]=allowedValue;
+    }
+    parameter.setAllowedValues(allowedValues);
+  }
+  parameter.setAllowedPattern(JSONHelper.getString(parameterJsonNode,ParameterKey.AllowedPattern.toString()));
+  String constraintDescription=JSONHelper.getString(parameterJsonNode,ParameterKey.ConstraintDescription.toString());
+  if (constraintDescription != null && constraintDescription.length() > 4000) {
+    throw new ValidationErrorException("Template format error: " + ParameterKey.ConstraintDescription + " must be no longer than 4000 characters.");
+  }
+  parameter.setConstraintDescription(constraintDescription);
+  parameter.setDefaultValue(JSONHelper.getString(parameterJsonNode,ParameterKey.Default.toString()));
+  String description=JSONHelper.getString(parameterJsonNode,ParameterKey.Description.toString());
+  if (description != null && description.length() > 4000) {
+    throw new ValidationErrorException("Template format error: " + ParameterKey.Description + " must be no "+ "longer than 4000 characters.");
+  }
+  parameter.setDescription(description);
+  parameter.setMaxLength(JSONHelper.getDouble(parameterJsonNode,ParameterKey.MaxLength.toString()));
+  parameter.setMinLength(JSONHelper.getDouble(parameterJsonNode,ParameterKey.MinLength.toString()));
+  parameter.setMaxValue(JSONHelper.getDouble(parameterJsonNode,ParameterKey.MaxValue.toString()));
+  parameter.setMinValue(JSONHelper.getDouble(parameterJsonNode,ParameterKey.MinValue.toString()));
+  parameter.setDefaultValue(JSONHelper.getString(parameterJsonNode,ParameterKey.Default.toString()));
+  parameter.setNoEcho("true".equalsIgnoreCase(JSONHelper.getString(parameterJsonNode,ParameterKey.NoEcho.toString())));
+  parameter.setParameterKey(parameterName);
+  parameter.setType(parameterType);
+  parameter.setParameterValue(paramMap.get(parameterName) != null ? paramMap.get(parameterName) : parameter.getDefaultValue());
+  if (parameter.getParameterValue() == null) {
+    noValueParameters.add(parameterName);
+    return;
+  }
+  if (parameter.getAllowedValues() != null && !Arrays.asList(parameter.getAllowedValues()).contains(parameter.getParameterValue())) {
+    throw new ValidationErrorException(parameter.getConstraintDescription() != null ? parameter.getConstraintDescription() : "Template error: Parameter '" + parameterName + "' must be one of "+ ParameterKey.AllowedValues);
+  }
+  JsonNode referenceValue=null;
+switch (parameterType) {
+case Number:
+    parseNumberParameter(parameterName,parameter);
+  referenceValue=new TextNode(parameter.getParameterValue());
+break;
+case String:
+parseStringParameter(parameterName,parameter);
+referenceValue=new TextNode(parameter.getParameterValue());
+break;
+case CommaDelimitedList:
+parseCommaDelimitedListParameter(parameterName,parameter);
+referenceValue=objectMapper.createArrayNode();
+StringTokenizer tokenizer=new StringTokenizer(parameter.getParameterValue(),",");
+while (tokenizer.hasMoreTokens()) {
+((ArrayNode)referenceValue).add(tokenizer.nextToken());
+}
+break;
+default :
+throw new ValidationErrorException("Template format error: Unrecognized parameter type: " + parameterType);
+}
+template.addParameter(parameter);
+Template.Reference reference=new Template.Reference();
+reference.setReady(true);
+reference.setReferenceName(parameter.getParameterKey());
+reference.setReferenceValue(referenceValue);
+reference.setReferenceType(Template.ReferenceType.Parameter);
+template.getReferenceMap().put(parameter.getParameterKey(),reference);
+}
