@@ -1,0 +1,47 @@
+{
+  final ConversionTask ct=new ConversionTask();
+  String conversionTaskId=ResourceIdentifiers.generateString("import-i");
+  conversionTaskId=conversionTaskId.toLowerCase();
+  ct.setConversionTaskId(conversionTaskId);
+  ct.setExpirationTime(new Date(Dates.daysFromNow(30).getTime()).toString());
+  ct.setState(ImportTaskState.NEW.getExternalVolumeStatusMessage());
+  ct.setStatusMessage(ImportTaskState.NEW.getExternalVolumeStatusMessage());
+  final ImportInstanceTaskDetails instanceTask=new ImportInstanceTaskDetails();
+  instanceTask.setDescription(input.getDescription());
+  instanceTask.setPlatform(input.getPlatform());
+  final ImportInstanceLaunchSpecification launchSpec=input.getLaunchSpecification();
+  final List<ImportInstanceVolumeDetail> volumes=Lists.newArrayList();
+  final List<DiskImage> disks=input.getDiskImageSet();
+  if (disks != null) {
+    for (    final DiskImage disk : disks) {
+      final ImportInstanceVolumeDetail volume=new ImportInstanceVolumeDetail();
+      if (launchSpec != null && launchSpec.getPlacement() != null)       volume.setAvailabilityZone(launchSpec.getPlacement().getAvailabilityZone());
+      volume.setImage(new DiskImageDescription());
+      volume.getImage().setFormat(disk.getImage().getFormat());
+      volume.getImage().setImportManifestUrl(disk.getImage().getImportManifestUrl());
+      volume.getImage().setSize(disk.getImage().getBytes());
+      volume.setVolume(new DiskImageVolumeDescription());
+      volume.getVolume().setSize(disk.getVolume().getSize());
+      volumes.add(volume);
+    }
+  }
+  instanceTask.setVolumes((ArrayList<ImportInstanceVolumeDetail>)volumes);
+  ct.setImportInstance(instanceTask);
+  final InstanceImagingTask newTask=new InstanceImagingTask(Contexts.lookup().getUserFullName(),ct);
+  newTask.serializeTaskToJSON();
+  newTask.setLaunchSpecArchitecture(launchSpec.getArchitecture());
+  if (launchSpec.getUserData() != null && launchSpec.getUserData().getData() != null)   newTask.setLaunchSpecUserData(launchSpec.getUserData().getData());
+  newTask.setLaunchSpecInstanceType(launchSpec.getInstanceType());
+  if (launchSpec.getPlacement() != null)   newTask.setLaunchSpecAvailabilityZone(launchSpec.getPlacement().getAvailabilityZone());
+  if (launchSpec.getMonitoring() != null)   newTask.setLaunchSpecMonitoringEnabled(launchSpec.getMonitoring().getEnabled());
+  if (launchSpec.getGroupSet() != null) {
+    for (    final ImportInstanceGroup group : launchSpec.getGroupSet()) {
+      if (group.getGroupName() != null)       newTask.addLaunchSpecGroupName(group.getGroupName());
+ else       if (group.getGroupId() != null)       newTask.addLaunchSpecGroupName(group.getGroupId());
+    }
+  }
+  if (launchSpec.getSubnetId() != null)   LOG.warn("SubnetId is not supported for import-instance");
+  if (launchSpec.getInstanceInitiatedShutdownBehavior() != null)   LOG.warn("InitiatedShutdownBehavior is not supported for import-instance");
+  if (launchSpec.getPrivateIpAddress() != null)   LOG.warn("Private Ip address is not supported for import-instance");
+  return newTask;
+}

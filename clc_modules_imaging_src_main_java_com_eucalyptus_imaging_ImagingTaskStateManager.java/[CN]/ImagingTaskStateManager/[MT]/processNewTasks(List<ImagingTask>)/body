@@ -1,41 +1,12 @@
 {
   for (  final ImagingTask task : tasks) {
     try {
-      final VolumeImagingTask volumeTask=(VolumeImagingTask)task;
-      if (volumeTask.getVolumeId() == null || volumeTask.getVolumeId().length() <= 0) {
-        final String zone=volumeTask.getAvailabilityZone();
-        final int size=volumeTask.getVolumeSize();
-        try {
-          final String volumeId=EucalyptusActivityTasks.getInstance().createVolume(zone,size);
-          ImagingTasks.setVolumeId(volumeTask,volumeId);
-        }
- catch (        final Exception ex) {
-          ImagingTasks.setState(volumeTask,ImportTaskState.FAILED,"Failed to create the volume");
-        }
-      }
- else {
-        final List<Volume> volumes=EucalyptusActivityTasks.getInstance().describeVolumes(Lists.newArrayList(volumeTask.getVolumeId()));
-        final Volume volume=volumes.get(0);
-        final String volumeStatus=volume.getStatus();
-        if ("available".equalsIgnoreCase(volumeStatus)) {
-          final ConversionTask conversionTask=volumeTask.getTask();
-          if (conversionTask.getImportVolume() != null || conversionTask.getImportInstance() != null) {
-            ImagingTasks.setState(volumeTask,ImportTaskState.PENDING,null);
-          }
- else {
-            LOG.error("Neither importInstance nor importVolume detail is found in the conversion task");
-            ImagingTasks.setState(volumeTask,ImportTaskState.FAILED,"Not enough information is in the ImagingTask");
-          }
-        }
- else         if ("creating".equalsIgnoreCase(volumeStatus)) {
-          ;
-        }
- else {
-          ImagingTasks.setState(volumeTask,ImportTaskState.FAILED,"The volume state is " + volumeStatus);
-        }
-      }
+      if (task instanceof VolumeImagingTask)       processNewVolumeImagingTask((VolumeImagingTask)task);
+ else       if (task instanceof InstanceImagingTask)       processNewInstanceImagingTask((InstanceImagingTask)task);
+ else       throw new Exception("Invalid ImagingTask");
     }
  catch (    final Exception ex) {
+      ImagingTasks.setState(task,ImportTaskState.FAILED,"Failed to create the volume");
       LOG.error("Failed to process new task",ex);
     }
   }
