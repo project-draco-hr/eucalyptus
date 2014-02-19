@@ -1,0 +1,45 @@
+{
+  final ObjectMetadataManager objectManager=ObjectMetadataManagers.getInstance();
+  if (BucketState.extant.equals(upload.getBucket().getState())) {
+    try {
+      upload=objectManager.initiateCreation(upload);
+    }
+ catch (    Exception e) {
+      LOG.warn("Error initiating an object in the db:",e);
+      throw new InternalErrorException(upload.getResourceFullName());
+    }
+  }
+ else {
+    throw new NoSuchBucketException(upload.getBucket().getBucketName());
+  }
+  try {
+    final InitiateMultipartUploadType initRequest=new InitiateMultipartUploadType();
+    initRequest.setBucket(upload.getBucket().getBucketUuid());
+    initRequest.setKey(upload.getObjectUuid());
+    initRequest.setUser(requestUser);
+    initRequest.setStorageClass(upload.getStorageClass());
+    initRequest.setAccessControlList(upload.getAccessControlPolicy().getAccessControlList());
+    LOG.trace("Initiating MPU on backend");
+    InitiateMultipartUploadResponseType response=provider.initiateMultipartUpload(initRequest);
+    upload.setObjectModifiedTimestamp(response.getLastModified());
+    upload.setUploadId(response.getUploadId());
+    LOG.trace("Done with MPU init on backend. " + response.getStatusMessage());
+  }
+ catch (  Exception e) {
+    LOG.error("InitiateMPU failure to backend for bucketuuid / objectuuid : " + upload.getBucket().getBucketUuid() + "/"+ upload.getObjectUuid(),e);
+    try {
+      ObjectMetadataManagers.getInstance().transitionObjectToState(upload,ObjectState.deleting);
+    }
+ catch (    Exception ex) {
+      LOG.warn("Failed to mark failed object entity in deleting state on failure rollback. Will be cleaned later.",e);
+    }
+    throw new InternalErrorException(upload.getObjectKey());
+  }
+  try {
+    return ObjectMetadataManagers.getInstance().finalizeMultipartInit(upload,upload.getObjectModifiedTimestamp(),upload.getUploadId());
+  }
+ catch (  Exception e) {
+    LOG.warn("Failed to update object metadata for finalization. Failing InitiateMPU operation",e);
+    throw new InternalErrorException(upload.getResourceFullName());
+  }
+}

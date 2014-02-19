@@ -1,0 +1,56 @@
+{
+  if (correlationId == null) {
+    correlationId="unknown";
+  }
+  try {
+    bucket=BucketMetadataManagers.getInstance().transitionBucketToState(bucket,BucketState.creating);
+  }
+ catch (  IllegalResourceStateException e) {
+    throw new BucketAlreadyExistsException(bucket.getBucketName());
+  }
+catch (  MetadataOperationFailureException|ConstraintViolationException e) {
+    throw new BucketAlreadyExistsException(bucket.getBucketName());
+  }
+catch (  Exception e) {
+    LOG.error("Error initiating bucket creation in metadata. Failing operation",e);
+    InternalErrorException ex=new InternalErrorException(bucket.getBucketName());
+    ex.initCause(e);
+    throw ex;
+  }
+  if (bucket == null) {
+    LOG.error("CorrelationId: " + correlationId + "Unexpected internal error. Got null bucket when not expected. Cannot continue bucket creation for "+ bucket.getBucketName());
+    throw new InternalErrorException("Internal error.");
+  }
+  if (BucketState.creating.equals(bucket.getState())) {
+    CreateBucketResponseType backendResponse=null;
+    try {
+      CreateBucketType request=new CreateBucketType();
+      request.setAccessControlList(new AccessControlList());
+      request.setBucket(bucket.getBucketUuid());
+      request.setUser(requestUser);
+      backendResponse=backendProvider.createBucket(request);
+      return BucketMetadataManagers.getInstance().transitionBucketToState(bucket,BucketState.extant);
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error("Bucket creation failed due to error response from backend.",e);
+      if (e instanceof S3Exception) {
+        LOG.error("Error creating bucket " + bucket.getBucketName(),e);
+        throw (S3Exception)e;
+      }
+ else {
+        InternalErrorException ex=new InternalErrorException();
+        ex.initCause(e);
+        throw ex;
+      }
+    }
+catch (    Exception e) {
+      LOG.error("Unknown exception caused failure of CreateBucket for bucket " + bucket.getBucketName(),e);
+      InternalErrorException ex=new InternalErrorException(bucket.getBucketName());
+      ex.initCause(e);
+      throw ex;
+    }
+  }
+ else {
+    throw new BucketAlreadyExistsException(bucket.getBucketName());
+  }
+}

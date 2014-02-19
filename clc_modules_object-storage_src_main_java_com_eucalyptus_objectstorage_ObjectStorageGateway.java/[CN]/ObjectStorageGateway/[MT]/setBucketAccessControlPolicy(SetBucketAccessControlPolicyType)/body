@@ -1,0 +1,36 @@
+{
+  Bucket bucket=getBucketAndCheckAuthorization(request);
+  if (request.getAccessControlPolicy() == null || request.getAccessControlPolicy().getAccessControlList() == null) {
+    throw new MalformedACLErrorException(request.getBucket() + "/" + request.getKey()+ "?acl");
+  }
+ else {
+    AccessControlPolicy fullPolicy;
+    if (isCannedAclPolicy(request.getAccessControlPolicy())) {
+      fullPolicy=new AccessControlPolicy();
+      fullPolicy.setOwner(new CanonicalUser(bucket.getOwnerCanonicalId(),bucket.getOwnerDisplayName()));
+      try {
+        fullPolicy.setAccessControlList(AclUtils.expandCannedAcl(request.getAccessControlPolicy().getAccessControlList(),bucket.getOwnerCanonicalId(),null));
+      }
+ catch (      Exception e) {
+        throw new MalformedACLErrorException(request.getBucket() + "?acl");
+      }
+    }
+ else {
+      fullPolicy=request.getAccessControlPolicy();
+      if (fullPolicy.getAccessControlList() == null || fullPolicy.getOwner() == null) {
+        LOG.error("Cannot put ACL that does not exist in request");
+        throw new MalformedACLErrorException(request.getBucket() + "?acl");
+      }
+    }
+    try {
+      BucketMetadataManagers.getInstance().setAcp(bucket,fullPolicy);
+      SetBucketAccessControlPolicyResponseType reply=request.getReply();
+      reply.setBucket(request.getBucket());
+      return reply;
+    }
+ catch (    Exception e) {
+      LOG.error("Transaction error updating bucket ACL for bucket " + request.getBucket(),e);
+      throw new InternalErrorException(request.getBucket() + "?acl");
+    }
+  }
+}

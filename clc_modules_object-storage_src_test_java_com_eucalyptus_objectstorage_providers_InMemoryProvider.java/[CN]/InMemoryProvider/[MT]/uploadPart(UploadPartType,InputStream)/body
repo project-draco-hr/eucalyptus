@@ -1,0 +1,57 @@
+{
+  LOG.debug("InMemory UploadPart");
+switch (failObjectPut) {
+case INTERNAL_ERROR:
+    LOG.debug("InMemory UploadPart throw internal error as specified");
+  throw new InternalErrorException(request.getBucket());
+case NOT_FOUND:
+LOG.debug("InMemory UploadPart throw not-found as specified");
+throw new NoSuchBucketException(request.getBucket());
+default :
+}
+try {
+MemoryBucket bucket=getBucket(request.getBucket(),request.getAccessKeyID());
+if (!bucket.uploads.containsKey(request.getUploadId())) {
+throw new NoSuchUploadException(request.getUploadId());
+}
+MemoryMpu memMpu=bucket.uploads.get(request.getUploadId());
+MemoryPart memObj=new MemoryPart();
+memObj.key=request.getKey();
+memObj.content=new byte[Integer.valueOf(request.getContentLength())];
+memObj.modifiedDate=new Date();
+memObj.canonicalId=getOwnerCanonicalId(request.getAccessKeyID());
+memObj.partNumber=Integer.parseInt(request.getPartNumber());
+try {
+memObj.size=dataContent.read(memObj.content);
+}
+ catch (IOException e) {
+LOG.debug("InMemory UploadPart exception: ",e);
+throw new EucalyptusCloudException(e);
+}
+memObj.eTag=DigestUtils.md5Hex(new String(memObj.content));
+if (!Strings.isNullOrEmpty(request.getContentMD5()) && !memObj.eTag.equals(request.getContentMD5())) {
+LOG.error("InMemory UploadPart MD5 mismatch");
+throw new BadDigestException(memObj.eTag);
+}
+ else {
+memMpu.parts.put(memObj.partNumber,memObj);
+}
+UploadPartResponseType response=request.getReply();
+response.setContentType(request.getContentType());
+response.setEtag(memObj.eTag);
+response.setLastModified(new Date());
+response.setStatusMessage("OK");
+response.set_return(true);
+LOG.debug("InMemory return response: " + response.getStatusMessage());
+return response;
+}
+ catch (Exception e) {
+LOG.debug("InMemory UploadPart exception: ",e);
+if (e instanceof S3Exception) {
+throw (S3Exception)e;
+}
+ else {
+throw new InternalErrorException(e);
+}
+}
+}

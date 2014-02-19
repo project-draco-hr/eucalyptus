@@ -1,9 +1,8 @@
 {
-  CompleteMultipartUploadResponseType reply=(CompleteMultipartUploadResponseType)request.getReply();
   logRequest(request);
-  Bucket bucket=null;
+  Bucket bucket;
   try {
-    bucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
+    bucket=BucketMetadataManagers.getInstance().lookupExtantBucket(request.getBucket());
   }
  catch (  NoSuchElementException e) {
     throw new NoSuchBucketException(request.getBucket());
@@ -11,83 +10,29 @@
 catch (  Exception e) {
     throw new InternalErrorException();
   }
-  String versionId=null;
-  try {
-    versionId=BucketManagers.getInstance().getVersionId(bucket);
-  }
- catch (  Exception e2) {
-    LOG.error("Error generating version Id string by bucket " + bucket.getBucketName(),e2);
-    throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
-  }
-  ObjectEntity objectEntity=null;
+  ObjectEntity objectEntity;
   User requestUser=Contexts.lookup().getUser();
-  final String originalKey=request.getKey();
+  try {
+    objectEntity=ObjectMetadataManagers.getInstance().lookupUpload(bucket,request.getUploadId());
+  }
+ catch (  Exception e) {
+    throw new InternalErrorException("Cannot get size for uploaded parts for: " + bucket.getBucketName() + "/"+ request.getKey());
+  }
   long newBucketSize=bucket.getBucketSize() == null ? 0 : bucket.getBucketSize();
-  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,newBucketSize)) {
+  if (OsgAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,newBucketSize)) {
     try {
-      objectEntity=ObjectManagers.getInstance().getObject(bucket,request.getKey(),request.getUploadId());
+      objectEntity=ObjectMetadataManagers.getInstance().lookupUpload(bucket,request.getUploadId());
     }
  catch (    Exception e) {
       throw new NoSuchUploadException("Cannot get upload for: " + bucket.getBucketName() + "/"+ request.getKey());
     }
-    long objectSize=0L;
-    final List<Part> parts=request.getParts();
     try {
-      final HashMap<Integer,PartEntity> availableParts=ObjectManagers.getInstance().getParts(bucket,request.getKey(),request.getUploadId());
-      objectSize=computeSizeFromParts(parts,availableParts);
-      objectEntity.setSize(objectSize);
-      request.setKey(objectEntity.getObjectUuid());
-    }
- catch (    S3Exception e) {
-      throw e;
-    }
-catch (    Exception e) {
-      LOG.error(e);
-      throw new InternalErrorException("Cannot get size for uploaded parts for: " + bucket.getBucketName() + "/"+ request.getKey());
-    }
-    try {
-      CompleteMultipartUploadResponseType response=ObjectManagers.getInstance().merge(bucket,objectEntity,new CallableWithRollback<CompleteMultipartUploadResponseType,Boolean>(){
-        @Override public CompleteMultipartUploadResponseType call() throws S3Exception, Exception {
-          CompleteMultipartUploadResponseType response=ospClient.completeMultipartUpload(request);
-          response.setKey(originalKey);
-          Bucket bucketWithParts;
-          try {
-            bucketWithParts=BucketManagers.getInstance().get(request.getBucket(),false,null);
-          }
- catch (          NoSuchElementException e) {
-            throw new NoSuchBucketException(request.getBucket());
-          }
-catch (          Exception e) {
-            throw new InternalErrorException();
-          }
-          try {
-            ObjectManagers.getInstance().removeParts(bucketWithParts,request.getUploadId());
-          }
- catch (          Exception e) {
-            throw new InternalErrorException("Could not remove parts for: " + request.getUploadId());
-          }
-          return response;
-        }
-        @Override public Boolean rollback(        CompleteMultipartUploadResponseType arg) throws Exception {
-          DeleteObjectType deleteRequest=new DeleteObjectType();
-          deleteRequest.setBucket(request.getBucket());
-          deleteRequest.setKey(request.getKey());
-          DeleteObjectResponseType resp=ospClient.deleteObject(deleteRequest);
-          if (resp != null) {
-            return true;
-          }
- else {
-            return false;
-          }
-        }
-      }
-);
-      try {
-        fireObjectCreationEvent(bucket.getBucketName(),objectEntity.getObjectKey(),versionId,requestUser.getUserId(),objectSize,null);
-      }
- catch (      Exception ex) {
-        LOG.debug("Failed to fire reporting event for walrus PUT object operation",ex);
-      }
+      ObjectEntity completedEntity=OsgObjectFactory.getFactory().completeMultipartUpload(ospClient,objectEntity,request.getParts(),requestUser);
+      CompleteMultipartUploadResponseType response=request.getReply();
+      response.setSize(completedEntity.getSize());
+      response.setEtag(completedEntity.geteTag());
+      response.setLastModified(completedEntity.getObjectModifiedTimestamp());
+      response.setLocation(Topology.lookup(ObjectStorage.class).getUri() + "/" + completedEntity.getBucket().getBucketName()+ "/"+ completedEntity.getObjectKey());
       return response;
     }
  catch (    Exception e) {

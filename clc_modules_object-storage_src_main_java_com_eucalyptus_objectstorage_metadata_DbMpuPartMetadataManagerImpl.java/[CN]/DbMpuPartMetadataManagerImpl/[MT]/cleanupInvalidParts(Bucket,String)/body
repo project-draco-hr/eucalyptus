@@ -1,0 +1,33 @@
+{
+  PartEntity searchExample=new PartEntity(bucket,objectKey,null);
+  final Predicate<PartEntity> repairPredicate=new Predicate<PartEntity>(){
+    public boolean apply(    PartEntity example){
+      try {
+        SET_LATEST_PREDICATE.apply(example);
+        PartEntity searchExample=new PartEntity().withKey(objectKey).withBucket(bucket).withState(ObjectState.extant);
+        searchExample.setIsLatest(false);
+        List<PartEntity> results=Entities.query(searchExample);
+        if (results != null && results.size() > 0) {
+          for (          PartEntity obj : results) {
+            LOG.trace("Marking MPU part " + obj.getPartUuid() + " as no longer latest version");
+            obj=transitionPartToState(obj,ObjectState.deleting);
+          }
+        }
+      }
+ catch (      NoSuchElementException e) {
+      }
+catch (      Exception e) {
+        LOG.error("Error consolidationg Object records for " + example.getBucket().getBucketName() + "/"+ example.getObjectKey());
+        return false;
+      }
+      return true;
+    }
+  }
+;
+  try {
+    Entities.asTransaction(repairPredicate).apply(searchExample);
+  }
+ catch (  final Throwable f) {
+    LOG.error("Error in version/null repair",f);
+  }
+}

@@ -1,72 +1,58 @@
 {
   logRequest(request);
-  long bucketCount=0;
-  User requestUser=null;
   try {
-    requestUser=Contexts.lookup(request.getCorrelationId()).getUser();
-    bucketCount=BucketManagers.getInstance().countByUser(requestUser.getUserId(),false,null);
-  }
- catch (  NoSuchContextException e) {
-    LOG.error("Error finding context to lookup canonical Id of user",e);
-    throw new InternalErrorException(request.getBucket());
-  }
-catch (  Exception e) {
-    LOG.error("Failed getting bucket count for user " + requestUser.getUserId());
-    bucketCount=0;
-  }
-  final Bucket fakeBucket=new Bucket(request.getBucket());
-  try {
-    fakeBucket.setOwnerCanonicalId(requestUser.getAccount().getCanonicalId());
-  }
- catch (  AuthException e) {
-    LOG.error("No account found for user: " + requestUser.getUserId());
-    throw new AccountProblemException(requestUser.getUserId());
-  }
-  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,fakeBucket,null,bucketCount + 1)) {
-    try {
-      if (!BucketManagers.getInstance().checkBucketName(request.getBucket())) {
-        throw new InvalidBucketNameException(request.getBucket());
-      }
-      if (ObjectStorageProperties.shouldEnforceUsageLimits && !Contexts.lookup().hasAdministrativePrivileges() && BucketManagers.getInstance().countByAccount(requestUser.getAccount().getCanonicalId(),true,null) >= ObjectStorageGatewayGlobalConfiguration.max_buckets_per_account) {
+    User requestUser=getRequestUser(request);
+    Account requestAccount=requestUser.getAccount();
+    long bucketCount;
+    if (!checkBucketNameValidity(request.getBucket())) {
+      throw new InvalidBucketNameException(request.getBucket());
+    }
+    final AccessControlPolicy acPolicy=getFullAcp(request.getAccessControlList(),requestUser,null);
+    Bucket bucket=Bucket.getInitializedBucket(request.getBucket(),requestUser.getUserId(),acPolicy,request.getLocationConstraint());
+    bucketCount=BucketMetadataManagers.getInstance().countBucketsByAccount(requestAccount.getCanonicalId());
+    if (OsgAuthorizationHandler.getInstance().operationAllowed(request,bucket,null,bucketCount + 1)) {
+      if (!Contexts.lookup().hasAdministrativePrivileges() && BucketMetadataManagers.getInstance().countBucketsByAccount(requestAccount.getCanonicalId()) >= ObjectStorageGlobalConfiguration.max_buckets_per_account) {
         throw new TooManyBucketsException(request.getBucket());
       }
-      AccessControlPolicy tmpPolicy=new AccessControlPolicy();
-      tmpPolicy.setAccessControlList(request.getAccessControlList());
-      AccessControlPolicy acPolicy=AclUtils.processNewResourcePolicy(requestUser,tmpPolicy,null);
-      String aclString=S3AccessControlledEntity.marshallACPToString(acPolicy);
-      if (aclString == null) {
-        LOG.error("Unexpectedly got null for acl string. Cannot complete bucket creation with null acl");
-        throw new InternalErrorException(request.getBucket());
+      try {
+        bucket=OsgBucketFactory.getFactory().createBucket(ospClient,bucket,request.getCorrelationId(),requestUser);
+        CreateBucketResponseType reply=request.getReply();
+        reply.setStatus(HttpResponseStatus.OK);
+        reply.setBucket(bucket.getBucketName());
+        reply.setTimestamp(new Date());
+        reply.setStatusMessage("OK");
+        LOG.info("CorrelationId: " + request.getCorrelationId() + " Responding with "+ reply.getStatus().toString());
+        return reply;
       }
-      return BucketManagers.getInstance().create(request.getBucket(),requestUser,aclString,(request.getLocationConstraint() == null ? "" : request.getLocationConstraint()),new CallableWithRollback<CreateBucketResponseType,Boolean>(){
-        public CreateBucketResponseType call() throws Exception {
-          return ospClient.createBucket(request);
+ catch (      BucketAlreadyExistsException e) {
+        Bucket extantBucket=BucketMetadataManagers.getInstance().lookupExtantBucket(request.getBucket());
+        if (extantBucket.isOwnedBy(requestAccount.getCanonicalId())) {
+          CreateBucketResponseType reply=request.getReply();
+          reply.setStatus(HttpResponseStatus.OK);
+          reply.setBucket(bucket.getBucketName());
+          reply.setStatusMessage("OK");
+          LOG.info("CorrelationId: " + request.getCorrelationId() + " Responding with "+ reply.getStatus().toString());
+          return reply;
         }
-        public Boolean rollback(        CreateBucketResponseType arg) throws Exception {
-          DeleteBucketType deleteRequest=new DeleteBucketType();
-          deleteRequest.setBucket(arg.getBucket());
-          try {
-            DeleteBucketResponseType response=ospClient.deleteBucket(deleteRequest);
-            return response.get_return();
-          }
- catch (          Exception e) {
-            LOG.error("Rollback (deletebucket) for createbucket " + arg.getBucket() + " failed",e);
-            return false;
-          }
+ else {
+          throw e;
         }
       }
-);
     }
- catch (    S3Exception e) {
-      LOG.error("Error creating bucket " + request.getBucket(),e);
-      throw e;
-    }
-catch (    Exception e) {
-      LOG.error("Unknown exception caused failure of CreateBucket for bucket " + request.getBucket(),e);
-      throw new InternalErrorException(request.getBucket());
+ else {
+      LOG.error("CorrelationId: " + request.getCorrelationId() + " Create bucket "+ request.getBucket()+ " access is denied based on acl and/or IAM policy");
+      throw new AccessDeniedException(request.getBucket());
     }
   }
+ catch (  Exception ex) {
+    if (ex instanceof S3Exception) {
+      LOG.error("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Returning error response to user: "+ ex.getMessage(),ex);
+      throw (S3Exception)ex;
+    }
  else {
-    throw new AccessDeniedException(request.getBucket());
+      InternalErrorException intEx=new InternalErrorException(request.getBucket());
+      intEx.initCause(ex);
+      throw intEx;
+    }
   }
 }
