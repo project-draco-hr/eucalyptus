@@ -1,0 +1,32 @@
+{
+  PartInfo searchPart=new PartInfo(bucketName,objectKey);
+  searchPart.setCleanup(true);
+  searchPart.setUploadId(uploadId);
+  List<PartInfo> parts;
+  EntityTransaction db=Entities.get(PartInfo.class);
+  try {
+    parts=Entities.query(searchPart);
+    if (parts.size() > 0) {
+      for (      PartInfo part : parts) {
+        if (part.getObjectName() != null) {
+          try {
+            storageManager.deleteObject(bucketName,part.getObjectName());
+          }
+ catch (          IOException e) {
+            LOG.error("Unable to delete part on disk: " + e.getMessage());
+          }
+        }
+        LOG.info("Garbage collecting part: " + part.getBucketName() + "/"+ part.getObjectName()+ " partNumber: "+ part.getPartNumber()+ " uploadId: "+ part.getUploadId());
+        if (part.getGrants() != null) {
+          for (          GrantInfo grant : part.getGrants()) {
+            Entities.delete(grant);
+          }
+        }
+        Entities.delete(part);
+      }
+    }
+  }
+  finally {
+    db.commit();
+  }
+}

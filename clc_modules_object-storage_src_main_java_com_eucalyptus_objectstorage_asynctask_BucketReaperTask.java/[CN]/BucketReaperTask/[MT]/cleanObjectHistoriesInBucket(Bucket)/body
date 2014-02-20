@@ -1,0 +1,32 @@
+{
+  String nextKey=null;
+  final int chunkSize=1000;
+  PaginatedResult<ObjectEntity> result=null;
+  LOG.trace("Cleaning object histories for bucket uuid " + b.getBucketUuid());
+  do {
+    try {
+      result=ObjectMetadataManagers.getInstance().listPaginated(b,chunkSize,null,null,nextKey);
+    }
+ catch (    final Throwable f) {
+      LOG.error("Could not get object listing for bucket " + b.getBucketName() + " with next marker: "+ nextKey);
+      nextKey=null;
+      result=null;
+      break;
+    }
+    for (    ObjectEntity obj : result.getEntityList()) {
+      try {
+        ObjectMetadataManagers.getInstance().cleanupInvalidObjects(b,obj.getObjectKey());
+      }
+ catch (      final Throwable f) {
+        LOG.error("Error doing async repair of object " + b.getBucketName() + "/"+ obj.getObjectKey()+ " Continuing to next object",f);
+      }
+    }
+    if (result.getIsTruncated()) {
+      nextKey=((ObjectEntity)result.getLastEntry()).getObjectKey();
+    }
+ else {
+      nextKey=null;
+    }
+  }
+ while (nextKey != null && !isTimedOut());
+}

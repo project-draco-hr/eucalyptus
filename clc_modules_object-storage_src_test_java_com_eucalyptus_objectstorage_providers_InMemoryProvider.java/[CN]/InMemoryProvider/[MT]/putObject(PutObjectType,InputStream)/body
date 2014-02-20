@@ -1,0 +1,61 @@
+{
+  LOG.debug("InMemory PutObject");
+switch (failObjectPut) {
+case INTERNAL_ERROR:
+    LOG.debug("InMemory PutObject throw internal error as specified");
+  throw new InternalErrorException(request.getBucket());
+case NOT_FOUND:
+LOG.debug("InMemory PutObject throe not-found as specified");
+throw new NoSuchBucketException(request.getBucket());
+default :
+}
+try {
+ObjectKey key=new ObjectKey(request.getKey(),"null");
+MemoryBucket bucket=getBucket(request.getBucket(),request.getAccessKeyID());
+MemoryObject memObj=new MemoryObject();
+memObj.key=request.getKey();
+memObj.versionId="null";
+memObj.content=new byte[Integer.valueOf(request.getContentLength())];
+memObj.modifiedDate=new Date();
+memObj.canonicalId=getOwnerCanonicalId(request.getAccessKeyID());
+memObj.acl=request.getAccessControlList();
+if (request.getAccessControlList() == null) {
+memObj.acl=genPrivateAcl(memObj.canonicalId);
+}
+try {
+int readLength=inputData.read(memObj.content);
+memObj.size=readLength;
+}
+ catch (IOException e) {
+LOG.debug("InMemory PutObject exception: ",e);
+throw new EucalyptusCloudException(e);
+}
+memObj.eTag=DigestUtils.md5Hex(new String(memObj.content));
+if (!Strings.isNullOrEmpty(request.getContentMD5()) && !memObj.eTag.equals(request.getContentMD5())) {
+LOG.error("InMemory PutObject MD5 mismatch");
+throw new BadDigestException(memObj.eTag);
+}
+ else {
+bucket.objects.put(key,memObj);
+}
+PutObjectResponseType response=request.getReply();
+response.setContentType(request.getContentType());
+response.setEtag(memObj.eTag);
+response.setVersionId("null");
+response.setContentDisposition(request.getContentDisposition());
+response.setLastModified(new Date());
+response.setStatusMessage("OK");
+response.set_return(true);
+LOG.debug("InMemory return response: " + response.getStatusMessage());
+return response;
+}
+ catch (Exception e) {
+LOG.debug("InMemory PutObject exception: ",e);
+if (e instanceof S3Exception) {
+throw (S3Exception)e;
+}
+ else {
+throw new InternalErrorException(e);
+}
+}
+}

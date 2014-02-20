@@ -3,7 +3,7 @@
   logRequest(request);
   Bucket bucket=null;
   try {
-    bucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
+    bucket=BucketMetadataManagers.getInstance().lookupExtantBucket(request.getBucket());
   }
  catch (  NoSuchElementException e) {
     throw new NoSuchBucketException(request.getBucket());
@@ -24,72 +24,40 @@ catch (  Exception e) {
     LOG.error("Could not parse content length into a long: " + request.getContentLength(),e);
     throw new MissingContentLengthException(request.getBucket() + "/" + request.getKey());
   }
-  String versionId=null;
-  try {
-    versionId=BucketManagers.getInstance().getVersionId(bucket);
-  }
- catch (  Exception e2) {
-    LOG.error("Error generating version Id string by bucket " + bucket.getBucketName(),e2);
-    throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
-  }
   User requestUser=Contexts.lookup().getUser();
-  ObjectEntity objectEntity=new ObjectEntity();
+  PartEntity partEntity;
   try {
-    objectEntity.initializeForCreate(request.getBucket(),request.getKey(),versionId,request.getCorrelationId(),objectSize,requestUser);
-    objectEntity.setUploadId(request.getUploadId());
-    objectEntity.setPartNumber(Integer.valueOf(request.getPartNumber()));
-  }
- catch (  Exception e) {
-    LOG.error("Error initializing entity for persisting object metadata for " + request.getBucket() + "/"+ request.getKey());
-    throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
-  }
-  PartEntity partEntity=new PartEntity();
-  try {
-    partEntity.initializeForCreate(request.getBucket(),request.getKey(),request.getCorrelationId(),objectSize,requestUser);
-    partEntity.setUploadId(request.getUploadId());
-    partEntity.setPartNumber(Integer.valueOf(request.getPartNumber()));
+    partEntity=PartEntity.newInitializedForCreate(bucket,request.getKey(),request.getUploadId(),Integer.parseInt(request.getPartNumber()),objectSize,requestUser);
   }
  catch (  Exception e) {
     LOG.error("Error initializing entity for persisting part metadata for " + request.getBucket() + "/"+ request.getKey()+ " uploadId: "+ request.getUploadId()+ " partNumber: "+ request.getPartNumber());
     throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
   }
-  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,newBucketSize)) {
+  if (OsgAuthorizationHandler.getInstance().operationAllowed(request,bucket,partEntity,newBucketSize)) {
+    ObjectEntity objectEntity;
     try {
-      ObjectEntity savedEntity=ObjectManagers.getInstance().getObject(bucket,request.getKey(),request.getUploadId());
-      request.setKey(savedEntity.getObjectUuid());
+      objectEntity=ObjectMetadataManagers.getInstance().lookupUpload(bucket,request.getUploadId());
     }
  catch (    Exception e) {
-      throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
+      throw new NoSuchUploadException("Cannot get upload for: " + bucket.getBucketName() + "/"+ request.getKey());
     }
     try {
-      UploadPartResponseType response=ObjectManagers.getInstance().createPart(bucket,partEntity,new CallableWithRollback<UploadPartResponseType,Boolean>(){
-        @Override public UploadPartResponseType call() throws S3Exception, Exception {
-          return ospClient.uploadPart(request);
-        }
-        @Override public Boolean rollback(        UploadPartResponseType arg) throws Exception {
-          DeleteObjectType deleteRequest=new DeleteObjectType();
-          deleteRequest.setBucket(request.getBucket());
-          deleteRequest.setKey(request.getKey());
-          DeleteObjectResponseType resp=ospClient.deleteObject(deleteRequest);
-          if (resp != null) {
-            return true;
-          }
- else {
-            return false;
-          }
-        }
-      }
-);
+      PartEntity updatedEntity=OsgObjectFactory.getFactory().createObjectPart(ospClient,objectEntity,partEntity,request.getData(),requestUser);
+      UploadPartResponseType response=request.getReply();
+      response.setLastModified(updatedEntity.getObjectModifiedTimestamp());
+      response.setEtag(updatedEntity.geteTag());
+      response.setStatusMessage("OK");
+      response.setSize(updatedEntity.getSize());
       return response;
     }
  catch (    Exception e) {
       if (e instanceof S3Exception) {
-        LOG.error("Got exception doing upload part for " + objectEntity.getResourceFullName() + " with uuid: "+ objectEntity.getObjectUuid(),e);
+        LOG.error("Got exception doing upload part for " + partEntity.getResourceFullName() + " with uuid: "+ partEntity.getPartUuid(),e);
         throw (S3Exception)e;
       }
  else {
-        LOG.error("Got exception doing upload part for " + objectEntity.getResourceFullName() + " with uuid: "+ objectEntity.getObjectUuid(),e);
-        throw new InternalErrorException(objectEntity.getResourceFullName());
+        LOG.error("Got exception doing upload part for " + partEntity.getResourceFullName() + " with uuid: "+ partEntity.getPartUuid(),e);
+        throw new InternalErrorException(partEntity.getResourceFullName());
       }
     }
   }

@@ -1,0 +1,51 @@
+{
+  final ImagingTask nextTask=this.getNext();
+  final WorkerTask newTask=new WorkerTask();
+  if (nextTask == null)   return null;
+  try {
+    if (nextTask instanceof VolumeImagingTask) {
+      final VolumeImagingTask volumeTask=(VolumeImagingTask)nextTask;
+      String manifestLocation=null;
+      if (volumeTask.getDownloadManifestUrl().size() == 0) {
+        try {
+          manifestLocation=DownloadManifestFactory.generateDownloadManifest(new ImageManifestFile(volumeTask.getImportManifestUrl(),ImportImageManifest.INSTANCE),null,volumeTask.getDisplayName(),1);
+          volumeTask.addDownloadManifestUrl(volumeTask.getImportManifestUrl(),manifestLocation);
+          ImagingTasks.save(volumeTask);
+        }
+ catch (        final InvalidBaseManifestException ex) {
+          ImagingTasks.setState(volumeTask,ImportTaskState.FAILED,"Failed to generate download manifest");
+          throw new Exception("Failed to generate download manifest",ex);
+        }
+      }
+      newTask.setVolumeId(volumeTask.getVolumeId());
+      newTask.setDownloadManifestUrl(manifestLocation);
+      newTask.setTaskId(volumeTask.getDisplayName());
+    }
+ else     if (nextTask instanceof InstanceImagingTask) {
+      final InstanceImagingTask instanceTask=(InstanceImagingTask)nextTask;
+      for (      final ImportInstanceVolumeDetail volume : instanceTask.getVolumes()) {
+        final String importManifestUrl=volume.getImage().getImportManifestUrl();
+        if (!instanceTask.hasDownloadManifestUrl(importManifestUrl)) {
+          String manifestLocation=null;
+          try {
+            manifestLocation=DownloadManifestFactory.generateDownloadManifest(new ImageManifestFile(importManifestUrl,ImportImageManifest.INSTANCE),null,nextTask.getDisplayName(),1);
+            instanceTask.addDownloadManifestUrl(importManifestUrl,manifestLocation);
+            ImagingTasks.save(instanceTask);
+          }
+ catch (          final InvalidBaseManifestException ex) {
+            ImagingTasks.setState(instanceTask,ImportTaskState.FAILED,"Failed to generate download manifest");
+            throw new Exception("Failed to generate download manifest",ex);
+          }
+          newTask.setDownloadManifestUrl(manifestLocation);
+          newTask.setTaskId(instanceTask.getDisplayName());
+          newTask.setVolumeId(volume.getVolume().getId());
+        }
+      }
+    }
+  }
+ catch (  final Exception ex) {
+    throw new Exception("failed to prepare worker task",ex);
+  }
+  ImagingTasks.setState(nextTask,ImportTaskState.CONVERTING,null);
+  return newTask;
+}

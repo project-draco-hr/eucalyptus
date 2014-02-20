@@ -1,68 +1,52 @@
 {
-  logRequest(request);
-  Bucket listBucket=null;
+  Bucket bucket=getBucketAndCheckAuthorization(request);
+  ListBucketResponseType reply=request.getReply();
+  int maxKeys=1000;
   try {
-    listBucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
+    if (!Strings.isNullOrEmpty(request.getMaxKeys())) {
+      maxKeys=Integer.parseInt(request.getMaxKeys());
+    }
   }
- catch (  NoSuchElementException e) {
-    throw new NoSuchBucketException(request.getBucket());
+ catch (  NumberFormatException e) {
+    LOG.error("Failed to parse maxKeys from request properly: " + request.getMaxKeys(),e);
+    throw new InvalidArgumentException("MaxKeys");
   }
-catch (  Exception e) {
-    LOG.error("Error getting bucket metadata for bucket " + request.getBucket());
+  reply.setMaxKeys(maxKeys);
+  reply.setName(request.getBucket());
+  reply.setDelimiter(request.getDelimiter());
+  reply.setMarker(request.getMarker());
+  reply.setPrefix(request.getPrefix());
+  reply.setIsTruncated(false);
+  PaginatedResult<ObjectEntity> result;
+  try {
+    result=ObjectMetadataManagers.getInstance().listPaginated(bucket,maxKeys,request.getPrefix(),request.getDelimiter(),request.getMarker());
+  }
+ catch (  Exception e) {
+    LOG.error("Error getting object listing for bucket: " + request.getBucket(),e);
     throw new InternalErrorException(request.getBucket());
   }
-  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,listBucket,null,0)) {
-    ListBucketResponseType reply=(ListBucketResponseType)request.getReply();
-    int maxKeys=1000;
-    try {
-      if (!Strings.isNullOrEmpty(request.getMaxKeys())) {
-        maxKeys=Integer.parseInt(request.getMaxKeys());
+  if (result != null) {
+    reply.setContents(new ArrayList<ListEntry>());
+    for (    ObjectEntity obj : result.getEntityList()) {
+      reply.getContents().add(obj.toListEntry());
+    }
+    if (result.getCommonPrefixes() != null && result.getCommonPrefixes().size() > 0) {
+      reply.setCommonPrefixesList(new ArrayList<CommonPrefixesEntry>());
+      for (      String s : result.getCommonPrefixes()) {
+        reply.getCommonPrefixesList().add(new CommonPrefixesEntry(s));
       }
     }
- catch (    NumberFormatException e) {
-      LOG.error("Failed to parse maxKeys from request properly: " + request.getMaxKeys(),e);
-      throw new InvalidArgumentException("MaxKeys");
-    }
-    reply.setMaxKeys(maxKeys);
-    reply.setName(request.getBucket());
-    reply.setDelimiter(request.getDelimiter());
-    reply.setMarker(request.getMarker());
-    reply.setPrefix(request.getPrefix());
-    reply.setIsTruncated(false);
-    PaginatedResult<ObjectEntity> result=null;
-    try {
-      result=ObjectManagers.getInstance().listPaginated(listBucket,maxKeys,request.getPrefix(),request.getDelimiter(),request.getMarker());
-    }
- catch (    Exception e) {
-      LOG.error("Error getting object listing for bucket: " + request.getBucket(),e);
-      throw new InternalErrorException(request.getBucket());
-    }
-    if (result != null) {
-      reply.setContents(new ArrayList<ListEntry>());
-      for (      ObjectEntity obj : result.getEntityList()) {
-        reply.getContents().add(obj.toListEntry());
+    reply.setIsTruncated(result.isTruncated);
+    if (result.isTruncated) {
+      if (result.getLastEntry() instanceof ObjectEntity) {
+        reply.setNextMarker(((ObjectEntity)result.getLastEntry()).getObjectKey());
       }
-      if (result.getCommonPrefixes() != null && result.getCommonPrefixes().size() > 0) {
-        reply.setCommonPrefixesList(new ArrayList<CommonPrefixesEntry>());
-        for (        String s : result.getCommonPrefixes()) {
-          reply.getCommonPrefixesList().add(new CommonPrefixesEntry(s));
-        }
-      }
-      reply.setIsTruncated(result.isTruncated);
-      if (result.isTruncated) {
-        if (result.getLastEntry() instanceof ObjectEntity) {
-          reply.setNextMarker(((ObjectEntity)result.getLastEntry()).getObjectKey());
-        }
  else {
-          reply.setNextMarker((result.getLastEntry() != null ? result.getLastEntry().toString() : ""));
-        }
+        reply.setNextMarker((result.getLastEntry() != null ? result.getLastEntry().toString() : ""));
       }
     }
- else {
-    }
-    return reply;
   }
  else {
-    throw new AccessDeniedException(request.getBucket());
   }
+  return reply;
 }

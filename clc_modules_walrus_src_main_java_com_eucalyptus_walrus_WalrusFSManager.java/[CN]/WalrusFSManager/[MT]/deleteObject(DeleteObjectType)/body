@@ -4,6 +4,7 @@
   String objectKey=request.getKey();
   Context ctx=Contexts.lookup();
   Account account=ctx.getAccount();
+  String uploadId=null;
   EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
   try {
     BucketInfo bucketInfos=new BucketInfo(bucketName);
@@ -65,6 +66,7 @@ catch (          EucalyptusCloudException ex) {
               ObjectInfo nullObject=lastObject;
               dbObject.delete(nullObject);
               String objectName=nullObject.getObjectName();
+              uploadId=nullObject.getUploadId();
               for (              GrantInfo grantInfo : nullObject.getGrants()) {
                 db.delete(grantInfo);
               }
@@ -90,7 +92,7 @@ catch (                EucalyptusCloudException ex) {
                 }
               }
  while (!success && (retryCount < 5));
-              ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectName,objectKey,WalrusProperties.NULL_VERSION_ID,size,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
+              ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectName,objectKey,uploadId,WalrusProperties.NULL_VERSION_ID,size,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
               Threads.lookup(Walrus.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
             }
  else {
@@ -129,9 +131,9 @@ catch (                EucalyptusCloudException ex) {
  else {
       throw new NoSuchBucketException(bucketName);
     }
+    db.commit();
     reply.setStatus(HttpResponseStatus.NO_CONTENT);
     reply.setStatusMessage("NO CONTENT");
-    db.commit();
     return reply;
   }
  catch (  EucalyptusCloudException e) {
