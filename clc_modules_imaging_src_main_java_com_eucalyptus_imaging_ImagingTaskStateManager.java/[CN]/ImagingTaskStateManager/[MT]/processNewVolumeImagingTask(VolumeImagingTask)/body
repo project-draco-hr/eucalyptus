@@ -3,7 +3,7 @@
     final String zone=volumeTask.getAvailabilityZone();
     final int size=volumeTask.getVolumeSize();
     try {
-      final String volumeId=EucalyptusActivityTasks.getInstance().createVolume(zone,size);
+      final String volumeId=EucalyptusActivityTasks.getInstance().createVolumeAsUser(volumeTask.getOwnerUserId(),zone,size);
       ImagingTasks.setVolumeId(volumeTask,volumeId);
     }
  catch (    final Exception ex) {
@@ -11,13 +11,18 @@
     }
   }
  else {
-    final List<Volume> volumes=EucalyptusActivityTasks.getInstance().describeVolumes(Lists.newArrayList(volumeTask.getVolumeId()));
+    final List<Volume> volumes=EucalyptusActivityTasks.getInstance().describeVolumesAsUser(volumeTask.getOwnerUserId(),Lists.newArrayList(volumeTask.getVolumeId()));
     final Volume volume=volumes.get(0);
     final String volumeStatus=volume.getStatus();
     if ("available".equals(volumeStatus)) {
       final ConversionTask conversionTask=volumeTask.getTask();
       if (conversionTask.getImportVolume() != null) {
-        ImagingTasks.setState(volumeTask,ImportTaskState.PENDING,null);
+        try {
+          ImagingTasks.transitState(volumeTask,ImportTaskState.NEW,ImportTaskState.PENDING,null);
+        }
+ catch (        final Exception ex) {
+          ;
+        }
       }
  else {
         throw new Exception("No importVolume detail is found in the conversion task");
