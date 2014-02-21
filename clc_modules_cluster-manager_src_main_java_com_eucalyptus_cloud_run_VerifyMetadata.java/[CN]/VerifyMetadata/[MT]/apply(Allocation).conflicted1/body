@@ -1,30 +1,20 @@
 {
-  final Context ctx=allocInfo.getContext();
-  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
-  NetworkGroups.lookup(accountFullName,NetworkGroups.defaultNetworkName());
-  final Set<String> networkNames=Sets.newLinkedHashSet(allocInfo.getRequest().securityGroupNames());
-  final Set<String> networkIds=Sets.newLinkedHashSet(allocInfo.getRequest().securityGroupsIds());
-  if (networkNames.isEmpty() && networkIds.isEmpty()) {
-    networkNames.add(NetworkGroups.defaultNetworkName());
-  }
-  final List<NetworkGroup> groups=Lists.newArrayList();
-  for (  String groupName : networkNames) {
-    if (!Iterables.tryFind(groups,CollectionUtils.propertyPredicate(groupName,RestrictedTypes.toDisplayName())).isPresent()) {
-      groups.add(NetworkGroups.lookup(accountFullName,groupName));
+  if (allocInfo.getRequest().getKeyName() == null || "".equals(allocInfo.getRequest().getKeyName())) {
+    if (ImageMetadata.Platform.windows.equals(allocInfo.getBootSet().getMachine().getPlatform())) {
+      throw new InvalidMetadataException("You must specify a keypair when running a windows vm: " + allocInfo.getRequest().getImageId());
+    }
+ else {
+      allocInfo.setSshKeyPair(KeyPairs.noKey());
+      return true;
     }
   }
-  for (  String groupId : networkIds) {
-    if (!Iterables.tryFind(groups,CollectionUtils.propertyPredicate(groupId,NetworkGroups.groupId())).isPresent()) {
-      groups.add(NetworkGroups.lookupByGroupId(accountFullName,groupId));
-    }
+  Context ctx=allocInfo.getContext();
+  RunInstancesType request=allocInfo.getRequest();
+  String keyName=request.getKeyName();
+  SshKeyPair key=KeyPairs.lookup(ctx.getUserFullName().asAccountFullName(),keyName);
+  if (!RestrictedTypes.filterPrivileged().apply(key)) {
+    throw new IllegalMetadataAccessException("Not authorized to use keypair " + keyName + " by "+ ctx.getUser().getName());
   }
-  final Map<String,NetworkGroup> networkRuleGroups=Maps.newHashMap();
-  for (  final NetworkGroup group : groups) {
-    if (!RestrictedTypes.filterPrivileged().apply(group)) {
-      throw new IllegalMetadataAccessException("Not authorized to use network group " + group.getGroupId() + "/"+ group.getDisplayName()+ " for "+ ctx.getUser().getName());
-    }
-    networkRuleGroups.put(group.getDisplayName(),group);
-  }
-  allocInfo.setNetworkRules(networkRuleGroups);
+  allocInfo.setSshKeyPair(key);
   return true;
 }

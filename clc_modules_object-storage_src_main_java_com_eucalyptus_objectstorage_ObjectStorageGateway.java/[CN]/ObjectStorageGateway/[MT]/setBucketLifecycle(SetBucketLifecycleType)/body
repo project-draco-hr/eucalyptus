@@ -1,0 +1,43 @@
+{
+  Bucket bucket=logRequestAndCheckAuthorization(request);
+  SetBucketLifecycleResponseType response=request.getReply();
+  String bucketName=request.getBucket();
+  List<LifecycleRule> goodRules=new ArrayList<>();
+  if (request.getLifecycleConfiguration() != null && request.getLifecycleConfiguration().getRules() != null) {
+    if (request.getLifecycleConfiguration().getRules().size() > 1000) {
+      throw new ObjectStorageException("MalformedXML","The XML you provided was not well-formed or did not validate against our published schema","Bucket",bucketName,HttpResponseStatus.BAD_REQUEST);
+    }
+    List<String> ruleIds=new ArrayList<>();
+    String badId=null;
+    for (    LifecycleRule rule : request.getLifecycleConfiguration().getRules()) {
+      for (      String ruleId : ruleIds) {
+        if (rule != null && (rule.getId() == null || rule.getId().equals(ruleId))) {
+          badId=rule.getId() == null ? "null" : rule.getId();
+        }
+ else {
+          ruleIds.add(ruleId);
+        }
+        if (badId != null) {
+          break;
+        }
+      }
+      if (badId != null) {
+        throw new ObjectStorageException("InvalidArgument","RuleId must be unique. Found same ID for more than one rule.","Argument",badId,HttpResponseStatus.BAD_REQUEST);
+      }
+ else {
+        goodRules.add(rule);
+      }
+    }
+  }
+  if (bucket.isVersioningEnabled() || bucket.isVersioningSuspended()) {
+    throw new ObjectStorageException("InvalidBucketState","Lifecycle configuration is currently not supported on a versioned bucket.","Bucket",bucketName,HttpResponseStatus.CONFLICT);
+  }
+  try {
+    BucketLifecycleManagers.getInstance().addLifecycleRules(goodRules,bucketName);
+  }
+ catch (  Exception ex) {
+    LOG.error("caught exception while managing object lifecycle for bucket - " + bucketName + ", with error - "+ ex.getMessage());
+    throw new ObjectStorageException("InternalServerError","An exception was caught while managing the object lifecycle for bucket - " + bucketName,"Bucket",bucketName,HttpResponseStatus.INTERNAL_SERVER_ERROR);
+  }
+  return response;
+}

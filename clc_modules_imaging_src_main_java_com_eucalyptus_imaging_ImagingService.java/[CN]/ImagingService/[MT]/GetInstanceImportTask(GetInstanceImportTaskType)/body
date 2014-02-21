@@ -1,0 +1,30 @@
+{
+  GetInstanceImportTaskResponseType reply=request.getReply();
+  LOG.debug(request);
+  ConversionTask taskToServe=null;
+  Iterator<Entry<String,ImagingTask>> it=ImportManager.getTasksIterator();
+  while (it.hasNext()) {
+    Entry<String,ImagingTask> entry=it.next();
+    ImagingTask task=entry.getValue();
+    if (task.getState() == ImportTaskState.NEW) {
+      ImportManager.putConversionTask(task.getId(),new ImagingTask(task.getTask(),ImportTaskState.PENDING,0));
+      taskToServe=task.getTask();
+      break;
+    }
+  }
+  reply.setImportTaskId(taskToServe != null ? taskToServe.getConversionTaskId() : "");
+  if (taskToServe != null) {
+    ImportInstanceTaskDetails details=taskToServe.getImportInstance();
+    LOG.debug("Working with " + details);
+    try {
+      String manifestLocation=DownloadManifestFactory.generateDownloadManifest(new ImageManifestFile(details.getVolumes().get(0).getImage().getImportManifestUrl(),ImportImageManifest.INSTANCE),null,taskToServe.getConversionTaskId(),1);
+      reply.setManifestUrl(manifestLocation);
+    }
+ catch (    DownloadManifestException e) {
+      LOG.error(e);
+      throw new EucalyptusCloudException("Can't generate download manifest",e);
+    }
+  }
+  LOG.debug(reply);
+  return reply;
+}

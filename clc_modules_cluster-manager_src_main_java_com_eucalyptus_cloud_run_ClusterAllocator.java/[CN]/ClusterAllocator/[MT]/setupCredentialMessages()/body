@@ -1,4 +1,11 @@
 {
+  try {
+    final User owner=Accounts.lookupUserById(this.allocInfo.getOwnerFullName().getUserId());
+    if (!owner.isSystemAdmin())     return;
+  }
+ catch (  final AuthException ex) {
+    return;
+  }
   if (allocInfo.getUserData() == null || allocInfo.getUserData().length < VmInstances.VmSpecialUserData.EUCAKEY_CRED_SETUP.toString().length())   return;
   String userData=new String(allocInfo.getUserData(),0,VmInstances.VmSpecialUserData.EUCAKEY_CRED_SETUP.toString().length());
   if (!userData.startsWith(VmInstances.VmSpecialUserData.EUCAKEY_CRED_SETUP.toString()))   return;
@@ -10,14 +17,13 @@
   this.allocInfo.setUserData(payload);
   try {
     final KeyPair kp=Certs.generateKeyPair();
-    final PublicKey pubKey=kp.getPublic();
-    final PrivateKey privKey=kp.getPrivate();
-    final String b64PubKey=B64.standard.encString(pubKey.getEncoded());
+    final X509Certificate kpCert=Certs.generateCertificate(kp,String.format("Certificate-for-%s/%s",this.allocInfo.getOwnerFullName().getAccountName(),this.allocInfo.getOwnerFullName().getUserName()));
+    final String b64PubKey=B64.standard.encString(PEMFiles.getBytes(kpCert));
     final ServiceConfiguration euare=Topology.lookup(Euare.class);
     final SignCertificateType req=new SignCertificateType();
     req.setCertificate(b64PubKey);
     final SignCertificateResponseType resp=AsyncRequests.sendSync(euare,req);
-    final String sig=resp.getSignCertificateResult().getSignature();
+    final String token=resp.getSignCertificateResult().getSignature();
     final MessageDigest digest=Digest.SHA256.get();
     final byte[] salt=new byte[32];
     Crypto.getSecureRandomSupplier().get().nextBytes(salt);
@@ -27,16 +33,20 @@
     final byte[] iv=new byte[12];
     Crypto.getSecureRandomSupplier().get().nextBytes(iv);
     cipher.init(Cipher.ENCRYPT_MODE,symmKey,new IvParameterSpec(iv));
-    final byte[] cipherText=cipher.doFinal(privKey.getEncoded());
+    final byte[] cipherText=cipher.doFinal(Base64.encode(PEMFiles.getBytes(kp.getPrivate())));
     final String encPrivKey=new String(Base64.encode(Arrays.concatenate(iv,cipherText)));
+    cipher=Ciphers.AES_GCM.get();
+    cipher.init(Cipher.ENCRYPT_MODE,symmKey,new IvParameterSpec(iv));
+    final byte[] byteToken=cipher.doFinal(token.getBytes());
+    final String encToken=new String(Base64.encode(Arrays.concatenate(iv,byteToken)));
     X509Certificate nodeCert=this.allocInfo.getPartition().getNodeCertificate();
     cipher=Ciphers.RSA_PKCS1.get();
     cipher.init(Cipher.ENCRYPT_MODE,nodeCert.getPublicKey());
     byte[] symmkey=cipher.doFinal(symmKey.getEncoded());
     final String encSymmKey=new String(Base64.encode(symmkey));
     X509Certificate euareCert=SystemCredentials.lookup(Euare.class).getCertificate();
-    final String b64EuarePubkey=new String(Base64.encode(euareCert.getPublicKey().getEncoded()));
-    final String credential=String.format("%s\n%s\n%s\n%s\n%s",b64EuarePubkey,b64PubKey,sig,encSymmKey,encPrivKey);
+    final String b64EuarePubkey=B64.standard.encString(PEMFiles.getBytes(euareCert));
+    final String credential=String.format("%s\n%s\n%s\n%s\n%s",b64EuarePubkey,b64PubKey,encToken,encSymmKey,encPrivKey);
     this.allocInfo.setCredential(credential);
   }
  catch (  final Exception ex) {

@@ -1,0 +1,42 @@
+{
+  LifecycleRule result=null;
+  LifecycleRule example=new LifecycleRule();
+  example.setBucketName(bucketName);
+  example.setRuleId(ruleId);
+  try (TransactionResource tran=Entities.transactionFor(LifecycleRule.class)){
+    List<LifecycleRule> results=Entities.query(example);
+    if (results != null && results.size() > 1) {
+      tran.commit();
+      throw new ObjectStorageException("duplicate rule ids in bucket");
+    }
+ else     if (results != null && results.size() == 1) {
+      result=results.get(0);
+      if (result.getLastProcessingStart() != null) {
+        Date now=new Date();
+        long difference=now.getTime() - result.getLastProcessingStart().getTime();
+        if (difference > MAX_WAIT_TIME_FOR_PROCESSING) {
+          result.setLastProcessingStart(now);
+          tran.commit();
+        }
+ else {
+          result=null;
+        }
+      }
+ else {
+        result.setLastProcessingStart(new Date());
+        tran.commit();
+      }
+    }
+ else {
+      tran.commit();
+      throw new ObjectStorageException("unexpected results querying for lifecycle rules, potential " + "data corruption in lifecycle_rules");
+    }
+  }
+ catch (  NoSuchElementException nex) {
+  }
+catch (  Exception ex) {
+    LOG.error("exception occurred while retrieving lifecycle rule with id - " + ruleId + " in bucket - "+ bucketName+ " with message - "+ ex.getMessage());
+    throw new ObjectStorageException("exception occurred while retrieving lifecycle rule with id - " + ruleId + " in bucket - "+ bucketName+ " with message - "+ ex.getMessage(),ex);
+  }
+  return result;
+}

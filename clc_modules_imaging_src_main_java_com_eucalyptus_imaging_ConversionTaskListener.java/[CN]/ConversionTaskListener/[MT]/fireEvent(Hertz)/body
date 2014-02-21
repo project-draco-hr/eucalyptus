@@ -1,0 +1,21 @@
+{
+  if (!Bootstrap.isOperational() || !BootstrapArgs.isCloudController() || !event.isAsserted(DEFAULT_WORK_INTERVAL_SEC)) {
+    return;
+  }
+ else {
+    Iterator<Entry<String,ImagingTask>> it=ImportManager.getTasksIterator();
+    while (it.hasNext()) {
+      Entry<String,ImagingTask> entry=it.next();
+      ImagingTask task=entry.getValue();
+      if (task.getState() == ImportTaskState.PENDING && task.getUpdateTime() < System.currentTimeMillis() - INITIAL_WAIT_TIME_FROM_IMAGING_SERVICE_MS) {
+        LOG.info("Conversion task " + task.getId() + " has not been changed from PENDING state. Setting it back to NEW.");
+        ImportManager.putConversionTask(task.getId(),new ImagingTask(task.getTask(),ImportTaskState.NEW,0));
+      }
+      if ((task.getState() == ImportTaskState.DONE || task.getState() == ImportTaskState.CANCELLED) && task.getUpdateTime() < System.currentTimeMillis() - CONVERSION_TASKS_REPORT_TIME_MIN * 60 * 1000L) {
+        LOG.debug("Conversion task " + task.getId() + " has been removed from DB.");
+        ImagingTaskDao.getInstance().removeFromDb(task);
+        it.remove();
+      }
+    }
+  }
+}

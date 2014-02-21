@@ -1,0 +1,72 @@
+{
+  logRequest(request);
+  ListPartsResponseType reply=(ListPartsResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  String objectKey=request.getKey();
+  ObjectEntity objectEntity=null;
+  Bucket bucket=null;
+  try {
+    bucket=BucketManagers.getInstance().get(bucketName,false,null);
+  }
+ catch (  NoSuchElementException e) {
+    throw new NoSuchBucketException(request.getBucket());
+  }
+catch (  Exception e) {
+    throw new InternalErrorException(e.getMessage());
+  }
+  try {
+    objectEntity=ObjectManagers.getInstance().getObject(bucket,objectKey,request.getUploadId());
+    request.setKey(objectEntity.getObjectUuid());
+  }
+ catch (  NoSuchElementException e) {
+    throw new NoSuchKeyException(request.getBucket() + "/" + request.getKey());
+  }
+catch (  Exception e) {
+    throw new InternalErrorException(e.getMessage());
+  }
+  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,0)) {
+    int maxParts=1000;
+    try {
+      if (request.getMaxParts() != null) {
+        maxParts=request.getMaxParts();
+      }
+    }
+ catch (    NumberFormatException e) {
+      LOG.error("Failed to parse max parts from request properly: " + request.getMaxParts(),e);
+      throw new InvalidArgumentException("maxParts");
+    }
+    try {
+      Initiator initiator=new Initiator(objectEntity.getOwnerIamUserId(),objectEntity.getOwnerIamUserDisplayName());
+      reply.setInitiator(initiator);
+      CanonicalUser owner=new CanonicalUser(objectEntity.getOwnerCanonicalId(),objectEntity.getOwnerDisplayName());
+      reply.setOwner(owner);
+      reply.setStorageClass(objectEntity.getStorageClass());
+      reply.setPartNumberMarker(request.getPartNumberMarker());
+      reply.setMaxParts(request.getMaxParts());
+      reply.setBucket(bucketName);
+      reply.setKey(objectKey);
+      reply.setUploadId(request.getUploadId());
+    }
+ catch (    Exception e) {
+      throw new NoSuchUploadException(request.getUploadId());
+    }
+    try {
+      PaginatedResult<PartEntity> result=ObjectManagers.getInstance().listPartsForUpload(bucket,objectKey,request.getUploadId(),request.getPartNumberMarker(),maxParts);
+      reply.setIsTruncated(result.getIsTruncated());
+      if (result.getLastEntry() instanceof ObjectEntity) {
+        reply.setNextPartNumberMarker(((ObjectEntity)result.getLastEntry()).getPartNumber());
+      }
+      for (      PartEntity entity : result.getEntityList()) {
+        List<Part> replyParts=reply.getParts();
+        replyParts.add(new Part(entity.getPartNumber(),entity.geteTag(),entity.getLastUpdateTimestamp(),entity.getSize()));
+      }
+    }
+ catch (    Exception e) {
+      throw new InternalErrorException(e.getMessage());
+    }
+    return reply;
+  }
+ else {
+    throw new AccessDeniedException(request.getBucket() + "/" + request.getKey());
+  }
+}

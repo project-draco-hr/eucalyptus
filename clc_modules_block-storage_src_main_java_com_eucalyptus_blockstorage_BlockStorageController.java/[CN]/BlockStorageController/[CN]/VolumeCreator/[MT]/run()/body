@@ -13,9 +13,22 @@
           db=StorageProperties.getEntityWrapper();
           foundSnapshotInfos=db.query(snapshotInfo);
           if (foundSnapshotInfos.size() == 0) {
+            int snapSizeGb=0;
+            snapshotInfo.setScName(null);
+            List<SnapshotInfo> otherSnapshotInfos=db.query(snapshotInfo);
+            if (otherSnapshotInfos != null && otherSnapshotInfos.size() > 0) {
+              for (              SnapshotInfo otherSnap : otherSnapshotInfos) {
+                if (otherSnap.getSizeGb() != null && otherSnap.getSizeGb() > 0) {
+                  snapSizeGb=otherSnap.getSizeGb();
+                  break;
+                }
+              }
+            }
             db.commit();
-            int walrusSnapSize=getSnapshotSize(snapshotId);
-            if (!blockManager.getFromBackend(snapshotId,walrusSnapSize)) {
+            if (snapSizeGb <= 0) {
+              snapSizeGb=getSnapshotSize(snapshotId);
+            }
+            if (!blockManager.getFromBackend(snapshotId,snapSizeGb)) {
               String tmpSnapshotFileName=null;
               try {
                 tmpSnapshotFileName=getSnapshot(snapshotId);
@@ -25,7 +38,7 @@
                 }
                 long actualSnapSizeInMB=(long)Math.ceil((double)snapFile.length() / StorageProperties.MB);
                 try {
-                  String snapDestination=blockManager.prepareSnapshot(snapshotId,walrusSnapSize,actualSnapSizeInMB);
+                  String snapDestination=blockManager.prepareSnapshot(snapshotId,snapSizeGb,actualSnapSizeInMB);
                   if (snapDestination != null) {
                     if (snapDestination.startsWith("/dev/")) {
                       CommandOutput output=SystemUtil.runWithRawOutput(new String[]{StorageProperties.EUCA_ROOT_WRAPPER,"dd","if=" + tmpSnapshotFileName,"of=" + snapDestination,"bs=" + StorageProperties.blockSize});
@@ -64,6 +77,7 @@
             snapshotInfo=new SnapshotInfo(snapshotId);
             snapshotInfo.setProgress("100");
             snapshotInfo.setStartTime(new Date());
+            snapshotInfo.setSizeGb(snapSizeGb);
             snapshotInfo.setStatus(StorageProperties.Status.available.toString());
             db.add(snapshotInfo);
             db.commit();

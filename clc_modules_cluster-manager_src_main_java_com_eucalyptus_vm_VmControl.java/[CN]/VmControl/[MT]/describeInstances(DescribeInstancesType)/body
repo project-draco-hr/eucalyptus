@@ -2,17 +2,17 @@
   final DescribeInstancesResponseType reply=(DescribeInstancesResponseType)msg.getReply();
   Context ctx=Contexts.lookup();
   boolean showAll=msg.getInstancesSet().remove("verbose");
-  final ArrayList<String> instancesSet=msg.getInstancesSet();
   final Multimap<String,RunningInstancesItemType> instanceMap=TreeMultimap.create();
   final Map<String,ReservationInfoType> reservations=Maps.newHashMap();
-  final Filter filter=Filters.generateFor(msg.getFilterSet(),VmInstance.class).withOptionalInternalFilter("instance-id",msg.getInstancesSet()).generate();
-  final Predicate<? super VmInstance> requestedAndAccessible=CloudMetadatas.filteringFor(VmInstance.class).byId(msg.getInstancesSet()).byPredicate(filter.asPredicate()).byPredicate(filter.isFilteringOnTags() ? Predicates.not(VmState.TERMINATED) : Predicates.<VmInstance>alwaysTrue()).byPrivileges().buildPredicate();
+  final Collection<String> identifiers=normalizeIdentifiers(msg.getInstancesSet());
+  final Filter filter=Filters.generateFor(msg.getFilterSet(),VmInstance.class).withOptionalInternalFilter("instance-id",identifiers).generate();
+  final Predicate<? super VmInstance> requestedAndAccessible=CloudMetadatas.filteringFor(VmInstance.class).byId(identifiers).byPredicate(filter.asPredicate()).byPredicate(filter.isFilteringOnTags() ? Predicates.not(VmState.TERMINATED) : Predicates.<VmInstance>alwaysTrue()).byPrivileges().buildPredicate();
   OwnerFullName ownerFullName=(ctx.isAdministrator() && showAll) ? null : ctx.getUserFullName().asAccountFullName();
   try {
     final List<VmInstance> instances=VmInstances.list(ownerFullName,filter.asCriterion(),filter.getAliases(),Predicates.and(requestedAndAccessible,VmInstances.initialize()));
     final Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(VmInstance.class).getResourceTagMap(AccountFullName.getInstance(ctx.getAccount()),Iterables.transform(instances,CloudMetadatas.toDisplayName()));
     for (    final VmInstance vm : instances) {
-      if (!instancesSet.isEmpty() && !instancesSet.contains(vm.getInstanceId())) {
+      if (!identifiers.isEmpty() && !identifiers.contains(vm.getInstanceId())) {
         continue;
       }
       final EntityTransaction db=Entities.get(VmInstance.class);
