@@ -1,0 +1,32 @@
+def _download_to_unbundlestream(self, manifest=None, tools_path=None):
+    download_r = None
+    download_w = None
+    unbundle_ps = None
+    bytes = 0
+    manifest = (manifest or self.args.manifest)
+    if (tools_path is None):
+        tools_path = (self.args.toolspath or '')
+    unbundle_tool_path = (tools_path + 'euca-unbundlestream')
+    unbundle_ps_args = [unbundle_tool_path, '-e', str(manifest.enc_key), '-v', str(manifest.enc_iv), '-d', str(self.args.destination), '--maxbytes', str(self.args.maxbytes)]
+    if self.args.debug:
+        unbundle_ps_args.append('--debug')
+    try:
+        (download_r, download_w) = self._open_pipe_fileobjs()
+        unbundle_ps = subprocess.Popen(unbundle_ps_args, stdin=download_r, stdout=subprocess.PIPE, close_fds=True, bufsize=(-1))
+        download_r.close()
+        bytes = self._download_parts_to_fileobj(manifest=manifest, dest_fileobj=download_w)
+        download_w.close()
+    finally:
+        try:
+            unbundle_ps.wait()
+        except:
+            pass
+        msg = (('Wrote "' + str(bytes)) + '" to unbundlestream')
+        if bytes:
+            self.log.debug(msg)
+        else:
+            self.log.critical(msg)
+        if download_r:
+            download_r.close()
+        if download_w:
+            download_w.close()
