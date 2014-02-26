@@ -1,0 +1,74 @@
+{
+  final ObjectMetadataManager objectManager=ObjectMetadataManagers.getInstance();
+  if (BucketState.extant.equals(entity.getBucket().getState())) {
+    try {
+      entity=objectManager.initiateCreation(entity);
+    }
+ catch (    Exception e) {
+      LOG.warn("Error initiating an object in the db:",e);
+      throw new InternalErrorException(entity.getResourceFullName());
+    }
+  }
+ else {
+    throw new NoSuchBucketException(entity.getBucket().getBucketName());
+  }
+  final Date lastModified;
+  final String etag;
+  PutObjectResponseType response;
+  try {
+    final ObjectEntity uploadingObject=entity;
+    final PutObjectType putRequest=new PutObjectType();
+    putRequest.setBucket(uploadingObject.getBucket().getBucketUuid());
+    putRequest.setKey(uploadingObject.getObjectUuid());
+    putRequest.setUser(requestUser);
+    putRequest.setContentLength(entity.getSize().toString());
+    putRequest.setMetaData(userMetadata);
+    Callable<PutObjectResponseType> putCallable=new Callable<PutObjectResponseType>(){
+      @Override public PutObjectResponseType call() throws Exception {
+        LOG.debug("Putting data");
+        PutObjectResponseType response=provider.putObject(putRequest,content);
+        LOG.debug("Done with put. " + response.getStatusMessage());
+        return response;
+      }
+    }
+;
+    final FutureTask<PutObjectResponseType> putTask=new FutureTask<>(putCallable);
+    PUT_OBJECT_SERVICE.execute(putTask);
+    final long failTime=System.currentTimeMillis() + (ObjectStorageGlobalConfiguration.failed_put_timeout_hrs * 60 * 60* 1000);
+    final long checkIntervalSec=ObjectStorageProperties.OBJECT_CREATION_EXPIRATION_INTERVAL_SEC / 2;
+    final AtomicReference<ObjectEntity> entityRef=new AtomicReference<>(uploadingObject);
+    Callable updateTimeout=new Callable(){
+      @Override public Object call() throws Exception {
+        ObjectEntity tmp=entityRef.get();
+        try {
+          entityRef.getAndSet(ObjectMetadataManagers.getInstance().updateCreationTimeout(tmp));
+        }
+ catch (        Exception ex) {
+          LOG.warn("Could not update the creation expiration time for ObjectUUID " + tmp.getObjectUuid() + " Will retry next interval",ex);
+        }
+        return entityRef.get();
+      }
+    }
+;
+    response=waitForCompletion(putTask,uploadingObject.getObjectUuid(),updateTimeout,failTime,checkIntervalSec);
+    lastModified=response.getLastModified();
+    etag=response.getEtag();
+  }
+ catch (  Exception e) {
+    LOG.error("Data PUT failure to backend for bucketuuid / objectuuid : " + entity.getBucket().getBucketUuid() + "/"+ entity.getObjectUuid(),e);
+    try {
+      ObjectMetadataManagers.getInstance().transitionObjectToState(entity,ObjectState.deleting);
+    }
+ catch (    Exception ex) {
+      LOG.warn("Failed to mark failed object entity in deleting state on failure rollback. Will be cleaned later.",e);
+    }
+    throw new InternalErrorException(entity.getObjectKey());
+  }
+  try {
+    return ObjectMetadataManagers.getInstance().finalizeCreation(entity,lastModified,etag);
+  }
+ catch (  Exception e) {
+    LOG.warn("Failed to update object metadata for finalization. Failing PUT operation",e);
+    throw new InternalErrorException(entity.getResourceFullName());
+  }
+}
