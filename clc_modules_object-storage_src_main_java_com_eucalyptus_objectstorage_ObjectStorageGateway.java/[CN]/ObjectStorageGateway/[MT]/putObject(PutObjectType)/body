@@ -2,7 +2,14 @@
   logRequest(request);
   try {
     User requestUser=getRequestUser(request);
-    Bucket bucket=BucketMetadataManagers.getInstance().lookupExtantBucket(request.getBucket());
+    Bucket bucket;
+    try {
+      bucket=BucketMetadataManagers.getInstance().lookupExtantBucket(request.getBucket());
+    }
+ catch (    NoSuchEntityException e) {
+      LOG.debug("CorrelationId: " + Contexts.lookup().getCorrelationId() + "Responding to client with 404, no bucket found");
+      throw new NoSuchBucketException(request.getBucket());
+    }
     if (Strings.isNullOrEmpty(request.getContentLength())) {
       throw new MissingContentLengthException(request.getBucket() + "/" + request.getKey());
     }
@@ -19,11 +26,14 @@
     if (!OsgAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,newBucketSize)) {
       throw new AccessDeniedException(request.getBucket());
     }
+    if (request.getExpectHeader()) {
+      OSGChannelWriter.writeResponse(Contexts.lookup(request.getCorrelationId()),OSGMessageResponse.Continue);
+    }
     AccessControlPolicy acp=getFullAcp(request.getAccessControlList(),requestUser,bucket.getOwnerCanonicalId());
     objectEntity.setAcl(acp);
     final String fullObjectKey=objectEntity.getObjectUuid();
     request.setKey(fullObjectKey);
-    objectEntity=OsgObjectFactory.getFactory().createObject(ospClient,objectEntity,request.getData(),requestUser);
+    objectEntity=OsgObjectFactory.getFactory().createObject(ospClient,objectEntity,request.getData(),request.getMetaData(),requestUser);
     PutObjectResponseType response=request.getReply();
     if (!ObjectStorageProperties.NULL_VERSION_ID.equals(objectEntity.getVersionId())) {
       response.setVersionId(objectEntity.getVersionId());

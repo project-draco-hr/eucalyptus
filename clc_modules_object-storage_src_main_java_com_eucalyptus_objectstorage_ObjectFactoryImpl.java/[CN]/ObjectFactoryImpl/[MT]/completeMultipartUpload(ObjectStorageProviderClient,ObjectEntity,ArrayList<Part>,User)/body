@@ -1,23 +1,29 @@
 {
   try {
-    CompleteMultipartUploadType commitRequest=new CompleteMultipartUploadType();
+    final CompleteMultipartUploadType commitRequest=new CompleteMultipartUploadType();
     commitRequest.setParts(partList);
     commitRequest.setBucket(mpuEntity.getBucket().getBucketUuid());
     commitRequest.setKey(mpuEntity.getObjectUuid());
     commitRequest.setUploadId(mpuEntity.getUploadId());
     long fullSize=MpuPartMetadataManagers.getInstance().processPartListAndGetSize(partList,MpuPartMetadataManagers.getInstance().getParts(mpuEntity.getBucket(),mpuEntity.getObjectKey(),mpuEntity.getUploadId()));
     mpuEntity.setSize(fullSize);
-    try {
-      CompleteMultipartUploadResponseType response=provider.completeMultipartUpload(commitRequest);
-      mpuEntity.seteTag(response.getEtag());
+    Callable<CompleteMultipartUploadResponseType> completeCallable=new Callable<CompleteMultipartUploadResponseType>(){
+      @Override public CompleteMultipartUploadResponseType call() throws Exception {
+        CompleteMultipartUploadResponseType response=provider.completeMultipartUpload(commitRequest);
+        LOG.debug("Done with multipart upload. " + response.getStatusMessage());
+        return response;
+      }
     }
- catch (    EucalyptusCloudException e) {
-      LOG.warn("Error from backend on CompleteMultipartUpload ",e);
-      throw e;
-    }
+;
+    final FutureTask<CompleteMultipartUploadResponseType> completeTask=new FutureTask<>(completeCallable);
+    PUT_OBJECT_SERVICE.execute(completeTask);
+    final long failTime=System.currentTimeMillis() + (ObjectStorageGlobalConfiguration.failed_put_timeout_hrs * 60 * 60* 1000);
+    final long checkIntervalSec=60;
+    CompleteMultipartUploadResponseType response=waitForMultipartCompletion(completeTask,commitRequest.getUploadId(),commitRequest.getCorrelationId(),failTime,checkIntervalSec);
+    mpuEntity.seteTag(response.getEtag());
     ObjectEntity completedEntity=ObjectMetadataManagers.getInstance().finalizeCreation(mpuEntity,new Date(),mpuEntity.geteTag());
     try {
-      MpuPartMetadataManagers.getInstance().removeParts(completedEntity.getBucket(),completedEntity.getUploadId());
+      MpuPartMetadataManagers.getInstance().removeParts(completedEntity.getUploadId());
     }
  catch (    Exception e) {
       throw new InternalErrorException("Could not remove parts for: " + mpuEntity.getUploadId());

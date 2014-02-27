@@ -1,8 +1,23 @@
 {
   ObjectEntity objectEntity=getObjectEntityAndCheckPermissions(request,request.getVersionId());
+  if (objectEntity.getIsDeleteMarker()) {
+    throw new NoSuchKeyException(request.getKey());
+  }
   HeadObjectResponseType reply=request.getReply();
+  request.setKey(objectEntity.getObjectUuid());
+  request.setBucket(objectEntity.getBucket().getBucketUuid());
+  try {
+    HeadObjectResponseType backendReply=ospClient.headObject(request);
+    reply.setMetaData(backendReply.getMetaData());
+  }
+ catch (  S3Exception e) {
+    LOG.warn("Error from backend on head request",e);
+    throw new InternalErrorException(e);
+  }
   reply.setLastModified(objectEntity.getObjectModifiedTimestamp());
   reply.setSize(objectEntity.getSize());
+  reply.setVersionId(objectEntity.getVersionId());
   reply.setEtag(objectEntity.geteTag());
+  reply.setVersionId(objectEntity.getVersionId());
   return reply;
 }

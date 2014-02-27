@@ -2,9 +2,20 @@
   EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
   try {
     VolumeInfo searchVolume=new VolumeInfo();
+    searchVolume.setStatus(StorageProperties.Status.deleted.toString());
+    List<VolumeInfo> deletedVolumes=db.query(searchVolume);
+    for (    VolumeInfo deletedVolume : deletedVolumes) {
+      if (deletedVolume.cleanupOnDeletion()) {
+        LOG.info("Volume deletion time expired for: " + deletedVolume.getVolumeId() + " ...cleaning up.");
+        db.delete(deletedVolume);
+      }
+    }
+    db.commit();
+    db=StorageProperties.getEntityWrapper();
+    searchVolume=new VolumeInfo();
     searchVolume.setStatus(StorageProperties.Status.deleting.toString());
     List<VolumeInfo> volumes=db.query(searchVolume);
-    db.commit();
+    db.rollback();
     for (    VolumeInfo vol : volumes) {
       db=StorageProperties.getEntityWrapper();
       try {
@@ -40,6 +51,7 @@
           continue;
         }
         vol.setStatus(StorageProperties.Status.deleted.toString());
+        vol.setDeletionTime(new Date());
         EucaSemaphoreDirectory.removeSemaphore(volumeId);
         db.commit();
       }
