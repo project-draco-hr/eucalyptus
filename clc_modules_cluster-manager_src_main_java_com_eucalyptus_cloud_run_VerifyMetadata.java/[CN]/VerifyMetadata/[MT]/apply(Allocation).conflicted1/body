@@ -1,51 +1,54 @@
 {
-  BootableImageInfo imageInfo=allocInfo.getBootSet().getMachine();
-  final ArrayList<BlockDeviceMappingItemType> instanceMappings=allocInfo.getRequest().getBlockDeviceMapping() != null ? allocInfo.getRequest().getBlockDeviceMapping() : new ArrayList<BlockDeviceMappingItemType>();
-  List<DeviceMapping> imageMappings=new ArrayList<DeviceMapping>(((ImageInfo)imageInfo).getDeviceMappings());
-  instanceMappings.addAll(Lists.transform(Lists.newArrayList(Iterables.filter(imageMappings,new Predicate<DeviceMapping>(){
-    @Override public boolean apply(    DeviceMapping arg0){
-      return !Iterables.any(instanceMappings,Images.findBlockDeviceMappingItempType(arg0.getDeviceName()));
-    }
-  }
-)),Images.DeviceMappingDetails.INSTANCE));
-  if (imageInfo instanceof BlockStorageImageInfo) {
-    if (!instanceMappings.isEmpty()) {
-      Images.validateBlockDeviceMappings(instanceMappings,EnumSet.of(AllowSuppressMapping,AllowEbsMapping));
-      BlockStorageImageInfo bfebsImage=(BlockStorageImageInfo)imageInfo;
-      Integer imageSizeGB=(int)(bfebsImage.getImageSizeBytes() / BYTES_PER_GB);
-      Integer userRequestedSizeGB=null;
-      BlockDeviceMappingItemType rootBlockDevice=Iterables.find(instanceMappings,Images.findEbsRootOptionalSnapshot(bfebsImage.getRootDeviceName()),null);
-      if (rootBlockDevice != null) {
-        if (StringUtils.isNotBlank(rootBlockDevice.getEbs().getSnapshotId()) && !StringUtils.equals(rootBlockDevice.getEbs().getSnapshotId(),bfebsImage.getSnapshotId())) {
-          throw new InvalidMetadataException("Snapshot ID cannot be modified for the root device. " + "Source snapshot from the image registration will be used for creating the root device");
-        }
- else         if (StringUtils.isNotBlank(rootBlockDevice.getVirtualName())) {
-          throw new InvalidMetadataException("Logical type cannot be modified for the root device. " + "Source snapshot from the image registration will be used for creating the root device");
-        }
- else         if (rootBlockDevice.getNoDevice() != null && rootBlockDevice.getNoDevice()) {
-          throw new InvalidMetadataException("Root device cannot be suppressed. " + "Source snapshot from the image registration will be used for creating the root device");
-        }
- else         if ((userRequestedSizeGB=rootBlockDevice.getEbs().getVolumeSize()) != null && userRequestedSizeGB < imageSizeGB) {
-          throw new InvalidMetadataException("Root device volume cannot be smaller than the image size");
-        }
-        if (rootBlockDevice.getEbs().getSnapshotId() == null) {
-          rootBlockDevice.getEbs().setSnapshotId(bfebsImage.getSnapshotId());
-        }
-        if (rootBlockDevice.getEbs().getVolumeSize() == null) {
-          rootBlockDevice.getEbs().setVolumeSize(imageSizeGB);
-        }
-        if (rootBlockDevice.getEbs().getDeleteOnTermination() == null) {
-          rootBlockDevice.getEbs().setDeleteOnTermination(bfebsImage.getDeleteOnTerminate());
-        }
+  final UserFullName ownerFullName=allocInfo.getOwnerFullName();
+  final String instanceProfileArn=allocInfo.getRequest().getIamInstanceProfileArn();
+  final String instanceProfileName=allocInfo.getRequest().getIamInstanceProfileName();
+  if (!Strings.isNullOrEmpty(instanceProfileArn) || !Strings.isNullOrEmpty(instanceProfileName)) {
+    final InstanceProfile profile;
+    if (!Strings.isNullOrEmpty(instanceProfileArn))     try {
+      final Ern name=Ern.parse(instanceProfileArn);
+      if (!(name instanceof EuareResourceName)) {
+        throw new MetadataException("Invalid IAM instance profile ARN: " + instanceProfileArn);
       }
- else {
-        throw new InvalidMetadataException("Root block device mapping not found\n");
+      profile=Accounts.lookupAccountById(name.getNamespace()).lookupInstanceProfileByName(((EuareResourceName)name).getName());
+      if (!Strings.isNullOrEmpty(instanceProfileName) && !instanceProfileName.equals(profile.getName())) {
+        throw new MetadataException(String.format("Invalid IAM instance profile name '%s' for ARN: %s",name,instanceProfileArn));
       }
     }
-  }
+ catch (    AuthException e) {
+      throw new NoSuchMetadataException("Invalid IAM instance profile ARN: " + instanceProfileArn,e);
+    }
+ else     if (!Strings.isNullOrEmpty(instanceProfileName))     try {
+      profile=Accounts.lookupAccountById(ownerFullName.getAccountNumber()).lookupInstanceProfileByName(instanceProfileName);
+    }
+ catch (    AuthException e) {
+      throw new NoSuchMetadataException("Invalid IAM instance profile name: " + instanceProfileName,e);
+    }
  else {
-    Images.validateBlockDeviceMappings(instanceMappings,EnumSet.of(AllowSuppressMapping));
+      profile=null;
+    }
+    if (profile != null)     try {
+      final String profileArn=Accounts.getInstanceProfileArn(profile);
+      final User user=Accounts.lookupUserById(ownerFullName.getUserId());
+      if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_INSTANCE_PROFILE,Accounts.getInstanceProfileFullName(profile),profile.getAccount(),PolicySpec.IAM_LISTINSTANCEPROFILES,user)) {
+        throw new IllegalMetadataAccessException(String.format("Not authorized to access instance profile with ARN %s for %s",profileArn,ownerFullName));
+      }
+      final Role role=profile.getRole();
+      final String roleArn=role == null ? null : Accounts.getRoleArn(role);
+      if (role != null && !Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_ROLE,Accounts.getRoleFullName(role),role.getAccount(),PolicySpec.IAM_PASSROLE,user)) {
+        throw new IllegalMetadataAccessException(String.format("Not authorized to pass role with ARN %s for %s",roleArn,ownerFullName));
+      }
+      if (role != null) {
+        allocInfo.setInstanceProfileArn(profileArn);
+        allocInfo.setIamInstanceProfileId(profile.getInstanceProfileId());
+        allocInfo.setIamRoleArn(roleArn);
+      }
+ else {
+        throw new MetadataException("Role not found for IAM instance profile ARN: " + instanceProfileArn);
+      }
+    }
+ catch (    AuthException e) {
+      throw new MetadataException("IAM instance profile error",e);
+    }
   }
-  allocInfo.getRequest().setBlockDeviceMapping(instanceMappings);
   return true;
 }
