@@ -1,32 +1,57 @@
-def _download_to_unbundlestream(self, manifest=None, tools_path=None):
+def _download_to_unbundlestream(self, dest_fileobj, manifest=None, tools_path=None, inactivity_timeout=30):
+    "\n        Attempts to iterate through all parts contained in 'manifest' and\n        download and concatenate each part to euca2ools unbundle stream.\n        :params manifest: downloadmanifest obj\n        :tools_path: optional path to euca2ools euca-bundle-stream cmd\n        "
     download_r = None
     download_w = None
+    monitor_w = None
+    monitor_r = None
     unbundle_ps = None
-    bytes = 0
+    download_ps = None
+    wait_threads = []
+    if ((not dest_fileobj) or isinstance(dest_fileobj, basestring)):
+        raise AttributeError('Dest fileobj must be file like obj, value:"{0}"'.format(str(dest_fileobj)))
     manifest = (manifest or self.args.manifest)
     if (tools_path is None):
         tools_path = (self.args.toolspath or '')
-    unbundle_tool_path = (tools_path + 'euca-unbundlestream')
-    unbundle_ps_args = [unbundle_tool_path, '-e', str(manifest.enc_key), '-v', str(manifest.enc_iv), '-d', str(self.args.destination), '--maxbytes', str(self.args.maxbytes)]
+    unbundle_tool_path = (tools_path + 'euca-unbundle-stream')
+    unbundle_ps_args = [unbundle_tool_path, '-e', str(manifest.enc_key), '-v', str(manifest.enc_iv), '-d', '-', '--maxbytes', str(self.args.maxbytes)]
     if self.args.debug:
         unbundle_ps_args.append('--debug')
+    self.log.debug(((('Running "' + str(unbundle_tool_path)) + '" with args:') + ','.join((str(x) for x in unbundle_ps_args))))
     try:
-        (download_r, download_w) = self._open_pipe_fileobjs()
-        unbundle_ps = subprocess.Popen(unbundle_ps_args, stdin=download_r, stdout=subprocess.PIPE, close_fds=True, bufsize=(-1))
-        download_r.close()
-        bytes = self._download_parts_to_fileobj(manifest=manifest, dest_fileobj=download_w)
-        download_w.close()
-    finally:
         try:
-            unbundle_ps.wait()
-        except:
-            pass
-        msg = (('Wrote "' + str(bytes)) + '" to unbundlestream')
-        if bytes:
-            self.log.debug(msg)
-        else:
-            self.log.critical(msg)
-        if download_r:
+            (download_r, download_w) = open_pipe_fileobjs()
+            (monitor_r, monitor_w) = open_pipe_fileobjs()
+            unbundle_ps = subprocess.Popen(unbundle_ps_args, stdin=download_r, stdout=monitor_w, stderr=subprocess.PIPE, close_fds=True, bufsize=(-1))
             download_r.close()
-        if download_w:
+            monitor_w.close()
+            self.log.debug('Starting download parts process to feed unbundle')
+            download_ps = spawn_process(self._download_parts_pipe_wrapper, manifest=manifest, dest_fileobj=download_w)
             download_w.close()
+            self.log.debug('Starting process monitor')
+            bytes = monitor_subprocess_io(infile=monitor_r, outfile=dest_fileobj, sub_stderr=unbundle_ps.stderr, log_method=self.log.debug, inactivity_timeout=inactivity_timeout)
+            self.log.debug('Done with unbundle pipeline...')
+            for ps in [unbundle_ps, download_ps]:
+                if ps:
+                    wait_thread = wait_process_in_thread(ps.pid)
+                    if wait_thread:
+                        wait_threads.append(wait_thread)
+            for wait_thread in wait_threads:
+                if wait_thread:
+                    wait_thread.join(timeout=inactivity_timeout)
+        except Exception as UBE:
+            traceback.print_exc()
+            for ps in [unbundle_ps, download_ps]:
+                if ps:
+                    try:
+                        ps.terminate()
+                    except:
+                        pass
+            raise UBE
+    finally:
+        for f_pipe in [monitor_r, monitor_w, download_r, download_w]:
+            if f_pipe:
+                try:
+                    f_pipe.close()
+                except:
+                    pass
+    return bytes
