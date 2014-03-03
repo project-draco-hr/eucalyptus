@@ -3,6 +3,7 @@
     private Boolean isSystemAdmin;
     private Boolean isSystemUser;
     private Subject subject=new Subject();
+    private Map<String,String> evaluatedKeys;
     @Override public User getUser(){
       return user;
     }
@@ -33,6 +34,9 @@
       }
       return isSystemAdmin;
     }
+    @Override public boolean isImpersonated(){
+      return true;
+    }
     @Override public Subject getSubject(){
       return subject;
     }
@@ -41,6 +45,26 @@
     }
     @Override public String getSecurityToken(){
       return null;
+    }
+    @Override public Map<String,String> evaluateKeys() throws AuthException {
+      if (evaluatedKeys == null) {
+        final BaseCallerContext context=super.getRequest().getCallerContext();
+        if (context == null) {
+          evaluatedKeys=Collections.emptyMap();
+        }
+ else {
+          evaluatedKeys=CollectionUtils.putAll(context.getEvaluatedKeys(),Maps.<String,String>newHashMap(),EvaluatedIamConditionKey.key(),EvaluatedIamConditionKey.value());
+        }
+      }
+      return evaluatedKeys;
+    }
+    @Override public AuthContextSupplier getAuthContext(){
+      return new AuthContextSupplier(){
+        @Override public AuthContext get() throws AuthException {
+          return Permissions.createAuthContext(getUser(),evaluateKeys());
+        }
+      }
+;
     }
   }
 ;
