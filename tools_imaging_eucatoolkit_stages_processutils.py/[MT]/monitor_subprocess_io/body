@@ -1,0 +1,49 @@
+def monitor_subprocess_io(infile, outfile, sub_stdout=None, sub_stderr=None, chunk_size=None, log_method=None, inactivity_timeout=30):
+    "\n        Monitors the io availability of 'infile'. Reads from infile and\n        writes to outfile. If there is no activity on infile for a period of\n        'inactivity_timeout' seconds than an error is raised. A sub process's\n        stdout/err can also be monitored and when read ready, call 'log_method'\n        with the read result.\n        :param infile: file object to read from and monitor\n        :param outfile: file object to write to\n        :param chunk_size: size to read/write per iteration\n        :param log_method: the method to call with read stdout/err\n        :param inactivity_timeout: int seconds to allow for no infile\n                                   activity before raising error\n        returns bytes written\n        "
+    chunk_size = (chunk_size or stages._chunk_size)
+    readfds = [infile.fileno()]
+    if log_method:
+        if sub_stderr:
+            readfds.append(sub_stderr.fileno())
+        if sub_stdout:
+            readfds.append(sub_stdout.fileno())
+    written_bytes = 0
+    try:
+        last_read = time.time()
+        done = False
+        while (not done):
+            (reads, writes, errors) = select(readfds, [], [], 30)
+            if (len(reads) > 0):
+                for fd in reads:
+                    if (fd == infile.fileno()):
+                        last_read = time.time()
+                        chunk = infile.read(chunk_size)
+                        if chunk:
+                            outfile.write(chunk)
+                            written_bytes += len(chunk)
+                        else:
+                            outfile.flush()
+                            done = True
+                    else:
+                        read_elapsed = int((time.time() - last_read))
+                        if (read_elapsed > inactivity_timeout):
+                            raise RuntimeError('io monitor: "{0}" seconds elapsed since last read.'.format(read_elapsed))
+                    if (sub_stdout and (fd == sub_stdout.fileno())):
+                        msg = ''
+                        line = sub_stdout.read()
+                        if (not line):
+                            readfds.remove(sub_stdout.fileno())
+                        elif log_method:
+                            log_method(('subprocess stdout:' + str(line.strip())))
+                    if (sub_stderr and (fd == sub_stderr.fileno())):
+                        msg = ''
+                        line = sub_stderr.readline()
+                        if (not line):
+                            readfds.remove(sub_stderr.fileno())
+                        elif log_method:
+                            log_method(('subprocess stderr:' + str(line.strip())))
+            else:
+                raise RuntimeError('Monitor IO inactivity timeout fired after "{0}" seconds'.format(inactivity_timeout))
+    finally:
+        outfile.flush()
+    return written_bytes
