@@ -1,11 +1,5 @@
 {
   blockManager.configure();
-  try {
-    startupChecks();
-  }
- catch (  EucalyptusCloudException ex) {
-    LOG.error("Startup checks failed ",ex);
-  }
   blockManager.enable();
   checkerService.add(new VolumeStateChecker(blockManager));
   for (  CheckerTask checker : blockManager.getCheckers()) {
@@ -13,13 +7,21 @@
   }
   checkerService.add(new VolumeDeleterTask());
   checkerService.add(new SnapshotDeleterTask());
+  checkerService.add(new SnapshotUploadCheckerTask());
   StorageProperties.enableSnapshots=StorageProperties.enableStorage=true;
   try {
     CredentialsType credentials=getS3Role();
     snapshotOps=new SnapshotObjectOps(credentials);
   }
  catch (  Exception e) {
-    LOG.error("Failed to initialize snapshot trasfer mechanism from SC to OSG",e);
+    LOG.error("Failed to initialize snapshot trasfer mechanism from blockstorage to objectstorage",e);
     throw new EucalyptusCloudException(e);
+  }
+  checker=new BlockStorageChecker(blockManager,snapshotOps);
+  try {
+    startupChecks();
+  }
+ catch (  EucalyptusCloudException ex) {
+    LOG.error("Startup checks failed ",ex);
   }
 }

@@ -1,0 +1,43 @@
+{
+  Boolean error=Boolean.FALSE;
+  String etag=null;
+  try {
+    List<PartETag> partETags=uploadTaskFuture.get(uploadTimeout,TimeUnit.HOURS);
+    if (partETags != null && partETags.size() == totalParts) {
+      try {
+        etag=finalizeMultipartUpload(partETags);
+        markSnapshotAvailable();
+        try {
+          snapUploadInfo=snapUploadInfo.updateStateUploaded(etag);
+        }
+ catch (        Exception e) {
+          LOG.debug("Failed to update status in DB for " + snapUploadInfo);
+        }
+        LOG.info("Uploaded snapshot " + snapUploadInfo.getSnapshotId() + " to objectstorage");
+      }
+ catch (      Exception e) {
+        error=Boolean.TRUE;
+        LOG.error("Failed to upload " + snapshotId + " due to an error completing the upload",e);
+      }
+    }
+ else {
+      error=Boolean.TRUE;
+      LOG.error("Failed to upload " + snapshotId + " as the total number of parts does not tally up against the part Etags");
+    }
+  }
+ catch (  TimeoutException tex) {
+    error=Boolean.TRUE;
+    LOG.error("Failed to upload " + snapshotId + ". Complete upload task timed out waiting on upload part task after "+ uploadTimeout+ " hours");
+  }
+catch (  Exception ex) {
+    error=Boolean.TRUE;
+    LOG.error("Failed to upload " + snapshotId,ex);
+  }
+ finally {
+    if (error) {
+      markSnapshotFailed();
+      abortUpload(snapUploadInfo);
+    }
+  }
+  return etag;
+}
