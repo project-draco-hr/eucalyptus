@@ -52,9 +52,24 @@
     stack.setParameters(stackParameters);
     stack.setStackStatus(StackEntity.Status.CREATE_IN_PROGRESS.toString());
     stack.setStackStatusReason("User initiated");
-    stack.setDisableRollback(true);
+    stack.setDisableRollback(request.getDisableRollback());
     StackEntityManager.addStack(stack,accountId);
-    new StackCreator(stack,templateBody,template,accountId).start();
+    if (request.getDisableRollback() != null && request.getOnFailure() != null && !request.getOnFailure().isEmpty()) {
+      throw new ValidationErrorException("Either DisableRollback or OnFailure can be specified, not both.");
+    }
+    String onFailure="ROLLBACK";
+    if (request.getOnFailure() != null && !request.getOnFailure().isEmpty()) {
+      if (!request.getOnFailure().equals("ROLLBACK") && !request.getOnFailure().equals("DELETE") && !request.getOnFailure().equals("DO_NOTHING")) {
+        throw new ValidationErrorException("Value '" + request.getOnFailure() + "' at 'onFailure' failed to satisfy "+ "constraint: Member must satisfy enum value set: [ROLLBACK, DELETE, DO_NOTHING]");
+      }
+ else {
+        onFailure=request.getOnFailure();
+      }
+    }
+ else {
+      onFailure=request.getDisableRollback() == false ? "DO_NOTHING" : "ROLLBACK";
+    }
+    new StackCreator(template,onFailure).start();
     CreateStackResult createStackResult=new CreateStackResult();
     createStackResult.setStackId(stack.getStackId());
     reply.setCreateStackResult(createStackResult);

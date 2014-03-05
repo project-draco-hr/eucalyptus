@@ -1,77 +1,10 @@
 {
   try {
-    ResourceResolverManager resourceResolverManager=new ResourceResolverManager();
-    for (    String resourceName : template.getResourceDependencyManager().dependencyList()) {
-      ResourceInfo resourceInfo=template.getResourceMap().get(resourceName);
-      if (!resourceInfo.getAllowedByCondition())       continue;
-      if (resourceInfo.getPropertiesJson() != null) {
-        JsonNode propertiesJsonNode=JsonHelper.getJsonNodeFromString(resourceInfo.getPropertiesJson());
-        List<String> propertyKeys=Lists.newArrayList(propertiesJsonNode.fieldNames());
-        for (        String propertyKey : propertyKeys) {
-          JsonNode evaluatedPropertyNode=FunctionEvaluation.evaluateFunctions(propertiesJsonNode.get(propertyKey),template);
-          if (IntrinsicFunctions.NO_VALUE.evaluateMatch(evaluatedPropertyNode).isMatch()) {
-            ((ObjectNode)propertiesJsonNode).remove(propertyKey);
-          }
- else {
-            ((ObjectNode)propertiesJsonNode).put(propertyKey,evaluatedPropertyNode);
-          }
-        }
-        resourceInfo.setPropertiesJson(JsonHelper.getStringFromJsonNode(propertiesJsonNode));
-      }
-      ResourceAction resourceAction=resourceResolverManager.resolveResourceAction(resourceInfo.getType());
-      resourceAction.setResourceInfo(resourceInfo);
-      ResourcePropertyResolver.populateResourceProperties(resourceAction.getResourceProperties(),JsonHelper.getJsonNodeFromString(resourceInfo.getPropertiesJson()));
-      StackEvent stackEvent=new StackEvent();
-      stackEvent.setStackId(stack.getStackId());
-      stackEvent.setStackName(stack.getStackName());
-      stackEvent.setLogicalResourceId(resourceInfo.getLogicalResourceId());
-      stackEvent.setPhysicalResourceId(resourceInfo.getPhysicalResourceId());
-      stackEvent.setEventId(UUID.randomUUID().toString());
-      stackEvent.setResourceProperties(resourceInfo.getPropertiesJson());
-      stackEvent.setResourceType(resourceInfo.getType());
-      stackEvent.setResourceStatus(StackResourceEntity.Status.CREATE_IN_PROGRESS.toString());
-      stackEvent.setResourceStatusReason("Part of stack");
-      stackEvent.setTimestamp(new Date());
-      StackEventEntityManager.addStackEvent(stackEvent,accountId);
-      StackResource stackResource=new StackResource();
-      stackResource.setResourceStatus(StackResourceEntity.Status.CREATE_IN_PROGRESS.toString());
-      stackResource.setPhysicalResourceId(resourceInfo.getPhysicalResourceId());
-      stackResource.setLogicalResourceId(resourceInfo.getLogicalResourceId());
-      stackResource.setDescription("");
-      stackResource.setResourceStatusReason("Part of stack");
-      stackResource.setResourceType(resourceInfo.getType());
-      stackResource.setStackName(stack.getStackName());
-      stackResource.setStackId(stack.getStackId());
-      StackResourceEntityManager.addStackResource(stackResource,JsonHelper.getJsonNodeFromString(resourceInfo.getMetadataJson()),accountId);
-      try {
-        resourceAction.create();
-        StackResourceEntityManager.updatePhysicalResourceId(stack.getStackId(),resourceInfo.getLogicalResourceId(),resourceInfo.getPhysicalResourceId(),accountId);
-        StackResourceEntityManager.updateStatus(stack.getStackId(),resourceInfo.getLogicalResourceId(),StackResourceEntity.Status.CREATE_COMPLETE,"Complete!",accountId);
-        stackEvent.setEventId(UUID.randomUUID().toString());
-        stackEvent.setResourceStatus(StackResourceEntity.Status.CREATE_COMPLETE.toString());
-        stackEvent.setResourceStatusReason("Complete!");
-        stackEvent.setPhysicalResourceId(resourceInfo.getPhysicalResourceId());
-        stackEvent.setTimestamp(new Date());
-        StackEventEntityManager.addStackEvent(stackEvent,accountId);
-        template.getResourceMap().get(resourceInfo.getLogicalResourceId()).setReady(true);
-        template.getResourceMap().get(resourceInfo.getLogicalResourceId()).setReferenceValueJson(resourceInfo.getReferenceValueJson());
-      }
- catch (      Exception ex) {
-        LOG.error(ex,ex);
-        StackResourceEntityManager.updateStatus(stack.getStackId(),resourceInfo.getLogicalResourceId(),StackResourceEntity.Status.CREATE_FAILED,"" + ex.getMessage(),accountId);
-        stackEvent.setEventId(UUID.randomUUID().toString());
-        stackEvent.setResourceStatus(StackResourceEntity.Status.CREATE_FAILED.toString());
-        stackEvent.setTimestamp(new Date());
-        stackEvent.setResourceStatusReason("" + ex.getMessage());
-        stackEvent.setPhysicalResourceId(resourceInfo.getPhysicalResourceId());
-        StackEventEntityManager.addStackEvent(stackEvent,accountId);
-        throw ex;
-      }
-    }
-    StackEntityManager.updateStatus(stack.getStackId(),StackEntity.Status.CREATE_COMPLETE,"Complete!",accountId);
+    CreateStackWorkflowImpl createStackWorkflow=new CreateStackWorkflowImpl();
+    createStackWorkflow.setWorkflowOperations(LocalWorkflowOperations.<StackActivity>of(new StackActivityImpl()));
+    createStackWorkflow.createStack(JsonHelper.getStringFromJsonNode(template.toJsonNode()),onFailure);
   }
  catch (  Exception ex2) {
     LOG.error(ex2,ex2);
-    StackEntityManager.updateStatus(stack.getStackId(),StackEntity.Status.CREATE_FAILED,ex2.getMessage(),accountId);
   }
 }
