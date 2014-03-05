@@ -1,17 +1,59 @@
 {
   try {
-    if (this.runnable != null) {
-      EventRecord.here(this.runnable.getClass(),EventType.FUTURE,"run(" + this.runnable.toString() + ")").exhaust();
-      this.executor.submit(this.runnable,null).get();
-      this.future.set(null);
+    final long startTime=System.currentTimeMillis();
+    Predicate<Callable<C>> timeoutLogger=new Predicate<Callable<C>>(){
+      @Override public boolean apply(      @Nullable Callable<C> input){
+        try {
+          long elapsed=System.currentTimeMillis() - startTime;
+          long seconds=TimeUnit.MILLISECONDS.toSeconds(elapsed);
+          String details=ExecPair.this.callable.toString() + " [" + Threads.filteredStack(filter).iterator().next()+ "]";
+          if (seconds > FUTURE_LISTENER_DEBUG_LIMIT_SECS) {
+            LOG.debug(String.format(message,FUTURE_LISTENER_DEBUG_LIMIT_SECS,details,executor.toString()));
+            return true;
+          }
+ else           if (seconds > FUTURE_LISTENER_INFO_LIMIT_SECS) {
+            LOG.info(String.format(message,FUTURE_LISTENER_INFO_LIMIT_SECS,details,executor.toString()));
+            return true;
+          }
+ else           if (seconds > FUTURE_LISTENER_ERROR_LIMIT_SECS) {
+            LOG.error(String.format(message,FUTURE_LISTENER_ERROR_LIMIT_SECS,details,executor.toString()));
+            return true;
+          }
+          LOG.trace(String.format(message,FUTURE_LISTENER_ERROR_LIMIT_SECS,details,executor.toString()));
+        }
+ catch (        Exception e) {
+          LOG.error(e);
+        }
+        return false;
+      }
     }
- else {
-      EventRecord.here(this.callable.getClass(),EventType.FUTURE,"call(" + this.callable.toString() + ")").exhaust();
-      this.future.set(this.executor.submit(this.callable).get());
+;
+    Future<C> execFuture=this.executor.submit(this.callable);
+    for (int iterations=0; (!Bootstrap.isOperational() && !Bootstrap.isShuttingDown()) || (iterations < FUTURE_LISTENER_GET_RETRIES); iterations++) {
+      try {
+        C outcome=execFuture.get(FUTURE_LISTENER_GET_TIMEOUT,TimeUnit.SECONDS);
+        this.future.set(outcome);
+        break;
+      }
+ catch (      TimeoutException e) {
+        continue;
+      }
+ finally {
+        if (timeoutLogger.apply(this.callable)) {
+          Logs.exhaust().debug("Intial Stack: \n" + AbstractListenableFuture.this.startingStack);
+          Logs.exhaust().debug("Current Stack: \n" + Threads.currentStackString());
+        }
+      }
+    }
+    if (!this.future.isDone()) {
+      String message="Failed to invoke listener for " + AbstractListenableFuture.this + " of type: "+ (this.runnable != null ? this.runnable : this.callable);
+      LOG.error(message);
+      LOG.error(startingStack);
+      throw new TimeoutException(message);
     }
   }
  catch (  final InterruptedException ex) {
-    LOG.error(ex,ex);
+    LOG.error(ex);
     Thread.currentThread().interrupt();
     this.future.setException(ex);
   }

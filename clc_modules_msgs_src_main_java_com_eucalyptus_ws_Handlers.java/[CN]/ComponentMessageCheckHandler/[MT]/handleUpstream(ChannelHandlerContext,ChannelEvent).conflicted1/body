@@ -1,19 +1,28 @@
 {
-  final MappingHttpMessage request=MappingHttpMessage.extractMessage(e);
-  final BaseMessage msg=BaseMessage.extractMessage(e);
-  if ((request != null) && (msg != null)) {
-    final Context context=Contexts.lookup(request.getCorrelationId());
-    final User user=context.getUser();
-    final AuthContextSupplier userContext=context.getAuthContext();
-    if (user.isSystemAdmin() || (context.isImpersonated() && isImpersonationSupported(msg)) || ((user.isSystemUser() || ServiceOperations.isUserOperation(msg)) && Permissions.isAuthorized(findPolicyVendor(msg.getClass()),"","",null,getIamActionByMessageType(msg),userContext))) {
-      ctx.sendUpstream(e);
+  try {
+    ConcurrentMap<String,Object> info=getChannelInfo(ctx);
+    if (e instanceof ChannelStateEvent) {
+      upstreamChannelStateEvent((ChannelStateEvent)e,info);
     }
- else {
-      Contexts.clear(Contexts.lookup(msg.getCorrelationId()));
-      ctx.getChannel().write(new MappingHttpResponse(request.getProtocolVersion(),HttpResponseStatus.FORBIDDEN));
+    if (ctx.getPipeline().getLast() instanceof AsyncRequestHandler) {
+      AsyncRequestHandler requestHandler=(AsyncRequestHandler)ctx.getPipeline().getLast();
+      info.putIfAbsent("pipeline",ctx.getPipeline().getClass());
+      info.putIfAbsent("silent.requesthandler",requestHandler);
+      if (requestHandler != null && requestHandler.getRequest() != null && requestHandler.getRequest().get() != null) {
+        info.putIfAbsent("request.message",Objects.firstNonNull(requestHandler.getRequest().get(),NULLPROXY).getClass());
+      }
+    }
+ else     if (e instanceof ExceptionEvent) {
+      info.putIfAbsent("exception",((ExceptionEvent)e).getCause());
+    }
+ else     if (e instanceof MessageEvent) {
+      final Object message=Objects.firstNonNull(((MessageEvent)e).getMessage(),NULLPROXY);
+      info.putIfAbsent("silent.request",message);
+      info.putIfAbsent("request.type",message.getClass());
     }
   }
- else {
-    ctx.sendUpstream(e);
+ catch (  Exception e1) {
+    LOG.debug(e1);
   }
+  ctx.sendUpstream(e);
 }
