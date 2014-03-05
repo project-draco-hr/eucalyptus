@@ -29,18 +29,20 @@
   User requestUser=null;
   String securityToken=null;
   Account requestAccount=null;
-  Context ctx=null;
+  AuthContextSupplier authContext=null;
   try {
     try {
-      ctx=Contexts.lookup(request.getCorrelationId());
+      Context ctx=Contexts.lookup(request.getCorrelationId());
       requestUser=ctx.getUser();
       securityToken=ctx.getSecurityToken();
       requestAccount=requestUser.getAccount();
+      authContext=ctx.getAuthContext();
     }
  catch (    NoSuchContextException e) {
-      ctx=null;
       requestUser=null;
+      securityToken=null;
       requestAccount=null;
+      authContext=null;
     }
     if (requestUser == null && !Strings.isNullOrEmpty(request.getEffectiveUserId())) {
       requestUser=Accounts.lookupUserById(request.getEffectiveUserId());
@@ -68,6 +70,9 @@
   }
   if (allowAdmin && requestUser.isSystemAdmin()) {
     return true;
+  }
+  if (authContext == null) {
+    authContext=Permissions.createAuthContextSupplier(requestUser,Collections.<String,String>emptyMap());
   }
   Account resourceOwnerAccount=null;
   if (resourceType == null) {
@@ -109,7 +114,7 @@
       resourceId=request.getFullResource();
     }
   }
-  if (allowAdmin && requestUser.isSystemUser() && iamPermissionsAllow(requestUser,requiredActions,resourceType,resourceId,resourceAllocationSize)) {
+  if (allowAdmin && requestUser.isSystemUser() && iamPermissionsAllow(authContext,requiredActions,resourceType,resourceId,resourceAllocationSize)) {
     return true;
   }
   if (requiredBucketACLPermissions == null && requiredObjectACLPermissions == null) {
@@ -139,7 +144,7 @@
     return true;
   }
  else {
-    Boolean iamAllow=iamPermissionsAllow(requestUser,requiredActions,resourceType,resourceId,resourceAllocationSize);
+    Boolean iamAllow=iamPermissionsAllow(authContext,requiredActions,resourceType,resourceId,resourceAllocationSize);
     return aclAllow && iamAllow;
   }
 }
