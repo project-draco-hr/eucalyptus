@@ -4,7 +4,7 @@
   }
   String verb=httpRequest.getMethod().getName();
   String date=getDate(httpRequest);
-  String addrString=getS3AddressString(httpRequest);
+  String addrString=getS3AddressString(httpRequest,true);
   String content_md5=httpRequest.getHeader("Content-MD5");
   content_md5=content_md5 == null ? "" : content_md5;
   String content_type=httpRequest.getHeader(ObjectStorageProperties.CONTENT_TYPE);
@@ -17,22 +17,32 @@
   try {
     SecurityContext.getLoginContext(new ObjectStorageWrappedCredentials(httpRequest.getCorrelationId(),data,accessKeyId,signature,securityToken)).login();
   }
- catch (  Exception ex) {
-    final String servicePath=Components.lookup(ObjectStorage.class).getLocalServiceConfiguration().getServicePath();
-    if (addrString.startsWith(servicePath)) {
+ catch (  LoginException ex) {
+    if (ex.getMessage().contains("The AWS Access Key Id you provided does not exist in our records")) {
+      throw new InvalidAccessKeyIdException(accessKeyId);
+    }
+    if (httpRequest.getUri().startsWith(ComponentIds.lookup(ObjectStorage.class).getServicePath())) {
       try {
-        String modifiedAddrString=addrString.replaceFirst(servicePath,"");
+        String modifiedAddrString=getS3AddressString(httpRequest,false);
         data=verb + "\n" + content_md5+ "\n"+ content_type+ "\n"+ date+ "\n"+ canonicalizedAmzHeaders+ modifiedAddrString;
         SecurityContext.getLoginContext(new ObjectStorageWrappedCredentials(httpRequest.getCorrelationId(),data,accessKeyId,signature,securityToken)).login();
       }
- catch (      Exception ex2) {
-        LOG.error("CorrelationId: " + Contexts.lookup().getCorrelationId() + " authentication failed due to signature mismatch:",ex2);
+ catch (      S3Exception ex2) {
+        LOG.debug("CorrelationId: " + httpRequest.getCorrelationId() + " Authentication failed due to signature match issue:",ex2);
+        throw ex2;
+      }
+catch (      Exception ex2) {
+        LOG.debug("CorrelationId: " + httpRequest.getCorrelationId() + " Authentication failed due to signature match issue:",ex2);
         throw new SignatureDoesNotMatchException(data);
       }
     }
  else {
-      LOG.error("CorrelationId: " + Contexts.lookup().getCorrelationId() + " authentication failed due to signature mismatch:",ex);
+      LOG.debug("CorrelationId: " + httpRequest.getCorrelationId() + " Authentication failed due to signature mismatch:",ex);
       throw new SignatureDoesNotMatchException(data);
     }
+  }
+catch (  Exception e) {
+    LOG.warn("CorrelationId: " + httpRequest.getCorrelationId() + " Unexpected failure trying to authenticate request",e);
+    throw new InternalErrorException(e);
   }
 }
