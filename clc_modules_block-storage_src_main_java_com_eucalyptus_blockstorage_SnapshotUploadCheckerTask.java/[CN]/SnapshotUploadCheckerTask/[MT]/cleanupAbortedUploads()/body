@@ -1,0 +1,27 @@
+{
+  try (TransactionResource snapTran=Entities.transactionFor(SnapshotUploadInfo.class)){
+    List<SnapshotUploadInfo> snapUploadInfoList=Entities.query(new SnapshotUploadInfo().withState(SnapshotUploadState.aborted));
+    for (    SnapshotUploadInfo snapUploadInfo : snapUploadInfoList) {
+      LOG.debug("Cleaning aborted entity " + snapUploadInfo);
+      try (TransactionResource partTran=Entities.transactionFor(SnapshotPart.class)){
+        List<SnapshotPart> parts=Entities.query(new SnapshotPart(snapUploadInfo.getSnapshotId(),snapUploadInfo.getBucketName(),snapUploadInfo.getKeyName(),snapUploadInfo.getUploadId()));
+        for (        SnapshotPart part : parts) {
+          if (StringUtils.isNotBlank(part.getFileName())) {
+            LOG.debug("Deleting snapshot part from disk: " + part.getFileName());
+            if (!Files.deleteIfExists(Paths.get(part.getFileName()))) {
+              LOG.warn("Could not delete snapshot part from disk: " + part.getFileName());
+            }
+          }
+          part.setState(SnapshotPartState.cleaned);
+        }
+        partTran.commit();
+      }
+       snapUploadInfo.setPurgeTime(System.currentTimeMillis() + SnapshotUploadInfo.PURGE_INTERVAL);
+      snapUploadInfo.setState(SnapshotUploadState.cleaned);
+    }
+    snapTran.commit();
+  }
+ catch (  Exception e) {
+    LOG.debug("Error updating snapshot upload state during clean up" + e);
+  }
+}
