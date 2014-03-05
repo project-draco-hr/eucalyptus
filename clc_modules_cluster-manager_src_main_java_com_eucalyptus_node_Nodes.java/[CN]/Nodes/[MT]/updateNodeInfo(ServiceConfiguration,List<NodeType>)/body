@@ -8,31 +8,40 @@
   Set<String> unreportedTags=Sets.difference(knownTags,reportedTags);
   Set<String> newTags=Sets.difference(reportedTags,knownTags);
   Set<String> stillKnownTags=Sets.intersection(knownTags,reportedTags);
+  StringBuilder nodeLog=new StringBuilder();
   for (  String unreportedTag : unreportedTags) {
     NodeInfo unreportedNode=clusterNodeMap.get(unreportedTag);
     if (unreportedNode != null && (System.currentTimeMillis() - unreportedNode.getLastSeen().getTime()) > Nodes.REFRESH_TIMEOUT) {
-      clusterNodeMap.remove(unreportedTag);
+      NodeInfo removed=clusterNodeMap.remove(unreportedTag);
+      nodeLog.append("GONE:").append(removed.getName()).append(":").append(removed.getLastState()).append(" ");
     }
   }
-  for (  NodeType node : nodes) {
+  Set<NodeInfo> nodesToUpdate=Sets.newHashSet();
+  for (  final NodeType node : nodes) {
     try {
       String serviceTag=node.getServiceTag();
       if (newTags.contains(serviceTag)) {
         clusterNodeMap.putIfAbsent(serviceTag,new NodeInfo(ccConfig.getPartition(),node));
         NodeInfo nodeInfo=clusterNodeMap.get(serviceTag);
-        nodeInfo.touch();
-        Nodes.updateServiceConfiguration(ccConfig,nodeInfo);
+        nodeLog.append("NEW:").append(nodeInfo.getName()).append(":").append(nodeInfo.getLastState()).append(" ");
+        nodesToUpdate.add(nodeInfo);
       }
  else       if (stillKnownTags.contains(serviceTag)) {
         NodeInfo nodeInfo=clusterNodeMap.get(serviceTag);
-        nodeInfo.touch();
         nodeInfo.setIqn(node.getIqn());
-        Nodes.updateServiceConfiguration(ccConfig,nodeInfo);
+        nodeLog.append("OLD:").append(nodeInfo.getName()).append(":").append(nodeInfo.getLastState()).append(" ");
       }
     }
  catch (    NoSuchElementException e) {
       LOG.error(e);
       LOG.debug(e,e);
     }
+  }
+  LOG.debug("Updated node info map: " + nodeLog.toString());
+  try {
+    Nodes.updateServiceConfiguration(ccConfig,nodesToUpdate);
+  }
+ catch (  Exception e) {
+    LOG.debug("Error while updating nodes: " + e.getMessage(),e);
   }
 }

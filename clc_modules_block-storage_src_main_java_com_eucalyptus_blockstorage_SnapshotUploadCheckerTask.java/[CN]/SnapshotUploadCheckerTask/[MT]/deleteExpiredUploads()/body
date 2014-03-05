@@ -1,0 +1,25 @@
+{
+  try (TransactionResource snapTran=Entities.transactionFor(SnapshotUploadInfo.class)){
+    Criterion criterion=Restrictions.and(Restrictions.or(Restrictions.like("state",SnapshotUploadState.cleaned),Restrictions.like("state",SnapshotUploadState.uploaded)),Restrictions.le("purgeTime",System.currentTimeMillis()));
+    List<SnapshotUploadInfo> snapshotUploadInfoList=Entities.query(new SnapshotUploadInfo(),Boolean.FALSE,criterion,Collections.EMPTY_MAP);
+    for (    SnapshotUploadInfo snapUploadInfo : snapshotUploadInfoList) {
+      LOG.debug("Deleting expired entity from DB " + snapUploadInfo);
+      Map<String,String> parameters=Maps.newHashMap();
+      parameters.put("snapshotId",snapUploadInfo.getSnapshotId());
+      parameters.put("bucketName",snapUploadInfo.getBucketName());
+      parameters.put("keyName",snapUploadInfo.getKeyName());
+      if (snapUploadInfo.getUploadId() != null) {
+        parameters.put("uploadId",snapUploadInfo.getUploadId());
+        Entities.deleteAllMatching(SnapshotPart.class,"WHERE snapshot_id = :snapshotId AND bucket_name = :bucketName AND key_name = :keyName AND upload_id = :uploadId",parameters);
+      }
+ else {
+        Entities.deleteAllMatching(SnapshotPart.class,"WHERE snapshot_id = :snapshotId AND bucket_name = :bucketName AND key_name = :keyName",parameters);
+      }
+      Entities.delete(snapUploadInfo);
+    }
+    snapTran.commit();
+  }
+ catch (  Exception e) {
+    LOG.debug("Error deleting expired snapshot upload info entities" + e);
+  }
+}
