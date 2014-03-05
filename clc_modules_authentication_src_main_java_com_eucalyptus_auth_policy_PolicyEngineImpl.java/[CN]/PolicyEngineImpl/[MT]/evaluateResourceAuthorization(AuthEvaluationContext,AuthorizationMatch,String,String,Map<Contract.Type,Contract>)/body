@@ -1,0 +1,36 @@
+{
+  final AuthEvaluationContextImpl evaluationContext=(AuthEvaluationContextImpl)context;
+  final ContractKeyEvaluator contractEval=new ContractKeyEvaluator(contracts);
+  final CachedKeyEvaluator keyEval=new CachedKeyEvaluator(context.getEvaluatedKeys());
+  final String action=evaluationContext.getAction();
+  final User requestUser=evaluationContext.getRequestUser();
+  final String resourceType=evaluationContext.getResourceType();
+  resourceName=PolicySpec.canonicalizeResourceName(resourceType,resourceName);
+  if (evaluationContext.isSystemAdmin()) {
+    return Decision.ALLOW;
+  }
+  verifyUser(requestUser);
+  final Account account=evaluationContext.getRequestAccount();
+  Decision decision=processAuthorizations(evaluationContext.lookupGlobalAuthorizations(),authorizationMatch,action,resourceAccountNumber,resourceName,keyEval,contractEval);
+  if (decision == Decision.DENY) {
+    LOG.debug("Request is rejected by global authorization check, due to decision " + decision);
+    return decision;
+  }
+  if (resourceAccountNumber != null && !resourceAccountNumber.equals(account.getAccountNumber()) && !evaluationContext.isSystemUser()) {
+    decision=processAuthorizations(evaluationContext.lookupLocalAuthorizations(),authorizationMatch,action,resourceAccountNumber,resourceName,keyEval,contractEval);
+    if (decision == Decision.DENY) {
+      LOG.debug("Request is rejected by local authorization check, due to decision " + decision);
+    }
+    return decision == Decision.ALLOW ? Decision.DEFAULT : decision;
+  }
+ else   if (requestUser.isAccountAdmin()) {
+    return Decision.ALLOW;
+  }
+ else {
+    decision=processAuthorizations(evaluationContext.lookupLocalAuthorizations(),authorizationMatch,action,resourceAccountNumber,resourceName,keyEval,contractEval);
+    if (decision == Decision.DENY || decision == Decision.DEFAULT) {
+      LOG.debug("Request is rejected by local authorization check, due to decision " + decision);
+    }
+    return decision;
+  }
+}

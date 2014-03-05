@@ -9,29 +9,39 @@
     LOG.error("exception occurred while retrieving lifecycle rules - " + ex.getMessage());
     throw new JobExecutionException("exception occurred while retrieving lifecycle rules",ex);
   }
+  Bucket bucket;
   if (rules != null && rules.size() > 0) {
     LOG.debug("found " + rules.size() + " Object Lifecycle rules");
     for (    LifecycleRule rule : rules) {
       if (rule.getEnabled() != null && rule.getEnabled().booleanValue()) {
-        LOG.debug("rule id - " + rule.getRuleId() + " on bucket "+ rule.getBucketName()+ " processing");
+        LOG.debug("rule id - " + rule.getRuleId() + " on bucket "+ rule.getBucketUuid()+ " processing");
         String ruleId=rule.getRuleId();
-        String bucketName=rule.getBucketName();
         String prefix=rule.getPrefix();
+        try {
+          bucket=BucketMetadataManagers.getInstance().lookupBucketByUuid(rule.getBucketUuid());
+        }
+ catch (        Exception e) {
+          bucket=null;
+        }
+        if (bucket == null || !BucketState.extant.equals(bucket.getState())) {
+          LOG.warn("Cannot process lifecycle rule for bucket valid 'extant' record. bucket uuid: " + rule.getBucketUuid());
+          continue;
+        }
         if (rule.getExpirationDate() != null) {
-          processExpirationByDate(ruleId,bucketName,prefix,rule.getExpirationDate());
+          processExpirationByDate(ruleId,bucket,prefix,rule.getExpirationDate());
         }
  else         if (rule.getExpirationDays() != null) {
-          processExpirationByDays(ruleId,bucketName,prefix,rule.getExpirationDays());
+          processExpirationByDays(ruleId,bucket,prefix,rule.getExpirationDays());
         }
         if (rule.getTransitionDate() != null) {
-          processTransitionByDate(ruleId,bucketName,prefix,rule.getTransitionDate());
+          processTransitionByDate(ruleId,bucket,prefix,rule.getTransitionDate());
         }
  else         if (rule.getTransitionDays() != null) {
-          processTransitionByDays(ruleId,bucketName,prefix,rule.getExpirationDays());
+          processTransitionByDays(ruleId,bucket,prefix,rule.getExpirationDays());
         }
       }
  else {
-        LOG.debug("rule id - " + rule.getRuleId() + " on bucket "+ rule.getBucketName()+ " is not enabled");
+        LOG.debug("rule id - " + rule.getRuleId() + " on bucket "+ rule.getBucketUuid()+ " is not enabled");
       }
     }
   }

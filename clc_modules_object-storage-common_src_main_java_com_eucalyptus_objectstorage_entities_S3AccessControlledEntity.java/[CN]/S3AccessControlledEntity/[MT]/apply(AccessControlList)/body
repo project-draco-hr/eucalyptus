@@ -4,66 +4,56 @@
   if (srcList == null) {
     return aclMap;
   }
-  Grantee grantee=null;
-  CanonicalUser canonicalUser=null;
-  Group group=null;
+  Grantee grantee;
+  CanonicalUser canonicalUser;
+  Group group;
   String email;
-  for (  Grant g : srcList.getGrants()) {
-    grantee=g.getGrantee();
-    if (grantee == null || Strings.isNullOrEmpty(g.getPermission())) {
-      return null;
-    }
- else {
-      canonicalUser=grantee.getCanonicalUser();
-      group=grantee.getGroup();
-      email=grantee.getEmailAddress();
-    }
-    if (canonicalUser != null && !Strings.isNullOrEmpty(canonicalUser.getID())) {
-      try {
-        canonicalId=Accounts.lookupAccountByCanonicalId(canonicalUser.getID()).getCanonicalId();
+  try {
+    for (    Grant g : srcList.getGrants()) {
+      grantee=g.getGrantee();
+      if (grantee == null) {
+        continue;
       }
- catch (      AuthException e) {
+ else {
+        canonicalUser=grantee.getCanonicalUser();
+        group=grantee.getGroup();
+        email=grantee.getEmailAddress();
+      }
+      if (canonicalUser != null && !Strings.isNullOrEmpty(canonicalUser.getID())) {
         try {
+          canonicalId=Accounts.lookupAccountByCanonicalId(canonicalUser.getID()).getCanonicalId();
+        }
+ catch (        AuthException e) {
           canonicalId=Accounts.lookupAccountById(canonicalUser.getID()).getCanonicalId();
         }
- catch (        AuthException ex) {
-          return null;
-        }
       }
-    }
- else     if (!Strings.isNullOrEmpty(email)) {
-      try {
+ else       if (!Strings.isNullOrEmpty(email)) {
         canonicalId=Accounts.lookupUserByEmailAddress(email).getAccount().getCanonicalId();
       }
- catch (      AuthException e) {
-        return null;
-      }
-    }
- else     if (group != null && !Strings.isNullOrEmpty(group.getUri())) {
-      try {
+ else       if (group != null && !Strings.isNullOrEmpty(group.getUri())) {
         ObjectStorageProperties.S3_GROUP foundGroup=AclUtils.getGroupFromUri(group.getUri());
         if (foundGroup == null) {
           throw new NoSuchElementException("URI: " + group.getUri() + " not found in group map");
         }
+        canonicalId=group.getUri();
       }
- catch (      NoSuchElementException e) {
-        LOG.warn("Invalid group name when trying to map ACL grantee: " + g.getGrantee().getGroup().getUri());
-        return null;
-      }
-      canonicalId=group.getUri();
-    }
-    if (canonicalId == null) {
-      return null;
-    }
- else {
-      int oldGrant=(aclMap.containsKey(canonicalId) ? aclMap.get(canonicalId) : 0);
-      int newGrant=BitmapGrant.add(ObjectStorageProperties.Permission.valueOf(g.getPermission().toUpperCase()),oldGrant);
-      if (newGrant != 0) {
-        aclMap.put(canonicalId,newGrant);
+      if (canonicalId == null) {
+        throw new NoSuchElementException("No canonicalId found for grant: " + g.toString());
       }
  else {
+        int oldGrant=(aclMap.containsKey(canonicalId) ? aclMap.get(canonicalId) : 0);
+        int newGrant=BitmapGrant.add(ObjectStorageProperties.Permission.valueOf(g.getPermission().toUpperCase()),oldGrant);
+        if (newGrant != 0) {
+          aclMap.put(canonicalId,newGrant);
+        }
+ else {
+        }
       }
     }
+  }
+ catch (  Exception e) {
+    LOG.warn("Error turning AccessControlList into kv map",e);
+    throw new RuntimeException(e);
   }
   return aclMap;
 }

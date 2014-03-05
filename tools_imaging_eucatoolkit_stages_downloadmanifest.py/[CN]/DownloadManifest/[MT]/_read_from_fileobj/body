@@ -1,0 +1,56 @@
+@classmethod
+def _read_from_fileobj(cls, manifest_fileobj, xsd=None, key_filename=None, sig_key_filename=None):
+    "\n        Main method used to parse and create a downloadmanifest obj from the\n        xml provided in 'manifest_fileobj'.\n        :param manifest_fileobj: fileobj to read download manifest xml from\n        :param xsd: optional localpath to xsd used to validate xml\n        :param key_filename: optional path to key used to decrypt manifest\n                             fields/values.\n        returns DownloadManifest obj.\n        "
+    if (xsd is not None):
+        cls._validate_manifest_xsd(manifest_fileobj, xsd)
+    xml = lxml.objectify.parse(manifest_fileobj).getroot()
+    manifest = cls()
+    manifest.key_filename = key_filename
+    manifest.sig_key_filename = sig_key_filename
+    manifest.version = xml.version.text.strip()
+    manifest.signature = xml.signature.text.strip()
+    manifest.signature_algorithm = xml.signature.get('algorithm').strip()
+    manifest.file_format = xml.find('file-format').text.strip()
+    data_to_sign = lxml.etree.tostring(xml.version)
+    data_to_sign += lxml.etree.tostring(xml.__getattr__('file-format'))
+    if (manifest.file_format == 'BUNDLE'):
+        data_to_sign += lxml.etree.tostring(xml.bundle)
+    data_to_sign += lxml.etree.tostring(xml.image)
+    manifest.data_to_sign = data_to_sign
+    if sig_key_filename:
+        data_to_sign = lxml.etree.tostring(xml.version)
+        data_to_sign += lxml.etree.tostring(xml.__getattr__('file-format'))
+        if (manifest.file_format == 'BUNDLE'):
+            data_to_sign += lxml.etree.tostring(xml.bundle)
+        data_to_sign += lxml.etree.tostring(xml.image)
+        _verify_signature(cert_filename=sig_key_filename, signature=manifest.signature, data=data_to_sign, algorithm=manifest.signature_algorithm)
+    if (manifest.file_format == 'BUNDLE'):
+        bundle = xml.bundle
+        manifest.unbundled_image_size = long(bundle.find('unbundled-size'))
+        manifest.enc_key = bundle.find('encrypted-key').text.strip()
+        manifest.enc_iv = bundle.find('encrypted-iv').text.strip()
+        if key_filename:
+            manifest.enc_key = _decrypt_hex_key(manifest.enc_key, key_filename=key_filename)
+            manifest.enc_iv = _decrypt_hex_key(manifest.enc_iv, key_filename=key_filename)
+    manifest.download_image_size = long(xml.image.size)
+    for part in xml.image.parts.iter(tag='part'):
+        manifest.image_parts.append(None)
+    for xml_part in xml.image.parts.iter(tag='part'):
+        part_index = int(xml_part.get('index'))
+        get_url = xml_part.find('get-url').text.strip()
+        digest = xml_part.find('digest')
+        digest_algorithm = 'MD5'
+        if digest:
+            digest_algorithm = str(digest.get('algorithm'))
+        manifest.image_parts[part_index] = DownloadPart(get_url=get_url, part_index=part_index, digest=digest, digest_algorithm=digest_algorithm)
+    partcount = xml.image.parts.get('count')
+    if (partcount is not None):
+        manifest.part_count = int(partcount)
+        if (len(manifest.image_parts) != manifest.part_count):
+            raise ValueError('Part count {0} does not equal parts found:{1}'.format(len(manifest.image_parts)), manifest.part_count)
+    else:
+        manifest.part_count = len(manifest.image_parts)
+    for (index, part) in enumerate(manifest.image_parts):
+        if (part is None):
+            raise ValueError('part {0} must not be None'.format(index))
+    return manifest

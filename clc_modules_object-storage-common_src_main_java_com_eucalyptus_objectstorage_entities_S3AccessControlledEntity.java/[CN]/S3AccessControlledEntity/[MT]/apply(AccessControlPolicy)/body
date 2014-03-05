@@ -1,25 +1,24 @@
 {
-  Map<String,Integer> aclMap=null;
-  aclMap=AccessControlListToMap.INSTANCE.apply(srcPolicy.getAccessControlList());
+  if (srcPolicy == null) {
+    throw new RuntimeException("Null source policy. Cannot map");
+  }
+  Map<String,Integer> aclMap=AccessControlListToMap.INSTANCE.apply(srcPolicy.getAccessControlList());
   if (aclMap == null) {
-    LOG.warn("Got null from AccessControlList mapping, indicates an error");
-    return null;
+    throw new RuntimeException("Null acl map. Cannot proceed with policy generation");
   }
- else {
-    String ownerCanonicalId=srcPolicy.getOwner().getID();
-    if (ownerCanonicalId == null) {
-      return null;
-    }
-    try {
-      Accounts.lookupAccountByCanonicalId(ownerCanonicalId);
-    }
- catch (    Exception e) {
-      LOG.warn("Got invalid owner in AccessControlPolicy during mapping to DB: " + ownerCanonicalId);
-      return null;
-    }
-    aclMap.remove(ownerCanonicalId);
-    Integer ownerGrant=BitmapGrant.translateToBitmap(ObjectStorageProperties.Permission.FULL_CONTROL);
-    aclMap.put(ownerCanonicalId,ownerGrant);
+  String ownerCanonicalId=srcPolicy.getOwner().getID();
+  if (ownerCanonicalId == null) {
+    throw new RuntimeException("Invalid ACP: OwnerCanonicalId required.");
   }
+  try {
+    Accounts.lookupAccountByCanonicalId(ownerCanonicalId);
+  }
+ catch (  Exception e) {
+    LOG.warn("Got invalid owner in AccessControlPolicy during mapping to DB: " + ownerCanonicalId);
+    throw new RuntimeException("Could not find account by canonicalId " + ownerCanonicalId,e);
+  }
+  aclMap.remove(ownerCanonicalId);
+  Integer ownerGrant=BitmapGrant.translateToBitmap(ObjectStorageProperties.Permission.FULL_CONTROL);
+  aclMap.put(ownerCanonicalId,ownerGrant);
   return aclMap;
 }

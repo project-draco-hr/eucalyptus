@@ -1,22 +1,10 @@
 {
-  logRequest(request);
-  Bucket bucket=null;
-  ObjectEntity objectEntity=null;
+  ObjectEntity objectEntity;
   try {
-    bucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
+    objectEntity=getObjectEntityAndCheckPermissions(request,null);
   }
- catch (  NoSuchElementException e) {
-    throw new NoSuchBucketException(request.getBucket());
-  }
-catch (  Exception e) {
-    LOG.error("Error getting bucket metadata for bucket " + request.getBucket());
-    throw new InternalErrorException(request.getBucket());
-  }
-  try {
-    objectEntity=ObjectManagers.getInstance().get(bucket,request.getKey(),null);
-  }
- catch (  NoSuchElementException e) {
-    DeleteObjectResponseType reply=(DeleteObjectResponseType)request.getReply();
+ catch (  NoSuchBucketException|NoSuchKeyException|NoSuchEntityException|NoSuchElementException e) {
+    DeleteObjectResponseType reply=request.getReply();
     reply.setStatus(HttpResponseStatus.NO_CONTENT);
     reply.setStatusMessage("No Content");
     return reply;
@@ -25,27 +13,21 @@ catch (  Exception e) {
     LOG.error("Error getting bucket metadata for bucket " + request.getBucket());
     throw new InternalErrorException(request.getBucket());
   }
-  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,0)) {
+  try {
+    OsgObjectFactory.getFactory().logicallyDeleteObject(objectEntity,Contexts.lookup().getUser());
     try {
-      User user=Contexts.lookup().getUser();
-      ObjectManagers.getInstance().delete(bucket,objectEntity,user);
-      DeleteObjectResponseType reply=(DeleteObjectResponseType)request.getReply();
-      reply.setStatus(HttpResponseStatus.NO_CONTENT);
-      reply.setStatusMessage("No Content");
-      try {
-        fireObjectUsageEvent(S3ObjectEvent.S3ObjectAction.OBJECTDELETE,bucket.getBucketName(),objectEntity.getObjectKey(),objectEntity.getVersionId(),user.getUserId(),objectEntity.getSize());
-      }
- catch (      Exception e) {
-        LOG.warn("caught exception while attempting to fire reporting event, exception message - " + e.getMessage());
-      }
-      return reply;
+      fireObjectUsageEvent(S3ObjectEvent.S3ObjectAction.OBJECTDELETE,objectEntity.getBucket().getBucketName(),objectEntity.getObjectKey(),objectEntity.getVersionId(),Contexts.lookup().getUser().getUserId(),objectEntity.getSize());
     }
  catch (    Exception e) {
-      LOG.error("Transaction error during delete object: " + request.getBucket() + "/"+ request.getKey(),e);
-      throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
+      LOG.warn("caught exception while attempting to fire reporting event, exception message - " + e.getMessage());
     }
+    DeleteObjectResponseType reply=request.getReply();
+    reply.setStatus(HttpResponseStatus.NO_CONTENT);
+    reply.setStatusMessage("No Content");
+    return reply;
   }
- else {
-    throw new AccessDeniedException(request.getBucket() + "/" + request.getKey());
+ catch (  Exception e) {
+    LOG.error("Transaction error during delete object: " + request.getBucket() + "/"+ request.getKey(),e);
+    throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
   }
 }

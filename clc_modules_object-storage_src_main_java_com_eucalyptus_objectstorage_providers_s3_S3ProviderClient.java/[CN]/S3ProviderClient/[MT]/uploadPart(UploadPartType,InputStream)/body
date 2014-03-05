@@ -1,0 +1,32 @@
+{
+  String bucketName=request.getBucket();
+  String key=request.getKey();
+  try {
+    User requestUser=getRequestUser(request);
+    AmazonS3Client s3Client=getS3Client(requestUser,request.getAccessKeyID());
+    UploadPartResult result=null;
+    UploadPartRequest uploadPartRequest=new UploadPartRequest();
+    uploadPartRequest.setBucketName(bucketName);
+    uploadPartRequest.setKey(key);
+    uploadPartRequest.setInputStream(dataContent);
+    uploadPartRequest.setUploadId(request.getUploadId());
+    uploadPartRequest.setPartNumber(Integer.valueOf(request.getPartNumber()));
+    uploadPartRequest.setMd5Digest(request.getContentMD5());
+    uploadPartRequest.setPartSize(Long.valueOf(request.getContentLength()));
+    try {
+      result=s3Client.uploadPart(uploadPartRequest);
+    }
+ catch (    AmazonServiceException e) {
+      LOG.debug("Error from backend",e);
+      throw S3ExceptionMapper.fromAWSJavaSDK(e);
+    }
+    UploadPartResponseType reply=(UploadPartResponseType)request.getReply();
+    reply.setEtag(result.getETag());
+    reply.setLastModified(new Date());
+    return reply;
+  }
+ catch (  AmazonServiceException e) {
+    LOG.debug("Error from backend",e);
+    throw S3ExceptionMapper.fromAWSJavaSDK(e);
+  }
+}

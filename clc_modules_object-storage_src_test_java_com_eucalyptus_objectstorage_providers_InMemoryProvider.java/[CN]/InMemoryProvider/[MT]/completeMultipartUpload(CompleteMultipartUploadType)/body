@@ -1,0 +1,60 @@
+{
+  try {
+    MemoryBucket bucket=getBucket(request.getBucket(),request.getAccessKeyID());
+    if (!bucket.uploads.containsKey(request.getUploadId())) {
+      throw new NoSuchUploadException(request.getUploadId());
+    }
+    MemoryMpu mpuParent=bucket.uploads.get(request.getUploadId());
+    int lastNumber=-1;
+    ArrayList<MemoryPart> orderedParts=new ArrayList<>(request.getParts().size());
+    int sizeSum=0;
+    MemoryPart tmp=null;
+    for (    Part p : request.getParts()) {
+      if (p.getPartNumber() <= lastNumber) {
+        throw new InvalidPartOrderException(p.getPartNumber().toString());
+      }
+ else {
+        tmp=mpuParent.parts.get(p.getPartNumber());
+        if (tmp == null || !tmp.eTag.equals(p.getEtag())) {
+          throw new InvalidPartException(p.getPartNumber().toString());
+        }
+      }
+      orderedParts.add(tmp);
+      sizeSum+=tmp.size;
+      lastNumber=p.getPartNumber();
+    }
+    MemoryObject finishedObj=new MemoryObject();
+    finishedObj.key=mpuParent.key;
+    finishedObj.canonicalId=mpuParent.canonicalId;
+    finishedObj.modifiedDate=new Date();
+    finishedObj.acl=mpuParent.acl;
+    finishedObj.size=sizeSum;
+    finishedObj.versionId=bucket.versioningStatus == ObjectStorageProperties.VersioningStatus.Enabled ? UUID.randomUUID().toString() : "null";
+    ByteArrayOutputStream data=new ByteArrayOutputStream(sizeSum);
+    for (    MemoryPart p : orderedParts) {
+      data.write(p.content);
+    }
+    finishedObj.content=data.toByteArray();
+    finishedObj.eTag=DigestUtils.md5Hex(finishedObj.content);
+    bucket.objects.put(new ObjectKey(finishedObj.key,finishedObj.versionId),finishedObj);
+    bucket.uploads.remove(mpuParent.uploadId);
+    CompleteMultipartUploadResponseType response=request.getReply();
+    response.setEtag(finishedObj.eTag);
+    response.setKey(request.getKey());
+    response.setBucket(request.getBucket());
+    response.setVersionId(finishedObj.versionId);
+    response.setStatusMessage("OK");
+    response.set_return(true);
+    LOG.debug("InMemory return response: " + response.getStatusMessage());
+    return response;
+  }
+ catch (  Exception e) {
+    LOG.debug("InMemory abortMultipartUpload exception: ",e);
+    if (e instanceof S3Exception) {
+      throw (S3Exception)e;
+    }
+ else {
+      throw new InternalErrorException(e);
+    }
+  }
+}

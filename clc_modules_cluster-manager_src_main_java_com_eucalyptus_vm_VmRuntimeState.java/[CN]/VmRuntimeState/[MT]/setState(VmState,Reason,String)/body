@@ -1,30 +1,32 @@
 {
   final VmState olderState=this.getVmInstance().getLastState();
   final VmState oldState=this.getVmInstance().getState();
-  Callable<Boolean> action=null;
-  if (VmStateSet.RUN.contains(newState) && VmStateSet.NOT_RUNNING.contains(oldState)) {
-    action=this.cleanUpRunnable(SEND_USER_TERMINATE);
-  }
- else   if (!oldState.equals(newState)) {
+  final Callable<Boolean> action;
+  if (!oldState.equals(newState)) {
     action=handleStateTransition(newState,oldState,olderState);
   }
-  this.getVmInstance().updateTimeStamps();
+ else {
+    action=null;
+  }
   if (action != null) {
     if (Reason.APPEND.equals(reason)) {
       reason=this.reason;
     }
     this.addReasonDetail(extra);
     this.reason=reason;
-    try {
-      Threads.enqueue(Eucalyptus.class,VmInstance.class,VmInstances.MAX_STATE_THREADS,action).get(10,TimeUnit.MILLISECONDS);
+    Entities.registerSynchronization(VmInstance.class,new Synchronization(){
+      @Override public void beforeCompletion(){
+      }
+      @Override public void afterCompletion(      final int status){
+        if (Status.STATUS_COMMITTED == status)         try {
+          Threads.enqueue(Eucalyptus.class,VmInstance.class,VmInstances.MAX_STATE_THREADS,action);
+        }
+ catch (        final Exception ex) {
+          LOG.error(ex);
+          Logs.extreme().error(ex,ex);
+        }
+      }
     }
- catch (    final TimeoutException ex) {
-    }
-catch (    final InterruptedException ex) {
-    }
-catch (    final Exception ex) {
-      LOG.error(ex);
-      Logs.extreme().error(ex,ex);
-    }
+);
   }
 }

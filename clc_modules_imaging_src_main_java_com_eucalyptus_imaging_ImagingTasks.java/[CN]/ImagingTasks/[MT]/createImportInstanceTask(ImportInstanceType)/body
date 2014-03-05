@@ -1,0 +1,72 @@
+{
+  final ImportInstanceLaunchSpecification launchSpec=request.getLaunchSpecification();
+  if (launchSpec == null)   throw new ImagingServiceException("Launch specification is required");
+  if (launchSpec.getArchitecture() == null || !("i386".equals(launchSpec.getArchitecture()) || "x86_64".equals(launchSpec.getArchitecture())))   throw new ImagingServiceException("Architecture should be either i386 or x86_64");
+  if (launchSpec.getInstanceType() == null)   throw new ImagingServiceException("Instance type is required");
+  List<ClusterInfoType> clusters=null;
+  try {
+    clusters=EucalyptusActivityTasks.getInstance().describeAvailabilityZones(false);
+  }
+ catch (  final Exception ex) {
+    throw new ImagingServiceException(ImagingServiceException.INTERNAL_SERVER_ERROR,"Failed to verify availability zone");
+  }
+  String availabilityZone=null;
+  if (launchSpec.getPlacement() != null)   availabilityZone=launchSpec.getPlacement().getAvailabilityZone();
+  if (availabilityZone != null) {
+    boolean zoneFound=false;
+    for (    final ClusterInfoType cluster : clusters) {
+      if (availabilityZone.equals(cluster.getZoneName())) {
+        zoneFound=true;
+        break;
+      }
+    }
+    if (!zoneFound)     throw new ImagingServiceException(String.format("The availability zone %s is not found",availabilityZone));
+  }
+ else {
+    if (clusters.size() > 0) {
+      availabilityZone=clusters.get(0).getZoneName();
+      if (request.getLaunchSpecification().getPlacement() == null)       request.getLaunchSpecification().setPlacement(new InstancePlacement());
+      request.getLaunchSpecification().getPlacement().setAvailabilityZone(availabilityZone);
+    }
+ else     throw new ImagingServiceException(ImagingServiceException.INTERNAL_SERVER_ERROR,"No availability zone is found in the Cloud");
+  }
+  List<DiskImage> disks=request.getDiskImageSet();
+  if (disks == null || disks.size() <= 0)   throw new ImagingServiceException("Disk images are required");
+  for (  final DiskImage disk : disks) {
+    final DiskImageDetail imageDetail=disk.getImage();
+    final String format=imageDetail.getFormat();
+    if (format == null || format.length() <= 0)     throw new ImagingServiceException("Image format is required");
+    try {
+      final IMAGE_FORMAT imgFormat=IMAGE_FORMAT.valueOf(format.toUpperCase());
+    }
+ catch (    final Exception ex) {
+      throw new ImagingServiceException("Unsupported image format: " + format);
+    }
+    if (imageDetail.getImportManifestUrl() == null)     throw new ImagingServiceException("Import manifest url is required");
+    final DiskImageVolume volumeDetail=disk.getVolume();
+    if (volumeDetail == null)     throw new ImagingServiceException("Volume detail is required for disk image");
+    try {
+      final int volumeSize=volumeDetail.getSize();
+      final long imageBytes=imageDetail.getBytes();
+      final long volumeSizeInBytes=(volumeSize * (long)Math.pow(1024,3));
+      if (imageBytes > volumeSizeInBytes)       throw new ImagingServiceException("Requested volume size is not enough to hold the image");
+    }
+ catch (    final ImagingServiceException ex) {
+      throw ex;
+    }
+catch (    final Exception ex) {
+      throw new ImagingServiceException(ImagingServiceException.INTERNAL_SERVER_ERROR,"Failed to verify the requested volume size");
+    }
+  }
+  final InstanceImagingTask transform=TypeMappers.transform(request,InstanceImagingTask.class);
+  try (final TransactionResource db=Entities.transactionFor(InstanceImagingTask.class)){
+    try {
+      Entities.persist(transform);
+      db.commit();
+    }
+ catch (    final Exception ex) {
+      throw new ImagingServiceException(ImagingServiceException.INTERNAL_SERVER_ERROR,"Failed to persist InstanceImagingTask",ex);
+    }
+  }
+   return transform;
+}

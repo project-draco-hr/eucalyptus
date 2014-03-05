@@ -1,0 +1,150 @@
+{
+  Ats requestAuthzProperties=Ats.from(request);
+  ObjectStorageProperties.Permission[] requiredBucketACLPermissions=null;
+  ObjectStorageProperties.Permission[] requiredObjectACLPermissions=null;
+  Boolean allowOwnerOnly=null;
+  RequiresACLPermission requiredACLs=requestAuthzProperties.get(RequiresACLPermission.class);
+  if (requiredACLs != null) {
+    requiredBucketACLPermissions=requiredACLs.bucket();
+    requiredObjectACLPermissions=requiredACLs.object();
+    allowOwnerOnly=requiredACLs.ownerOnly();
+  }
+ else {
+  }
+  String[] requiredActions=null;
+  RequiresPermission perms=requestAuthzProperties.get(RequiresPermission.class);
+  if (perms != null) {
+    requiredActions=perms.value();
+  }
+  Boolean allowAdmin=(requestAuthzProperties.get(AdminOverrideAllowed.class) != null);
+  Boolean allowOnlyAdmin=(requestAuthzProperties.get(AdminOverrideAllowed.class) != null) && requestAuthzProperties.get(AdminOverrideAllowed.class).adminOnly();
+  if (requiredBucketACLPermissions == null && requiredObjectACLPermissions == null && requiredActions == null && !allowAdmin) {
+    LOG.error("Insufficient permission annotations on type: " + request.getClass().getName() + " cannot evaluate authorization");
+    return false;
+  }
+  String resourceType=null;
+  if (requestAuthzProperties.get(ResourceType.class) != null) {
+    resourceType=requestAuthzProperties.get(ResourceType.class).value();
+  }
+  User requestUser=null;
+  String securityToken=null;
+  Account requestAccount=null;
+  AuthContextSupplier authContext=null;
+  try {
+    try {
+      Context ctx=Contexts.lookup(request.getCorrelationId());
+      requestUser=ctx.getUser();
+      securityToken=ctx.getSecurityToken();
+      requestAccount=requestUser.getAccount();
+      authContext=ctx.getAuthContext();
+    }
+ catch (    NoSuchContextException e) {
+      requestUser=null;
+      securityToken=null;
+      requestAccount=null;
+      authContext=null;
+    }
+    if (requestUser == null && !Strings.isNullOrEmpty(request.getEffectiveUserId())) {
+      requestUser=Accounts.lookupUserById(request.getEffectiveUserId());
+      requestAccount=requestUser.getAccount();
+    }
+    if (requestUser == null) {
+      if (!Strings.isNullOrEmpty(request.getAccessKeyID())) {
+        if (securityToken != null) {
+          requestUser=SecurityTokenManager.lookupUser(request.getAccessKeyID(),securityToken);
+        }
+ else {
+          requestUser=Accounts.lookupUserByAccessKeyId(request.getAccessKeyID());
+        }
+        requestAccount=requestUser.getAccount();
+      }
+ else {
+        requestUser=Principals.nobodyUser();
+        requestAccount=requestUser.getAccount();
+      }
+    }
+  }
+ catch (  AuthException e) {
+    LOG.error("Failed to get user for request, cannot verify authorization: " + e.getMessage(),e);
+    return false;
+  }
+  if (allowAdmin && requestUser.isSystemAdmin()) {
+    return true;
+  }
+  if (authContext == null) {
+    authContext=Permissions.createAuthContextSupplier(requestUser,Collections.<String,String>emptyMap());
+  }
+  Account resourceOwnerAccount=null;
+  if (resourceType == null) {
+    LOG.error("No resource type found in request class annotations, cannot process.");
+    return false;
+  }
+ else {
+    try {
+      if (PolicySpec.S3_RESOURCE_BUCKET.equals(resourceType)) {
+        if (bucketResourceEntity == null) {
+          LOG.error("Could not check access for operation due to no bucket resource entity found");
+          return false;
+        }
+ else {
+          resourceOwnerAccount=Accounts.lookupAccountByCanonicalId(bucketResourceEntity.getOwnerCanonicalId());
+        }
+      }
+ else       if (PolicySpec.S3_RESOURCE_OBJECT.equals(resourceType)) {
+        if (objectResourceEntity == null) {
+          LOG.error("Could not check access for operation due to no object resource entity found");
+          return false;
+        }
+ else {
+          resourceOwnerAccount=Accounts.lookupAccountByCanonicalId(objectResourceEntity.getOwnerCanonicalId());
+        }
+      }
+    }
+ catch (    AuthException e) {
+      LOG.error("Exception caught looking up resource owner. Disallowing operation.",e);
+      return false;
+    }
+  }
+  String resourceId=null;
+  if (resourceId == null) {
+    if (PolicySpec.S3_RESOURCE_BUCKET.equals(resourceType)) {
+      resourceId=request.getBucket();
+    }
+ else     if (PolicySpec.S3_RESOURCE_OBJECT.equals(resourceType)) {
+      resourceId=request.getFullResource();
+    }
+  }
+  if (allowAdmin && requestUser.isSystemUser() && iamPermissionsAllow(authContext,requiredActions,resourceType,resourceId,resourceAllocationSize)) {
+    return true;
+  }
+  if (requiredBucketACLPermissions == null && requiredObjectACLPermissions == null) {
+    throw new IllegalArgumentException("No requires-permission actions found in request class annotations, cannot process.");
+  }
+  Boolean aclAllow=false;
+  if (requiredBucketACLPermissions != null && requiredBucketACLPermissions.length > 0) {
+    if (bucketResourceEntity == null) {
+      LOG.error("Null bucket resource, cannot evaluate bucket ACL");
+      return false;
+    }
+    for (    ObjectStorageProperties.Permission permission : requiredBucketACLPermissions) {
+      aclAllow=aclAllow || bucketResourceEntity.can(permission,requestAccount.getCanonicalId());
+    }
+  }
+  if (requiredObjectACLPermissions != null && requiredObjectACLPermissions.length > 0) {
+    if (objectResourceEntity == null) {
+      LOG.error("Null bucket resource, cannot evaluate bucket ACL");
+      return false;
+    }
+    for (    ObjectStorageProperties.Permission permission : requiredObjectACLPermissions) {
+      aclAllow=aclAllow || objectResourceEntity.can(permission,requestAccount.getCanonicalId());
+    }
+  }
+  aclAllow=(allowOwnerOnly ? resourceOwnerAccount.getAccountNumber().equals(requestAccount.getAccountNumber()) : aclAllow);
+  if (aclAllow && isUserAnonymous(requestUser)) {
+    return true;
+  }
+ else {
+    Boolean iamAllow=iamPermissionsAllow(authContext,requiredActions,resourceType,resourceId,resourceAllocationSize);
+    return aclAllow && iamAllow;
+  }
+}

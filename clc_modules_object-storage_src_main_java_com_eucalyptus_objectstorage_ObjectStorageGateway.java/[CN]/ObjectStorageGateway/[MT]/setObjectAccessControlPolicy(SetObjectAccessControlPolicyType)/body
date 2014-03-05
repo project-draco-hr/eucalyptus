@@ -1,0 +1,34 @@
+{
+  ObjectEntity objectEntity=getObjectEntityAndCheckPermissions(request,request.getVersionId());
+  SetObjectAccessControlPolicyResponseType reply=request.getReply();
+  final String bucketOwnerId=objectEntity.getBucket().getOwnerCanonicalId();
+  final String objectOwnerId=objectEntity.getOwnerCanonicalId();
+  try {
+    String aclString=null;
+    if (request.getAccessControlPolicy() == null || request.getAccessControlPolicy().getAccessControlList() == null) {
+      throw new MalformedACLErrorException(request.getBucket() + "/" + request.getKey()+ "?acl");
+    }
+ else {
+      request.getAccessControlPolicy().setAccessControlList(AclUtils.expandCannedAcl(request.getAccessControlPolicy().getAccessControlList(),bucketOwnerId,objectOwnerId));
+      if (request.getAccessControlPolicy() == null || request.getAccessControlPolicy().getAccessControlList() == null) {
+        LOG.error("Cannot put ACL that does not exist in request");
+        throw new InternalErrorException(request.getBucket() + "/" + request.getKey()+ "?acl");
+      }
+ else {
+        if (request.getAccessControlPolicy().getOwner() == null) {
+          request.getAccessControlPolicy().setOwner(new CanonicalUser(objectOwnerId,objectEntity.getOwnerDisplayName()));
+        }
+      }
+      aclString=S3AccessControlledEntity.marshallAcpToString(request.getAccessControlPolicy());
+      if (Strings.isNullOrEmpty(aclString)) {
+        throw new MalformedACLErrorException(request.getBucket() + "/" + request.getKey()+ "?acl");
+      }
+    }
+    ObjectMetadataManagers.getInstance().setAcp(objectEntity,request.getAccessControlPolicy());
+    return reply;
+  }
+ catch (  Exception e) {
+    LOG.error("Internal error during PUT object?acl for object " + request.getBucket() + "/"+ request.getKey(),e);
+    throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
+  }
+}

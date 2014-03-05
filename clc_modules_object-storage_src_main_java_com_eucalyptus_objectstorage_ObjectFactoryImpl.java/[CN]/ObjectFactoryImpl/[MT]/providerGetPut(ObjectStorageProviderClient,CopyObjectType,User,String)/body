@@ -1,0 +1,43 @@
+{
+  GetObjectType got=new GetObjectType(request.getSourceBucket(),request.getSourceObject(),Boolean.FALSE,Boolean.FALSE);
+  GetObjectResponseType gort=null;
+  try {
+    gort=provider.getObject(got);
+  }
+ catch (  S3Exception e) {
+    LOG.error("while attempting to copy an object on a backend that does not support copy, an exception " + "was thrown trying to GET the source object",e);
+    return null;
+  }
+  InputStream sourceObjData=gort.getDataInputStream();
+  PutObjectType pot=new PutObjectType();
+  pot.setBucket(request.getDestinationBucket());
+  pot.setKey(request.getDestinationObject());
+  pot.setMetaData(gort.getMetaData());
+  pot.setUser(requestUser);
+  pot.setContentLength(gort.getSize().toString());
+  if (metadataDirective != null && "REPLACE".equals(metadataDirective)) {
+    pot.setMetaData(request.getMetaData());
+  }
+ else   if (metadataDirective == null || "".equals(metadataDirective) || "COPY".equals(metadataDirective)) {
+    pot.setMetaData(gort.getMetaData());
+  }
+ else {
+    throw new InternalErrorException("Could not copy " + request.getSourceBucket() + "/"+ request.getSourceObject()+ " to "+ request.getDestinationBucket()+ "/"+ request.getDestinationObject()+ " on the backend because the metadata directive not recognized");
+  }
+  PutObjectResponseType port=null;
+  try {
+    port=provider.putObject(pot,sourceObjData);
+  }
+ catch (  S3Exception e) {
+    LOG.error("while attempting to copy an object on a backend that does not support copy, an exception " + "was thrown trying to PUT the destination object in the backend",e);
+    return null;
+  }
+  CopyObjectResponseType response=new CopyObjectResponseType();
+  response.setVersionId(port.getVersionId());
+  response.setKey(request.getDestinationObject());
+  response.setBucket(request.getDestinationBucket());
+  response.setStatusMessage(port.getStatusMessage());
+  response.setEtag(port.getEtag());
+  response.setMetaData(port.getMetaData());
+  return response;
+}

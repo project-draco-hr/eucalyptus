@@ -1,0 +1,53 @@
+def download(self, dest_fileobj, chunk_size=None, connection_timeout=30, max_attempts=2):
+    "\n        Attempts to download/get() self.get_url and write to 'dest_fileobj'\n        Attempts to validate the downloaded content against self.digest using\n        self.digest_algorithm. If self.digest is not provided and attempt\n        to compare the calcluated digest against content_md5 or the etag is\n        done. Failure to match self.digest or content_md5 will result in\n        an error, while failure to match the etag will only print a warning.\n        :param dest_fileobj: the file like object to write/download to\n        :param chunk_size: the size to read/write per iteration\n        :param connection_timeout: int timeout for establishing connection\n        :param max_attempts: attempts to connect upon failure\n        returns bytes downloaded/written\n        "
+    bytes = 0
+    attempt = 0
+    response = None
+    self.log.debug('Downloading part:{0}'.format(self.get_url))
+    chunk_size = (chunk_size or self.chunk_size)
+    if self.digest_algorithm:
+        if (self.digest_algorithm.upper() == 'SHA1'):
+            digest = hashlib.sha1()
+        elif (self.digest_algorithm.upper() == 'MD5'):
+            digest = hashlib.md5()
+    while ((not response) and (attempt < max_attempts)):
+        attempt += 1
+        try:
+            response = requests.get(self.get_url, stream=True, timeout=connection_timeout)
+        except (Timeout, ConnectionError) as CE:
+            if (attempt >= max_attempts):
+                err_msg = str('{0}, Connection failure. Attempts:{1}'.format(str(self), str(attempt)))
+                self.log(err_msg)
+                CE.args = [((err_msg + '\n') + str(CE.message))]
+                raise CE
+    try:
+        response.raise_for_status()
+    except HTTPError as HE:
+        HE.args = [((str(self) + '\n') + str(HE.message))]
+        raise HE
+    for chunk in response.iter_content(chunk_size):
+        dest_fileobj.write(chunk)
+        digest.update(chunk)
+        bytes += len(chunk)
+        self.bytes_written = bytes
+    dest_fileobj.flush()
+    self.written_digest = str(digest.hexdigest())
+    if self.digest:
+        if (self.digest != self.written_digest):
+            raise ValueError('Part:"{0}". Expected Digest:"{1}" Written Digest:{2}'.format(self.part_index, self.digest, self.written_digest))
+    elif ((digest.name == 'md5') and hasattr(response, 'headers')):
+        if ('Content-MD5' in response.headers):
+            cont_md5 = str(response.headers.get('content_md5')).strip('"')
+            cont_md5 = cont_md5.strip()
+            if (self.written_digest and (str(self.written_digest) != str(cont_md5))):
+                raise ValueError('Part:"{0}". Expected Digest:"{1}" != Written Digest:{2}'.format(self.part_index, cont_md5, self.written_digest))
+            else:
+                self.log.debug('Part:"{0}". Expected Digest:"{1}" Written Digest:{2}'.format(self.part_index, cont_md5, self.written_digest))
+        elif ('etag' in response.headers):
+            etag = str(response.headers.get('etag')).strip('"').strip()
+            etag_msg = 'Part:"{0}". etag:"{1}" vs Written Digest:"{2}"'.format(self.part_index, etag, self.written_digest)
+            if (self.written_digest != etag):
+                self.log.warn((etag_msg + ', etag != digest'))
+            else:
+                self.log.debug((etag_msg + ', etag == digest'))
+    return bytes

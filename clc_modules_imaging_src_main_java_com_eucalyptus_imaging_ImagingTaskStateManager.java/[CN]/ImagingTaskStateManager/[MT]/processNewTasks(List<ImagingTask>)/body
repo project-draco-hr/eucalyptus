@@ -1,56 +1,17 @@
 {
   for (  final ImagingTask task : tasks) {
     try {
-      final VolumeImagingTask volumeTask=(VolumeImagingTask)task;
-      if (volumeTask.getVolumeId() == null || volumeTask.getVolumeId().length() <= 0) {
-        final String zone=volumeTask.getAvailabilityZone();
-        final int size=volumeTask.getVolumeSize();
-        try {
-          final String volumeId=EucalyptusActivityTasks.getInstance().createVolume(zone,size);
-          ImagingTasks.setVolumeId(volumeTask,volumeId);
-        }
- catch (        final Exception ex) {
-          ImagingTasks.setState(volumeTask,ImportTaskState.FAILED,"Failed to create the volume");
-        }
-      }
- else {
-        final List<Volume> volumes=EucalyptusActivityTasks.getInstance().describeVolumes(Lists.newArrayList(volumeTask.getVolumeId()));
-        final Volume volume=volumes.get(0);
-        final String volumeStatus=volume.getStatus();
-        if ("available".equals(volumeStatus)) {
-          try {
-            final ConversionTask conversionTask=volumeTask.getTask();
-            if (conversionTask.getImportVolume() != null) {
-              final ImportVolumeTaskDetails details=conversionTask.getImportVolume();
-              final String manifestLocation=DownloadManifestFactory.generateDownloadManifest(new ImageManifestFile(details.getImage().getImportManifestUrl(),ImportImageManifest.INSTANCE),null,conversionTask.getConversionTaskId(),1);
-              ImagingTasks.setDownloadManifestUrl(volumeTask,manifestLocation);
-              ImagingTasks.setState(volumeTask,ImportTaskState.PENDING,null);
-            }
- else             if (conversionTask.getImportInstance() != null) {
-              final ImportInstanceTaskDetails details=conversionTask.getImportInstance();
-              final String manifestLocation=DownloadManifestFactory.generateDownloadManifest(new ImageManifestFile(details.getVolumes().get(0).getImage().getImportManifestUrl(),ImportImageManifest.INSTANCE),null,conversionTask.getConversionTaskId(),1);
-              ImagingTasks.setDownloadManifestUrl(volumeTask,manifestLocation);
-              ImagingTasks.setState(volumeTask,ImportTaskState.PENDING,null);
-            }
- else {
-              LOG.error("Neither importInstance nor importVolume detail is found in the conversion task");
-              ImagingTasks.setState(volumeTask,ImportTaskState.FAILED,"Not enough information is in the ImagingTask");
-            }
-          }
- catch (          final DownloadManifestException e) {
-            LOG.error("Failed to generate download manifest",e);
-            ImagingTasks.setState(volumeTask,ImportTaskState.FAILED,"failed to generate download manifest");
-          }
-        }
- else         if ("creating".equals(volumeStatus)) {
-          ;
-        }
- else {
-          ImagingTasks.setState(volumeTask,ImportTaskState.FAILED,"The volume state is " + volumeStatus);
-        }
-      }
+      if (task instanceof VolumeImagingTask)       processNewVolumeImagingTask((VolumeImagingTask)task);
+ else       if (task instanceof InstanceImagingTask)       processNewInstanceImagingTask((InstanceImagingTask)task);
+ else       throw new Exception("Invalid ImagingTask");
     }
  catch (    final Exception ex) {
+      try {
+        ImagingTasks.transitState(task,ImportTaskState.NEW,ImportTaskState.FAILED,"Failed to create the volume");
+      }
+ catch (      final Exception ex2) {
+        ;
+      }
       LOG.error("Failed to process new task",ex);
     }
   }

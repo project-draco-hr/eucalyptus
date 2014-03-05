@@ -1,0 +1,61 @@
+{
+  Bucket deletingBucket;
+  try {
+    deletingBucket=BucketMetadataManagers.getInstance().transitionBucketToState(bucketToDelete,BucketState.deleting);
+  }
+ catch (  IllegalResourceStateException e) {
+    LOG.error("CorrelationId: " + correlationId + " Unexpected resource state on delete update.",e);
+    throw e;
+  }
+catch (  MetadataOperationFailureException e) {
+    LOG.error("CorrelationId: " + correlationId + " Could not transition bucket "+ bucketToDelete.toString()+ " to 'deleting' state.",e);
+    throw e;
+  }
+  try {
+    ObjectMetadataManagers.getInstance().flushUploads(bucketToDelete);
+    MpuPartMetadataManagers.getInstance().flushAllParts(bucketToDelete);
+  }
+ catch (  Exception e) {
+    LOG.warn("Error flushing MPU parts during bucket deletion operation",e);
+    throw new InternalErrorException(e);
+  }
+  Predicate<Bucket> deleteBucket=new Predicate<Bucket>(){
+    public boolean apply(    Bucket bucket){
+      DeleteBucketResponseType response;
+      DeleteBucketType deleteRequest=new DeleteBucketType();
+      deleteRequest.setBucket(bucket.getBucketUuid());
+      try {
+        backendProvider.deleteBucket(deleteRequest);
+      }
+ catch (      NoSuchEntityException|NoSuchBucketException e) {
+      }
+catch (      S3Exception e) {
+        if (!HttpResponseStatus.NOT_FOUND.equals(e.getStatus())) {
+          LOG.warn("Got error during bucket cleanup. Will retry",e);
+          return false;
+        }
+      }
+      try {
+        BucketMetadataManagers.getInstance().deleteBucketMetadata(bucket);
+        return true;
+      }
+ catch (      Exception e) {
+        LOG.warn("Error removing bucket metadata for bucket " + bucket.getBucketUuid() + " Will retry later");
+      }
+      return false;
+    }
+  }
+;
+  try {
+    Entities.asTransaction(Bucket.class,deleteBucket).apply(deletingBucket);
+  }
+ catch (  Exception e) {
+    try {
+      Bucket foundBucket=BucketMetadataManagers.getInstance().lookupBucket(bucketToDelete.getBucketName());
+      LOG.error("CorrelationId: " + correlationId + " Error deleting bucket "+ bucketToDelete.toString(),e);
+      throw new InternalErrorException(bucketToDelete.getBucketName());
+    }
+ catch (    Exception ex) {
+    }
+  }
+}

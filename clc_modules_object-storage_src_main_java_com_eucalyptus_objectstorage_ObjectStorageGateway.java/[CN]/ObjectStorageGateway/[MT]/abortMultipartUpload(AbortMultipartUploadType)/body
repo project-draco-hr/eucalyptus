@@ -1,41 +1,33 @@
 {
-  AbortMultipartUploadResponseType reply=(AbortMultipartUploadResponseType)request.getReply();
   logRequest(request);
-  ObjectEntity objectEntity=null;
-  Bucket bucket=null;
+  ObjectEntity objectEntity;
+  Bucket bucket;
   try {
-    bucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
+    bucket=BucketMetadataManagers.getInstance().lookupExtantBucket(request.getBucket());
   }
- catch (  NoSuchElementException e) {
+ catch (  NoSuchEntityException|NoSuchElementException e) {
     throw new NoSuchBucketException(request.getBucket());
   }
 catch (  Exception e) {
     throw new InternalErrorException(e.getMessage());
   }
   try {
-    objectEntity=ObjectManagers.getInstance().getObject(bucket,request.getKey(),request.getUploadId());
+    objectEntity=ObjectMetadataManagers.getInstance().lookupUpload(bucket,request.getUploadId());
     request.setKey(objectEntity.getObjectUuid());
+    request.setBucket(bucket.getBucketUuid());
   }
- catch (  NoSuchElementException e) {
-    throw new NoSuchKeyException(request.getBucket() + "/" + request.getKey());
+ catch (  NoSuchEntityException|NoSuchElementException e) {
+    throw new NoSuchUploadException(request.getUploadId());
   }
 catch (  Exception e) {
     throw new InternalErrorException(e.getMessage());
   }
-  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,0)) {
+  if (OsgAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,0)) {
+    ObjectMetadataManagers.getInstance().transitionObjectToState(objectEntity,ObjectState.deleting);
     AbortMultipartUploadResponseType response=ospClient.abortMultipartUpload(request);
-    Bucket bucketWithParts;
+    User requestUser=Contexts.lookup().getUser();
     try {
-      bucketWithParts=BucketManagers.getInstance().get(request.getBucket(),false,null);
-    }
- catch (    NoSuchElementException e) {
-      throw new NoSuchBucketException(request.getBucket());
-    }
-catch (    Exception e) {
-      throw new InternalErrorException();
-    }
-    try {
-      ObjectManagers.getInstance().removeParts(bucketWithParts,request.getUploadId());
+      OsgObjectFactory.getFactory().flushMultipartUpload(ospClient,objectEntity,requestUser);
     }
  catch (    Exception e) {
       throw new InternalErrorException("Could not remove parts for: " + request.getUploadId());

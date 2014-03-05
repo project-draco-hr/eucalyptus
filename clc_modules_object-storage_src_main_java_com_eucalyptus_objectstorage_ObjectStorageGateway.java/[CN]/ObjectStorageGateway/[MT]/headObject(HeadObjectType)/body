@@ -1,26 +1,23 @@
 {
-  logRequest(request);
-  ObjectEntity objectEntity=null;
-  Bucket bucket=null;
+  ObjectEntity objectEntity=getObjectEntityAndCheckPermissions(request,request.getVersionId());
+  if (objectEntity.getIsDeleteMarker()) {
+    throw new NoSuchKeyException(request.getKey());
+  }
+  HeadObjectResponseType reply=request.getReply();
+  request.setKey(objectEntity.getObjectUuid());
+  request.setBucket(objectEntity.getBucket().getBucketUuid());
   try {
-    bucket=BucketManagers.getInstance().get(request.getBucket(),false,null);
-    objectEntity=ObjectManagers.getInstance().get(bucket,request.getKey(),request.getVersionId());
+    HeadObjectResponseType backendReply=ospClient.headObject(request);
+    reply.setMetaData(backendReply.getMetaData());
   }
- catch (  NoSuchElementException e) {
-    throw new NoSuchKeyException(request.getBucket() + "/" + request.getKey()+ "?versionId="+ request.getVersionId());
+ catch (  S3Exception e) {
+    LOG.warn("Error from backend on head request",e);
+    throw new InternalErrorException(e);
   }
-catch (  Exception e) {
-    if (e.getCause() instanceof NoSuchElementException) {
-      throw new NoSuchKeyException(request.getBucket() + "/" + request.getKey()+ "?versionId="+ request.getVersionId());
-    }
-    LOG.error(e);
-    throw new InternalErrorException(request.getBucket() + "/" + request.getKey()+ " , version= "+ request.getVersionId());
-  }
-  if (OSGAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,0)) {
-    request.setKey(objectEntity.getObjectUuid());
-    return ospClient.headObject(request);
-  }
- else {
-    throw new AccessDeniedException(request.getBucket() + "/" + request.getKey()+ "?versionId="+ request.getVersionId());
-  }
+  reply.setLastModified(objectEntity.getObjectModifiedTimestamp());
+  reply.setSize(objectEntity.getSize());
+  reply.setVersionId(objectEntity.getVersionId());
+  reply.setEtag(objectEntity.geteTag());
+  reply.setVersionId(objectEntity.getVersionId());
+  return reply;
 }
