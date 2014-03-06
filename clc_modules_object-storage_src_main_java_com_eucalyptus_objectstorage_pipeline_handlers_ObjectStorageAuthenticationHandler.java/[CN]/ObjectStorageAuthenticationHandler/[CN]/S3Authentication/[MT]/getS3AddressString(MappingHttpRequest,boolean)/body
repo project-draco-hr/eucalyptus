@@ -1,0 +1,64 @@
+{
+  try {
+    String addr=httpRequest.getUri();
+    String targetHost=httpRequest.getHeader(HttpHeaders.Names.HOST);
+    String osgServicePath=ComponentIds.lookup(ObjectStorage.class).getServicePath();
+    String bucket, key;
+    StringBuilder addrString=new StringBuilder();
+    if (targetHost.contains(".objectstorage")) {
+      String hostBucket=targetHost.substring(0,targetHost.indexOf(".objectstorage"));
+      if (hostBucket.length() == 0) {
+        throw new InvalidAddressingHeaderException("Invalid Host header: " + targetHost);
+      }
+ else {
+        addrString.append("/" + hostBucket);
+      }
+    }
+ else {
+      if (removeServicePath && addr.startsWith(osgServicePath)) {
+        addr=addr.substring(osgServicePath.length(),addr.length());
+      }
+    }
+    key=addr.split("\\?",2)[0];
+    if (!Strings.isNullOrEmpty(key)) {
+      addrString.append(key);
+    }
+ else {
+      addrString.append("/");
+    }
+    List<String> canonicalSubresources=new ArrayList<>();
+    String resource;
+    for (    String queryParam : httpRequest.getRawParameters().keySet()) {
+      try {
+        if (ObjectStorageProperties.SubResource.valueOf(queryParam) != null) {
+          canonicalSubresources.add(queryParam);
+        }
+      }
+ catch (      IllegalArgumentException e) {
+      }
+    }
+    if (canonicalSubresources.size() > 0) {
+      Collections.sort(canonicalSubresources);
+      String value;
+      addrString.append("?");
+      for (      String subResource : canonicalSubresources) {
+        value=httpRequest.getRawParameters().get(subResource);
+        addrString.append(subResource);
+        if (!Strings.isNullOrEmpty(value)) {
+          addrString.append("=").append(value);
+        }
+        addrString.append("&");
+      }
+      if (addrString.charAt(addrString.length() - 1) == '&') {
+        addrString.deleteCharAt(addrString.length() - 1);
+      }
+    }
+    return addrString.toString();
+  }
+ catch (  S3Exception e) {
+    throw e;
+  }
+catch (  Exception e) {
+    throw new InternalErrorException(e);
+  }
+}

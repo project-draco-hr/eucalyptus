@@ -32,8 +32,9 @@ catch (    final Exception ex) {
   if (ntpServers != null) {
     ;
   }
-  if ((emi != null && emi.length() > 0) || (instanceType != null && instanceType.length() > 0) || (keyname != null && keyname.length() > 0)|| (ntpServers != null && ntpServers.length() > 0)) {
+  if ((emi != null && emi.length() > 0) || (instanceType != null && instanceType.length() > 0) || (keyname != null && keyname.length() > 0)|| (ntpServers != null && ntpServers.length() > 0)|| (logServer != null && logServer.length() > 0)|| (logServerPort != null && logServerPort.length() > 0)) {
     String asgName=null;
+    LOG.warn("Changing launch configuration");
     try {
       final List<TagDescription> tags=EucalyptusActivityTasks.getInstance().describeAutoScalingTags();
       for (      final TagDescription tag : tags) {
@@ -72,19 +73,26 @@ catch (    final Exception ex) {
         String newKeyname=keyname != null ? keyname : lc.getKeyName();
         String newUserdata=lc.getUserData();
         if (ntpServers != null) {
-          newUserdata=String.format("%s\nntp_server=%s","euca-" + B64.standard.encString("setup-credential"),ntpServers);
-          newUserdata=B64.standard.encString(newUserdata);
+          newUserdata=B64.standard.encString(String.format("%s\n%s",ImagingServiceActions.CREDENTIALS_STR,ImagingServiceActions.getUserDataMap(ntpServers,ImagingServiceProperties.IMAGING_WORKER_LOG_SERVER,ImagingServiceProperties.IMAGING_WORKER_LOG_SERVER_PORT)));
+        }
+        if (logServer != null) {
+          newUserdata=B64.standard.encString(String.format("%s\n%s",ImagingServiceActions.CREDENTIALS_STR,ImagingServiceActions.getUserDataMap(ImagingServiceProperties.IMAGING_WORKER_NTP_SERVER,logServer,ImagingServiceProperties.IMAGING_WORKER_LOG_SERVER_PORT)));
+        }
+        if (logServerPort != null) {
+          newUserdata=B64.standard.encString(String.format("%s\n%s",ImagingServiceActions.CREDENTIALS_STR,ImagingServiceActions.getUserDataMap(ImagingServiceProperties.IMAGING_WORKER_NTP_SERVER,ImagingServiceProperties.IMAGING_WORKER_LOG_SERVER,logServerPort)));
         }
         try {
           EucalyptusActivityTasks.getInstance().createLaunchConfiguration(newEmi,newType,lc.getIamInstanceProfile(),tmpLaunchConfigName,lc.getSecurityGroups().getMember().get(0),newKeyname,newUserdata);
         }
  catch (        final Exception ex) {
+          LOG.warn("Failed to create temporary launch config",ex);
           throw new EucalyptusCloudException("failed to create temporary launch config",ex);
         }
         try {
           EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(asgName,null,asgType.getDesiredCapacity(),tmpLaunchConfigName);
         }
  catch (        final Exception ex) {
+          LOG.warn("Failed to update the autoscaling group",ex);
           throw new EucalyptusCloudException("failed to update the autoscaling group",ex);
         }
         try {
