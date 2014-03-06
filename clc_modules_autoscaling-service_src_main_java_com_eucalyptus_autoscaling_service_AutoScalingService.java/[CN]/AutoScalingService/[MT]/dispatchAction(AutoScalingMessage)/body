@@ -1,20 +1,21 @@
 {
   final AuthContextSupplier user=Contexts.lookup().getAuthContext();
-  if (!Permissions.perhapsAuthorized(PolicySpec.VENDOR_AUTOSCALING,getIamActionByMessageType(message),user)) {
-    throw new AutoScalingException("UnauthorizedOperation",Role.Sender,"You are not authorized to perform this operation.");
+  if (!Permissions.perhapsAuthorized(PolicySpec.VENDOR_AUTOSCALING,getIamActionByMessageType(request),user)) {
+    throw new AutoScalingAuthorizationException("UnauthorizedOperation","You are not authorized to perform this operation.");
   }
-  final Map<String,String> validationErrorsByField=message.validate();
+  final Map<String,String> validationErrorsByField=request.validate();
   if (!validationErrorsByField.isEmpty()) {
-    throw new ClientScalingException("ValidationError",validationErrorsByField.values().iterator().next());
+    throw new AutoScalingClientException("ValidationError",validationErrorsByField.values().iterator().next());
   }
   try {
-    final AutoScalingBackendMessage out=(AutoScalingBackendMessage)mapper.readValue(mapper.valueToTree(message),Class.forName(message.getClass().getName().replace(".common.msgs.",".common.backend.msgs.")));
-    final BaseMessage result=AsyncRequests.sendSyncWithCurrentIdentity(Topology.lookup(AutoScalingBackend.class),out);
-    final AutoScalingMessage response=(AutoScalingMessage)mapper.readValue(mapper.valueToTree(result),message.getReply().getClass());
-    response.setCorrelationId(message.getCorrelationId());
+    final AutoScalingBackendMessage backendRequest=(AutoScalingBackendMessage)BaseMessages.deepCopy(request,getBackendMessageClass(request));
+    final BaseMessage backendResponse=send(backendRequest);
+    final AutoScalingMessage response=(AutoScalingMessage)BaseMessages.deepCopy(backendResponse,request.getReply().getClass());
+    response.setCorrelationId(request.getCorrelationId());
     return response;
   }
  catch (  Exception e) {
+    handleRemoteException(e);
     Exceptions.findAndRethrow(e,EucalyptusWebServiceException.class,EucalyptusCloudException.class);
     throw new EucalyptusCloudException(e);
   }
