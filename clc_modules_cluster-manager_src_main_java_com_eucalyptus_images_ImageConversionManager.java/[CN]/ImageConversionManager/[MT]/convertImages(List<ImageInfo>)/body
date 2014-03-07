@@ -1,0 +1,53 @@
+{
+  for (  final ImageInfo image : images) {
+    if (!(image instanceof MachineImageInfo))     continue;
+    try {
+      final MachineImageInfo machineImage=(MachineImageInfo)image;
+      final String kernelId=machineImage.getKernelId();
+      final String ramdiskId=machineImage.getRamdiskId();
+      if (kernelId == null || ramdiskId == null)       continue;
+      final KernelImageInfo kernel=Images.lookupKernel(kernelId);
+      final RamdiskImageInfo ramdisk=Images.lookupRamdisk(ramdiskId);
+      final ServiceConfiguration osg=Topology.lookup(ObjectStorage.class);
+      final URI osgUri=osg.getUri();
+      final String osgPrefix=String.format("%s://%s:%d%s",osgUri.getScheme(),osgUri.getHost(),osgUri.getPort(),osgUri.getPath());
+      final String kernelManifest=String.format("%s/%s",osgPrefix,kernel.getManifestLocation());
+      final String ramdiskManifest=String.format("%s/%s",osgPrefix,ramdisk.getManifestLocation());
+      final String machineManifest=String.format("%s/%s",osgPrefix,machineImage.getManifestLocation());
+      final String[] tokens=machineImage.getRunManifestLocation().split("/");
+      final String bucket=tokens[0];
+      final String prefix=tokens[1].replace(".manifest.xml","");
+      String taskId=null;
+      try {
+        final ImportImageTask task=new ImportImageTask(machineManifest,kernelManifest,ramdiskManifest,bucket,prefix);
+        task.setMachineImageSize(machineImage.getImageSizeBytes());
+        task.setKernelImageSize(kernel.getImageSizeBytes());
+        task.setRamdiskImageSize(ramdisk.getImageSizeBytes());
+        final CheckedListenableFuture<Boolean> result=task.dispatch();
+        if (result.get()) {
+          taskId=task.getTaskId();
+        }
+      }
+ catch (      final Exception ex) {
+        throw ex;
+      }
+      if (taskId == null)       throw new Exception("ImportImage Task id is null");
+      Images.setConversionTaskId(machineImage.getDisplayName(),taskId);
+    }
+ catch (    final Exception ex) {
+      LOG.error("Failed to convert the image " + image.getDisplayName(),ex);
+      try {
+        this.cleanupBuckets(Lists.newArrayList(image),false);
+      }
+ catch (      final Exception ex2) {
+        ;
+      }
+      try {
+        Images.setImageState(image.getDisplayName(),ImageMetadata.State.failed);
+      }
+ catch (      final Exception ex2) {
+        ;
+      }
+    }
+  }
+}

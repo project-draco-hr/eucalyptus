@@ -1,0 +1,55 @@
+{
+  Set<String> systemBuckets=null;
+  if (images.size() > 0) {
+    try {
+      final ListBucketsTask task=new ListBucketsTask();
+      final CheckedListenableFuture<Boolean> result=task.dispatch();
+      if (result.get()) {
+        final List<String> bucketNames=task.getBuckets();
+        systemBuckets=Sets.newHashSet();
+        systemBuckets.addAll(bucketNames);
+      }
+    }
+ catch (    final Exception ex) {
+      ;
+    }
+  }
+  for (  final ImageInfo image : images) {
+    if (!(image instanceof MachineImageInfo))     continue;
+    try {
+      final MachineImageInfo machineImage=(MachineImageInfo)image;
+      final String runManifestPath=machineImage.getRunManifestLocation();
+      if (runManifestPath == null || runManifestPath.length() <= 0)       continue;
+      final String[] tokens=runManifestPath.split("/");
+      final String bucket=tokens[0];
+      if (!systemBuckets.contains(bucket))       continue;
+      final ListObjectsInBucketTask listObjTask=new ListObjectsInBucketTask(bucket);
+      CheckedListenableFuture<Boolean> result=listObjTask.dispatch();
+      List<String> keysInBucket=null;
+      if (result.get()) {
+        keysInBucket=listObjTask.getKeyNames();
+      }
+ else       throw new Exception("Failed to list bucket");
+      for (      final String key : keysInBucket) {
+        final DeleteObjectTask delObjTask=new DeleteObjectTask(bucket,key);
+        final CheckedListenableFuture<Boolean> delResult=delObjTask.dispatch();
+        if (delResult.get()) {
+          ;
+        }
+ else {
+          throw new Exception("Failed to delete object " + bucket + ":"+ key);
+        }
+      }
+      final DeleteBucketTask delBucketTask=new DeleteBucketTask(bucket);
+      result=delBucketTask.dispatch();
+      if (result.get()) {
+        ;
+      }
+ else       throw new Exception("Failed to delete the bucket " + bucket);
+      if (deregister)       Images.setImageState(image.getDisplayName(),ImageMetadata.State.deregistered);
+    }
+ catch (    final Exception ex) {
+      LOG.error("Failed to cleanup buckets and objects of deregistered image " + image.getDisplayName(),ex);
+    }
+  }
+}

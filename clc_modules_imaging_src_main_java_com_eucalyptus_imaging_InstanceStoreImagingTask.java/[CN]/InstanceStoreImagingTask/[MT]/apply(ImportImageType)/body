@@ -1,0 +1,56 @@
+{
+  final ConversionTask ct=new ConversionTask();
+  String conversionTaskId=ResourceIdentifiers.generateString("import-is");
+  conversionTaskId=conversionTaskId.toLowerCase();
+  ct.setConversionTaskId(conversionTaskId);
+  ct.setExpirationTime(new Date(Dates.hoursFromNow(Integer.parseInt(ImagingServiceProperties.IMPORT_TASK_EXPIRATION_HOURS)).getTime()).toString());
+  ct.setState(ImportTaskState.NEW.getExternalTaskStateName());
+  ct.setStatusMessage("");
+  final ImportInstanceLaunchSpecification launchSpec=input.getLaunchSpecification();
+  final ImportDiskImage image=input.getImage();
+  final ImportInstanceTaskDetails instanceTask=new ImportInstanceTaskDetails();
+  instanceTask.setDescription(input.getDescription());
+  instanceTask.setPlatform(input.getPlatform());
+  final List<ImportInstanceVolumeDetail> volumes=Lists.newArrayList();
+  final List<DiskImageDetail> importImages=input.getImage().getDiskImageSet();
+  for (  final DiskImageDetail imageDetail : importImages) {
+    final ImportInstanceVolumeDetail volumeDetail=new ImportInstanceVolumeDetail();
+    if (launchSpec != null && launchSpec.getPlacement() != null)     volumeDetail.setAvailabilityZone(launchSpec.getPlacement().getAvailabilityZone());
+    volumeDetail.setImage(new DiskImageDescription());
+    volumeDetail.getImage().setFormat(imageDetail.getFormat());
+    String manifestUrl=imageDetail.getImportManifestUrl();
+    volumeDetail.getImage().setImportManifestUrl(manifestUrl);
+    volumeDetail.getImage().setSize(imageDetail.getBytes());
+    volumeDetail.setBytesConverted(0L);
+    volumeDetail.setVolume(new DiskImageVolumeDescription());
+    volumeDetail.setStatus(ImportTaskState.NEW.getExternalTaskStateName());
+    volumes.add(volumeDetail);
+  }
+  instanceTask.setVolumes((ArrayList<ImportInstanceVolumeDetail>)volumes);
+  ct.setImportInstance(instanceTask);
+  final InstanceStoreImagingTask newTask=new InstanceStoreImagingTask(Contexts.lookup().getUserFullName(),ct);
+  newTask.serializeTaskToJSON();
+  if (launchSpec != null) {
+    if (launchSpec.getArchitecture() == null || launchSpec.getArchitecture().length() <= 0)     newTask.setLaunchSpecArchitecture("i386");
+ else     newTask.setLaunchSpecArchitecture(launchSpec.getArchitecture());
+    if (launchSpec.getUserData() != null && launchSpec.getUserData().getData() != null)     newTask.setLaunchSpecUserData(launchSpec.getUserData().getData());
+    newTask.setLaunchSpecInstanceType(launchSpec.getInstanceType());
+    if (launchSpec.getPlacement() != null)     newTask.setLaunchSpecAvailabilityZone(launchSpec.getPlacement().getAvailabilityZone());
+    if (launchSpec.getMonitoring() != null)     newTask.setLaunchSpecMonitoringEnabled(launchSpec.getMonitoring().getEnabled());
+    if (launchSpec.getGroupSet() != null) {
+      for (      final ImportInstanceGroup group : launchSpec.getGroupSet()) {
+        if (group.getGroupName() != null)         newTask.addLaunchSpecGroupName(group.getGroupName());
+ else         if (group.getGroupId() != null)         newTask.addLaunchSpecGroupName(group.getGroupId());
+      }
+    }
+    if (launchSpec.getSubnetId() != null)     LOG.warn("SubnetId is not supported for import-instance");
+    if (launchSpec.getInstanceInitiatedShutdownBehavior() != null)     LOG.warn("InitiatedShutdownBehavior is not supported for import-instance");
+    if (launchSpec.getPrivateIpAddress() != null)     LOG.warn("Private Ip address is not supported for import-instance");
+  }
+  if (image.getConvertedImage() != null) {
+    newTask.setDestinationBucket(image.getConvertedImage().getBucket());
+    final String prefix=image.getConvertedImage().getPrefix();
+    if (prefix != null && prefix.length() > 0)     newTask.setDestinationPrefix(prefix);
+  }
+  return newTask;
+}

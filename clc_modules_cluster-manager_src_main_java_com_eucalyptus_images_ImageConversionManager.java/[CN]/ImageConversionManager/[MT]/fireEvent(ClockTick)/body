@@ -1,0 +1,57 @@
+{
+  if (!(Bootstrap.isFinished() && Topology.isEnabled(Eucalyptus.class)))   return;
+  final List<ImageInfo> partitionedImages=getPartitionedImages();
+  final List<ImageInfo> newConversion=Lists.newArrayList(Collections2.filter(partitionedImages,new Predicate<ImageInfo>(){
+    @Override public boolean apply(    ImageInfo arg0){
+      if (arg0 instanceof MachineImageInfo) {
+        final MachineImageInfo image=(MachineImageInfo)arg0;
+        return ImageMetadata.State.pending_conversion.equals(image.getState()) && (image.getImageConversionId() == null || image.getImageConversionId().length() <= 0);
+      }
+ else       return false;
+    }
+  }
+));
+  final List<ImageInfo> inConversion=Lists.newArrayList(Collections2.filter(partitionedImages,new Predicate<ImageInfo>(){
+    @Override public boolean apply(    ImageInfo arg0){
+      if (arg0 instanceof MachineImageInfo) {
+        final MachineImageInfo image=(MachineImageInfo)arg0;
+        return (image.getImageConversionId() != null && image.getImageConversionId().length() > 0) && (ImageMetadata.State.pending_conversion.equals(image.getState()) || ImageMetadata.State.deregistered_cleanup.equals(image.getState()));
+      }
+ else       return false;
+    }
+  }
+));
+  if (!Topology.isEnabled(Imaging.class) && !(newConversion.isEmpty() && inConversion.isEmpty())) {
+    LOG.warn("To convert partitioned images, Imaging Service should be enabled");
+    return;
+  }
+  if (!Topology.isEnabled(ObjectStorage.class) && !newConversion.isEmpty()) {
+    LOG.warn("To convert partitioned images, Object Storage Service should be enabled");
+    return;
+  }
+  try {
+    createBuckets(newConversion);
+    convertImages(newConversion);
+  }
+ catch (  final Exception ex) {
+    LOG.error("Failed to convert images",ex);
+  }
+  try {
+    checkConversion(inConversion);
+  }
+ catch (  final Exception ex) {
+    LOG.error("Failed to check and update images in conversion",ex);
+  }
+  final List<ImageInfo> cleanupImages=Lists.newArrayList(Collections2.filter(this.getDeregisteredCleanupImages(),new Predicate<ImageInfo>(){
+    @Override public boolean apply(    ImageInfo arg0){
+      return !(ImageMetadata.State.pending_conversion.equals(arg0.getLastState()));
+    }
+  }
+));
+  try {
+    cleanupBuckets(cleanupImages,true);
+  }
+ catch (  final Exception ex) {
+    LOG.error("Failed to clean up objects and bucket of deregistered images",ex);
+  }
+}
