@@ -1,31 +1,25 @@
 {
   DNSProperties.update();
-  EntityWrapper<ZoneInfo> db=EntityWrapper.get(ZoneInfo.class);
-  try {
-    ZoneInfo zInfo=new ZoneInfo();
-    List<ZoneInfo> zoneInfos=db.query(zInfo);
+  try (final TransactionResource db=Entities.transactionFor(ZoneInfo.class)){
+    List<ZoneInfo> zoneInfos=Entities.query(new ZoneInfo());
     for (    ZoneInfo zoneInfo : zoneInfos) {
       String name=zoneInfo.getName();
-      EntityWrapper<SOARecordInfo> dbSOA=db.recast(SOARecordInfo.class);
       SOARecordInfo searchSOARecordInfo=new SOARecordInfo();
       searchSOARecordInfo.setName(name);
-      SOARecordInfo soaRecordInfo=dbSOA.getUnique(searchSOARecordInfo);
-      EntityWrapper<NSRecordInfo> dbNS=db.recast(NSRecordInfo.class);
+      SOARecordInfo soaRecordInfo=Entities.uniqueResult(searchSOARecordInfo);
       NSRecordInfo searchNSRecordInfo=new NSRecordInfo();
       searchNSRecordInfo.setName(name);
-      NSRecordInfo nsRecordInfo=dbNS.getUnique(searchNSRecordInfo);
+      NSRecordInfo nsRecordInfo=Entities.uniqueResult(searchNSRecordInfo);
       ZoneManager.addZone(zoneInfo,soaRecordInfo,nsRecordInfo);
     }
-    EntityWrapper<ARecordInfo> dbARec=db.recast(ARecordInfo.class);
     ARecordInfo searchARecInfo=new ARecordInfo();
-    List<ARecordInfo> aRecInfos=dbARec.query(searchARecInfo);
+    List<ARecordInfo> aRecInfos=Entities.query(searchARecInfo);
     for (    ARecordInfo aRecInfo : aRecInfos) {
       ZoneManager.addRecord(aRecInfo,false);
     }
     db.commit();
   }
- catch (  EucalyptusCloudException ex) {
-    db.rollback();
+ catch (  NoSuchElementException|TransactionException ex) {
     LOG.error(ex);
   }
   final EntityTransaction db2=Entities.get(ARecordNameInfo.class);
