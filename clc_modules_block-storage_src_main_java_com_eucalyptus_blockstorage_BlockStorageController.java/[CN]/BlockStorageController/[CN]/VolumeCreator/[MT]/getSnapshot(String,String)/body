@@ -1,0 +1,39 @@
+{
+  String tmpUncompressedFileName=null;
+  File tmpUncompressedFile=null;
+  String tmpCompressedFileName=null;
+  File tmpCompressedFile=null;
+  int retry=0;
+  int maxRetry=5;
+  do {
+    tmpUncompressedFileName=StorageProperties.storageRootDirectory + File.separator + key+ "-"+ String.valueOf(randomGenerator.nextInt());
+    tmpUncompressedFile=new File(tmpUncompressedFileName);
+    tmpCompressedFileName=tmpUncompressedFileName + ".gz";
+    tmpCompressedFile=new File(tmpCompressedFileName);
+  }
+ while (tmpCompressedFile.exists() && retry++ < maxRetry);
+  if (retry >= maxRetry) {
+    throw new EucalyptusCloudException("Could not get a temporary file for snapshot " + snapshotId + " download after "+ maxRetry+ " attempts");
+  }
+  try {
+    snapshotOps.downloadSnapshot(bucket,key,tmpCompressedFile);
+  }
+ catch (  Exception ex) {
+    cleanupFile(tmpCompressedFile);
+    throw new EucalyptusCloudException("Failed to download snapshot " + snapshotId + " from objectstorage. bucket="+ bucket+ ", key="+ key,ex);
+  }
+  try {
+    CommandOutput output=SystemUtil.runWithRawOutput(new String[]{"/bin/gunzip","-f",tmpCompressedFile.getAbsolutePath()});
+    if (output.returnValue != 0) {
+      throw new EucalyptusCloudException("Failed to uncompress snapshot " + snapshotId + " due to: "+ output.error);
+    }
+  }
+ catch (  Exception ex) {
+    cleanupFile(tmpUncompressedFile);
+    throw new EucalyptusCloudException("Failed to uncompress snapshot " + snapshotId,ex);
+  }
+ finally {
+    cleanupFile(tmpCompressedFile);
+  }
+  return tmpUncompressedFileName;
+}

@@ -1,18 +1,17 @@
 {
   final AuthContextSupplier user=Contexts.lookup().getAuthContext();
-  if (!Permissions.perhapsAuthorized(PolicySpec.VENDOR_EC2,getIamActionByMessageType(message),user)) {
+  if (!Permissions.perhapsAuthorized(PolicySpec.VENDOR_EC2,getIamActionByMessageType(request),user)) {
     throw new ComputeServiceAuthorizationException("UnauthorizedOperation","You are not authorized to perform this operation.");
   }
   try {
-    final Binding binding=BindingManager.getDefaultBinding();
-    final Class eucaClass=binding.getElementClass("Eucalyptus." + message.getClass().getSimpleName());
-    final BaseMessage eucaMessage=(BaseMessage)mapper.readValue(mapper.valueToTree(message),eucaClass);
-    final BaseMessage result=AsyncRequests.sendSyncWithCurrentIdentity(Topology.lookup(Eucalyptus.class),eucaMessage);
-    final ComputeMessage response=(ComputeMessage)mapper.readValue(mapper.valueToTree(result),message.getReply().getClass());
-    response.setCorrelationId(message.getCorrelationId());
+    final BaseMessage backendRequest=BaseMessages.deepCopy(request,getBackendMessageClass(request));
+    final BaseMessage backendResponse=send(backendRequest);
+    final ComputeMessage response=(ComputeMessage)BaseMessages.deepCopy(backendResponse,request.getReply().getClass());
+    response.setCorrelationId(request.getCorrelationId());
     return response;
   }
  catch (  Exception e) {
+    handleRemoteException(e);
     Exceptions.findAndRethrow(e,EucalyptusWebServiceException.class,EucalyptusCloudException.class);
     throw new EucalyptusCloudException(e);
   }
