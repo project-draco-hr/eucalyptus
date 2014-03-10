@@ -1,11 +1,14 @@
 {
+  Map<String,Boolean> conditionMap=StackEntityHelper.jsonToConditionMap(template.getStackEntity().getConditionMapJson());
+  Map<String,String> pseudoParameterMap=StackEntityHelper.jsonToPseudoParameterMap(template.getStackEntity().getPseudoParameterMapJson());
+  Map<String,StackEntity.Parameter> parameterMap=StackEntityHelper.jsonToParameterMap(template.getStackEntity().getParametersJson());
   JsonNode resourcesJsonNode=JsonHelper.checkObject(templateJsonNode,TemplateSection.Resources.toString());
   List<String> resourceKeys=(List<String>)Lists.newArrayList(resourcesJsonNode.fieldNames());
-  Set<String> commonParametersAndResources=Sets.intersection(Sets.newHashSet(resourceKeys),Sets.union(template.getParameterMap().keySet(),template.getPseudoParameterMap().keySet()));
+  Set<String> commonParametersAndResources=Sets.intersection(Sets.newHashSet(resourceKeys),Sets.union(parameterMap.keySet(),pseudoParameterMap.keySet()));
   if (!commonParametersAndResources.isEmpty()) {
     throw new ValidationErrorException("Template error: all resources and parameters must have unique names. " + "Common name(s):" + commonParametersAndResources);
   }
-  DependencyManager resourceDependencies=template.getResourceDependencyManager();
+  DependencyManager resourceDependencies=new DependencyManager();
   for (  String resourceKey : resourceKeys) {
     resourceDependencies.addNode(resourceKey);
   }
@@ -19,7 +22,7 @@
         for (int i=0; i < dependsOnJsonNode.size(); i++) {
           if (dependsOnJsonNode.get(i) != null && dependsOnJsonNode.get(i).isTextual()) {
             String dependeningOnResourceName=dependsOnJsonNode.get(i).textValue();
-            if (!template.getResourceMap().containsKey(dependeningOnResourceName)) {
+            if (!template.getResourceInfoMap().containsKey(dependeningOnResourceName)) {
               unresolvedResourceDependencies.add(dependeningOnResourceName);
             }
  else {
@@ -33,7 +36,7 @@
       }
  else       if (dependsOnJsonNode.isTextual()) {
         String dependeningOnResourceName=dependsOnJsonNode.textValue();
-        if (!template.getResourceMap().containsKey(dependeningOnResourceName)) {
+        if (!template.getResourceInfoMap().containsKey(dependeningOnResourceName)) {
           unresolvedResourceDependencies.add(dependeningOnResourceName);
         }
  else {
@@ -44,7 +47,12 @@
         throw new ValidationErrorException("Template format error: DependsOn must be a string or list of strings.");
       }
     }
-    ResourceInfo resourceInfo=template.getResourceMap().get(resourceKey);
+    ResourceInfo resourceInfo=template.getResourceInfoMap().get(resourceKey);
+    String description=JsonHelper.getString(resourceJsonNode,ResourceKey.Description.toString());
+    if (description != null && description.length() > 4000) {
+      throw new ValidationErrorException("Template format error: " + ResourceKey.Description + " must be no "+ "longer than 4000 characters.");
+    }
+    resourceInfo.setDescription(description);
     JsonNode metadataNode=JsonHelper.checkObject(resourceJsonNode,ResourceKey.Metadata.toString());
     if (metadataNode != null) {
       FunctionEvaluation.validateNonConditionSectionArgTypesWherePossible(metadataNode);
@@ -76,10 +84,10 @@
     }
     String conditionKey=JsonHelper.getString(resourceJsonNode,ResourceKey.Condition.toString());
     if (conditionKey != null) {
-      if (!template.getConditionMap().containsKey(conditionKey)) {
+      if (!conditionMap.containsKey(conditionKey)) {
         throw new ValidationErrorException("Template format error: Condition " + conditionKey + "  is not defined.");
       }
-      resourceInfo.setAllowedByCondition(template.getConditionMap().get(conditionKey));
+      resourceInfo.setAllowedByCondition(conditionMap.get(conditionKey));
     }
  else {
       resourceInfo.setAllowedByCondition(Boolean.TRUE);
@@ -94,4 +102,5 @@
  catch (  CyclicDependencyException ex) {
     throw new ValidationErrorException("Circular dependency between resources: " + ex.getMessage());
   }
+  template.getStackEntity().setResourceDependencyManagerJson(StackEntityHelper.resourceDependencyManagerToJson(resourceDependencies));
 }
