@@ -1,47 +1,70 @@
 {
   if (VmStateSet.DONE.apply(vm)) {
-    try {
-      if (vm.getTransientVolumeState() != null && vm.getTransientVolumeState().getAttachments() != null && !vm.getTransientVolumeState().getAttachments().isEmpty()) {
-        Set<VmVolumeAttachment> transientVolumes=new HashSet<VmVolumeAttachment>(vm.getTransientVolumeState().getAttachments());
-        for (        VmVolumeAttachment attachment : transientVolumes) {
-          try {
-            final Volume volume=Volumes.lookup(null,attachment.getVolumeId());
-            if (State.BUSY.equals(volume.getState())) {
-              volume.setState(State.EXTANT);
-            }
-          }
- catch (          Exception ex) {
-            LOG.error(vm.getInstanceId() + ": Failed to cleanup transient volume attachment for " + attachment.getVolumeId(),ex);
-          }
-        }
+    final Collection<String> volumesToDelete=Sets.newTreeSet();
+    try (final TransactionResource db=Entities.distinctTransactionFor(VmInstance.class)){
+      final VmInstance instance=Entities.merge(vm);
+      if (instance.getTransientVolumeState() != null) {
+        cleanUpAttachedVolumes(instance.getInstanceId(),"transient",instance.getTransientVolumeState().getAttachments(),deleteOnTerminateFilter(false));
+        addMatchingVolumeIds(volumesToDelete,instance.getTransientVolumeState().getAttachments(),deleteOnTerminateFilter(true));
       }
-      LOG.info("Before, persistent volumes hashcode : " + vm.getBootRecord().getPersistentVolumes().hashCode());
-      if (vm.getBootRecord() != null && vm.getBootRecord().getPersistentVolumes() != null && !vm.getBootRecord().getPersistentVolumes().isEmpty()) {
-        Set<VmVolumeAttachment> persistentVolumes=new HashSet<VmVolumeAttachment>(vm.getBootRecord().getPersistentVolumes());
-        final ServiceConfiguration sc=Topology.lookup(Storage.class,vm.lookupPartition());
-        for (        VmVolumeAttachment attachment : persistentVolumes) {
-          if (attachment.getDeleteOnTerminate()) {
-            try {
-              Volume volume=Volumes.lookup(null,attachment.getVolumeId());
-              LOG.debug(vm.getInstanceId() + ": Firing delete request for " + attachment.getVolumeId());
-              DeleteStorageVolumeResponseType reply=AsyncRequests.sendSync(sc,new DeleteStorageVolumeType(attachment.getVolumeId()));
-              if (null != reply && reply.get_return()) {
-                Volumes.annihilateStorageVolume(volume);
+      if (instance.getBootRecord() != null) {
+        cleanUpAttachedVolumes(instance.getInstanceId(),"persistent",instance.getBootRecord().getPersistentVolumes(),deleteOnTerminateFilter(false));
+        addMatchingVolumeIds(volumesToDelete,instance.getBootRecord().getPersistentVolumes(),deleteOnTerminateFilter(true));
+      }
+      db.commit();
+    }
+ catch (    Exception ex) {
+      LOG.error(vm.getInstanceId() + ": Failed to cleanup attached volumes",ex);
+    }
+    try {
+      if (!volumesToDelete.isEmpty()) {
+        LOG.debug(vm.getInstanceId() + ": Cleanup for delete on terminate volumes.");
+        for (        final String volumeId : volumesToDelete) {
+          try {
+            LOG.debug(vm.getInstanceId() + ": Firing delete request for " + volumeId);
+            AsyncRequests.newRequest(new MessageCallback<DeleteStorageVolumeType,DeleteStorageVolumeResponseType>(new DeleteStorageVolumeType(volumeId)){
+              @Override public void initialize(              final DeleteStorageVolumeType request){
               }
+              @Override public void fire(              final DeleteStorageVolumeResponseType response){
+                Function<DeleteStorageVolumeResponseType,Void> deleteVolume=new Function<DeleteStorageVolumeResponseType,Void>(){
+                  @Nullable @Override public Void apply(                  final DeleteStorageVolumeResponseType deleteStorageVolumeResponseType){
+                    final Volume volume=Volumes.lookup(null,volumeId);
+                    if (null != response && response.get_return()) {
+                      Volumes.annihilateStorageVolume(volume);
+                    }
  else {
-                LOG.error(vm.getInstanceId() + ": Failed to delete volume " + attachment.getVolumeId());
+                      LOG.error(vm.getInstanceId() + ": Failed to delete volume " + volumeId);
+                    }
+                    VmInstance instance=Entities.merge(vm);
+                    if (instance.getTransientVolumeState() != null && instance.getTransientVolumeState().getAttachments() != null) {
+                      Iterables.removeIf(instance.getTransientVolumeState().getAttachments(),volumeIdFilter(volumeId));
+                    }
+                    if (instance.getBootRecord() != null && instance.getBootRecord().getPersistentVolumes() != null) {
+                      Iterables.removeIf(instance.getBootRecord().getPersistentVolumes(),volumeIdFilter(volumeId));
+                    }
+                    return null;
+                  }
+                }
+;
+                Entities.asTransaction(Volume.class,deleteVolume).apply(response);
+              }
+              @Override public void fireException(              final Throwable throwable){
+                LOG.error(vm.getInstanceId() + ": Failed to delete volume " + volumeId,throwable);
               }
             }
- catch (            Exception ex) {
-              LOG.error(vm.getInstanceId() + ": Failed to cleanup persistent volume attachment for " + attachment.getVolumeId(),ex);
-            }
+).dispatch(Topology.lookup(Storage.class,vm.lookupPartition()));
+          }
+ catch (          NoSuchElementException e) {
+            LOG.debug(vm.getInstanceId() + ": Persistent volume not found for cleanup " + volumeId);
+          }
+catch (          Exception ex) {
+            LOG.error(vm.getInstanceId() + ": Failed to cleanup persistent volume attachment for " + volumeId,ex);
           }
         }
       }
     }
  catch (    Exception ex) {
       LOG.error(vm.getInstanceId() + ": Failed to cleanup attached volumes",ex);
-      LOG.info("Exception, persistent volumes hashcode : " + vm.getBootRecord().getPersistentVolumes().hashCode());
     }
   }
 }
