@@ -4,46 +4,47 @@
   String name=request.getName() + DNSProperties.DOMAIN + ".";
   String alias=request.getAlias() + DNSProperties.DOMAIN + ".";
   long ttl=request.getTtl();
-  EntityWrapper<CNAMERecordInfo> db=EntityWrapper.get(CNAMERecordInfo.class);
   CNAMERecordInfo cnameRecordInfo=new CNAMERecordInfo();
   cnameRecordInfo.setName(name);
   cnameRecordInfo.setAlias(alias);
   cnameRecordInfo.setZone(zone);
-  List<CNAMERecordInfo> cnamerecords=db.query(cnameRecordInfo);
-  if (cnamerecords.size() > 0) {
-    cnameRecordInfo=cnamerecords.get(0);
-    if (!zone.equals(cnameRecordInfo.getZone())) {
-      db.rollback();
-      throw new EucalyptusCloudException("Sorry, record already associated with a zone. Remove the record and try again.");
-    }
-    cnameRecordInfo.setAlias(alias);
-    cnameRecordInfo.setTtl(ttl);
-    try {
-      CNAMERecord cnameRecord=new CNAMERecord(Name.fromString(name),DClass.IN,ttl,Name.fromString(alias));
-      ZoneManager.updateCNAMERecord(zone,cnameRecord);
-    }
- catch (    Exception ex) {
-      LOG.error(ex);
-    }
-  }
- else {
-    try {
-      CNAMERecordInfo searchCNAMERecInfo=new CNAMERecordInfo();
-      searchCNAMERecInfo.setZone(zone);
-      CNAMERecord record=new CNAMERecord(new Name(name),DClass.IN,ttl,Name.fromString(alias));
-      ZoneManager.addRecord(zone,record,false);
-      cnameRecordInfo=new CNAMERecordInfo();
-      cnameRecordInfo.setName(name);
+  try (final TransactionResource db=Entities.transactionFor(CNAMERecordInfo.class)){
+    List<CNAMERecordInfo> cnamerecords=Entities.query(cnameRecordInfo);
+    if (cnamerecords.size() > 0) {
+      cnameRecordInfo=cnamerecords.get(0);
+      if (!zone.equals(cnameRecordInfo.getZone())) {
+        db.rollback();
+        throw new EucalyptusCloudException("Sorry, record already associated with a zone. Remove the record and try again.");
+      }
       cnameRecordInfo.setAlias(alias);
       cnameRecordInfo.setTtl(ttl);
-      cnameRecordInfo.setZone(zone);
-      cnameRecordInfo.setRecordclass(DClass.IN);
-      db.add(cnameRecordInfo);
+      try {
+        CNAMERecord cnameRecord=new CNAMERecord(Name.fromString(name),DClass.IN,ttl,Name.fromString(alias));
+        ZoneManager.updateCNAMERecord(zone,cnameRecord);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex);
+      }
     }
- catch (    Exception ex) {
-      LOG.error(ex);
+ else {
+      try {
+        CNAMERecordInfo searchCNAMERecInfo=new CNAMERecordInfo();
+        searchCNAMERecInfo.setZone(zone);
+        CNAMERecord record=new CNAMERecord(new Name(name),DClass.IN,ttl,Name.fromString(alias));
+        ZoneManager.addRecord(zone,record,false);
+        cnameRecordInfo=new CNAMERecordInfo();
+        cnameRecordInfo.setName(name);
+        cnameRecordInfo.setAlias(alias);
+        cnameRecordInfo.setTtl(ttl);
+        cnameRecordInfo.setZone(zone);
+        cnameRecordInfo.setRecordclass(DClass.IN);
+        Entities.persist(cnameRecordInfo);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex);
+      }
     }
+    db.commit();
   }
-  db.commit();
-  return reply;
+   return reply;
 }
