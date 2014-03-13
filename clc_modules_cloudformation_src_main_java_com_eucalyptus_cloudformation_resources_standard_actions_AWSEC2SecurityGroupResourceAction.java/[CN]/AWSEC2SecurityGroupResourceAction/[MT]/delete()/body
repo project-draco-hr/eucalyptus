@@ -1,3 +1,61 @@
 {
-  throw new UnsupportedOperationException();
+  if (info.getPhysicalResourceId() == null)   return;
+  ServiceConfiguration configuration=Topology.lookup(Eucalyptus.class);
+  String groupName=info.getPhysicalResourceId();
+  String groupId=info.getGroupId();
+  DescribeSecurityGroupsType describeSecurityGroupsType=new DescribeSecurityGroupsType();
+  describeSecurityGroupsType.setEffectiveUserId(info.getEffectiveUserId());
+  DescribeSecurityGroupsResponseType describeSecurityGroupsResponseType=AsyncRequests.<DescribeSecurityGroupsType,DescribeSecurityGroupsResponseType>sendSync(configuration,describeSecurityGroupsType);
+  ArrayList<SecurityGroupItemType> securityGroupItemTypeArrayList=describeSecurityGroupsResponseType.getSecurityGroupInfo();
+  Map<String,String> nameToIdMap=Maps.newHashMap();
+  if (securityGroupItemTypeArrayList != null) {
+    for (    SecurityGroupItemType securityGroupItemType : securityGroupItemTypeArrayList) {
+      nameToIdMap.put(securityGroupItemType.getGroupName(),securityGroupItemType.getGroupId());
+    }
+  }
+  if (!nameToIdMap.containsKey(groupName) || !nameToIdMap.get(groupName).equals(groupId))   return;
+  if (properties.getSecurityGroupIngress() != null) {
+    for (    EC2SecurityGroupRule ec2SecurityGroupRule : properties.getSecurityGroupIngress()) {
+      RevokeSecurityGroupIngressType revokeSecurityGroupIngressType=new RevokeSecurityGroupIngressType();
+      revokeSecurityGroupIngressType.setEffectiveUserId(getResourceInfo().getEffectiveUserId());
+      if (groupName != null && !groupName.isEmpty()) {
+        revokeSecurityGroupIngressType.setGroupName(groupName);
+      }
+      if (groupId != null && !groupId.isEmpty()) {
+        revokeSecurityGroupIngressType.setGroupId(groupId);
+      }
+      int fromPort=-1;
+      String ipProtocol=ec2SecurityGroupRule.getIpProtocol();
+      try {
+        fromPort=Integer.parseInt(ec2SecurityGroupRule.getFromPort());
+      }
+ catch (      Exception ignore) {
+      }
+      int toPort=-1;
+      try {
+        toPort=Integer.parseInt(ec2SecurityGroupRule.getToPort());
+      }
+ catch (      Exception ignore) {
+      }
+      String sourceSecurityGroupName=ec2SecurityGroupRule.getSourceSecurityGroupName();
+      String sourceSecurityGroupOwnerId=ec2SecurityGroupRule.getSourceSecurityGroupOwnerId();
+      if (sourceSecurityGroupOwnerId == null && sourceSecurityGroupName != null) {
+        sourceSecurityGroupOwnerId=stackEntity.getAccountId();
+      }
+      String cidrIp=ec2SecurityGroupRule.getCidrIp();
+      IpPermissionType ipPermissionType=new IpPermissionType(ipProtocol,fromPort,toPort);
+      if (sourceSecurityGroupName != null) {
+        ipPermissionType.setGroups(Lists.newArrayList(new UserIdGroupPairType(sourceSecurityGroupOwnerId,sourceSecurityGroupName,null)));
+      }
+      if (cidrIp != null) {
+        ipPermissionType.setCidrIpRanges(Lists.newArrayList(cidrIp));
+      }
+      revokeSecurityGroupIngressType.setIpPermissions(Lists.newArrayList(ipPermissionType));
+      RevokeSecurityGroupIngressResponseType revokeSecurityGroupIngressResponseType=AsyncRequests.<RevokeSecurityGroupIngressType,RevokeSecurityGroupIngressResponseType>sendSync(configuration,revokeSecurityGroupIngressType);
+    }
+  }
+  DeleteSecurityGroupType deleteSecurityGroupType=new DeleteSecurityGroupType();
+  deleteSecurityGroupType.setGroupName(groupName);
+  deleteSecurityGroupType.setEffectiveUserId(getResourceInfo().getEffectiveUserId());
+  DeleteSecurityGroupResponseType deleteSecurityGroupResponseType=AsyncRequests.<DeleteSecurityGroupType,DeleteSecurityGroupResponseType>sendSync(configuration,deleteSecurityGroupType);
 }
