@@ -1,21 +1,23 @@
 {
-  EntityWrapper<SystemConfiguration> confDb=EntityWrapper.get(SystemConfiguration.class);
-  SystemConfiguration conf=null;
   try {
-    conf=confDb.getUnique(new SystemConfiguration());
-    SystemConfiguration.validateSystemConfiguration(conf);
-    confDb.commit();
+    try (final TransactionResource db=Entities.transactionFor(SystemConfiguration.class)){
+      SystemConfiguration conf=Entities.uniqueResult(new SystemConfiguration());
+      SystemConfiguration.validateSystemConfiguration(conf);
+      db.commit();
+      return conf;
+    }
+ catch (    NoSuchElementException e) {
+      try (final TransactionResource db=Entities.transactionFor(SystemConfiguration.class)){
+        LOG.warn("Failed to get system configuration. Loading defaults.");
+        SystemConfiguration conf=SystemConfiguration.validateSystemConfiguration(null);
+        Entities.persist(conf);
+        db.commit();
+        return conf;
+      }
+     }
   }
- catch (  EucalyptusCloudException e) {
-    LOG.warn("Failed to get system configuration. Loading defaults.");
-    conf=SystemConfiguration.validateSystemConfiguration(null);
-    confDb.add(conf);
-    confDb.commit();
-  }
-catch (  Exception t) {
-    LOG.error("Unable to get system configuration.");
-    confDb.rollback();
+ catch (  Exception t) {
+    LOG.error("Unable to get system configuration.",t);
     return validateSystemConfiguration(null);
   }
-  return conf;
 }
