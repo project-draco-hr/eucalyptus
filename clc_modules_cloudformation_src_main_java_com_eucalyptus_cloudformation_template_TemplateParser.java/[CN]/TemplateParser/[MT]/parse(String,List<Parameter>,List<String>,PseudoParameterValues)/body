@@ -1,0 +1,45 @@
+{
+  Template template=new Template();
+  template.setStackEntity(new StackEntity());
+  template.setResourceInfoMap(Maps.<String,ResourceInfo>newLinkedHashMap());
+  Map<String,String> paramMap=Maps.newHashMap();
+  JsonNode templateJsonNode=null;
+  try {
+    templateJsonNode=objectMapper.readTree(templateBody);
+  }
+ catch (  IOException ex) {
+    throw new ValidationErrorException(ex.getMessage());
+  }
+  if (!templateJsonNode.isObject()) {
+    throw new ValidationErrorException("Template body is not a JSON object");
+  }
+  template.getStackEntity().setTemplateBody(templateBody);
+  addPseudoParameters(template,pseudoParameterValues);
+  buildResourceMap(template,templateJsonNode);
+  parseValidTopLevelKeys(templateJsonNode);
+  parseVersion(template,templateJsonNode);
+  parseDescription(template,templateJsonNode);
+  parseMappings(template,templateJsonNode);
+  parseParameters(userParameters,paramMap,template,templateJsonNode,false);
+  parseConditions(template,templateJsonNode,false);
+  parseResources(template,templateJsonNode,false);
+  List<String> requiredCapabilities=Lists.newArrayList();
+  for (  ResourceInfo resourceInfo : template.getResourceInfoMap().values()) {
+    if (resourceInfo.getRequiredCapabilities() != null) {
+      requiredCapabilities.addAll(resourceInfo.getRequiredCapabilities());
+    }
+  }
+  List<String> missingRequiredCapabilities=Lists.newArrayList();
+  if (!requiredCapabilities.isEmpty()) {
+    for (    String requiredCapability : requiredCapabilities) {
+      if (capabilities == null || !capabilities.contains(requiredCapability)) {
+        missingRequiredCapabilities.add(requiredCapability);
+      }
+    }
+  }
+  if (!missingRequiredCapabilities.isEmpty()) {
+    throw new InsufficientCapabilitiesException("Required capabilities:" + missingRequiredCapabilities);
+  }
+  parseOutputs(template,templateJsonNode);
+  return template;
+}

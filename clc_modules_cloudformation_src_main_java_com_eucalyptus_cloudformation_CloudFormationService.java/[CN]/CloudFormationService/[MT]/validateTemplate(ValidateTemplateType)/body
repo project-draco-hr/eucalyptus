@@ -3,6 +3,29 @@
   try {
     final Context ctx=Contexts.lookup();
     checkActionPermission(PolicySpec.CLOUDFORMATION_VALIDATETEMPLATE,ctx);
+    final User user=ctx.getUser();
+    final String userId=user.getUserId();
+    final String accountId=user.getAccount().getAccountNumber();
+    final String templateBody=request.getTemplateBody();
+    String stackName="stackName";
+    if (stackName == null)     throw new ValidationErrorException("Stack name is null");
+    if (templateBody == null)     throw new ValidationErrorException("template body is null");
+    final String stackIdLocal=UUID.randomUUID().toString();
+    final String stackId="arn:aws:cloudformation:" + REGION + ":"+ accountId+ ":stack/"+ stackName+ "/"+ stackIdLocal;
+    final PseudoParameterValues pseudoParameterValues=new PseudoParameterValues();
+    pseudoParameterValues.setAccountId(accountId);
+    pseudoParameterValues.setStackName(stackName);
+    pseudoParameterValues.setStackId(stackId);
+    ArrayList<String> notificationArns=Lists.newArrayList();
+    pseudoParameterValues.setRegion(REGION);
+    final List<String> defaultRegionAvailabilityZones=describeAvailabilityZones(userId);
+    final Map<String,List<String>> availabilityZones=Maps.newHashMap();
+    availabilityZones.put(REGION,defaultRegionAvailabilityZones);
+    availabilityZones.put("",defaultRegionAvailabilityZones);
+    pseudoParameterValues.setAvailabilityZones(availabilityZones);
+    List<Parameter> parameters=Lists.newArrayList();
+    final ValidateTemplateResult validateTemplateResult=new TemplateParser().validateTemplate(templateBody,parameters,pseudoParameterValues);
+    reply.setValidateTemplateResult(validateTemplateResult);
   }
  catch (  Exception ex) {
     handleException(ex);
