@@ -28,67 +28,39 @@
       }
       snapshotFileName=returnValues.get(0);
       String snapshotSize=returnValues.get(1);
-      int retry=StorageInfo.getStorageInfo().getMaxSnapTransferRetries();
-      boolean transferSuccess=false;
       String bucket=createAndReturnBucketName();
       verifySnapshotFileIsReadable();
-      int backoffTime=1;
-      while (!transferSuccess) {
-        if (!isSnapshotMarkedFailed(snapshotId)) {
-          try {
-            transferSnapshot(bucket,snapshotId,snapshotSize);
-            transferSuccess=true;
-          }
- catch (          Exception e) {
-            LOG.warn("Failed to upload snapshot " + snapshotId + " to OSG. May retry later",e);
-            if (retry > 0) {
-              retry--;
-              Thread.sleep(backoffTime * 1000);
-              backoffTime=backoffTime * 2;
-              LOG.debug("Retrying upload of snapshot " + snapshotId + " to OSG");
-            }
- else {
-              throw new EucalyptusCloudException("Failed to upload snapshot " + snapshotId + " to OSG",e);
-            }
-          }
+      snapshotLocation=SnapshotInfo.generateSnapshotLocationURI(SnapshotTransferConfiguration.OSG,bucket,snapshotId);
+      SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
+      SnapshotInfo snapshotInfo=null;
+      EntityWrapper<SnapshotInfo> db=StorageProperties.getEntityWrapper();
+      try {
+        snapshotInfo=db.getUnique(snapInfo);
+        snapshotInfo.setSnapshotLocation(snapshotLocation);
+      }
+ catch (      EucalyptusCloudException e) {
+        LOG.debug("Failed to update upload location for snapshot " + snapshotId,e);
+      }
+ finally {
+        db.commit();
+      }
+      if (!isSnapshotMarkedFailed(snapshotId)) {
+        try {
+          transferSnapshot(bucket,snapshotId);
         }
- else {
-          throw new EucalyptusCloudException("Snapshot " + this.snapshotId + " marked as failed by another thread");
+ catch (        Exception e) {
+          throw new EucalyptusCloudException("Failed to upload snapshot " + snapshotId + " to objectstorage",e);
         }
       }
-      snapshotLocation=SnapshotInfo.generateSnapshotLocationURI(SnapshotTransferConfiguration.OSG,bucket,snapshotId);
+ else {
+        throw new EucalyptusCloudException("Snapshot " + this.snapshotId + " marked as failed by another thread");
+      }
       try {
         LOG.debug("Finalizing snapshot " + snapshotId + " post upload");
         blockManager.finishVolume(snapshotId);
       }
  catch (      EucalyptusCloudException ex) {
         LOG.error("Failed to finalize snapshot " + snapshotId,ex);
-      }
-    }
-    SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
-    SnapshotInfo snapshotInfo=null;
-    EntityWrapper<SnapshotInfo> db=StorageProperties.getEntityWrapper();
-    try {
-      snapshotInfo=db.getUnique(snapInfo);
-      snapshotInfo.setStatus(StorageProperties.Status.available.toString());
-      snapshotInfo.setProgress("100");
-      snapshotInfo.setSnapPointId(null);
-      snapshotInfo.setSnapshotLocation(snapshotLocation);
-    }
- catch (    EucalyptusCloudException e) {
-      LOG.error(e);
-    }
- finally {
-      db.commit();
-    }
-    if (snapshotInfo != null) {
-      try {
-        final int snapshotSize=snapshotInfo.getSizeGb();
-        final String volumeUuid=Transactions.find(Volume.named(null,volumeId)).getNaturalId();
-        ListenerRegistry.getInstance().fireEvent(SnapShotEvent.with(SnapShotEvent.forSnapShotCreate(snapshotSize,volumeUuid,volumeId),snapshotInfo.getNaturalId(),snapshotInfo.getSnapshotId(),snapshotInfo.getUserName()));
-      }
- catch (      final Throwable e) {
-        LOG.error("Failed to fire snapshot creation event for " + snapshotId,e);
       }
     }
   }
@@ -102,17 +74,22 @@
       LOG.debug("Deleting snapshot " + snapshotId + " on failed snapshot attempt",e1);
       blockManager.cleanSnapshot(snapshotId);
     }
-    SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
-    EntityWrapper<SnapshotInfo> db=StorageProperties.getEntityWrapper();
-    try {
-      SnapshotInfo snapshotInfo=db.getUnique(snapInfo);
-      snapshotInfo.setStatus(StorageProperties.Status.failed.toString());
+    Function<String,SnapshotInfo> updateFunction=new Function<String,SnapshotInfo>(){
+      @Override public SnapshotInfo apply(      String arg0){
+        SnapshotInfo snap;
+        try {
+          snap=Entities.uniqueResult(new SnapshotInfo(arg0));
+          snap.setStatus(StorageProperties.Status.failed.toString());
+          snap.setProgress("0");
+          return snap;
+        }
+ catch (        TransactionException|NoSuchElementException e) {
+          LOG.error("Failed to retrieve snapshot entity from DB for " + arg0,e);
+        }
+        return null;
+      }
     }
- catch (    EucalyptusCloudException e) {
-      LOG.error(e);
-    }
- finally {
-      db.commit();
-    }
+;
+    Entities.asTransaction(SnapshotInfo.class,updateFunction).apply(snapshotId);
   }
 }

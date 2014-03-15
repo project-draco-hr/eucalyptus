@@ -1,0 +1,19 @@
+{
+  final MappingHttpMessage request=MappingHttpMessage.extractMessage(e);
+  final BaseMessage msg=BaseMessage.extractMessage(e);
+  if ((request != null) && (msg != null)) {
+    final Context context=Contexts.lookup(request.getCorrelationId());
+    final User user=context.getUser();
+    final AuthContextSupplier userContext=context.getAuthContext();
+    if (user.isSystemAdmin() || (context.isImpersonated() && isImpersonationSupported(msg)) || ((user.isSystemUser() || ServiceOperations.isUserOperation(msg)) && Permissions.isAuthorized(findPolicyVendor(msg.getClass()),"","",null,getIamActionByMessageType(msg),userContext))) {
+      ctx.sendUpstream(e);
+    }
+ else {
+      Contexts.clear(Contexts.lookup(msg.getCorrelationId()));
+      ctx.getChannel().write(new MappingHttpResponse(request.getProtocolVersion(),HttpResponseStatus.FORBIDDEN));
+    }
+  }
+ else {
+    ctx.sendUpstream(e);
+  }
+}

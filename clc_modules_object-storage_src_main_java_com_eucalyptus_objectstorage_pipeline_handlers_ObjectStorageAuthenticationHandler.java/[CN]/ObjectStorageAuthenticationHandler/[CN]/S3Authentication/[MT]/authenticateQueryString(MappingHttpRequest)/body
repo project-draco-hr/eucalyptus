@@ -5,7 +5,7 @@
   content_md5=content_md5 == null ? "" : content_md5;
   String content_type=httpRequest.getHeader(ObjectStorageProperties.CONTENT_TYPE);
   content_type=content_type == null ? "" : content_type;
-  String addrString=getS3AddressString(httpRequest);
+  String addrString=getS3AddressString(httpRequest,true);
   String accesskeyid=parameters.remove(SecurityParameter.AWSAccessKeyId.toString());
   try {
     String signature=parameters.remove(SecurityParameter.Signature.toString());
@@ -24,19 +24,19 @@
         SecurityContext.getLoginContext(new ObjectStorageWrappedCredentials(httpRequest.getCorrelationId(),stringToSign,accesskeyid,signature,securityToken)).login();
       }
  catch (      Exception ex) {
-        if (addrString.startsWith("/services/objectStorage")) {
+        if (httpRequest.getUri().startsWith(ComponentIds.lookup(ObjectStorage.class).getServicePath())) {
           try {
-            String modifiedAddrString=addrString.replaceFirst("/services/objectStorage","");
+            String modifiedAddrString=getS3AddressString(httpRequest,false);
             stringToSign=verb + "\n" + content_md5+ "\n"+ content_type+ "\n"+ Long.parseLong(expires)+ "\n"+ canonicalizedAmzHeaders+ modifiedAddrString;
             SecurityContext.getLoginContext(new ObjectStorageWrappedCredentials(httpRequest.getCorrelationId(),stringToSign,accesskeyid,signature,securityToken)).login();
           }
  catch (          Exception ex2) {
-            LOG.error("CorrelationId: " + Contexts.lookup().getCorrelationId() + " authentication failed due to signature mismatch:",ex2);
+            LOG.error("CorrelationId: " + httpRequest.getCorrelationId() + " authentication failed due to signature mismatch:",ex2);
             throw new SignatureDoesNotMatchException(stringToSign);
           }
         }
  else {
-          LOG.error("CorrelationId: " + Contexts.lookup().getCorrelationId() + " authentication failed due to signature mismatch:",ex);
+          LOG.error("CorrelationId: " + httpRequest.getCorrelationId() + " authentication failed due to signature mismatch:",ex);
           throw new SignatureDoesNotMatchException(stringToSign);
         }
       }
