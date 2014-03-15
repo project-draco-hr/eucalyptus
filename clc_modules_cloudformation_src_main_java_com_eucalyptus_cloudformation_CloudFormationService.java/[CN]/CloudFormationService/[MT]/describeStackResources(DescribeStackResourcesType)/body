@@ -1,4 +1,45 @@
 {
   DescribeStackResourcesResponseType reply=request.getReply();
+  try {
+    final Context ctx=Contexts.lookup();
+    checkActionPermission(PolicySpec.CLOUDFORMATION_DESCRIBESTACKRESOURCES,ctx);
+    User user=ctx.getUser();
+    String userId=user.getUserId();
+    String accountId=user.getAccount().getAccountNumber();
+    String stackName=request.getStackName();
+    String logicalResourceId=request.getLogicalResourceId();
+    String physicalResourceId=request.getPhysicalResourceId();
+    if (stackName != null && logicalResourceId != null) {
+      throw new ValidationErrorException("Only one of StackName or LogicalResourceId can be set");
+    }
+    if (stackName == null && logicalResourceId == null) {
+      throw new ValidationErrorException("StackName or LogicalResourceId must be set");
+    }
+    ArrayList<StackResource> stackResourceList=Lists.newArrayList();
+    List<StackResourceEntity> stackResourceEntityList=StackResourceEntityManager.describeStackResources(accountId,stackName,physicalResourceId,logicalResourceId);
+    if (stackResourceEntityList != null) {
+      for (      StackResourceEntity stackResourceEntity : stackResourceEntityList) {
+        StackResource stackResource=new StackResource();
+        stackResource.setDescription(stackResourceEntity.getDescription());
+        stackResource.setLogicalResourceId(stackResourceEntity.getLogicalResourceId());
+        stackResource.setPhysicalResourceId(stackResourceEntity.getPhysicalResourceId());
+        stackResource.setResourceStatus(stackResourceEntity.getResourceStatus().toString());
+        stackResource.setResourceStatusReason(stackResourceEntity.getResourceStatusReason());
+        stackResource.setResourceType(stackResourceEntity.getResourceType());
+        stackResource.setStackId(stackResourceEntity.getStackId());
+        stackResource.setStackName(stackResourceEntity.getStackName());
+        stackResource.setTimestamp(stackResourceEntity.getLastUpdateTimestamp());
+        stackResourceList.add(stackResource);
+      }
+    }
+    DescribeStackResourcesResult describeStackResourcesResult=new DescribeStackResourcesResult();
+    StackResources stackResources=new StackResources();
+    stackResources.setMember(stackResourceList);
+    describeStackResourcesResult.setStackResources(stackResources);
+    reply.setDescribeStackResourcesResult(describeStackResourcesResult);
+  }
+ catch (  Exception ex) {
+    handleException(ex);
+  }
   return reply;
 }
