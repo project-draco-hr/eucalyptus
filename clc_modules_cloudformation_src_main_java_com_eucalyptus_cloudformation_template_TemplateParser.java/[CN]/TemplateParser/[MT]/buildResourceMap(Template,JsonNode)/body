@@ -1,22 +1,25 @@
 {
-  JsonNode resourcesJsonNode=JSONHelper.checkObject(templateJsonNode,TemplateSection.Resources.toString());
+  JsonNode resourcesJsonNode=JsonHelper.checkObject(templateJsonNode,TemplateSection.Resources.toString());
   if (resourcesJsonNode == null || resourcesJsonNode.size() == 0) {
     throw new ValidationErrorException("At least one " + TemplateSection.Resources + " member must be defined.");
   }
   List<String> resourceKeys=(List<String>)Lists.newArrayList(resourcesJsonNode.fieldNames());
+  Map<String,String> pseudoParameterMap=StackEntityHelper.jsonToPseudoParameterMap(template.getStackEntity().getPseudoParameterMapJson());
+  String accountId=JsonHelper.getJsonNodeFromString(pseudoParameterMap.get(AWS_ACCOUNT_ID)).textValue();
   for (  String resourceKey : resourceKeys) {
     JsonNode resourceJsonNode=resourcesJsonNode.get(resourceKey);
     if (!(resourceJsonNode.isObject())) {
       throw new ValidationErrorException("Template format error: Any Resources member must be a JSON object.");
     }
-    String type=JSONHelper.getString(resourceJsonNode,"Type");
+    String type=JsonHelper.getString(resourceJsonNode,"Type");
     if (type == null) {
       throw new ValidationErrorException("Type is a required property of Resource");
     }
-    Resource resource=new ResourceResolverManager().resolveResource(type);
-    if (resource == null) {
+    ResourceInfo resourceInfo=new ResourceResolverManager().resolveResourceInfo(type);
+    if (resourceInfo == null) {
       throw new ValidationErrorException("Unknown resource type " + type);
     }
-    template.getResourceMap().put(resourceKey,resource);
+    resourceInfo.setAccountId(accountId);
+    template.getResourceInfoMap().put(resourceKey,resourceInfo);
   }
 }
