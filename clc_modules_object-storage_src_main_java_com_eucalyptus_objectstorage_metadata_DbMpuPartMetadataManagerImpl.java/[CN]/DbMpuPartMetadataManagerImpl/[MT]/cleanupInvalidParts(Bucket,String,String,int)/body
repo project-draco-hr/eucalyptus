@@ -1,0 +1,37 @@
+{
+  final PartEntity searchExample=new PartEntity(bucket,objectKey,uploadId).withPartNumber(partNumber);
+  final Predicate<PartEntity> repairPredicate=new Predicate<PartEntity>(){
+    public boolean apply(    PartEntity example){
+      try {
+        PartEntity searchExample=new PartEntity().withKey(example.getObjectKey()).withBucket(example.getBucket()).withState(ObjectState.extant).withUploadId(example.getUploadId()).withPartNumber(example.getPartNumber());
+        Criteria searchCriteria=Entities.createCriteria(PartEntity.class);
+        searchCriteria.add(Example.create(searchExample)).addOrder(Order.desc("objectModifiedTimestamp"));
+        searchCriteria=getSearchByBucket(searchCriteria,example.getBucket());
+        List<PartEntity> results=searchCriteria.list();
+        if (results.size() <= 1) {
+          return true;
+        }
+        results.get(0).setIsLatest(true);
+        for (        PartEntity obj : results.subList(1,results.size())) {
+          LOG.trace("Marking mpu part " + obj.getPartUuid() + " as no longer latest version and for cleanup");
+          obj.setIsLatest(false);
+          obj=transitionPartToState(obj,ObjectState.deleting);
+        }
+      }
+ catch (      NoSuchElementException e) {
+      }
+catch (      Exception e) {
+        LOG.error("Error consolidating PartEntity records for " + example.getBucket().getBucketName() + "/"+ example.getObjectKey()+ " uploadId = "+ example.getUploadId()+ " partNumber = "+ example.getPartNumber());
+        return false;
+      }
+      return true;
+    }
+  }
+;
+  try {
+    Entities.asTransaction(repairPredicate).apply(searchExample);
+  }
+ catch (  final Throwable f) {
+    LOG.error("Error in version/null repair",f);
+  }
+}
