@@ -32,7 +32,12 @@
     objectEntity.setAcl(acp);
     final String fullObjectKey=objectEntity.getObjectUuid();
     request.setKey(fullObjectKey);
-    objectEntity=OsgObjectFactory.getFactory().createObject(ospClient,objectEntity,request.getData(),request.getMetaData(),requestUser);
+    try {
+      objectEntity=OsgObjectFactory.getFactory().createObject(ospClient,objectEntity,request.getData(),request.getMetaData(),requestUser);
+    }
+ catch (    Exception e) {
+      throw new InternalErrorException(request.getKey(),e);
+    }
     PutObjectResponseType response=request.getReply();
     if (!ObjectStorageProperties.NULL_VERSION_ID.equals(objectEntity.getVersionId())) {
       response.setVersionId(objectEntity.getVersionId());
@@ -42,13 +47,11 @@
     return response;
   }
  catch (  S3Exception e) {
-    LOG.debug("CorrelationId: " + Contexts.lookup().getCorrelationId() + "Responding to client with: ",e);
+    LOG.warn("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with: ",e);
     throw e;
   }
 catch (  Exception e) {
-    InternalErrorException ex=new InternalErrorException(request.getKey());
-    ex.initCause(e);
     LOG.warn("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with 500 InternalError because of:",e);
-    throw ex;
+    throw new InternalErrorException(request.getKey(),e);
   }
 }
