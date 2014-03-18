@@ -1,4 +1,92 @@
 {
   DescribeStacksResponseType reply=request.getReply();
+  try {
+    final Context ctx=Contexts.lookup();
+    checkActionPermission(PolicySpec.CLOUDFORMATION_DESCRIBESTACKS,ctx);
+    User user=ctx.getUser();
+    String userId=user.getUserId();
+    String accountId=user.getAccount().getAccountNumber();
+    String stackName=request.getStackName();
+    if (stackName == null)     throw new ValidationErrorException("Stack name is null");
+    List<StackEntity> stackEntities=StackEntityManager.describeStacks(accountId,stackName);
+    ArrayList<Stack> stackList=new ArrayList<Stack>();
+    for (    StackEntity stackEntity : stackEntities) {
+      Stack stack=new Stack();
+      if (stackEntity.getCapabilitiesJson() != null && !stackEntity.getCapabilitiesJson().isEmpty()) {
+        ResourceList capabilities=new ResourceList();
+        ArrayList<String> member=StackEntityHelper.jsonToCapabilities(stackEntity.getCapabilitiesJson());
+        capabilities.setMember(member);
+        stack.setCapabilities(capabilities);
+      }
+      stack.setCreationTime(stackEntity.getCreateOperationTimestamp());
+      stack.setDescription(stackEntity.getDescription());
+      stack.setStackName(stackEntity.getStackName());
+      stack.setDisableRollback(stackEntity.getDisableRollback());
+      stack.setLastUpdatedTime(stackEntity.getLastUpdateTimestamp());
+      if (stackEntity.getNotificationARNsJson() != null && !stackEntity.getNotificationARNsJson().isEmpty()) {
+        ResourceList notificationARNs=new ResourceList();
+        ArrayList<String> member=StackEntityHelper.jsonToNotificationARNs(stackEntity.getNotificationARNsJson());
+        notificationARNs.setMember(member);
+        stack.setNotificationARNs(notificationARNs);
+      }
+      if (stackEntity.getOutputsJson() != null && !stackEntity.getOutputsJson().isEmpty()) {
+        boolean somethingNotReady=false;
+        ArrayList<StackEntity.Output> stackEntityOutputs=StackEntityHelper.jsonToOutputs(stackEntity.getOutputsJson());
+        ArrayList<Output> member=Lists.newArrayList();
+        for (        StackEntity.Output stackEntityOutput : stackEntityOutputs) {
+          if (!stackEntityOutput.isReady()) {
+            somethingNotReady=true;
+            break;
+          }
+ else           if (stackEntityOutput.isAllowedByCondition()) {
+            Output output=new Output();
+            output.setDescription(stackEntityOutput.getDescription());
+            output.setOutputKey(stackEntityOutput.getKey());
+            output.setOutputValue(stackEntityOutput.getStringValue());
+            member.add(output);
+          }
+        }
+        if (!somethingNotReady) {
+          Outputs outputs=new Outputs();
+          outputs.setMember(member);
+          stack.setOutputs(outputs);
+        }
+      }
+      if (stackEntity.getParametersJson() != null && !stackEntity.getParametersJson().isEmpty()) {
+        ArrayList<StackEntity.Parameter> stackEntityParameters=StackEntityHelper.jsonToParameters(stackEntity.getParametersJson());
+        ArrayList<Parameter> member=Lists.newArrayList();
+        for (        StackEntity.Parameter stackEntityParameter : stackEntityParameters) {
+          Parameter parameter=new Parameter();
+          parameter.setParameterKey(stackEntityParameter.getKey());
+          parameter.setParameterValue(stackEntityParameter.isNoEcho() ? NO_ECHO_PARAMETER_VALUE : stackEntityParameter.getStringValue());
+          member.add(parameter);
+        }
+        Parameters parameters=new Parameters();
+        parameters.setMember(member);
+        stack.setParameters(parameters);
+      }
+      stack.setStackId(stackEntity.getStackId());
+      stack.setStackName(stackEntity.getStackName());
+      stack.setStackStatus(stackEntity.getStackStatus().toString());
+      stack.setStackStatusReason(stackEntity.getStackStatusReason());
+      if (stackEntity.getTagsJson() != null && !stackEntity.getTagsJson().isEmpty()) {
+        Tags tags=new Tags();
+        ArrayList<Tag> member=StackEntityHelper.jsonToTags(stackEntity.getTagsJson());
+        tags.setMember(member);
+        stack.setTags(tags);
+      }
+      stack.setTimeoutInMinutes(stackEntity.getTimeoutInMinutes());
+      stackList.add(stack);
+    }
+    DescribeStacksResult describeStacksResult=new DescribeStacksResult();
+    Stacks stacks=new Stacks();
+    stacks.setMember(stackList);
+    describeStacksResult.setStacks(stacks);
+    reply.setDescribeStacksResult(describeStacksResult);
+  }
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+    handleException(ex);
+  }
   return reply;
 }

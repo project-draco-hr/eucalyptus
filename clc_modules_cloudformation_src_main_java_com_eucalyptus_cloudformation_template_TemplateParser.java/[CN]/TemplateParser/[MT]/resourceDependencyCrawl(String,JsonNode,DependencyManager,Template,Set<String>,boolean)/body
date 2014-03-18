@@ -1,0 +1,66 @@
+{
+  Map<String,String> pseudoParameterMap=StackEntityHelper.jsonToPseudoParameterMap(template.getStackEntity().getPseudoParameterMapJson());
+  Map<String,StackEntity.Parameter> parameterMap=StackEntityHelper.jsonToParameterMap(template.getStackEntity().getParametersJson());
+  if (jsonNode == null) {
+    return;
+  }
+  if (jsonNode.isArray()) {
+    for (int i=0; i < jsonNode.size(); i++) {
+      resourceDependencyCrawl(resourceKey,jsonNode.get(i),resourceDependencies,template,unresolvedResourceDependencies,onLiveBranch);
+    }
+  }
+  IntrinsicFunction.MatchResult fnIfMatcher=IntrinsicFunctions.IF.evaluateMatch(jsonNode);
+  if (fnIfMatcher.isMatch()) {
+    IntrinsicFunctions.IF.validateArgTypesWherePossible(fnIfMatcher);
+    JsonNode keyJsonNode=jsonNode.get(FunctionEvaluation.FN_IF);
+    String key=keyJsonNode.get(0).textValue();
+    Map<String,Boolean> conditionMap=StackEntityHelper.jsonToConditionMap(template.getStackEntity().getConditionMapJson());
+    if (!conditionMap.containsKey(key)) {
+      throw new ValidationErrorException("Template error: unresolved condition dependency: " + key);
+    }
+    ;
+    boolean booleanValue=StackEntityHelper.jsonToConditionMap(template.getStackEntity().getConditionMapJson()).get(key);
+    resourceDependencyCrawl(resourceKey,keyJsonNode.get(1),resourceDependencies,template,unresolvedResourceDependencies,onLiveBranch && booleanValue);
+    resourceDependencyCrawl(resourceKey,keyJsonNode.get(2),resourceDependencies,template,unresolvedResourceDependencies,onLiveBranch && (!booleanValue));
+    return;
+  }
+  IntrinsicFunction.MatchResult refMatcher=IntrinsicFunctions.REF.evaluateMatch(jsonNode);
+  if (refMatcher.isMatch()) {
+    IntrinsicFunctions.REF.validateArgTypesWherePossible(refMatcher);
+    String refName=jsonNode.get(FunctionEvaluation.REF_STR).textValue();
+    if (template.getResourceInfoMap().containsKey(refName)) {
+      if (onLiveBranch) {
+        resourceDependencies.addDependency(resourceKey,refName);
+      }
+    }
+ else     if (!parameterMap.containsKey(refName) && !pseudoParameterMap.containsKey(refName)) {
+      unresolvedResourceDependencies.add(refName);
+    }
+    return;
+  }
+  IntrinsicFunction.MatchResult fnAttMatcher=IntrinsicFunctions.GET_ATT.evaluateMatch(jsonNode);
+  if (fnAttMatcher.isMatch()) {
+    IntrinsicFunctions.GET_ATT.validateArgTypesWherePossible(refMatcher);
+    String refName=jsonNode.get(FunctionEvaluation.FN_GET_ATT).get(0).textValue();
+    String attName=jsonNode.get(FunctionEvaluation.FN_GET_ATT).get(1).textValue();
+    if (template.getResourceInfoMap().containsKey(refName)) {
+      ResourceInfo resourceInfo=template.getResourceInfoMap().get(refName);
+      if (resourceInfo.canCheckAttributes() && !ResourceAttributeResolver.resourceHasAttribute(resourceInfo,attName)) {
+        throw new ValidationErrorException("Template error: resource " + refName + " does not support attribute type "+ attName+ " in Fn::GetAtt");
+      }
+ else {
+        if (onLiveBranch) {
+          resourceDependencies.addDependency(resourceKey,refName);
+        }
+      }
+    }
+ else {
+      throw new ValidationErrorException("Template error: instance of Fn::GetAtt references undefined resource " + refName);
+    }
+    return;
+  }
+  List<String> fieldNames=Lists.newArrayList(jsonNode.fieldNames());
+  for (  String fieldName : fieldNames) {
+    resourceDependencyCrawl(resourceKey,jsonNode.get(fieldName),resourceDependencies,template,unresolvedResourceDependencies,onLiveBranch);
+  }
+}

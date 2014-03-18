@@ -1,0 +1,106 @@
+{
+  Map<String,Boolean> conditionMap=StackEntityHelper.jsonToConditionMap(template.getStackEntity().getConditionMapJson());
+  Map<String,String> pseudoParameterMap=StackEntityHelper.jsonToPseudoParameterMap(template.getStackEntity().getPseudoParameterMapJson());
+  Map<String,StackEntity.Parameter> parameterMap=StackEntityHelper.jsonToParameterMap(template.getStackEntity().getParametersJson());
+  JsonNode resourcesJsonNode=JsonHelper.checkObject(templateJsonNode,TemplateSection.Resources.toString());
+  List<String> resourceKeys=(List<String>)Lists.newArrayList(resourcesJsonNode.fieldNames());
+  Set<String> commonParametersAndResources=Sets.intersection(Sets.newHashSet(resourceKeys),Sets.union(parameterMap.keySet(),pseudoParameterMap.keySet()));
+  if (!commonParametersAndResources.isEmpty()) {
+    throw new ValidationErrorException("Template error: all resources and parameters must have unique names. " + "Common name(s):" + commonParametersAndResources);
+  }
+  DependencyManager resourceDependencies=new DependencyManager();
+  for (  String resourceKey : resourceKeys) {
+    resourceDependencies.addNode(resourceKey);
+  }
+  Set<String> unresolvedResourceDependencies=Sets.newLinkedHashSet();
+  for (  String resourceKey : resourceKeys) {
+    JsonNode resourceJsonNode=resourcesJsonNode.get(resourceKey);
+    JsonNode dependsOnJsonNode=resourceJsonNode.get(ResourceKey.DependsOn.toString());
+    if (dependsOnJsonNode != null) {
+      FunctionEvaluation.validateNonConditionSectionArgTypesWherePossible(dependsOnJsonNode);
+      if (dependsOnJsonNode.isArray()) {
+        for (int i=0; i < dependsOnJsonNode.size(); i++) {
+          if (dependsOnJsonNode.get(i) != null && dependsOnJsonNode.get(i).isTextual()) {
+            String dependeningOnResourceName=dependsOnJsonNode.get(i).textValue();
+            if (!template.getResourceInfoMap().containsKey(dependeningOnResourceName)) {
+              unresolvedResourceDependencies.add(dependeningOnResourceName);
+            }
+ else {
+              resourceDependencies.addDependency(resourceKey,dependeningOnResourceName);
+            }
+          }
+ else {
+            throw new ValidationErrorException("Template format error: Every DependsOn value must be a string.");
+          }
+        }
+      }
+ else       if (dependsOnJsonNode.isTextual()) {
+        String dependeningOnResourceName=dependsOnJsonNode.textValue();
+        if (!template.getResourceInfoMap().containsKey(dependeningOnResourceName)) {
+          unresolvedResourceDependencies.add(dependeningOnResourceName);
+        }
+ else {
+          resourceDependencies.addDependency(resourceKey,dependeningOnResourceName);
+        }
+      }
+ else {
+        throw new ValidationErrorException("Template format error: DependsOn must be a string or list of strings.");
+      }
+    }
+    ResourceInfo resourceInfo=template.getResourceInfoMap().get(resourceKey);
+    String description=JsonHelper.getString(resourceJsonNode,ResourceKey.Description.toString());
+    if (description != null && description.length() > 4000) {
+      throw new ValidationErrorException("Template format error: " + ResourceKey.Description + " must be no "+ "longer than 4000 characters.");
+    }
+    resourceInfo.setDescription(description);
+    JsonNode metadataNode=JsonHelper.checkObject(resourceJsonNode,ResourceKey.Metadata.toString());
+    if (metadataNode != null) {
+      FunctionEvaluation.validateNonConditionSectionArgTypesWherePossible(metadataNode);
+      resourceInfo.setMetadataJson(JsonHelper.getStringFromJsonNode(metadataNode));
+    }
+    JsonNode propertiesNode=JsonHelper.checkObject(resourceJsonNode,ResourceKey.Properties.toString());
+    if (propertiesNode != null) {
+      FunctionEvaluation.validateNonConditionSectionArgTypesWherePossible(propertiesNode);
+      resourceInfo.setPropertiesJson(JsonHelper.getStringFromJsonNode(propertiesNode));
+    }
+    JsonNode updatePolicyNode=JsonHelper.checkObject(resourceJsonNode,ResourceKey.UpdatePolicy.toString());
+    if (propertiesNode != null) {
+      FunctionEvaluation.validateNonConditionSectionArgTypesWherePossible(propertiesNode);
+      resourceInfo.setUpdatePolicyJson(JsonHelper.getStringFromJsonNode(updatePolicyNode));
+    }
+    resourceInfo.setLogicalResourceId(resourceKey);
+    resourceDependencyCrawl(resourceKey,metadataNode,resourceDependencies,template,unresolvedResourceDependencies,!onlyValidateTemplate);
+    resourceDependencyCrawl(resourceKey,propertiesNode,resourceDependencies,template,unresolvedResourceDependencies,!onlyValidateTemplate);
+    resourceDependencyCrawl(resourceKey,updatePolicyNode,resourceDependencies,template,unresolvedResourceDependencies,!onlyValidateTemplate);
+    String deletionPolicy=JsonHelper.getString(resourceJsonNode,ResourceKey.DeletionPolicy.toString());
+    if (deletionPolicy != null) {
+      if (!DeletionPolicyValues.Delete.toString().equals(deletionPolicy) && !DeletionPolicyValues.Retain.equals(deletionPolicy) && !DeletionPolicyValues.Snapshot.equals(deletionPolicy)) {
+        throw new ValidationErrorException("Template format error: Unrecognized DeletionPolicy " + deletionPolicy + " for resource "+ resourceKey);
+      }
+      if (DeletionPolicyValues.Snapshot.equals(deletionPolicy) && !resourceInfo.supportsSnapshot()) {
+        throw new ValidationErrorException("Template error: resource type " + resourceInfo.getType() + " does not support deletion policy Snapshot");
+      }
+      resourceInfo.setDeletionPolicy(deletionPolicy);
+    }
+    String conditionKey=JsonHelper.getString(resourceJsonNode,ResourceKey.Condition.toString());
+    if (conditionKey != null) {
+      if (!conditionMap.containsKey(conditionKey)) {
+        throw new ValidationErrorException("Template format error: Condition " + conditionKey + "  is not defined.");
+      }
+      resourceInfo.setAllowedByCondition((onlyValidateTemplate ? Boolean.TRUE : conditionMap.get(conditionKey)));
+    }
+ else {
+      resourceInfo.setAllowedByCondition(Boolean.TRUE);
+    }
+  }
+  if (!unresolvedResourceDependencies.isEmpty()) {
+    throw new ValidationErrorException("Template format error: Unresolved resource dependencies " + unresolvedResourceDependencies + " in the Resources block of the template");
+  }
+  try {
+    resourceDependencies.dependencyList();
+  }
+ catch (  CyclicDependencyException ex) {
+    throw new ValidationErrorException("Circular dependency between resources: " + ex.getMessage());
+  }
+  template.getStackEntity().setResourceDependencyManagerJson(StackEntityHelper.resourceDependencyManagerToJson(resourceDependencies));
+}

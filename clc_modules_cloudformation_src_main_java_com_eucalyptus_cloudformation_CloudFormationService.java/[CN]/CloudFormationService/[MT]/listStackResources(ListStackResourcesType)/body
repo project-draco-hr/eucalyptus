@@ -1,4 +1,38 @@
 {
   ListStackResourcesResponseType reply=request.getReply();
+  try {
+    final Context ctx=Contexts.lookup();
+    checkActionPermission(PolicySpec.CLOUDFORMATION_LISTSTACKRESOURCES,ctx);
+    User user=ctx.getUser();
+    String userId=user.getUserId();
+    String accountId=user.getAccount().getAccountNumber();
+    String stackName=request.getStackName();
+    if (stackName == null) {
+      throw new ValidationErrorException("StackName must not be null");
+    }
+    ArrayList<StackResourceSummary> stackResourceSummaryList=Lists.newArrayList();
+    List<StackResourceEntity> stackResourceEntityList=StackResourceEntityManager.listStackResources(accountId,stackName);
+    if (stackResourceEntityList != null) {
+      for (      StackResourceEntity stackResourceEntity : stackResourceEntityList) {
+        StackResourceSummary stackResourceSummary=new StackResourceSummary();
+        stackResourceSummary.setLogicalResourceId(stackResourceEntity.getLogicalResourceId());
+        stackResourceSummary.setPhysicalResourceId(stackResourceEntity.getPhysicalResourceId());
+        stackResourceSummary.setResourceStatus(stackResourceEntity.getResourceStatus().toString());
+        stackResourceSummary.setResourceStatusReason(stackResourceEntity.getResourceStatusReason());
+        stackResourceSummary.setResourceType(stackResourceEntity.getResourceType());
+        stackResourceSummary.setLastUpdatedTimestamp(stackResourceEntity.getLastUpdateTimestamp());
+        stackResourceSummaryList.add(stackResourceSummary);
+      }
+    }
+    ListStackResourcesResult listStackResourcesResult=new ListStackResourcesResult();
+    StackResourceSummaries stackResourceSummaries=new StackResourceSummaries();
+    stackResourceSummaries.setMember(stackResourceSummaryList);
+    listStackResourcesResult.setStackResourceSummaries(stackResourceSummaries);
+    reply.setListStackResourcesResult(listStackResourcesResult);
+  }
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+    handleException(ex);
+  }
   return reply;
 }

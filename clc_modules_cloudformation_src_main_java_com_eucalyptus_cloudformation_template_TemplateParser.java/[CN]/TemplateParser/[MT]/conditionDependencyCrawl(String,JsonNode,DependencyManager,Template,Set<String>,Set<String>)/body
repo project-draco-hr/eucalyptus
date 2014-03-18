@@ -12,7 +12,7 @@
   if (ifMatcher.isMatch()) {
     IntrinsicFunctions.IF.validateArgTypesWherePossible(ifMatcher);
     String conditionName=currentNode.get(FunctionEvaluation.FN_IF).get(0).textValue();
-    if (!template.getConditionMap().containsKey(conditionName)) {
+    if (!conditionDependencyManager.containsNode(conditionName)) {
       unresolvedConditionDependencies.add(conditionName);
     }
  else {
@@ -24,7 +24,7 @@
   if (conditionMatcher.isMatch()) {
     IntrinsicFunctions.CONDITION.validateArgTypesWherePossible(conditionMatcher);
     String conditionName=currentNode.get(FunctionEvaluation.CONDITION_STR).textValue();
-    if (!template.getConditionMap().containsKey(conditionName)) {
+    if (!conditionDependencyManager.containsNode(conditionName)) {
       unresolvedConditionDependencies.add(conditionName);
     }
  else {
@@ -36,7 +36,9 @@
   if (refMatcher.isMatch()) {
     IntrinsicFunctions.REF.validateArgTypesWherePossible(refMatcher);
     String refName=currentNode.get(FunctionEvaluation.REF_STR).textValue();
-    if (!template.getReferenceMap().containsKey(refName) || template.getReferenceMap().get(refName) == null || template.getReferenceMap().get(refName).getReferenceType() == Template.ReferenceType.Resource) {
+    Map<String,String> pseudoParameterMap=StackEntityHelper.jsonToPseudoParameterMap(template.getStackEntity().getPseudoParameterMapJson());
+    Map<String,StackEntity.Parameter> parameterMap=StackEntityHelper.jsonToParameterMap(template.getStackEntity().getParametersJson());
+    if (!pseudoParameterMap.containsKey(refName) && !parameterMap.containsKey(refName)) {
       resourceReferences.add(refName);
     }
     return;
@@ -46,9 +48,9 @@
     IntrinsicFunctions.GET_ATT.validateArgTypesWherePossible(refMatcher);
     String refName=currentNode.get(FunctionEvaluation.FN_GET_ATT).get(0).textValue();
     String attName=currentNode.get(FunctionEvaluation.FN_GET_ATT).get(1).textValue();
-    if (template.getResourceMap().containsKey(refName)) {
-      Resource resource=template.getResourceMap().get(refName);
-      if (!ResourceAttributeResolver.resourceHasAttribute(resource,attName)) {
+    if (template.getResourceInfoMap().containsKey(refName)) {
+      ResourceInfo resourceInfo=template.getResourceInfoMap().get(refName);
+      if (resourceInfo.canCheckAttributes() && !ResourceAttributeResolver.resourceHasAttribute(resourceInfo,attName)) {
         throw new ValidationErrorException("Template error: resource " + refName + " does not support attribute type "+ attName+ " in Fn::GetAtt");
       }
  else {

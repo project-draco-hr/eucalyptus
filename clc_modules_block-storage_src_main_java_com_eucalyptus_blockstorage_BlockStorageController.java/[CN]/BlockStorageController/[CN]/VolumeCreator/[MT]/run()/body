@@ -13,49 +13,33 @@
           db=StorageProperties.getEntityWrapper();
           foundSnapshotInfos=db.query(snapshotInfo);
           if (foundSnapshotInfos.size() == 0) {
-            int snapSizeGb=0;
-            String snapshotLocation=null;
-            String bucket=null;
-            String key=null;
+            SnapshotInfo firstSnap=null;
             snapshotInfo.setScName(null);
-            List<SnapshotInfo> otherSnapshotInfos=db.query(snapshotInfo);
-            if (otherSnapshotInfos != null && otherSnapshotInfos.size() > 0) {
-              for (              SnapshotInfo otherSnap : otherSnapshotInfos) {
-                if (StringUtils.isBlank(snapshotLocation)) {
-                  snapshotLocation=otherSnap.getSnapshotLocation();
-                }
-                if (otherSnap.getSizeGb() != null && otherSnap.getSizeGb() > 0) {
-                  snapSizeGb=otherSnap.getSizeGb();
-                }
-                if (StringUtils.isNotBlank(snapshotLocation) && snapSizeGb > 0) {
-                  break;
-                }
- else {
-                  continue;
-                }
-              }
-            }
+            Criteria snapCriteria=db.createCriteria(SnapshotInfo.class);
+            snapCriteria.add(Example.create(snapshotInfo));
+            snapCriteria.addOrder(Order.asc("creationTimestamp"));
+            foundSnapshotInfos=(List<SnapshotInfo>)snapCriteria.list();
             db.commit();
-            if (snapSizeGb <= 0) {
-              if (StringUtils.isBlank(snapshotLocation)) {
-                throw new EucalyptusCloudException("Cannot fetch the size of snapshot from objectstorage as the location (bucket and key) is unknown for " + snapshotId);
+            if (foundSnapshotInfos != null && foundSnapshotInfos.size() > 0) {
+              firstSnap=foundSnapshotInfos.get(0);
+            }
+ else {
+              throw new EucalyptusCloudException("No record of snapshot " + snapshotId + " on any SC");
+            }
+            if (firstSnap.getSizeGb() == null || firstSnap.getSizeGb() <= 0) {
+              throw new EucalyptusCloudException("Snapshot size for " + snapshotId + " is unknown. Cannot prep snapshot holder on the storage backend");
+            }
+            if (!blockManager.getFromBackend(snapshotId,firstSnap.getSizeGb())) {
+              String bucket=null;
+              String key=null;
+              if (StringUtils.isBlank(firstSnap.getSnapshotLocation())) {
+                throw new EucalyptusCloudException("Snapshot location (bucket, key) for " + snapshotId + " is unknown. Cannot download snapshot from objectstorage.");
               }
-              String[] names=SnapshotInfo.getSnapshotBucketKeyNames(snapshotLocation);
+              String[] names=SnapshotInfo.getSnapshotBucketKeyNames(firstSnap.getSnapshotLocation());
               bucket=names[0];
               key=names[1];
-              snapSizeGb=getSnapshotSize(bucket,key);
-              if (snapSizeGb <= 0) {
-                throw new EucalyptusCloudException("Size of snapshot " + snapshotId + " fetched from objectstorage: "+ snapSizeGb+ ". Cannot prep snapshot holder on the storage backend");
-              }
-            }
-            if (!blockManager.getFromBackend(snapshotId,snapSizeGb)) {
               if (StringUtils.isBlank(bucket) || StringUtils.isBlank(key)) {
-                String[] names=SnapshotInfo.getSnapshotBucketKeyNames(snapshotLocation);
-                bucket=names[0];
-                key=names[1];
-                if (StringUtils.isBlank(bucket) || StringUtils.isBlank(key)) {
-                  throw new EucalyptusCloudException("Snapshot location (bucket and or key) is unknown for " + snapshotId + ". Cannot download snapshot");
-                }
+                throw new EucalyptusCloudException("Failed to parse bucket and key information for downloading " + snapshotId + ". Cannot download snapshot from objectstorage.");
               }
               String tmpSnapshotFileName=null;
               try {
@@ -66,7 +50,7 @@
                 }
                 long actualSnapSizeInMB=(long)Math.ceil((double)snapFile.length() / StorageProperties.MB);
                 try {
-                  String snapDestination=blockManager.prepareSnapshot(snapshotId,snapSizeGb,actualSnapSizeInMB);
+                  String snapDestination=blockManager.prepareSnapshot(snapshotId,firstSnap.getSizeGb(),actualSnapSizeInMB);
                   if (snapDestination != null) {
                     if (snapDestination.startsWith("/dev/")) {
                       CommandOutput output=SystemUtil.runWithRawOutput(new String[]{StorageProperties.EUCA_ROOT_WRAPPER,"dd","if=" + tmpSnapshotFileName,"of=" + snapDestination,"bs=" + StorageProperties.blockSize});
@@ -102,11 +86,9 @@
  else {
             }
             db=StorageProperties.getEntityWrapper();
-            snapshotInfo=new SnapshotInfo(snapshotId);
+            snapshotInfo=copySnapshotInfo(firstSnap);
             snapshotInfo.setProgress("100");
             snapshotInfo.setStartTime(new Date());
-            snapshotInfo.setSizeGb(snapSizeGb);
-            snapshotInfo.setSnapshotLocation(snapshotLocation);
             snapshotInfo.setStatus(StorageProperties.Status.available.toString());
             db.add(snapshotInfo);
             db.commit();
