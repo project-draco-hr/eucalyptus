@@ -1,0 +1,60 @@
+{
+  final ImportInstanceTaskDetails taskDetail=((ConversionTask)instanceTask.getTask()).getImportInstance();
+  final List<ImportInstanceVolumeDetail> volumes=taskDetail.getVolumes();
+  if (volumes == null)   return;
+  try {
+    int numVolumeCreated=0;
+    for (    final ImportInstanceVolumeDetail volume : volumes) {
+      if (volume.getVolume() == null || volume.getVolume().getId() == null || volume.getVolume().getId().length() <= 0) {
+        final String zone=volume.getAvailabilityZone();
+        final Integer size=volume.getVolume().getSize();
+        if (zone == null)         throw new Exception("Availability zone is missing from the volume detail");
+        if (size == null || size <= 0)         throw new Exception("Volume size is missing from the volume detail");
+        try {
+          final String volumeId=EucalyptusActivityTasks.getInstance().createVolumeAsUser(instanceTask.getOwnerUserId(),zone,size);
+          volume.getVolume().setId(volumeId);
+        }
+ catch (        final Exception ex) {
+          throw new Exception("Failed to create the volume",ex);
+        }
+      }
+ else {
+        String volumeStatus=null;
+        try {
+          final List<Volume> eucaVolumes=EucalyptusActivityTasks.getInstance().describeVolumesAsUser(instanceTask.getOwnerUserId(),Lists.newArrayList(volume.getVolume().getId()));
+          final Volume eucaVolume=eucaVolumes.get(0);
+          volumeStatus=eucaVolume.getStatus();
+        }
+ catch (        final Exception ex) {
+          throw new Exception("Failed to check the state of the volume " + volume.getVolume().getId());
+        }
+        if ("available".equals(volumeStatus)) {
+          volume.setStatus("active");
+          numVolumeCreated++;
+        }
+ else         if ("creating".equals(volumeStatus)) {
+          volume.setStatus("active");
+        }
+ else {
+          volume.setStatus("cancelled");
+          volume.setStatusMessage("Failed to create the volume");
+          throw new Exception("Volume " + volume.getVolume().getId() + " is in "+ volumeStatus);
+        }
+      }
+    }
+    if (numVolumeCreated == volumes.size()) {
+      try {
+        ImagingTasks.transitState(instanceTask,ImportTaskState.NEW,ImportTaskState.PENDING,null);
+      }
+ catch (      final Exception ex) {
+        ;
+      }
+    }
+  }
+ catch (  Exception ex) {
+    throw ex;
+  }
+ finally {
+    ImagingTasks.updateTaskInJson(instanceTask);
+  }
+}
