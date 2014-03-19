@@ -1,0 +1,46 @@
+{
+  if (object == null)   return null;
+  ObjectMapper mapper=new ObjectMapper();
+  ObjectNode jsonNode=mapper.createObjectNode();
+  BeanInfo beanInfo=null;
+  try {
+    beanInfo=Introspector.getBeanInfo(object.getClass());
+  }
+ catch (  IntrospectionException ex) {
+    LOG.error("Unable to create bean info for class " + object.getClass().getCanonicalName() + ".  Check signatures for getters and setters");
+    throw new InternalFailureException(ex.getMessage());
+  }
+  Map<String,PropertyDescriptor> propertyDescriptorMap=Maps.newHashMap();
+  for (  PropertyDescriptor propertyDescriptor : beanInfo.getPropertyDescriptors()) {
+    propertyDescriptorMap.put(propertyDescriptor.getName(),propertyDescriptor);
+  }
+  for (  Field field : object.getClass().getDeclaredFields()) {
+    Property property=field.getAnnotation(Property.class);
+    if (property == null)     continue;
+    String defaultName=field.getName().substring(0,1).toUpperCase() + field.getName().substring(1);
+    String name=(property.name() == null || property.name().isEmpty() ? defaultName : property.name());
+    Object objectValue=getField(propertyDescriptorMap,field,object);
+    if (objectValue == null) {
+      continue;
+    }
+ else     if (objectValue instanceof String) {
+      jsonNode.put(name,(String)objectValue);
+    }
+ else     if (objectValue instanceof Integer) {
+      jsonNode.put(name,String.valueOf((Integer)objectValue));
+    }
+ else     if (objectValue instanceof Double) {
+      jsonNode.put(name,String.valueOf((Double)objectValue));
+    }
+ else     if (objectValue instanceof Boolean) {
+      jsonNode.put(name,String.valueOf((Boolean)objectValue));
+    }
+ else     if (objectValue instanceof Collection) {
+      jsonNode.put(name,getJsonNodeFromCollection((Collection<?>)objectValue));
+    }
+ else {
+      jsonNode.put(name,getJsonNodeFromObject(objectValue));
+    }
+  }
+  return jsonNode;
+}

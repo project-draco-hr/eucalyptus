@@ -1,4 +1,45 @@
 {
   ListStacksResponseType reply=request.getReply();
+  try {
+    final Context ctx=Contexts.lookup();
+    checkActionPermission(PolicySpec.CLOUDFORMATION_LISTSTACKS,ctx);
+    User user=ctx.getUser();
+    String userId=user.getUserId();
+    String accountId=user.getAccount().getAccountNumber();
+    ResourceList stackStatusFilter=request.getStackStatusFilter();
+    List<StackEntity.Status> statusFilterList=Lists.newArrayList();
+    if (stackStatusFilter != null && stackStatusFilter.getMember() != null) {
+      for (      String statusFilterStr : stackStatusFilter.getMember()) {
+        try {
+          statusFilterList.add(StackEntity.Status.valueOf(statusFilterStr));
+        }
+ catch (        Exception ex) {
+          throw new ValidationErrorException("Invalid value for StackStatus " + statusFilterStr);
+        }
+      }
+    }
+    List<StackEntity> stackEntities=StackEntityManager.listStacks(accountId,statusFilterList);
+    ArrayList<StackSummary> stackSummaryList=new ArrayList<StackSummary>();
+    for (    StackEntity stackEntity : stackEntities) {
+      StackSummary stackSummary=new StackSummary();
+      stackSummary.setCreationTime(stackEntity.getCreateOperationTimestamp());
+      stackSummary.setDeletionTime(stackEntity.getDeleteOperationTimestamp());
+      stackSummary.setLastUpdatedTime(stackEntity.getLastUpdateOperationTimestamp());
+      stackSummary.setStackId(stackEntity.getStackId());
+      stackSummary.setStackName(stackEntity.getStackName());
+      stackSummary.setStackStatus(stackEntity.getStackStatus().toString());
+      stackSummary.setTemplateDescription(stackEntity.getDescription());
+      stackSummaryList.add(stackSummary);
+    }
+    ListStacksResult listStacksResult=new ListStacksResult();
+    StackSummaries stackSummaries=new StackSummaries();
+    stackSummaries.setMember(stackSummaryList);
+    listStacksResult.setStackSummaries(stackSummaries);
+    reply.setListStacksResult(listStacksResult);
+  }
+ catch (  Exception ex) {
+    LOG.error(ex,ex);
+    handleException(ex);
+  }
   return reply;
 }

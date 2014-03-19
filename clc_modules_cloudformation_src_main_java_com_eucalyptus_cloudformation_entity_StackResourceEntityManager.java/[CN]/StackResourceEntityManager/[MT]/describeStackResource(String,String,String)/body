@@ -1,0 +1,32 @@
+{
+  StackResourceEntity matchingStackResourceEntity=null;
+  String stackId=null;
+  try (TransactionResource db=Entities.transactionFor(StackResourceEntity.class)){
+    Criteria criteria=Entities.createCriteria(StackResourceEntity.class).add(Restrictions.eq("accountId",accountId)).add(Restrictions.or(Restrictions.and(Restrictions.eq("recordDeleted",Boolean.FALSE),Restrictions.eq("stackName",stackNameOrId)),Restrictions.eq("stackId",stackNameOrId))).add(Restrictions.ne("resourceStatus",StackResourceEntity.Status.NOT_STARTED));
+    List<StackResourceEntity> result=criteria.list();
+    if (result == null || result.isEmpty()) {
+      throw new ValidationErrorException("Stack with name " + stackNameOrId + " does not exist");
+    }
+    for (    StackResourceEntity stackResourceEntity : result) {
+      if (stackId == null) {
+        stackId=stackResourceEntity.getStackId();
+      }
+ else       if (!stackId.equals(stackResourceEntity.getStackId())) {
+        throw new InternalFailureException("Got results from more than one stack");
+      }
+      if (logicalResourceId.equals(stackResourceEntity.getLogicalResourceId())) {
+        if (matchingStackResourceEntity != null) {
+          throw new InternalFailureException("More than one record exists for Resource " + logicalResourceId + " on stack "+ stackId);
+        }
+ else {
+          matchingStackResourceEntity=stackResourceEntity;
+        }
+      }
+    }
+    if (matchingStackResourceEntity == null) {
+      throw new ValidationErrorException("Resource " + logicalResourceId + " does not exist for stack "+ stackId);
+    }
+    db.commit();
+  }
+   return matchingStackResourceEntity;
+}

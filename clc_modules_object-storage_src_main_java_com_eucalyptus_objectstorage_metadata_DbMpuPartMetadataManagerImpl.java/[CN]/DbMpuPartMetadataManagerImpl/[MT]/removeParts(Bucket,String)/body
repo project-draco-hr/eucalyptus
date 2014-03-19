@@ -1,0 +1,20 @@
+{
+  Predicate<String> removePredicate=new Predicate<String>(){
+    public boolean apply(    String uploadId){
+      try (TransactionResource db=Entities.transactionFor(PartEntity.class)){
+        PartEntity searchExample=new PartEntity().withUploadId(uploadId).withState(ObjectState.extant);
+        long size=Objects.firstNonNull((Number)Entities.createCriteria(PartEntity.class).add(Example.create(searchExample)).setProjection(Projections.sum("size")).setReadOnly(true).uniqueResult(),0).longValue();
+        BucketMetadataManagers.getInstance().updateBucketSize(bucket,-size);
+        Entities.deleteAllMatching(PartEntity.class,"where part_number IS NOT NULL and upload_id=:uploadId",Collections.singletonMap("uploadId",uploadId));
+        db.commit();
+      }
+ catch (      Exception e) {
+        LOG.trace("Error finalizing part-removal transaction. Will retry.",e);
+        throw new RuntimeException(e);
+      }
+      return true;
+    }
+  }
+;
+  Entities.asTransaction(PartEntity.class,removePredicate).apply(uploadId);
+}

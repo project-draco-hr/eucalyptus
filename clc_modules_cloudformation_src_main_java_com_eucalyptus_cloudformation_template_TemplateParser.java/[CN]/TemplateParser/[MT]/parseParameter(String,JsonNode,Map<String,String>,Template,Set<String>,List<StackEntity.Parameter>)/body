@@ -1,0 +1,76 @@
+{
+  Set<String> tempParameterKeys=Sets.newHashSet(parameterJsonNode.fieldNames());
+  for (  ParameterKey validParameterKey : ParameterKey.values()) {
+    tempParameterKeys.remove(validParameterKey.toString());
+  }
+  if (!tempParameterKeys.isEmpty()) {
+    throw new ValidationErrorException("Invalid template parameter property or properties " + tempParameterKeys);
+  }
+  TemplateParameter templateParameter=new TemplateParameter();
+  String type=JsonHelper.getString(parameterJsonNode,ParameterKey.Type.toString());
+  if (type == null) {
+    throw new ValidationErrorException("Template format error: Every " + TemplateSection.Parameters + " object "+ "must contain a "+ ParameterKey.Type+ " member.");
+  }
+  ParameterType parameterType=null;
+  try {
+    parameterType=ParameterType.valueOf(type);
+  }
+ catch (  Exception ex) {
+    throw new ValidationErrorException("Template format error: Unrecognized parameter type: " + type);
+  }
+  JsonNode allowedValuesJsonNode=JsonHelper.checkArray(parameterJsonNode,ParameterKey.AllowedValues.toString());
+  if (allowedValuesJsonNode != null) {
+    String[] allowedValues=new String[allowedValuesJsonNode.size()];
+    for (int index=0; index < allowedValues.length; index++) {
+      String errorMsg="Every " + ParameterKey.AllowedValues + "value must be a string.";
+      String allowedValue=JsonHelper.getString(allowedValuesJsonNode,index,errorMsg);
+      if (allowedValue == null) {
+        throw new ValidationErrorException("Template format error: " + errorMsg);
+      }
+      allowedValues[index]=allowedValue;
+    }
+    templateParameter.setAllowedValues(allowedValues);
+  }
+  templateParameter.setAllowedPattern(JsonHelper.getString(parameterJsonNode,ParameterKey.AllowedPattern.toString()));
+  String constraintDescription=JsonHelper.getString(parameterJsonNode,ParameterKey.ConstraintDescription.toString());
+  if (constraintDescription != null && constraintDescription.length() > 4000) {
+    throw new ValidationErrorException("Template format error: " + ParameterKey.ConstraintDescription + " must be no longer than 4000 characters.");
+  }
+  templateParameter.setConstraintDescription(constraintDescription);
+  templateParameter.setDefaultValue(JsonHelper.getString(parameterJsonNode,ParameterKey.Default.toString()));
+  String description=JsonHelper.getString(parameterJsonNode,ParameterKey.Description.toString());
+  if (description != null && description.length() > 4000) {
+    throw new ValidationErrorException("Template format error: " + ParameterKey.Description + " must be no "+ "longer than 4000 characters.");
+  }
+  templateParameter.setDescription(description);
+  templateParameter.setMaxLength(JsonHelper.getDouble(parameterJsonNode,ParameterKey.MaxLength.toString()));
+  templateParameter.setMinLength(JsonHelper.getDouble(parameterJsonNode,ParameterKey.MinLength.toString()));
+  templateParameter.setMaxValue(JsonHelper.getDouble(parameterJsonNode,ParameterKey.MaxValue.toString()));
+  templateParameter.setMinValue(JsonHelper.getDouble(parameterJsonNode,ParameterKey.MinValue.toString()));
+  templateParameter.setDefaultValue(JsonHelper.getString(parameterJsonNode,ParameterKey.Default.toString()));
+  templateParameter.setNoEcho("true".equalsIgnoreCase(JsonHelper.getString(parameterJsonNode,ParameterKey.NoEcho.toString())));
+  templateParameter.setParameterKey(parameterName);
+  templateParameter.setType(parameterType);
+  templateParameter.setParameterValue(templateParameter.getDefaultValue());
+  JsonNode defaultReferenceValue=getParameterReferenceValue(templateParameter,parameterName,parameterType);
+  JsonNode referenceValue=defaultReferenceValue;
+  if (paramMap.get(parameterName) != null) {
+    templateParameter.setParameterValue(paramMap.get(parameterName));
+    referenceValue=getParameterReferenceValue(templateParameter,parameterName,parameterType);
+  }
+  if (templateParameter.getParameterValue() == null) {
+    noValueParameters.add(parameterName);
+  }
+  StackEntity.Parameter parameter=new StackEntity.Parameter();
+  parameter.setKey(templateParameter.getParameterKey());
+  parameter.setNoEcho(templateParameter.isNoEcho());
+  parameter.setJsonValue(JsonHelper.getStringFromJsonNode(referenceValue));
+  parameter.setStringValue(templateParameter.getParameterValue());
+  parameters.add(parameter);
+  com.eucalyptus.cloudformation.TemplateParameter realTemplateParameter=new com.eucalyptus.cloudformation.TemplateParameter();
+  realTemplateParameter.setDescription(templateParameter.getDescription());
+  realTemplateParameter.setDefaultValue(templateParameter.getDefaultValue());
+  realTemplateParameter.setNoEcho(templateParameter.isNoEcho());
+  realTemplateParameter.setParameterKey(templateParameter.getParameterKey());
+  template.getTemplateParameters().add(realTemplateParameter);
+}

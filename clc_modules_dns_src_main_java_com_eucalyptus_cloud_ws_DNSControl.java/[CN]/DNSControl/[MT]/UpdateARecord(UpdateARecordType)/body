@@ -8,46 +8,47 @@
  else   name+="." + DNSProperties.DOMAIN + ".";
   String address=request.getAddress();
   long ttl=request.getTtl();
-  EntityWrapper<ARecordInfo> db=EntityWrapper.get(ARecordInfo.class);
-  ARecordInfo aRecordInfo=new ARecordInfo();
-  aRecordInfo.setName(name);
-  aRecordInfo.setAddress(address);
-  aRecordInfo.setZone(zone);
-  List<ARecordInfo> arecords=db.query(aRecordInfo);
-  if (arecords.size() > 0) {
-    aRecordInfo=arecords.get(0);
-    if (!zone.equals(aRecordInfo.getZone())) {
-      db.rollback();
-      throw new EucalyptusCloudException("Sorry, record already associated with a zone. Remove the record and try again.");
-    }
+  try (final TransactionResource db=Entities.transactionFor(ARecordInfo.class)){
+    ARecordInfo aRecordInfo=new ARecordInfo();
+    aRecordInfo.setName(name);
     aRecordInfo.setAddress(address);
-    aRecordInfo.setTtl(ttl);
-    try {
-      ARecord arecord=new ARecord(Name.fromString(name),DClass.IN,ttl,Address.getByAddress(address));
-      ZoneManager.updateARecord(zone,arecord);
-    }
- catch (    Exception ex) {
-      LOG.error(ex);
-    }
-  }
- else {
-    try {
-      ARecordInfo searchARecInfo=new ARecordInfo();
-      searchARecInfo.setZone(zone);
-      ARecord record=new ARecord(new Name(name),DClass.IN,ttl,Address.getByAddress(address));
-      ZoneManager.addRecord(zone,record,false);
-      aRecordInfo=new ARecordInfo();
-      aRecordInfo.setName(name);
+    aRecordInfo.setZone(zone);
+    List<ARecordInfo> arecords=Entities.query(aRecordInfo);
+    if (arecords.size() > 0) {
+      aRecordInfo=arecords.get(0);
+      if (!zone.equals(aRecordInfo.getZone())) {
+        db.rollback();
+        throw new EucalyptusCloudException("Sorry, record already associated with a zone. Remove the record and try again.");
+      }
       aRecordInfo.setAddress(address);
       aRecordInfo.setTtl(ttl);
-      aRecordInfo.setZone(zone);
-      aRecordInfo.setRecordclass(DClass.IN);
-      db.add(aRecordInfo);
+      try {
+        ARecord arecord=new ARecord(Name.fromString(name),DClass.IN,ttl,Address.getByAddress(address));
+        ZoneManager.updateARecord(zone,arecord);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex);
+      }
     }
- catch (    Exception ex) {
-      LOG.error(ex);
+ else {
+      try {
+        ARecordInfo searchARecInfo=new ARecordInfo();
+        searchARecInfo.setZone(zone);
+        ARecord record=new ARecord(new Name(name),DClass.IN,ttl,Address.getByAddress(address));
+        ZoneManager.addRecord(zone,record,false);
+        aRecordInfo=new ARecordInfo();
+        aRecordInfo.setName(name);
+        aRecordInfo.setAddress(address);
+        aRecordInfo.setTtl(ttl);
+        aRecordInfo.setZone(zone);
+        aRecordInfo.setRecordclass(DClass.IN);
+        Entities.persist(aRecordInfo);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex);
+      }
     }
+    db.commit();
   }
-  db.commit();
-  return reply;
+   return reply;
 }

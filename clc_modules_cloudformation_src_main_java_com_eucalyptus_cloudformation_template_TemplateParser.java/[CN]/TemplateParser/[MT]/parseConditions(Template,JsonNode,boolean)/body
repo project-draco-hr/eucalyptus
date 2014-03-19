@@ -1,0 +1,38 @@
+{
+  JsonNode conditionsJsonNode=JsonHelper.checkObject(templateJsonNode,TemplateSection.Conditions.toString());
+  if (conditionsJsonNode == null)   return;
+  Set<String> conditionNames=Sets.newLinkedHashSet(Lists.newArrayList(conditionsJsonNode.fieldNames()));
+  DependencyManager conditionDependencyManager=new DependencyManager();
+  for (  String conditionName : conditionNames) {
+    conditionDependencyManager.addNode(conditionName);
+  }
+  Set<String> resourceReferences=Sets.newLinkedHashSet();
+  Set<String> unresolvedConditionDependencies=Sets.newLinkedHashSet();
+  for (  String conditionName : conditionNames) {
+    JsonNode conditionJsonNode=JsonHelper.checkObject(conditionsJsonNode,conditionName,"Any " + TemplateSection.Conditions + " member must be a JSON object.");
+    conditionDependencyCrawl(conditionName,conditionJsonNode,conditionDependencyManager,template,resourceReferences,unresolvedConditionDependencies);
+    FunctionEvaluation.validateConditionSectionArgTypesWherePossible(conditionJsonNode);
+  }
+  if (resourceReferences != null && !resourceReferences.isEmpty()) {
+    throw new ValidationErrorException("Template format error: Unresolved dependencies " + resourceReferences + ". Cannot reference resources in the Conditions block of the template");
+  }
+  if (unresolvedConditionDependencies != null && !resourceReferences.isEmpty()) {
+    throw new ValidationErrorException("Template format error: Unresolved condition dependencies " + unresolvedConditionDependencies + " in the Conditions block of the template");
+  }
+  try {
+    for (    String conditionName : conditionDependencyManager.dependencyList()) {
+      JsonNode conditionJsonNode=conditionsJsonNode.get(conditionName);
+      Map<String,Boolean> conditionMap=StackEntityHelper.jsonToConditionMap(template.getStackEntity().getConditionMapJson());
+      if (onlyEvaluateTemplate) {
+        conditionMap.put(conditionName,Boolean.FALSE);
+      }
+ else {
+        conditionMap.put(conditionName,FunctionEvaluation.evaluateBoolean(FunctionEvaluation.evaluateFunctions(conditionJsonNode,template.getStackEntity(),template.getResourceInfoMap())));
+      }
+      template.getStackEntity().setConditionMapJson(StackEntityHelper.conditionMapToJson(conditionMap));
+    }
+  }
+ catch (  CyclicDependencyException ex) {
+    throw new ValidationErrorException("Template error: Found circular condition dependency: " + ex.getMessage());
+  }
+}

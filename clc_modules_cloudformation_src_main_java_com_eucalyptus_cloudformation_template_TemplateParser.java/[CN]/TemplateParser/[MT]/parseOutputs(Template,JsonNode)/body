@@ -1,10 +1,39 @@
 {
-  JsonNode outputsJsonNode=JSONHelper.checkObject(templateJsonNode,TemplateSection.Outputs.toString());
+  Map<String,Boolean> conditionMap=StackEntityHelper.jsonToConditionMap(template.getStackEntity().getConditionMapJson());
+  ArrayList<StackEntity.Output> outputs=StackEntityHelper.jsonToOutputs(template.getStackEntity().getOutputsJson());
+  JsonNode outputsJsonNode=JsonHelper.checkObject(templateJsonNode,TemplateSection.Outputs.toString());
   if (outputsJsonNode != null) {
-    List<String> outputKeys=(List<String>)Lists.newArrayList(outputsJsonNode.fieldNames());
+    List<String> outputKeys=Lists.newArrayList(outputsJsonNode.fieldNames());
     for (    String outputKey : outputKeys) {
+      JsonNode outputJsonNode=outputsJsonNode.get(outputKey);
+      Set<String> tempOutputKeys=Sets.newHashSet(outputJsonNode.fieldNames());
+      for (      OutputKey validOutputKey : OutputKey.values()) {
+        tempOutputKeys.remove(validOutputKey.toString());
+      }
+      if (!tempOutputKeys.isEmpty()) {
+        throw new ValidationErrorException("Invalid output property or properties " + tempOutputKeys);
+      }
+      String description=JsonHelper.getString(outputsJsonNode.get(outputKey),OutputKey.Description.toString());
+      if (description != null && description.length() > 4000) {
+        throw new ValidationErrorException("Template format error: " + OutputKey.Description + " must be no "+ "longer than 4000 characters.");
+      }
+      String conditionKey=JsonHelper.getString(outputJsonNode,OutputKey.Condition.toString());
+      if (conditionKey != null) {
+        if (!conditionMap.containsKey(conditionKey)) {
+          throw new ValidationErrorException("Template format error: Condition " + conditionKey + "  is not defined.");
+        }
+      }
+      if (!outputJsonNode.has(OutputKey.Value.toString())) {
+        throw new ValidationErrorException("Every Outputs member must contain a Value object");
+      }
       FunctionEvaluation.validateNonConditionSectionArgTypesWherePossible(outputsJsonNode.get(outputKey));
-      template.getOutputJsonNodeMap().put(outputKey,outputsJsonNode.get(outputKey));
+      StackEntity.Output output=new StackEntity.Output();
+      output.setKey(outputKey);
+      output.setJsonValue(JsonHelper.getStringFromJsonNode(outputJsonNode.get(OutputKey.Value.toString())));
+      output.setReady(false);
+      output.setAllowedByCondition(conditionMap.get(conditionKey) != Boolean.FALSE);
+      outputs.add(output);
     }
+    template.getStackEntity().setOutputsJson(StackEntityHelper.outputsToJson(outputs));
   }
 }

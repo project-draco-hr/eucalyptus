@@ -2,20 +2,21 @@
   CreateStackResponseType reply=request.getReply();
   try {
     final Context ctx=Contexts.lookup();
-    User user=ctx.getUser();
-    String userId=user.getUserId();
-    String accountId=user.getAccount().getAccountNumber();
-    String stackName=request.getStackName();
-    String templateBody=request.getTemplateBody();
+    checkActionPermission(PolicySpec.CLOUDFORMATION_CREATESTACK,ctx);
+    final User user=ctx.getUser();
+    final String userId=user.getUserId();
+    final String accountId=user.getAccount().getAccountNumber();
+    final String stackName=request.getStackName();
+    final String templateBody=request.getTemplateBody();
     if (stackName == null)     throw new ValidationErrorException("Stack name is null");
     if (templateBody == null)     throw new ValidationErrorException("template body is null");
     List<Parameter> parameters=null;
     if (request.getParameters() != null && request.getParameters().getMember() != null) {
       parameters=request.getParameters().getMember();
     }
-    String stackIdLocal=UUID.randomUUID().toString();
-    String stackId="arn:aws:cloudformation:" + REGION + ":"+ accountId+ ":stack/"+ stackName+ "/"+ stackIdLocal;
-    PseudoParameterValues pseudoParameterValues=new PseudoParameterValues();
+    final String stackIdLocal=UUID.randomUUID().toString();
+    final String stackId="arn:aws:cloudformation:" + REGION + ":"+ accountId+ ":stack/"+ stackName+ "/"+ stackIdLocal;
+    final PseudoParameterValues pseudoParameterValues=new PseudoParameterValues();
     pseudoParameterValues.setAccountId(accountId);
     pseudoParameterValues.setStackName(stackName);
     pseudoParameterValues.setStackId(stackId);
@@ -27,40 +28,67 @@
       pseudoParameterValues.setNotificationArns(notificationArns);
     }
     pseudoParameterValues.setRegion(REGION);
-    List<String> defaultRegionAvailabilityZones=describeAvailabilityZones(userId);
-    Map<String,List<String>> availabilityZones=Maps.newHashMap();
+    final List<String> defaultRegionAvailabilityZones=describeAvailabilityZones(userId);
+    final Map<String,List<String>> availabilityZones=Maps.newHashMap();
     availabilityZones.put(REGION,defaultRegionAvailabilityZones);
     availabilityZones.put("",defaultRegionAvailabilityZones);
     pseudoParameterValues.setAvailabilityZones(availabilityZones);
-    Template template=new TemplateParser().parse(templateBody,parameters,pseudoParameterValues);
-    for (    Resource resource : template.getResourceMap().values()) {
-      resource.setEffectiveUserId(userId);
+    ArrayList<String> capabilities=Lists.newArrayList();
+    if (request.getCapabilities() != null && request.getCapabilities().getMember() != null) {
+      capabilities=request.getCapabilities().getMember();
     }
-    Stack stack=new Stack();
-    stack.setStackName(stackName);
-    stack.setStackId(stackId);
-    stack.setDescription(template.getDescription());
-    ArrayList<Parameter> templateParameters=Lists.newArrayList();
-    for (    Template.Parameter templateParameter : template.getParameterList()) {
-      Parameter parameter=new Parameter();
-      parameter.setParameterValue(templateParameter.getParameterValue());
-      parameter.setParameterKey(templateParameter.getParameterKey());
+    final Template template=new TemplateParser().parse(templateBody,parameters,capabilities,pseudoParameterValues);
+    template.getStackEntity().setStackName(stackName);
+    template.getStackEntity().setStackId(stackId);
+    template.getStackEntity().setAccountId(accountId);
+    template.getStackEntity().setStackStatus(StackEntity.Status.CREATE_IN_PROGRESS);
+    template.getStackEntity().setStackStatusReason("User initiated");
+    template.getStackEntity().setDisableRollback(request.getDisableRollback() == Boolean.TRUE);
+    template.getStackEntity().setCreationTimestamp(new Date());
+    if (request.getCapabilities() != null && request.getCapabilities().getMember() != null) {
+      template.getStackEntity().setCapabilitiesJson(StackEntityHelper.capabilitiesToJson(capabilities));
     }
-    Parameters stackParameters=new Parameters();
-    stackParameters.setMember(templateParameters);
-    stack.setParameters(stackParameters);
-    stack.setStackStatus(StackEntity.Status.CREATE_IN_PROGRESS.toString());
-    stack.setStackStatusReason("User initiated");
-    stack.setDisableRollback(true);
-    StackEntityManager.addStack(stack,accountId);
-    new StackCreator(stack,templateBody,template,accountId).start();
+    if (request.getNotificationARNs() != null && request.getNotificationARNs().getMember() != null) {
+      template.getStackEntity().setNotificationARNsJson(StackEntityHelper.notificationARNsToJson(request.getNotificationARNs().getMember()));
+    }
+    if (request.getTags() != null && request.getTags().getMember() != null) {
+      template.getStackEntity().setTagsJson(StackEntityHelper.tagsToJson(request.getTags().getMember()));
+    }
+    if (request.getDisableRollback() != null && request.getOnFailure() != null && !request.getOnFailure().isEmpty()) {
+      throw new ValidationErrorException("Either DisableRollback or OnFailure can be specified, not both.");
+    }
+    template.getStackEntity().setRecordDeleted(Boolean.FALSE);
+    String onFailure="ROLLBACK";
+    if (request.getOnFailure() != null && !request.getOnFailure().isEmpty()) {
+      if (!request.getOnFailure().equals("ROLLBACK") && !request.getOnFailure().equals("DELETE") && !request.getOnFailure().equals("DO_NOTHING")) {
+        throw new ValidationErrorException("Value '" + request.getOnFailure() + "' at 'onFailure' failed to satisfy "+ "constraint: Member must satisfy enum value set: [ROLLBACK, DELETE, DO_NOTHING]");
+      }
+ else {
+        onFailure=request.getOnFailure();
+      }
+    }
+ else {
+      onFailure=(request.getDisableRollback() == Boolean.FALSE) ? "DO_NOTHING" : "ROLLBACK";
+    }
+    StackEntityManager.addStack(template.getStackEntity());
+    for (    ResourceInfo resourceInfo : template.getResourceInfoMap().values()) {
+      StackResourceEntity stackResourceEntity=new StackResourceEntity();
+      stackResourceEntity=StackResourceEntityManager.updateResourceInfo(stackResourceEntity,resourceInfo);
+      stackResourceEntity.setDescription("");
+      stackResourceEntity.setResourceStatus(StackResourceEntity.Status.NOT_STARTED);
+      stackResourceEntity.setStackId(stackId);
+      stackResourceEntity.setStackName(stackName);
+      stackResourceEntity.setRecordDeleted(Boolean.FALSE);
+      StackResourceEntityManager.addStackResource(stackResourceEntity);
+    }
+    new StackCreator(template.getStackEntity(),userId,onFailure).start();
     CreateStackResult createStackResult=new CreateStackResult();
-    createStackResult.setStackId(stack.getStackId());
+    createStackResult.setStackId(stackId);
     reply.setCreateStackResult(createStackResult);
   }
  catch (  Exception ex) {
     LOG.error(ex,ex);
-    throw new ValidationErrorException(ex.getMessage());
+    handleException(ex);
   }
   return reply;
 }
