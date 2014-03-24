@@ -1,18 +1,34 @@
 {
   final GetInstanceImportTaskResponseType reply=request.getReply();
-  LOG.debug(request);
   try {
+    if (request.getInstanceId() != null) {
+      if (ImagingWorkers.hasWorker(request.getInstanceId())) {
+        ImagingWorkers.markUpdate(request.getInstanceId());
+        if (!ImagingWorkers.canAllocate(request.getInstanceId())) {
+          LOG.warn(String.format("The worker (%s) is marked invalid",request.getInstanceId()));
+          return reply;
+        }
+      }
+ else       ImagingWorkers.createWorker(request.getInstanceId());
+      final ImagingTask prevTask=ImagingTasks.getConvertingTaskByWorkerId(request.getInstanceId());
+      if (prevTask != null) {
+        ImagingTasks.killAndRerunTask(prevTask.getDisplayName());
+        LOG.warn(String.format("A task (%s:%s) is gone missing [BUG in worker script]",prevTask.getDisplayName(),request.getInstanceId()));
+      }
+    }
     final WorkerTask task=AbstractTaskScheduler.getScheduler().getTask();
     if (task != null) {
       reply.setImportTaskId(task.getImportTaskId());
       reply.setImportTaskType(task.getImportTaskType().toString());
       if (task.getVolumeTask() != null)       reply.setVolumeTask(task.getVolumeTask());
  else       if (task.getInstanceStoreTask() != null)       reply.setInstanceStoreTask(task.getInstanceStoreTask());
+      if (request.getInstanceId() != null) {
+        ImagingTasks.setWorkerId(task.getImportTaskId(),request.getInstanceId());
+      }
     }
   }
  catch (  final Exception ex) {
     LOG.error("Failed to schedule a task",ex);
   }
-  LOG.debug(reply);
   return reply;
 }
