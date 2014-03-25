@@ -6,9 +6,10 @@
   final Collection<String> identifiers=normalizeIdentifiers(msg.getInstancesSet());
   final Filter filter=Filters.generateFor(msg.getFilterSet(),VmInstance.class,"status").withOptionalInternalFilter("instance-id",identifiers).generate();
   final Predicate<? super VmInstance> requestedAndAccessible=CloudMetadatas.filteringFor(VmInstance.class).byId(identifiers).byPredicate(includeAllInstances ? Predicates.<VmInstance>alwaysTrue() : VmState.RUNNING).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
-  OwnerFullName ownerFullName=(ctx.isAdministrator() && showAll) ? null : ctx.getUserFullName().asAccountFullName();
+  final Criterion criterion=filter.asCriterionWithConjunction(Restrictions.not(VmInstances.criterion(VmState.BURIED)));
+  final OwnerFullName ownerFullName=(ctx.isAdministrator() && showAll) ? null : ctx.getUserFullName().asAccountFullName();
   try {
-    final List<VmInstance> instances=VmInstances.list(ownerFullName,filter.asCriterion(),filter.getAliases(),requestedAndAccessible);
+    final List<VmInstance> instances=VmInstances.list(ownerFullName,criterion,filter.getAliases(),requestedAndAccessible);
     Iterables.addAll(reply.getInstanceStatusSet().getItem(),Iterables.transform(instances,TypeMappers.lookup(VmInstance.class,InstanceStatusItemType.class)));
   }
  catch (  final Exception e) {
