@@ -1,6 +1,13 @@
 {
   final AssumeRoleResponseType reply=request.getReply();
   reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final Subject subject=ctx.getSubject();
+  final Set<QueryIdCredential> queryIdCreds=subject == null ? Collections.<QueryIdCredential>emptySet() : subject.getPublicCredentials(QueryIdCredential.class);
+  if (queryIdCreds.size() == 1 && Iterables.get(queryIdCreds,0).getType().isPresent()) {
+    throw new TokensException(TokensException.Code.MissingAuthenticationToken,"Temporary credential not permitted.");
+  }
+  rejectPasswordCredentials();
   final Role role=lookupRole(request.getRoleArn());
   try {
     ExternalIdContext.doWithExternalId(request.getExternalId(),EucalyptusCloudException.class,new Callable<Role>(){
