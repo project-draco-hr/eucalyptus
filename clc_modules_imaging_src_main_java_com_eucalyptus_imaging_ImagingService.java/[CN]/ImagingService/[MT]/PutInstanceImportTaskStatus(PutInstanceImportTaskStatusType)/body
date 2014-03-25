@@ -1,11 +1,10 @@
 {
-  LOG.debug(request);
   final PutInstanceImportTaskStatusResponseType reply=request.getReply();
   reply.setCancelled(false);
   try {
     final String taskId=request.getImportTaskId();
     final String volumeId=request.getVolumeId();
-    if (taskId == null || volumeId == null)     throw new Exception("Task or volume id is null");
+    if (taskId == null)     throw new Exception("Task id is null");
     ImagingTask imagingTask=null;
     try {
       imagingTask=ImagingTasks.lookup(taskId);
@@ -14,15 +13,21 @@
       reply.setCancelled(true);
       throw new Exception("imaging task with " + taskId + " is not found");
     }
-    if (ImportTaskState.CONVERTING.equals(imagingTask.getState())) {
+    final String instanceId=request.getInstanceId();
+    if (instanceId != null) {
+      ImagingWorkers.markUpdate(request.getInstanceId());
+    }
+    if (ImportTaskState.CONVERTING.equals(imagingTask.getState()) && instanceId.equals(imagingTask.getWorkerId())) {
       final WorkerTaskState workerState=WorkerTaskState.fromString(request.getStatus());
       if (WorkerTaskState.EXTANT.equals(workerState) || WorkerTaskState.DONE.equals(workerState)) {
-        try {
-          final long bytesConverted=request.getBytesConverted();
-          if (bytesConverted > 0)           ImagingTasks.updateBytesConverted(taskId,volumeId,bytesConverted);
-        }
- catch (        final Exception ex) {
-          LOG.warn("Failed to update bytes converted(" + taskId + ")");
+        if (imagingTask instanceof VolumeImagingTask) {
+          try {
+            final long bytesConverted=request.getBytesConverted();
+            if (bytesConverted > 0)             ImagingTasks.updateBytesConverted(taskId,volumeId,bytesConverted);
+          }
+ catch (          final Exception ex) {
+            LOG.warn("Failed to update bytes converted(" + taskId + ")");
+          }
         }
       }
 switch (workerState) {
@@ -30,28 +35,33 @@ case EXTANT:
         ;
       break;
 case DONE:
-    try {
-      ImagingTasks.updateVolumeStatus(imagingTask,volumeId,ImportTaskState.COMPLETED,null);
-    }
- catch (    final Exception ex) {
-      ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.FAILED,"Failed to update volume's state");
-      LOG.error("Failed to update volume's state",ex);
-      break;
-    }
-  try {
-    if (ImagingTasks.isConversionDone(imagingTask)) {
-      if (imagingTask instanceof InstanceImagingTask) {
-        ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.INSTANTIATING,null);
+    if (imagingTask instanceof VolumeImagingTask) {
+      try {
+        ImagingTasks.updateVolumeStatus((VolumeImagingTask)imagingTask,volumeId,ImportTaskState.COMPLETED,null);
       }
+ catch (      final Exception ex) {
+        ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.FAILED,"Failed to update volume's state");
+        LOG.error("Failed to update volume's state",ex);
+        break;
+      }
+      try {
+        if (ImagingTasks.isConversionDone((VolumeImagingTask)imagingTask)) {
+          if (imagingTask instanceof ImportInstanceImagingTask) {
+            ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.INSTANTIATING,null);
+          }
  else {
-        ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.COMPLETED,null);
+            ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.COMPLETED,null);
+          }
+        }
+      }
+ catch (      final Exception ex) {
+        LOG.error("Failed to update imaging task's state to completed",ex);
       }
     }
-  }
- catch (  final Exception ex) {
-    LOG.error("Failed to update imaging task's state to completed",ex);
-  }
-break;
+ else     if (imagingTask instanceof DiskImagingTask) {
+      ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.COMPLETED,null);
+    }
+  break;
 case FAILED:
 ImagingTasks.setState(imagingTask,ImportTaskState.FAILED,request.getStatusMessage());
 break;
@@ -64,6 +74,5 @@ reply.setCancelled(true);
  catch (final Exception ex) {
 LOG.warn("Failed to update the task's state",ex);
 }
-LOG.debug(reply);
 return reply;
 }

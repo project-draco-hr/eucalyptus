@@ -1,0 +1,74 @@
+{
+  for (  final ImageInfo image : images) {
+    if (!(image instanceof MachineImageInfo))     continue;
+    try {
+      final MachineImageInfo machineImage=(MachineImageInfo)image;
+      final String taskId=machineImage.getImageConversionId();
+      if (taskId == null || taskId.length() <= 0)       throw new Exception("Image " + machineImage.getDisplayName() + " has no conversion task Id");
+      final DescribeConversionTasks task=new DescribeConversionTasks(Lists.newArrayList(machineImage.getImageConversionId()));
+      final CheckedListenableFuture<Boolean> result=task.dispatch();
+      List<DiskImageConversionTask> ctasks=null;
+      if (result.get()) {
+        ctasks=task.getTasks();
+      }
+      boolean conversionSuccess=true;
+      String errorMessage=null;
+      if (ctasks.size() <= 0) {
+        conversionSuccess=true;
+      }
+ else {
+        DiskImageConversionTask ct=ctasks.get(0);
+        if ("completed".equals(ct.getState())) {
+          conversionSuccess=true;
+        }
+ else         if ("active".equals(ct.getState())) {
+          continue;
+        }
+ else {
+          conversionSuccess=false;
+          errorMessage=ct.getStatusMessage();
+        }
+      }
+      if (conversionSuccess) {
+        if (ImageMetadata.State.deregistered_cleanup.equals(image.getState())) {
+          try {
+            this.cleanupBuckets(Lists.newArrayList(image),true);
+          }
+ catch (          final Exception ex) {
+            ;
+          }
+        }
+ else {
+          Images.setImageFormat(machineImage.getDisplayName(),ImageMetadata.ImageFormat.fulldisk);
+          Images.setImageVirtualizationType(machineImage.getDisplayName(),ImageMetadata.VirtualizationType.hvm);
+          Images.setImageState(machineImage.getDisplayName(),ImageMetadata.State.available);
+        }
+      }
+ else {
+        Images.setImageState(machineImage.getDisplayName(),ImageMetadata.State.failed);
+        try {
+          this.cleanupBuckets(Lists.newArrayList(image),false);
+        }
+ catch (        final Exception ex) {
+          ;
+        }
+        LOG.error("Failed to convert partitioned image: " + errorMessage);
+      }
+    }
+ catch (    final Exception ex) {
+      try {
+        Images.setImageState(image.getDisplayName(),ImageMetadata.State.failed);
+        try {
+          this.cleanupBuckets(Lists.newArrayList(image),false);
+        }
+ catch (        final Exception ex2) {
+          ;
+        }
+        LOG.error("Failed to convert partitioned image",ex);
+      }
+ catch (      final Exception ex1) {
+        ;
+      }
+    }
+  }
+}
