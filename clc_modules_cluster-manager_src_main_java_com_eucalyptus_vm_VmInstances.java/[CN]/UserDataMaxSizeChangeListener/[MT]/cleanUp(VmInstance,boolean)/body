@@ -19,7 +19,7 @@
         }
       }
  catch (      final NoSuchElementException e) {
-        if (VmState.PENDING.equals(vmLastState) || VmState.TERMINATED.equals(vmState)) {
+        if (VmState.PENDING.equals(vmLastState) || VmStateSet.DONE.contains(vmState)) {
           for (          Address addr : Addresses.getInstance().listValues()) {
             if (addr.getInstanceId().equals(vm.getInstanceId())) {
               unassignAddress(vm,addr,rollbackNetworkingOnFailure);
@@ -44,12 +44,23 @@ catch (      final Exception e1) {
     LOG.error(ex);
     Logs.extreme().error(ex,ex);
   }
-  try {
-    VmInstanceLifecycleHelpers.get().cleanUpInstance(vm,vmState);
+  try (final TransactionResource db=Entities.distinctTransactionFor(VmInstance.class)){
+    VmInstanceLifecycleHelpers.get().cleanUpInstance(Entities.merge(vm),vmState);
+    db.commit();
   }
  catch (  Exception ex) {
     LOG.error(ex);
     Logs.extreme().error(ex,ex);
+  }
+  if (!rollbackNetworkingOnFailure && VmStateSet.DONE.apply(vm)) {
+    try (final TransactionResource db=Entities.distinctTransactionFor(VmInstance.class)){
+      Entities.merge(vm).clearReferences();
+      db.commit();
+    }
+ catch (    Exception ex) {
+      LOG.error(ex);
+      Logs.extreme().error(ex,ex);
+    }
   }
   try {
     AsyncRequests.newRequest(new TerminateCallback(vm.getInstanceId())).dispatch(vm.getPartition());
