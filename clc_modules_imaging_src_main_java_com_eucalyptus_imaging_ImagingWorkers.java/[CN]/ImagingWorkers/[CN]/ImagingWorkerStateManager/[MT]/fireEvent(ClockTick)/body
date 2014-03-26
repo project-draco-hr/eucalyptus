@@ -1,3 +1,28 @@
 {
-  return;
+  if (!ImagingServiceProperties.IMAGING_WORKER_HEALTHCHECK)   return;
+  try {
+    final List<ImagingWorker> workers=listWorkers();
+    final List<ImagingWorker> timedout=Lists.newArrayList();
+    final List<ImagingWorker> toRemove=Lists.newArrayList();
+    for (    final ImagingWorker worker : workers) {
+      if (isTimedOut(worker))       timedout.add(worker);
+      if (ImagingWorker.STATE.DECOMMISSIONED.equals(worker.getState()) && shouldRemove(worker))       toRemove.add(worker);
+    }
+    for (    final ImagingWorker worker : timedout) {
+      LOG.warn(String.format("Imaging service worker %s is not responding",worker.getDisplayName()));
+      final ImagingTask task=ImagingTasks.getConvertingTaskByWorkerId(worker.getDisplayName());
+      if (task != null) {
+        ImagingTasks.killAndRerunTask(task.getDisplayName());
+        LOG.debug(String.format("Imaging worker task %s is moved back into queue",task.getDisplayName()));
+      }
+      retireWorker(task.getDisplayName());
+    }
+    for (    final ImagingWorker worker : toRemove) {
+      LOG.debug("Forgetting about imaging worker " + worker.getDisplayName());
+      removeWorker(worker.getDisplayName());
+    }
+  }
+ catch (  final Exception ex) {
+    LOG.error("Failed to check imaging worker's state",ex);
+  }
 }
