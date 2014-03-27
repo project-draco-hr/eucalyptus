@@ -9,40 +9,34 @@
   if (bucketList.size() > 0) {
     BucketInfo bucketFound=bucketList.get(0);
     BucketLogData logData=bucketFound.getLoggingEnabled() ? request.getLogData() : null;
-    if (ctx.hasAdministrativePrivileges() || (Lookups.checkPrivilege(PolicySpec.S3_DELETEBUCKET,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,bucketFound.getOwnerId()))) {
-      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-      ObjectInfo searchObject=new ObjectInfo();
-      searchObject.setBucketName(bucketName);
-      List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObject);
-      if (objectInfos.size() == 0) {
-        EntityWrapper<ImageCacheInfo> dbIC=db.recast(ImageCacheInfo.class);
-        ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo();
-        searchImageCacheInfo.setBucketName(bucketName);
-        List<ImageCacheInfo> foundImageCacheInfos=dbIC.queryEscape(searchImageCacheInfo);
-        if (foundImageCacheInfos.size() > 0) {
-          db.rollback();
-          throw new BucketNotEmptyException(bucketName,logData);
-        }
-        db.delete(bucketFound);
-        try {
-          storageManager.deleteBucket(bucketName);
-        }
- catch (        Exception ex) {
-          LOG.error(ex);
-        }
-        if (logData != null) {
-          updateLogData(bucketFound,logData);
-          reply.setLogData(logData);
-        }
-      }
- else {
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObject=new ObjectInfo();
+    searchObject.setBucketName(bucketName);
+    List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObject);
+    if (objectInfos.size() == 0) {
+      EntityWrapper<ImageCacheInfo> dbIC=db.recast(ImageCacheInfo.class);
+      ImageCacheInfo searchImageCacheInfo=new ImageCacheInfo();
+      searchImageCacheInfo.setBucketName(bucketName);
+      List<ImageCacheInfo> foundImageCacheInfos=dbIC.queryEscape(searchImageCacheInfo);
+      if (foundImageCacheInfos.size() > 0) {
         db.rollback();
         throw new BucketNotEmptyException(bucketName,logData);
+      }
+      db.delete(bucketFound);
+      try {
+        storageManager.deleteBucket(bucketName);
+      }
+ catch (      Exception ex) {
+        LOG.error(ex);
+      }
+      if (logData != null) {
+        updateLogData(bucketFound,logData);
+        reply.setLogData(logData);
       }
     }
  else {
       db.rollback();
-      throw new AccessDeniedException("Bucket",bucketName,logData);
+      throw new BucketNotEmptyException(bucketName,logData);
     }
   }
  else {
