@@ -21,111 +21,86 @@ catch (    TransactionException e) {
     }
     if (bucketInfo != null) {
       BucketLogData logData=bucketInfo.getLoggingEnabled() ? request.getLogData() : null;
-      if (ctx.hasAdministrativePrivileges() || (bucketInfo.canWrite(account.getAccountNumber()) && (bucketInfo.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_DELETEOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketInfo.getBucketName(),null)))) {
-        EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-        if (bucketInfo.isVersioningEnabled()) {
-          ObjectInfo searchDeletedObjectInfo=new ObjectInfo(bucketName,objectKey);
-          searchDeletedObjectInfo.setDeleted(true);
-          searchDeletedObjectInfo.setLast(true);
-          try {
-            dbObject.getUniqueEscape(searchDeletedObjectInfo);
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      if (bucketInfo.isVersioningEnabled()) {
+        ObjectInfo searchDeletedObjectInfo=new ObjectInfo(bucketName,objectKey);
+        searchDeletedObjectInfo.setDeleted(true);
+        searchDeletedObjectInfo.setLast(true);
+        try {
+          dbObject.getUniqueEscape(searchDeletedObjectInfo);
+          db.rollback();
+          LOG.debug("Object " + objectKey + " has a delete marker in bucket "+ bucketName+ " that is marked latest. Nothing to delete");
+        }
+ catch (        NoSuchEntityException ex) {
+          LOG.debug("Object " + objectKey + " not found in bucket "+ bucketName+ ". Nothing to delete");
+        }
+catch (        EucalyptusCloudException ex) {
+          ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+          searchObjectInfo.setLast(true);
+          List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
+          for (          ObjectInfo objInfo : objectInfos) {
+            objInfo.setLast(false);
+          }
+          ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
+          deleteMarker.setDeleted(true);
+          deleteMarker.setLast(true);
+          deleteMarker.setOwnerId(account.getAccountNumber());
+          deleteMarker.setLastModified(new Date());
+          deleteMarker.setVersionId(UUID.randomUUID().toString().replaceAll("-",""));
+          dbObject.add(deleteMarker);
+        }
+      }
+ else {
+        ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
+        searchObjectInfo.setLast(true);
+        searchObjectInfo.setDeleted(false);
+        List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
+        if (objectInfos.size() > 0) {
+          if (objectInfos.size() > 1) {
             db.rollback();
-            LOG.debug("Object " + objectKey + " has a delete marker in bucket "+ bucketName+ " that is marked latest. Nothing to delete");
+            throw new EucalyptusCloudException("More than one object set to 'last' found");
           }
- catch (          NoSuchEntityException ex) {
-            LOG.debug("Object " + objectKey + " not found in bucket "+ bucketName+ ". Nothing to delete");
-          }
-catch (          EucalyptusCloudException ex) {
-            ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
-            searchObjectInfo.setLast(true);
-            List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
-            for (            ObjectInfo objInfo : objectInfos) {
-              objInfo.setLast(false);
+          ObjectInfo lastObject=objectInfos.get(0);
+          if (lastObject.getVersionId().equals(WalrusProperties.NULL_VERSION_ID)) {
+            ObjectInfo nullObject=lastObject;
+            dbObject.delete(nullObject);
+            String objectName=nullObject.getObjectName();
+            uploadId=nullObject.getUploadId();
+            for (            GrantInfo grantInfo : nullObject.getGrants()) {
+              db.delete(grantInfo);
             }
+            Long size=nullObject.getSize();
+            boolean success=true;
+            ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectName,objectKey,uploadId,WalrusProperties.NULL_VERSION_ID,size,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
+            Threads.lookup(WalrusBackend.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
+          }
+ else {
+            if (bucketInfo.isVersioningSuspended()) {
+              lastObject.setLast(false);
+            }
+ else {
+              db.rollback();
+              throw new EucalyptusCloudException("Non 'null' versioned object found in a versioning disabled bucket, not sure how to proceed with delete.");
+            }
+          }
+          if (logData != null) {
+            updateLogData(bucketInfo,logData);
+            reply.setLogData(logData);
+          }
+          if (bucketInfo.isVersioningSuspended()) {
             ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
             deleteMarker.setDeleted(true);
             deleteMarker.setLast(true);
             deleteMarker.setOwnerId(account.getAccountNumber());
             deleteMarker.setLastModified(new Date());
-            deleteMarker.setVersionId(UUID.randomUUID().toString().replaceAll("-",""));
+            deleteMarker.setVersionId(WalrusProperties.NULL_VERSION_ID);
+            deleteMarker.setSize(0L);
             dbObject.add(deleteMarker);
           }
         }
  else {
-          ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
-          searchObjectInfo.setLast(true);
-          searchObjectInfo.setDeleted(false);
-          List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
-          if (objectInfos.size() > 0) {
-            if (objectInfos.size() > 1) {
-              db.rollback();
-              throw new EucalyptusCloudException("More than one object set to 'last' found");
-            }
-            ObjectInfo lastObject=objectInfos.get(0);
-            if (lastObject.getVersionId().equals(WalrusProperties.NULL_VERSION_ID)) {
-              ObjectInfo nullObject=lastObject;
-              dbObject.delete(nullObject);
-              String objectName=nullObject.getObjectName();
-              uploadId=nullObject.getUploadId();
-              for (              GrantInfo grantInfo : nullObject.getGrants()) {
-                db.delete(grantInfo);
-              }
-              Long size=nullObject.getSize();
-              boolean success=false;
-              int retryCount=0;
-              do {
-                try {
-                  decrementBucketSize(bucketName,size);
-                  success=true;
-                }
- catch (                NoSuchBucketException ex) {
-                  db.rollback();
-                  throw ex;
-                }
-catch (                RollbackException ex) {
-                  retryCount++;
-                  LOG.trace("retrying update: " + bucketName);
-                }
-catch (                EucalyptusCloudException ex) {
-                  db.rollback();
-                  throw ex;
-                }
-              }
- while (!success && (retryCount < 5));
-              ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectName,objectKey,uploadId,WalrusProperties.NULL_VERSION_ID,size,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
-              Threads.lookup(Walrus.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
-            }
- else {
-              if (bucketInfo.isVersioningSuspended()) {
-                lastObject.setLast(false);
-              }
- else {
-                db.rollback();
-                throw new EucalyptusCloudException("Non 'null' versioned object found in a versioning disabled bucket, not sure how to proceed with delete.");
-              }
-            }
-            if (logData != null) {
-              updateLogData(bucketInfo,logData);
-              reply.setLogData(logData);
-            }
-            if (bucketInfo.isVersioningSuspended()) {
-              ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
-              deleteMarker.setDeleted(true);
-              deleteMarker.setLast(true);
-              deleteMarker.setOwnerId(account.getAccountNumber());
-              deleteMarker.setLastModified(new Date());
-              deleteMarker.setVersionId(WalrusProperties.NULL_VERSION_ID);
-              deleteMarker.setSize(0L);
-              dbObject.add(deleteMarker);
-            }
-          }
- else {
-            LOG.debug("Object " + objectKey + " not found in bucket "+ bucketName+ ". Nothing to delete");
-          }
+          LOG.debug("Object " + objectKey + " not found in bucket "+ bucketName+ ". Nothing to delete");
         }
-      }
- else {
-        throw new AccessDeniedException("Bucket",bucketName,logData);
       }
     }
  else {

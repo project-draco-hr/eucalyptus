@@ -10,160 +10,132 @@
   List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
   if (bucketList.size() > 0) {
     BucketInfo bucket=bucketList.get(0);
-    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && (bucket.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
-      try {
-        PartInfo searchManifest=new PartInfo(bucketName,objectKey);
-        searchManifest.setUploadId(request.getUploadId());
-        searchManifest.setCleanup(Boolean.FALSE);
-        EntityWrapper<PartInfo> dbPart=db.recast(PartInfo.class);
-        Criteria partCriteria=dbPart.createCriteria(PartInfo.class);
+    try {
+      PartInfo searchManifest=new PartInfo(bucketName,objectKey);
+      searchManifest.setUploadId(request.getUploadId());
+      searchManifest.setCleanup(Boolean.FALSE);
+      EntityWrapper<PartInfo> dbPart=db.recast(PartInfo.class);
+      Criteria partCriteria=dbPart.createCriteria(PartInfo.class);
+      partCriteria.add(Example.create(searchManifest));
+      partCriteria.add(Restrictions.isNull("partNumber"));
+      List<PartInfo> found=partCriteria.list();
+      if (found.size() == 0) {
+        db.rollback();
+        throw new EucalyptusCloudException("Multipart upload ID is invalid. Intitiate a multipart upload request before uploading the parts");
+      }
+      if (found.size() > 1) {
+        db.rollback();
+        throw new EucalyptusCloudException("Multiple manifests found for same uploadId");
+      }
+      PartInfo foundManifest=found.get(0);
+      if (foundManifest != null) {
+        long oldBucketSize=0L;
+        long oldObjectSize=0L;
+        String versionId=null;
+        if (bucket.isVersioningEnabled()) {
+          versionId=foundManifest.getVersionId();
+        }
+ else {
+          versionId=WalrusProperties.NULL_VERSION_ID;
+          ObjectInfo searchObject=new ObjectInfo(bucketName,objectKey);
+          searchObject.setVersionId(versionId);
+          EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+          try {
+            ObjectInfo foundObject=dbObject.getUniqueEscape(searchObject);
+            if (!foundObject.canWrite(account.getAccountNumber())) {
+              db.rollback();
+              throw new AccessDeniedException("Key",objectKey);
+            }
+            if (foundManifest.getGrants().size() > 0 && (!foundObject.canWriteACP(account.getAccountNumber()))) {
+              db.rollback();
+              throw new AccessDeniedException("Key",objectKey);
+            }
+            oldObjectSize=foundObject.getSize() == null ? 0L : foundObject.getSize();
+            oldBucketSize=-oldObjectSize;
+          }
+ catch (          AccessDeniedException ex) {
+            throw ex;
+          }
+catch (          EucalyptusCloudException ex) {
+          }
+        }
+        PartInfo searchPart=new PartInfo(bucketName,objectKey);
+        searchPart.setUploadId(request.getUploadId());
+        partCriteria=dbPart.createCriteria(PartInfo.class);
         partCriteria.add(Example.create(searchManifest));
-        partCriteria.add(Restrictions.isNull("partNumber"));
-        List<PartInfo> found=partCriteria.list();
-        if (found.size() == 0) {
-          db.rollback();
-          throw new EucalyptusCloudException("Multipart upload ID is invalid. Intitiate a multipart upload request before uploading the parts");
-        }
-        if (found.size() > 1) {
-          db.rollback();
-          throw new EucalyptusCloudException("Multiple manifests found for same uploadId");
-        }
-        PartInfo foundManifest=found.get(0);
-        if (foundManifest != null) {
-          long oldBucketSize=0L;
-          long oldObjectSize=0L;
-          String versionId=null;
-          if (bucket.isVersioningEnabled()) {
-            versionId=foundManifest.getVersionId();
+        partCriteria.add(Restrictions.isNotNull("partNumber"));
+        List<PartInfo> foundParts=partCriteria.list();
+        String eTagString="";
+        long size=0;
+        if (foundParts != null && foundParts.size() > 0) {
+          if (requestParts != null && requestParts.size() > foundParts.size()) {
+            throw new EucalyptusCloudException("One or more parts has not been uploaded yet. Either upload the part or fix the manifest");
           }
  else {
-            versionId=WalrusProperties.NULL_VERSION_ID;
-            ObjectInfo searchObject=new ObjectInfo(bucketName,objectKey);
-            searchObject.setVersionId(versionId);
-            EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-            try {
-              ObjectInfo foundObject=dbObject.getUniqueEscape(searchObject);
-              if (!foundObject.canWrite(account.getAccountNumber())) {
-                db.rollback();
-                throw new AccessDeniedException("Key",objectKey);
+            Map<Integer,PartInfo> partsMap=new HashMap<Integer,PartInfo>(foundParts.size());
+            for (            PartInfo foundPart : foundParts) {
+              partsMap.put(foundPart.getPartNumber(),foundPart);
+            }
+            PartInfo lookupPart=null;
+            for (            Part requestPart : requestParts) {
+              if ((lookupPart=partsMap.get(requestPart.getPartNumber())) != null) {
+                lookupPart.setCleanup(Boolean.FALSE);
+                eTagString+=lookupPart.getEtag();
+                size+=lookupPart.getSize();
+                partsMap.remove(lookupPart.getPartNumber());
               }
-              if (foundManifest.getGrants().size() > 0 && (!foundObject.canWriteACP(account.getAccountNumber()))) {
-                db.rollback();
-                throw new AccessDeniedException("Key",objectKey);
-              }
-              oldObjectSize=foundObject.getSize() == null ? 0L : foundObject.getSize();
-              oldBucketSize=-oldObjectSize;
-            }
- catch (            AccessDeniedException ex) {
-              throw ex;
-            }
-catch (            EucalyptusCloudException ex) {
-            }
-          }
-          PartInfo searchPart=new PartInfo(bucketName,objectKey);
-          searchPart.setUploadId(request.getUploadId());
-          partCriteria=dbPart.createCriteria(PartInfo.class);
-          partCriteria.add(Example.create(searchManifest));
-          partCriteria.add(Restrictions.isNotNull("partNumber"));
-          List<PartInfo> foundParts=partCriteria.list();
-          String eTagString="";
-          long size=0;
-          if (foundParts != null && foundParts.size() > 0) {
-            if (requestParts != null && requestParts.size() > foundParts.size()) {
-              throw new EucalyptusCloudException("One or more parts has not been uploaded yet. Either upload the part or fix the manifest");
-            }
  else {
-              Map<Integer,PartInfo> partsMap=new HashMap<Integer,PartInfo>(foundParts.size());
-              for (              PartInfo foundPart : foundParts) {
-                partsMap.put(foundPart.getPartNumber(),foundPart);
+                throw new EucalyptusCloudException("Part not found");
               }
-              PartInfo lookupPart=null;
-              for (              Part requestPart : requestParts) {
-                if ((lookupPart=partsMap.get(requestPart.getPartNumber())) != null) {
-                  lookupPart.setCleanup(Boolean.FALSE);
-                  eTagString+=lookupPart.getEtag();
-                  size+=lookupPart.getSize();
-                  partsMap.remove(lookupPart.getPartNumber());
-                }
- else {
-                  throw new EucalyptusCloudException("Part not found");
-                }
-              }
-              MessageDigest digest=Digest.MD5.get();
-              digest.update(eTagString.getBytes());
-              final String eTag="uuid-" + Hashes.bytesToHex(digest.digest());
-              foundManifest.setEtag(eTag);
-              foundManifest.setCleanup(Boolean.FALSE);
-              if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
-                LOG.error("Quota exceeded for Walrus putObject");
-                throw new EntityTooLargeException("Key",objectKey);
-              }
-              boolean success=false;
-              int retryCount=0;
-              do {
-                try {
-                  incrementBucketSize(bucketName,objectKey,oldBucketSize,size);
-                  success=true;
-                }
- catch (                EntityTooLargeException ex) {
-                  throw ex;
-                }
-catch (                NoSuchBucketException ex) {
-                  throw ex;
-                }
-catch (                RollbackException ex) {
-                  retryCount++;
-                  LOG.trace("retrying update: " + bucketName);
-                }
-catch (                EucalyptusCloudException ex) {
-                  throw ex;
-                }
-              }
- while (!success && (retryCount < 5));
-              ObjectInfo objectInfo=new ObjectInfo(bucketName,objectKey);
-              objectInfo.setCleanup(false);
-              objectInfo.setEtag(eTag);
-              objectInfo.setUploadId(foundManifest.getUploadId());
-              objectInfo.setDeleted(false);
-              objectInfo.setSize(size);
-              objectInfo.setLastModified(new Date());
-              objectInfo.setVersionId(versionId);
-              objectInfo.setStorageClass(foundManifest.getStorageClass());
-              objectInfo.setContentDisposition(foundManifest.getContentDisposition());
-              objectInfo.setContentType(foundManifest.getContentType());
-              objectInfo.setLast(true);
-              objectInfo.setDeleted(false);
-              objectInfo.updateGrants(foundManifest);
-              EntityWrapper<ObjectInfo> dbOject=db.recast(ObjectInfo.class);
-              dbOject.add(objectInfo);
-              Set<Integer> keys=partsMap.keySet();
-              for (              Integer key : keys) {
-                partsMap.get(key).markForCleanup();
-              }
-              db.commit();
-              reply.setEtag(foundManifest.getEtag());
-              reply.setLocation("Walrus" + foundManifest.getBucketName() + "/"+ foundManifest.getObjectKey());
-              reply.setBucket(foundManifest.getBucketName());
-              reply.setKey(foundManifest.getObjectKey());
-              firePartsCleanupTask(foundManifest.getBucketName(),request.getKey(),request.getUploadId());
             }
-          }
- else {
-            throw new EucalyptusCloudException("No parts found in the database");
+            MessageDigest digest=Digest.MD5.get();
+            digest.update(eTagString.getBytes());
+            final String eTag="uuid-" + Hashes.bytesToHex(digest.digest());
+            foundManifest.setEtag(eTag);
+            foundManifest.setCleanup(Boolean.FALSE);
+            if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
+              LOG.error("Quota exceeded for WalrusBackend putObject");
+              throw new EntityTooLargeException("Key",objectKey);
+            }
+            ObjectInfo objectInfo=new ObjectInfo(bucketName,objectKey);
+            objectInfo.setCleanup(false);
+            objectInfo.setEtag(eTag);
+            objectInfo.setUploadId(foundManifest.getUploadId());
+            objectInfo.setDeleted(false);
+            objectInfo.setSize(size);
+            objectInfo.setLastModified(new Date());
+            objectInfo.setVersionId(versionId);
+            objectInfo.setStorageClass(foundManifest.getStorageClass());
+            objectInfo.setContentDisposition(foundManifest.getContentDisposition());
+            objectInfo.setContentType(foundManifest.getContentType());
+            objectInfo.setLast(true);
+            objectInfo.setDeleted(false);
+            objectInfo.updateGrants(foundManifest);
+            EntityWrapper<ObjectInfo> dbOject=db.recast(ObjectInfo.class);
+            dbOject.add(objectInfo);
+            Set<Integer> keys=partsMap.keySet();
+            for (            Integer key : keys) {
+              partsMap.get(key).markForCleanup();
+            }
+            db.commit();
+            reply.setEtag(foundManifest.getEtag());
+            reply.setLocation("WalrusBackend" + foundManifest.getBucketName() + "/"+ foundManifest.getObjectKey());
+            reply.setBucket(foundManifest.getBucketName());
+            reply.setKey(foundManifest.getObjectKey());
+            firePartsCleanupTask(foundManifest.getBucketName(),request.getKey(),request.getUploadId());
           }
         }
  else {
-          throw new EucalyptusCloudException("Multipart upload ID is invalid.");
+          throw new EucalyptusCloudException("No parts found in the database");
         }
       }
- catch (      Exception ex) {
-        db.rollback();
-        throw new EucalyptusCloudException(ex);
+ else {
+        throw new EucalyptusCloudException("Multipart upload ID is invalid.");
       }
     }
- else {
+ catch (    Exception ex) {
       db.rollback();
-      throw new AccessDeniedException("Bucket",bucketName);
+      throw new EucalyptusCloudException(ex);
     }
   }
  else {
