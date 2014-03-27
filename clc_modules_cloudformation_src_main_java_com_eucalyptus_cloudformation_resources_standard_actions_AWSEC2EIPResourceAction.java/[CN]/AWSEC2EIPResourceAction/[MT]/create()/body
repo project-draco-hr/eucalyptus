@@ -1,3 +1,22 @@
 {
-  throw new UnsupportedOperationException();
+  ServiceConfiguration configuration=Topology.lookup(Eucalyptus.class);
+  AllocateAddressType allocateAddressType=new AllocateAddressType();
+  allocateAddressType.setEffectiveUserId(info.getEffectiveUserId());
+  AllocateAddressResponseType allocateAddressResponseType=AsyncRequests.<AllocateAddressType,AllocateAddressResponseType>sendSync(configuration,allocateAddressType);
+  String publicIp=allocateAddressResponseType.getPublicIp();
+  if (properties.getInstanceId() != null) {
+    DescribeInstancesType describeInstancesType=new DescribeInstancesType();
+    describeInstancesType.setInstancesSet(Lists.newArrayList(properties.getInstanceId()));
+    describeInstancesType.setEffectiveUserId(info.getEffectiveUserId());
+    DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.<DescribeInstancesType,DescribeInstancesResponseType>sendSync(configuration,describeInstancesType);
+    if (describeInstancesResponseType.getReservationSet() == null || describeInstancesResponseType.getReservationSet().isEmpty()) {
+      throw new ValidationErrorException("No such instance " + properties.getInstanceId());
+    }
+    AssociateAddressType associateAddressType=new AssociateAddressType();
+    associateAddressType.setInstanceId(properties.getInstanceId());
+    associateAddressType.setPublicIp(publicIp);
+    associateAddressType.setEffectiveUserId(info.getEffectiveUserId());
+    AsyncRequests.<AssociateAddressType,AssociateAddressResponseType>sendSync(configuration,associateAddressType);
+  }
+  info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(publicIp)));
 }
