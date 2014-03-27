@@ -28,15 +28,45 @@
       LOG.error("Invalid content length " + request.getContentLength());
       objSize=1L;
     }
-    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && (bucket.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
-      if (logData != null) {
-        reply.setLogData(logData);
+    if (logData != null) {
+      reply.setLogData(logData);
+    }
+    String objectName=null;
+    String versionId=null;
+    Long oldObjectSize=0L;
+    ObjectInfo objectInfo=null;
+    if (bucket.isVersioningEnabled()) {
+      objectInfo=new ObjectInfo(bucketName,objectKey);
+      objectInfo.setOwnerId(account.getAccountNumber());
+      List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+      objectInfo.addGrants(account.getAccountNumber(),bucket.getOwnerId(),grantInfos,accessControlList);
+      objectInfo.setGrants(grantInfos);
+      objectName=UUID.randomUUID().toString();
+      objectInfo.setObjectName(objectName);
+      objectInfo.setSize(0L);
+      versionId=UUID.randomUUID().toString().replaceAll("-","");
+      reply.setVersionId(versionId);
+    }
+ else {
+      versionId=WalrusProperties.NULL_VERSION_ID;
+      ObjectInfo searchObject=new ObjectInfo(bucketName,objectKey);
+      searchObject.setVersionId(versionId);
+      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+      try {
+        ObjectInfo foundObject=dbObject.getUniqueEscape(searchObject);
+        if (!foundObject.canWrite(account.getAccountNumber())) {
+          db.rollback();
+          messenger.removeQueue(key,randomKey);
+          throw new AccessDeniedException("Key",objectKey,logData);
+        }
+        objectName=foundObject.getObjectName();
+        oldObjectSize=foundObject.getSize() == null ? 0L : foundObject.getSize();
+        oldBucketSize=-oldObjectSize;
       }
-      String objectName=null;
-      String versionId=null;
-      Long oldObjectSize=0L;
-      ObjectInfo objectInfo=null;
-      if (bucket.isVersioningEnabled()) {
+ catch (      AccessDeniedException ex) {
+        throw ex;
+      }
+catch (      EucalyptusCloudException ex) {
         objectInfo=new ObjectInfo(bucketName,objectKey);
         objectInfo.setOwnerId(account.getAccountNumber());
         List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
@@ -45,259 +75,195 @@
         objectName=UUID.randomUUID().toString();
         objectInfo.setObjectName(objectName);
         objectInfo.setSize(0L);
-        versionId=UUID.randomUUID().toString().replaceAll("-","");
-        reply.setVersionId(versionId);
-      }
- else {
-        versionId=WalrusProperties.NULL_VERSION_ID;
-        ObjectInfo searchObject=new ObjectInfo(bucketName,objectKey);
-        searchObject.setVersionId(versionId);
-        EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-        try {
-          ObjectInfo foundObject=dbObject.getUniqueEscape(searchObject);
-          if (!foundObject.canWrite(account.getAccountNumber())) {
-            db.rollback();
-            messenger.removeQueue(key,randomKey);
-            throw new AccessDeniedException("Key",objectKey,logData);
-          }
-          objectName=foundObject.getObjectName();
-          oldObjectSize=foundObject.getSize() == null ? 0L : foundObject.getSize();
-          oldBucketSize=-oldObjectSize;
-        }
- catch (        AccessDeniedException ex) {
-          throw ex;
-        }
-catch (        EucalyptusCloudException ex) {
-          objectInfo=new ObjectInfo(bucketName,objectKey);
-          objectInfo.setOwnerId(account.getAccountNumber());
-          List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-          objectInfo.addGrants(account.getAccountNumber(),bucket.getOwnerId(),grantInfos,accessControlList);
-          objectInfo.setGrants(grantInfos);
-          objectName=UUID.randomUUID().toString();
-          objectInfo.setObjectName(objectName);
-          objectInfo.setSize(0L);
-        }
-      }
-      String bucketOwnerId=bucket.getOwnerId();
-      db.commit();
-      WalrusDataQueue<WalrusDataMessage> putQueue=messenger.getQueue(key,randomKey);
-      try {
-        WalrusDataMessage dataMessage;
-        String tempObjectName=objectName;
-        MessageDigest digest=null;
-        long size=0;
-        FileIO fileIO=null;
-        while ((dataMessage=putQueue.take()) != null) {
-          if (putQueue.getInterrupted()) {
-            if (WalrusDataMessage.isEOF(dataMessage)) {
-              WalrusMonitor monitor=messenger.getMonitor(key);
-              if (monitor.getLastModified() == null) {
-                LOG.trace("Monitor wait: " + key + " random: "+ randomKey);
-synchronized (monitor) {
-                  monitor.wait();
-                }
-              }
-              LOG.trace("Monitor resume: " + key + " random: "+ randomKey);
-              lastModified=monitor.getLastModified();
-              md5=monitor.getMd5();
-              if (fileIO != null) {
-                fileIO.finish();
-              }
-              ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,null,null,null,-1L,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
-              Threads.lookup(Walrus.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
-              LOG.info("Transfer interrupted: " + key);
-              messenger.removeQueue(key,randomKey);
-              break;
-            }
-            continue;
-          }
-          if (WalrusDataMessage.isStart(dataMessage)) {
-            tempObjectName=UUID.randomUUID().toString();
-            digest=Digest.MD5.get();
-            try {
-              fileIO=storageManager.prepareForWrite(bucketName,tempObjectName);
-            }
- catch (            Exception ex) {
-              messenger.removeQueue(key,randomKey);
-              throw new EucalyptusCloudException(ex);
-            }
-          }
- else           if (WalrusDataMessage.isEOF(dataMessage)) {
-            if (digest != null) {
-              md5=Hashes.bytesToHex(digest.digest());
-            }
- else {
-              WalrusMonitor monitor=messenger.getMonitor(key);
-              md5=monitor.getMd5();
-              lastModified=monitor.getLastModified();
-              if (md5 == null) {
-                LOG.error("ETag did not match for: " + randomKey + " Computed MD5 is null");
-                throw new ContentMismatchException(bucketName + "/" + objectKey);
-              }
-              break;
-            }
-            String contentMD5=request.getContentMD5();
-            if (contentMD5 != null) {
-              String contentMD5AsHex=Hashes.bytesToHex(Base64.decode(contentMD5));
-              if (!contentMD5AsHex.equals(md5)) {
-                if (fileIO != null) {
-                  fileIO.finish();
-                }
-                cleanupTempObject(ctx,bucketName,tempObjectName);
-                messenger.removeQueue(key,randomKey);
-                LOG.error("ETag did not match for: " + randomKey + " Expected: "+ contentMD5AsHex+ " Computed: "+ md5);
-                throw new ContentMismatchException(bucketName + "/" + objectKey);
-              }
-            }
-            if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
-              cleanupTempObject(ctx,bucketName,tempObjectName);
-              messenger.removeQueue(key,randomKey);
-              LOG.error("Quota exceeded for Walrus putObject");
-              throw new EntityTooLargeException("Key",objectKey);
-            }
-            boolean success=false;
-            int retryCount=0;
-            do {
-              try {
-                incrementBucketSize(bucketName,objectKey,oldBucketSize,size);
-                success=true;
-              }
- catch (              EntityTooLargeException ex) {
-                cleanupTempObject(ctx,bucketName,tempObjectName);
-                messenger.removeQueue(key,randomKey);
-                throw ex;
-              }
-catch (              NoSuchBucketException ex) {
-                cleanupTempObject(ctx,bucketName,tempObjectName);
-                messenger.removeQueue(key,randomKey);
-                throw ex;
-              }
-catch (              RollbackException ex) {
-                retryCount++;
-                LOG.trace("retrying update: " + bucketName);
-              }
-catch (              EucalyptusCloudException ex) {
-                cleanupTempObject(ctx,bucketName,tempObjectName);
-                messenger.removeQueue(key,randomKey);
-                throw ex;
-              }
-            }
- while (!success && (retryCount < 5));
-            try {
-              if (fileIO != null) {
-                fileIO.finish();
-              }
-              storageManager.renameObject(bucketName,tempObjectName,objectName);
-            }
- catch (            IOException ex) {
-              LOG.error(ex);
-              messenger.removeQueue(key,randomKey);
-              throw new EucalyptusCloudException(objectKey);
-            }
-            lastModified=new Date();
-            ObjectInfo searchObject=new ObjectInfo(bucketName,objectKey);
-            searchObject.setVersionId(versionId);
-            EntityWrapper<ObjectInfo> dbObject=EntityWrapper.get(ObjectInfo.class);
-            ObjectInfo foundObject;
-            try {
-              foundObject=dbObject.getUniqueEscape(searchObject);
-              if (foundObject.getDeleted() || ctx.hasAdministrativePrivileges() || foundObject.canWriteACP(account.getAccountNumber())) {
-                List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-                foundObject.addGrants(account.getAccountNumber(),bucketOwnerId,grantInfos,accessControlList);
-                foundObject.setGrants(grantInfos);
-              }
-            }
- catch (            EucalyptusCloudException ex) {
-              if (objectInfo != null) {
-                foundObject=objectInfo;
-              }
- else {
-                dbObject.rollback();
-                throw new EucalyptusCloudException("Unable to update object: " + bucketName + "/"+ objectKey);
-              }
-            }
-            foundObject.setVersionId(versionId);
-            foundObject.replaceMetaData(request.getMetaData());
-            foundObject.setEtag(md5);
-            foundObject.setSize(size);
-            foundObject.setLastModified(lastModified);
-            foundObject.setStorageClass("STANDARD");
-            foundObject.setContentType(request.getContentType());
-            foundObject.setContentDisposition(request.getContentDisposition());
-            foundObject.setLast(true);
-            foundObject.setDeleted(false);
-            reply.setSize(size);
-            if (logData != null) {
-              logData.setObjectSize(size);
-              updateLogData(bucket,logData);
-            }
-            if (objectInfo != null) {
-              dbObject.add(foundObject);
-            }
-            success=false;
-            try {
-              dbObject.commit();
-              success=true;
-            }
- catch (            RollbackException ex) {
-              dbObject.rollback();
-              LOG.error(ex,ex);
-            }
-            dbObject=EntityWrapper.get(ObjectInfo.class);
-            List<ObjectInfo> objectInfos=dbObject.queryEscape(new ObjectInfo(bucketName,objectKey));
-            for (            ObjectInfo objInfo : objectInfos) {
-              if (!success) {
-                if (objInfo.getLast()) {
-                  lastModified=objInfo.getLastModified();
-                  md5=objInfo.getEtag();
-                }
-                success=true;
-              }
-              if (!versionId.equals(objInfo.getVersionId())) {
-                objInfo.setLast(false);
-              }
-            }
-            dbObject.commit();
-            if (logData != null) {
-              logData.setTurnAroundTime(Long.parseLong(new String(dataMessage.getPayload())));
-            }
-            WalrusMonitor monitor=messenger.getMonitor(key);
-synchronized (monitor) {
-              monitor.setLastModified(lastModified);
-              monitor.setMd5(md5);
-              monitor.notifyAll();
-            }
-            messenger.clearQueues(key);
-            messenger.removeQueue(key,randomKey);
-            LOG.info("Transfer complete: " + key);
-            break;
-          }
- else {
-            assert(WalrusDataMessage.isData(dataMessage));
-            byte[] data=dataMessage.getPayload();
-            try {
-              if (fileIO != null)               fileIO.write(data);
-            }
- catch (            IOException ex) {
-              LOG.error(ex);
-            }
-            size+=data.length;
-            if (digest != null) {
-              digest.update(data);
-            }
-          }
-        }
-      }
- catch (      InterruptedException ex) {
-        LOG.error(ex,ex);
-        messenger.removeQueue(key,randomKey);
-        throw new EucalyptusCloudException("Transfer interrupted: " + key + "."+ randomKey);
       }
     }
+    String bucketOwnerId=bucket.getOwnerId();
+    db.commit();
+    WalrusDataQueue<WalrusDataMessage> putQueue=messenger.getQueue(key,randomKey);
+    try {
+      WalrusDataMessage dataMessage;
+      String tempObjectName=objectName;
+      MessageDigest digest=null;
+      long size=0;
+      FileIO fileIO=null;
+      while ((dataMessage=putQueue.take()) != null) {
+        if (putQueue.getInterrupted()) {
+          if (WalrusDataMessage.isEOF(dataMessage)) {
+            WalrusMonitor monitor=messenger.getMonitor(key);
+            if (monitor.getLastModified() == null) {
+              LOG.trace("Monitor wait: " + key + " random: "+ randomKey);
+synchronized (monitor) {
+                monitor.wait();
+              }
+            }
+            LOG.trace("Monitor resume: " + key + " random: "+ randomKey);
+            lastModified=monitor.getLastModified();
+            md5=monitor.getMd5();
+            if (fileIO != null) {
+              fileIO.finish();
+            }
+            ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,null,null,null,-1L,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
+            Threads.lookup(WalrusBackend.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
+            LOG.info("Transfer interrupted: " + key);
+            messenger.removeQueue(key,randomKey);
+            break;
+          }
+          continue;
+        }
+        if (WalrusDataMessage.isStart(dataMessage)) {
+          tempObjectName=UUID.randomUUID().toString();
+          digest=Digest.MD5.get();
+          try {
+            fileIO=storageManager.prepareForWrite(bucketName,tempObjectName);
+          }
+ catch (          Exception ex) {
+            messenger.removeQueue(key,randomKey);
+            throw new EucalyptusCloudException(ex);
+          }
+        }
+ else         if (WalrusDataMessage.isEOF(dataMessage)) {
+          if (digest != null) {
+            md5=Hashes.bytesToHex(digest.digest());
+          }
  else {
-      db.rollback();
+            WalrusMonitor monitor=messenger.getMonitor(key);
+            md5=monitor.getMd5();
+            lastModified=monitor.getLastModified();
+            if (md5 == null) {
+              LOG.error("ETag did not match for: " + randomKey + " Computed MD5 is null");
+              throw new ContentMismatchException(bucketName + "/" + objectKey);
+            }
+            break;
+          }
+          String contentMD5=request.getContentMD5();
+          if (contentMD5 != null) {
+            String contentMD5AsHex=Hashes.bytesToHex(Base64.decode(contentMD5));
+            if (!contentMD5AsHex.equals(md5)) {
+              if (fileIO != null) {
+                fileIO.finish();
+              }
+              cleanupTempObject(ctx,bucketName,tempObjectName);
+              messenger.removeQueue(key,randomKey);
+              LOG.error("ETag did not match for: " + randomKey + " Expected: "+ contentMD5AsHex+ " Computed: "+ md5);
+              throw new ContentMismatchException(bucketName + "/" + objectKey);
+            }
+          }
+          if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
+            cleanupTempObject(ctx,bucketName,tempObjectName);
+            messenger.removeQueue(key,randomKey);
+            LOG.error("Quota exceeded for WalrusBackend putObject");
+            throw new EntityTooLargeException("Key",objectKey);
+          }
+          boolean success=true;
+          try {
+            if (fileIO != null) {
+              fileIO.finish();
+            }
+            storageManager.renameObject(bucketName,tempObjectName,objectName);
+          }
+ catch (          IOException ex) {
+            LOG.error(ex);
+            messenger.removeQueue(key,randomKey);
+            throw new EucalyptusCloudException(objectKey);
+          }
+          lastModified=new Date();
+          ObjectInfo searchObject=new ObjectInfo(bucketName,objectKey);
+          searchObject.setVersionId(versionId);
+          EntityWrapper<ObjectInfo> dbObject=EntityWrapper.get(ObjectInfo.class);
+          ObjectInfo foundObject;
+          try {
+            foundObject=dbObject.getUniqueEscape(searchObject);
+            if (foundObject.getDeleted() || ctx.hasAdministrativePrivileges() || foundObject.canWriteACP(account.getAccountNumber())) {
+              List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+              foundObject.addGrants(account.getAccountNumber(),bucketOwnerId,grantInfos,accessControlList);
+              foundObject.setGrants(grantInfos);
+            }
+          }
+ catch (          EucalyptusCloudException ex) {
+            if (objectInfo != null) {
+              foundObject=objectInfo;
+            }
+ else {
+              dbObject.rollback();
+              throw new EucalyptusCloudException("Unable to update object: " + bucketName + "/"+ objectKey);
+            }
+          }
+          foundObject.setVersionId(versionId);
+          foundObject.replaceMetaData(request.getMetaData());
+          foundObject.setEtag(md5);
+          foundObject.setSize(size);
+          foundObject.setLastModified(lastModified);
+          foundObject.setStorageClass("STANDARD");
+          foundObject.setContentType(request.getContentType());
+          foundObject.setContentDisposition(request.getContentDisposition());
+          foundObject.setLast(true);
+          foundObject.setDeleted(false);
+          reply.setSize(size);
+          if (logData != null) {
+            logData.setObjectSize(size);
+            updateLogData(bucket,logData);
+          }
+          if (objectInfo != null) {
+            dbObject.add(foundObject);
+          }
+          success=false;
+          try {
+            dbObject.commit();
+            success=true;
+          }
+ catch (          RollbackException ex) {
+            dbObject.rollback();
+            LOG.error(ex,ex);
+          }
+          dbObject=EntityWrapper.get(ObjectInfo.class);
+          List<ObjectInfo> objectInfos=dbObject.queryEscape(new ObjectInfo(bucketName,objectKey));
+          for (          ObjectInfo objInfo : objectInfos) {
+            if (!success) {
+              if (objInfo.getLast()) {
+                lastModified=objInfo.getLastModified();
+                md5=objInfo.getEtag();
+              }
+              success=true;
+            }
+            if (!versionId.equals(objInfo.getVersionId())) {
+              objInfo.setLast(false);
+            }
+          }
+          dbObject.commit();
+          if (logData != null) {
+            logData.setTurnAroundTime(Long.parseLong(new String(dataMessage.getPayload())));
+          }
+          WalrusMonitor monitor=messenger.getMonitor(key);
+synchronized (monitor) {
+            monitor.setLastModified(lastModified);
+            monitor.setMd5(md5);
+            monitor.notifyAll();
+          }
+          messenger.clearQueues(key);
+          messenger.removeQueue(key,randomKey);
+          LOG.info("Transfer complete: " + key);
+          break;
+        }
+ else {
+          assert(WalrusDataMessage.isData(dataMessage));
+          byte[] data=dataMessage.getPayload();
+          try {
+            if (fileIO != null)             fileIO.write(data);
+          }
+ catch (          IOException ex) {
+            LOG.error(ex);
+          }
+          size+=data.length;
+          if (digest != null) {
+            digest.update(data);
+          }
+        }
+      }
+    }
+ catch (    InterruptedException ex) {
+      LOG.error(ex,ex);
       messenger.removeQueue(key,randomKey);
-      throw new AccessDeniedException("Bucket",bucketName,logData);
+      throw new EucalyptusCloudException("Transfer interrupted: " + key + "."+ randomKey);
     }
   }
  else {
