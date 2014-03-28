@@ -29,7 +29,18 @@ catch (  Exception ex) {
     if (address == null || address.length() <= 0)     continue;
     try {
       EucalyptusActivityTasks.getInstance().removeARecord(dns.getZone(),dns.getName(),address);
-    }
+      try (final TransactionResource db=Entities.transactionFor(LoadBalancerServoInstance.class)){
+        try {
+          final LoadBalancerServoInstance entity=Entities.uniqueResult(LoadBalancerServoInstance.named(instance.getInstanceId()));
+          entity.setDnsState(LoadBalancerServoInstance.DNS_STATE.Deregistered);
+          Entities.persist(entity);
+          db.commit();
+        }
+ catch (        final Exception ex) {
+          LOG.error(String.format("failed to set servo instance(%s)'s dns state to deregistered",instance.getInstanceId()),ex);
+        }
+      }
+     }
  catch (    Exception ex) {
       LOG.error(String.format("failed to remove dns a record (zone=%s, name=%s, address=%s)",dns.getZone(),dns.getName(),address),ex);
     }
