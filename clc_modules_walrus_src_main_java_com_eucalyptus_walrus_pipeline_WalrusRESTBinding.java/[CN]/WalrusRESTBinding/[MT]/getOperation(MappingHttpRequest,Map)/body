@@ -1,7 +1,6 @@
 {
   String[] target=null;
   String path=getOperationPath(httpRequest);
-  boolean walrusInternalOperation=false;
   String targetHost=httpRequest.getHeader(HttpHeaders.Names.HOST);
   if (targetHost.contains(".walrus")) {
     String bucket=targetHost.substring(0,targetHost.indexOf(".walrus"));
@@ -18,28 +17,6 @@
   String contentLengthString=httpRequest.getHeader(WalrusProperties.CONTENT_LEN);
   if (contentLengthString != null) {
     contentLength=Long.parseLong(contentLengthString);
-  }
-  if (httpRequest.containsHeader(StorageProperties.EUCALYPTUS_OPERATION)) {
-    String value=httpRequest.getHeader(StorageProperties.EUCALYPTUS_OPERATION);
-    for (    WalrusProperties.WalrusInternalOperations operation : WalrusProperties.WalrusInternalOperations.values()) {
-      if (value.toLowerCase().equals(operation.toString().toLowerCase())) {
-        operationName=operation.toString();
-        walrusInternalOperation=true;
-        break;
-      }
-    }
-    if (!walrusInternalOperation) {
-      for (      WalrusProperties.StorageOperations operation : WalrusProperties.StorageOperations.values()) {
-        if (value.toLowerCase().equals(operation.toString().toLowerCase())) {
-          operationName=operation.toString();
-          walrusInternalOperation=true;
-          if (httpRequest.containsHeader(StorageProperties.StorageParameters.EucaSnapSize.toString())) {
-            operationParams.put("SnapshotSize",httpRequest.getAndRemoveHeader(StorageProperties.StorageParameters.EucaSnapSize.toString()));
-          }
-          break;
-        }
-      }
-    }
   }
   if (target == null) {
     operationKey=SERVICE + verb;
@@ -190,30 +167,28 @@
         }
       }
  else       if (verb.equals(WalrusProperties.HTTPVerb.GET.toString())) {
-        if (!walrusInternalOperation) {
-          if (params.containsKey("torrent")) {
-            operationParams.put("GetTorrent",Boolean.TRUE);
-          }
+        if (params.containsKey("torrent")) {
+          operationParams.put("GetTorrent",Boolean.TRUE);
+        }
  else {
-            operationParams.put("GetData",Boolean.TRUE);
-            operationParams.put("InlineData",Boolean.FALSE);
-            operationParams.put("GetMetaData",Boolean.TRUE);
-          }
-          Set<String> headerNames=httpRequest.getHeaderNames();
-          boolean isExtendedGet=false;
-          for (          String key : headerNames) {
-            for (            WalrusProperties.ExtendedGetHeaders header : WalrusProperties.ExtendedGetHeaders.values()) {
-              if (key.replaceAll("-","").equals(header.toString())) {
-                String value=httpRequest.getHeader(key);
-                isExtendedGet=true;
-                parseExtendedHeaders(operationParams,header.toString(),value);
-              }
+          operationParams.put("GetData",Boolean.TRUE);
+          operationParams.put("InlineData",Boolean.FALSE);
+          operationParams.put("GetMetaData",Boolean.TRUE);
+        }
+        Set<String> headerNames=httpRequest.getHeaderNames();
+        boolean isExtendedGet=false;
+        for (        String key : headerNames) {
+          for (          WalrusProperties.ExtendedGetHeaders header : WalrusProperties.ExtendedGetHeaders.values()) {
+            if (key.replaceAll("-","").equals(header.toString())) {
+              String value=httpRequest.getHeader(key);
+              isExtendedGet=true;
+              parseExtendedHeaders(operationParams,header.toString(),value);
             }
           }
-          if (isExtendedGet) {
-            operationKey+="extended";
-            operationParams.put("ReturnCompleteObjectOnConditionFailure",Boolean.FALSE);
-          }
+        }
+        if (isExtendedGet) {
+          operationKey+="extended";
+          operationParams.put("ReturnCompleteObjectOnConditionFailure",Boolean.FALSE);
         }
         if (params.containsKey(WalrusProperties.GetOptionalParameters.IsCompressed.toString())) {
           Boolean isCompressed=Boolean.parseBoolean(params.remove(WalrusProperties.GetOptionalParameters.IsCompressed.toString()));
@@ -221,11 +196,9 @@
         }
       }
  else       if (verb.equals(WalrusProperties.HTTPVerb.HEAD.toString())) {
-        if (!walrusInternalOperation) {
-          operationParams.put("GetData",Boolean.FALSE);
-          operationParams.put("InlineData",Boolean.FALSE);
-          operationParams.put("GetMetaData",Boolean.TRUE);
-        }
+        operationParams.put("GetData",Boolean.FALSE);
+        operationParams.put("InlineData",Boolean.FALSE);
+        operationParams.put("GetMetaData",Boolean.TRUE);
       }
  else       if (verb.equals(WalrusProperties.HTTPVerb.POST.toString())) {
         LOG.debug("Not sure what to do here");
@@ -315,9 +288,7 @@
   for (  Object key : paramsToRemove) {
     params.remove(key);
   }
-  if (!walrusInternalOperation) {
-    operationName=operationMap.get(operationKey);
-  }
+  operationName=operationMap.get(operationKey);
   if (operationName == null) {
     String unsupportedOp=unsupportedOperationMap.get(operationKey);
     if (unsupportedOp != null) {
