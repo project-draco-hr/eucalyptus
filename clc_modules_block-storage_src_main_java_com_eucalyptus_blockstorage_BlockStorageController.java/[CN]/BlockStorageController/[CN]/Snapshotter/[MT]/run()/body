@@ -1,18 +1,26 @@
 {
   EucaSemaphore semaphore=EucaSemaphoreDirectory.getSolitarySemaphore(volumeId);
   try {
-    try {
-      semaphore.acquire();
-    }
- catch (    InterruptedException ex) {
-      throw new EucalyptusCloudException("semaphore could not be acquired");
-    }
     Boolean shouldTransferSnapshots=true;
     List<String> returnValues=null;
-    String snapshotLocation=null;
+    SnapshotTransfer snapshotTransfer=null;
+    String bucket=null;
+    shouldTransferSnapshots=StorageInfo.getStorageInfo().getShouldTransferSnapshots();
+    if (shouldTransferSnapshots) {
+      snapshotTransfer=new S3SnapshotTransfer(snapshotId,snapshotId);
+      bucket=snapshotTransfer.prepareForUpload();
+      if (snapshotTransfer == null || StringUtils.isBlank(bucket)) {
+        throw new EucalyptusCloudException("Failed to initialize snapshot transfer mechanism for uploading " + snapshotId);
+      }
+    }
     try {
+      try {
+        semaphore.acquire();
+      }
+ catch (      InterruptedException ex) {
+        throw new EucalyptusCloudException("Failed to create snapshot " + snapshotId + " as the semaphore could not be acquired");
+      }
       if (!isSnapshotMarkedFailed(snapshotId)) {
-        shouldTransferSnapshots=StorageInfo.getStorageInfo().getShouldTransferSnapshots();
         returnValues=blockManager.createSnapshot(this.volumeId,this.snapshotId,this.snapPointId,shouldTransferSnapshots);
       }
  else {
@@ -28,9 +36,8 @@
       }
       snapshotFileName=returnValues.get(0);
       String snapshotSize=returnValues.get(1);
-      String bucket=createAndReturnBucketName();
       verifySnapshotFileIsReadable();
-      snapshotLocation=SnapshotInfo.generateSnapshotLocationURI(SnapshotTransferConfiguration.OSG,bucket,snapshotId);
+      String snapshotLocation=SnapshotInfo.generateSnapshotLocationURI(SnapshotTransferConfiguration.OSG,bucket,snapshotId);
       SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
       SnapshotInfo snapshotInfo=null;
       EntityWrapper<SnapshotInfo> db=StorageProperties.getEntityWrapper();
@@ -46,7 +53,7 @@
       }
       if (!isSnapshotMarkedFailed(snapshotId)) {
         try {
-          transferSnapshot(bucket,snapshotId);
+          snapshotTransfer.upload(snapshotFileName);
         }
  catch (        Exception e) {
           throw new EucalyptusCloudException("Failed to upload snapshot " + snapshotId + " to objectstorage",e);
@@ -62,6 +69,26 @@
  catch (      EucalyptusCloudException ex) {
         LOG.error("Failed to finalize snapshot " + snapshotId,ex);
       }
+    }
+ else {
+      Function<String,SnapshotInfo> updateFunction=new Function<String,SnapshotInfo>(){
+        @Override public SnapshotInfo apply(        String arg0){
+          SnapshotInfo snap;
+          try {
+            snap=Entities.uniqueResult(new SnapshotInfo(arg0));
+            snap.setStatus(StorageProperties.Status.available.toString());
+            snap.setProgress("100");
+            snap.setSnapPointId(null);
+            return snap;
+          }
+ catch (          TransactionException|NoSuchElementException e) {
+            LOG.error("Failed to retrieve snapshot entity from DB for " + arg0,e);
+          }
+          return null;
+        }
+      }
+;
+      Entities.asTransaction(SnapshotInfo.class,updateFunction).apply(snapshotId);
     }
   }
  catch (  Exception ex) {

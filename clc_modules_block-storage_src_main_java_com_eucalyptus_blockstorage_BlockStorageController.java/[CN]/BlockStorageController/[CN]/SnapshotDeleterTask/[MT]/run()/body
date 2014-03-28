@@ -4,6 +4,7 @@
   searchSnap.setStatus(StorageProperties.Status.deleting.toString());
   List<SnapshotInfo> snapshots=db.query(searchSnap);
   db.commit();
+  S3SnapshotTransfer snapshotTransfer=null;
   for (  SnapshotInfo snap : snapshots) {
     String snapshotId=snap.getSnapshotId();
     LOG.info("Snapshot: " + snapshotId + " was marked for deletion. Cleaning up...");
@@ -29,10 +30,16 @@
     }
     try {
       String[] names=SnapshotInfo.getSnapshotBucketKeyNames(foundSnapshotInfo.getSnapshotLocation());
-      snapshotOps.deleteSnapshot(names[0],names[1]);
+      if (snapshotTransfer == null) {
+        snapshotTransfer=new S3SnapshotTransfer();
+      }
+      snapshotTransfer.setSnapshotId(snapshotId);
+      snapshotTransfer.setBucketName(names[0]);
+      snapshotTransfer.setKeyName(names[1]);
+      snapshotTransfer.delete();
     }
  catch (    Exception e) {
-      LOG.error("Failed to delete snapshot " + snapshotId + " from objectstorage",e);
+      LOG.warn("Failed to delete snapshot " + snapshotId + " from objectstorage",e);
     }
   }
 }
