@@ -21,11 +21,11 @@
       List<PartInfo> found=partCriteria.list();
       if (found.size() == 0) {
         db.rollback();
-        throw new EucalyptusCloudException("Multipart upload ID is invalid. Intitiate a multipart upload request before uploading the parts");
+        throw new NoSuchUploadException(request.getUploadId());
       }
       if (found.size() > 1) {
         db.rollback();
-        throw new EucalyptusCloudException("Multiple manifests found for same uploadId");
+        throw new InternalErrorException("Multiple manifests found for same uploadId: " + request.getUploadId());
       }
       PartInfo foundManifest=found.get(0);
       if (foundManifest != null) {
@@ -69,7 +69,7 @@ catch (          EucalyptusCloudException ex) {
         long size=0;
         if (foundParts != null && foundParts.size() > 0) {
           if (requestParts != null && requestParts.size() > foundParts.size()) {
-            throw new EucalyptusCloudException("One or more parts has not been uploaded yet. Either upload the part or fix the manifest");
+            throw new InternalErrorException("One or more parts has not been uploaded yet. Either upload the part or fix the manifest. Upload Id: " + request.getUploadId());
           }
  else {
             Map<Integer,PartInfo> partsMap=new HashMap<Integer,PartInfo>(foundParts.size());
@@ -85,7 +85,7 @@ catch (          EucalyptusCloudException ex) {
                 partsMap.remove(lookupPart.getPartNumber());
               }
  else {
-                throw new EucalyptusCloudException("Part not found");
+                throw new InvalidPartException("Part Number: " + requestPart.getPartNumber() + " upload id: "+ request.getUploadId());
               }
             }
             MessageDigest digest=Digest.MD5.get();
@@ -98,6 +98,7 @@ catch (          EucalyptusCloudException ex) {
               throw new EntityTooLargeException("Key",objectKey);
             }
             ObjectInfo objectInfo=new ObjectInfo(bucketName,objectKey);
+            objectInfo.setOwnerId(account.getAccountNumber());
             objectInfo.setCleanup(false);
             objectInfo.setEtag(eTag);
             objectInfo.setUploadId(foundManifest.getUploadId());
@@ -111,6 +112,7 @@ catch (          EucalyptusCloudException ex) {
             objectInfo.setLast(true);
             objectInfo.setDeleted(false);
             objectInfo.updateGrants(foundManifest);
+            objectInfo.setLastModified(new Date());
             EntityWrapper<ObjectInfo> dbOject=db.recast(ObjectInfo.class);
             dbOject.add(objectInfo);
             Set<Integer> keys=partsMap.keySet();
@@ -122,20 +124,21 @@ catch (          EucalyptusCloudException ex) {
             reply.setLocation("WalrusBackend" + foundManifest.getBucketName() + "/"+ foundManifest.getObjectKey());
             reply.setBucket(foundManifest.getBucketName());
             reply.setKey(foundManifest.getObjectKey());
+            reply.setLastModified(objectInfo.getLastModified());
             firePartsCleanupTask(foundManifest.getBucketName(),request.getKey(),request.getUploadId());
           }
         }
  else {
-          throw new EucalyptusCloudException("No parts found in the database");
+          throw new InvalidPartException("No parts found for: " + request.getUploadId());
         }
       }
  else {
-        throw new EucalyptusCloudException("Multipart upload ID is invalid.");
+        throw new NoSuchUploadException(request.getUploadId());
       }
     }
  catch (    Exception ex) {
       db.rollback();
-      throw new EucalyptusCloudException(ex);
+      throw new InternalErrorException(ex);
     }
   }
  else {
