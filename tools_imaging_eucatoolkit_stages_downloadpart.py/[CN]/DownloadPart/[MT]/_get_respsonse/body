@@ -1,0 +1,26 @@
+def _get_respsonse(self, url, max_attempts, connection_timeout):
+    attempt = 0
+    response = None
+    while ((not response) and (attempt < max_attempts)):
+        attempt += 1
+        try:
+            response = requests.get(self.get_url, stream=True, timeout=connection_timeout)
+            try:
+                response.raise_for_status()
+            except HTTPError as HE:
+                http_err = str('{0}, get() err, attempt:{1}/{2}, err:\n{3}'.format(str(self), str(attempt), str(max_attempts), str(HE.message)))
+                self.log.warn(http_err)
+                if (attempt >= max_attempts):
+                    HE.args = [http_err]
+                    raise HE
+                response = None
+                continue
+        except (Timeout, ConnectionError) as CE:
+            if (attempt >= max_attempts):
+                err_msg = str('{0}, Connection failure. Attempts:{1}/{2}'.format(str(self), str(attempt), str(max_attempts)))
+                self.log.warn(err_msg)
+                CE.args = [((err_msg + '\n') + str(CE.message))]
+                raise CE
+        if (not response):
+            time.sleep(5)
+    return response

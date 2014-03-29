@@ -24,7 +24,7 @@
     }
  catch (    NumberFormatException e) {
       LOG.error("Invalid content length " + request.getContentLength());
-      throw new EucalyptusCloudException("Missing Content-Length");
+      throw new InternalErrorException("Missing Content-Length");
     }
     String objectName=null;
     PartInfo partInfo=null;
@@ -39,11 +39,11 @@
       List<PartInfo> found=partCriteria.list();
       if (found.size() == 0) {
         db.rollback();
-        throw new EucalyptusCloudException("Multipart upload ID is invalid. Intitiate a multipart upload request before uploading the parts");
+        throw new InternalErrorException("Multipart upload ID is invalid. Intitiate a multipart upload request before uploading the parts");
       }
       if (found.size() > 1) {
         db.rollback();
-        throw new EucalyptusCloudException("Multiple manifests found for same uploadId");
+        throw new InternalErrorException("Multiple manifests found for same uploadId");
       }
       PartInfo foundManifest=found.get(0);
       partInfo=PartInfo.create(bucketName,objectKey,account);
@@ -55,7 +55,7 @@
       dbPart.commit();
     }
  catch (    Exception ex) {
-      throw new EucalyptusCloudException(ex);
+      throw new InternalErrorException(ex);
     }
     WalrusDataQueue<WalrusDataMessage> putQueue=messenger.getQueue(key,randomKey);
     try {
@@ -96,7 +96,7 @@ synchronized (monitor) {
           }
  catch (          Exception ex) {
             messenger.removeQueue(key,randomKey);
-            throw new EucalyptusCloudException(ex);
+            throw new InternalErrorException(ex);
           }
         }
  else         if (WalrusDataMessage.isEOF(dataMessage)) {
@@ -135,7 +135,7 @@ synchronized (monitor) {
  catch (          IOException ex) {
             LOG.error(ex);
             messenger.removeQueue(key,randomKey);
-            throw new EucalyptusCloudException(objectKey);
+            throw new InternalErrorException(objectKey);
           }
           lastModified=new Date();
           PartInfo searchPart=new PartInfo(bucketName,objectKey);
@@ -149,7 +149,7 @@ synchronized (monitor) {
           }
  catch (          EucalyptusCloudException ex) {
             dbPart.rollback();
-            throw new EucalyptusCloudException("Unable to update part: " + bucketName + "/"+ objectKey+ " uploadId: "+ uploadId+ " partNumber: "+ partNumber);
+            throw new InternalErrorException("Unable to update part: " + bucketName + "/"+ objectKey+ " uploadId: "+ uploadId+ " partNumber: "+ partNumber);
           }
           foundPart.setEtag(md5);
           foundPart.setSize(size);
@@ -195,7 +195,7 @@ synchronized (monitor) {
       LOG.error(ex,ex);
       db.rollback();
       messenger.removeQueue(key,randomKey);
-      throw new EucalyptusCloudException("Transfer interrupted: " + key + "."+ randomKey);
+      throw new InternalErrorException("Transfer interrupted: " + key + "."+ randomKey);
     }
   }
  else {
@@ -204,6 +204,6 @@ synchronized (monitor) {
     throw new NoSuchBucketException(bucketName);
   }
   reply.setEtag(md5);
-  reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.RFC822_DATETIME_PATTERN));
+  reply.setLastModified(lastModified);
   return reply;
 }
