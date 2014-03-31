@@ -47,11 +47,34 @@
   if (properties.getUserData() != null && !properties.getUserData().isEmpty()) {
     runInstancesType.setUserData(properties.getUserData());
   }
+  if (properties.getVolumes() != null && !properties.getVolumes().isEmpty()) {
+    DescribeVolumesType describeVolumesType=new DescribeVolumesType();
+    ArrayList<String> volumeIds=Lists.newArrayList();
+    for (    EC2MountPoint ec2MountPoint : properties.getVolumes()) {
+      volumeIds.add(ec2MountPoint.getVolumeId());
+    }
+    describeVolumesType.setVolumeSet(volumeIds);
+    describeVolumesType.setEffectiveUserId(info.getEffectiveUserId());
+    DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.<DescribeVolumesType,DescribeVolumesResponseType>sendSync(configuration,describeVolumesType);
+    Map<String,String> volumeStatusMap=Maps.newHashMap();
+    for (    Volume volume : describeVolumesResponseType.getVolumeSet()) {
+      volumeStatusMap.put(volume.getVolumeId(),volume.getStatus());
+    }
+    for (    String volumeId : volumeIds) {
+      if (!volumeStatusMap.containsKey(volumeId)) {
+        throw new ValidationErrorException("No such volume " + volumeId);
+      }
+ else       if (!"available".equals(volumeStatusMap.get(volumeId))) {
+        throw new ValidationErrorException("Volume " + volumeId + " not available");
+      }
+    }
+  }
   runInstancesType.setMinCount(1);
   runInstancesType.setMaxCount(1);
   runInstancesType.setEffectiveUserId(info.getEffectiveUserId());
   RunInstancesResponseType runInstancesResponseType=AsyncRequests.<RunInstancesType,RunInstancesResponseType>sendSync(configuration,runInstancesType);
   info.setPhysicalResourceId(runInstancesResponseType.getRsvInfo().getInstancesSet().get(0).getInstanceId());
+  boolean running=false;
   for (int i=0; i < 60; i++) {
     Thread.sleep(5000L);
     DescribeInstancesType describeInstancesType=new DescribeInstancesType();
@@ -67,8 +90,53 @@
       info.setPrivateDnsName(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getPrivateDnsName())));
       info.setPublicDnsName(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getDnsName())));
       info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(info.getPhysicalResourceId())));
-      return;
+      running=true;
+      break;
     }
   }
-  throw new Exception("Timeout");
+  if (!running) {
+    throw new Exception("Timeout");
+  }
+  if (properties.getVolumes() != null && !properties.getVolumes().isEmpty()) {
+    ArrayList<String> volumeIds=Lists.newArrayList();
+    Map<String,String> deviceMap=Maps.newHashMap();
+    for (    EC2MountPoint ec2MountPoint : properties.getVolumes()) {
+      volumeIds.add(ec2MountPoint.getVolumeId());
+      deviceMap.put(ec2MountPoint.getVolumeId(),ec2MountPoint.getDevice());
+      AttachVolumeType attachVolumeType=new AttachVolumeType();
+      attachVolumeType.setEffectiveUserId(info.getEffectiveUserId());
+      attachVolumeType.setInstanceId(info.getPhysicalResourceId());
+      attachVolumeType.setVolumeId(ec2MountPoint.getVolumeId());
+      attachVolumeType.setDevice(ec2MountPoint.getDevice());
+      AsyncRequests.<AttachVolumeType,AttachVolumeResponseType>sendSync(configuration,attachVolumeType);
+    }
+    boolean allAttached=false;
+    for (int i=0; i < 60; i++) {
+      Thread.sleep(5000L);
+      DescribeVolumesType describeVolumesType2=new DescribeVolumesType();
+      describeVolumesType2.setVolumeSet(Lists.newArrayList(volumeIds));
+      describeVolumesType2.setEffectiveUserId(info.getEffectiveUserId());
+      DescribeVolumesResponseType describeVolumesResponseType2=AsyncRequests.<DescribeVolumesType,DescribeVolumesResponseType>sendSync(configuration,describeVolumesType2);
+      Map<String,String> volumeStatusMap=Maps.newHashMap();
+      for (      Volume volume : describeVolumesResponseType2.getVolumeSet()) {
+        for (        AttachedVolume attachedVolume : volume.getAttachmentSet()) {
+          if (attachedVolume.getInstanceId().equals(info.getPhysicalResourceId()) && attachedVolume.getDevice().equals(deviceMap.get(volume.getVolumeId()))) {
+            volumeStatusMap.put(volume.getVolumeId(),attachedVolume.getStatus());
+          }
+        }
+      }
+      boolean anyNonAttached=false;
+      for (      String volumeId : volumeIds) {
+        if (!"attached".equals(volumeStatusMap.get(volumeId))) {
+          anyNonAttached=true;
+          break;
+        }
+      }
+      if (!anyNonAttached) {
+        allAttached=true;
+        break;
+      }
+    }
+    if (!allAttached)     throw new Exception("Timeout");
+  }
 }
