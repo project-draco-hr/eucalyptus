@@ -1,0 +1,31 @@
+{
+  if (!accountName.startsWith(Account.SYSTEM_ACCOUNT_PREFIX)) {
+    throw new AuthException(AuthException.INVALID_NAME);
+  }
+  try {
+    ACCOUNT_NAME_CHECKER.check(accountName.substring(Account.SYSTEM_ACCOUNT_PREFIX.length()));
+  }
+ catch (  InvalidValueException e) {
+    Debugging.logError(LOG,e,"Invalid account name " + accountName);
+    throw new AuthException(AuthException.INVALID_NAME,e);
+  }
+  Account account=null;
+  try {
+    account=lookupAccountByName(accountName);
+  }
+ catch (  AuthException e) {
+  }
+  if (account == null) {
+    final AccountEntity accountEntity=new AccountEntity(accountName);
+    try (final TransactionResource db=Entities.transactionFor(AccountEntity.class)){
+      Entities.persist(accountEntity);
+      db.commit();
+      account=new DatabaseAccountProxy(accountEntity);
+    }
+ catch (    Exception e) {
+      Debugging.logError(LOG,e,"Failed to add account " + accountName);
+      throw new AuthException(AuthException.ACCOUNT_CREATE_FAILURE,e);
+    }
+  }
+  return account;
+}
