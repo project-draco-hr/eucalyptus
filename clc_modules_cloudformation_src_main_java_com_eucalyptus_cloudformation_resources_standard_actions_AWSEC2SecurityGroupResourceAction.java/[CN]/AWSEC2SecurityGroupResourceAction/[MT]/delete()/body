@@ -1,21 +1,33 @@
 {
   if (info.getPhysicalResourceId() == null)   return;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  String groupName=info.getPhysicalResourceId();
-  String groupId=info.getGroupId();
-  DescribeSecurityGroupsType describeSecurityGroupsType=new DescribeSecurityGroupsType();
-  describeSecurityGroupsType.setEffectiveUserId(info.getEffectiveUserId());
-  DescribeSecurityGroupsResponseType describeSecurityGroupsResponseType=AsyncRequests.<DescribeSecurityGroupsType,DescribeSecurityGroupsResponseType>sendSync(configuration,describeSecurityGroupsType);
-  ArrayList<SecurityGroupItemType> securityGroupItemTypeArrayList=describeSecurityGroupsResponseType.getSecurityGroupInfo();
-  Map<String,String> nameToIdMap=Maps.newHashMap();
-  if (securityGroupItemTypeArrayList != null) {
-    for (    SecurityGroupItemType securityGroupItemType : securityGroupItemTypeArrayList) {
-      nameToIdMap.put(securityGroupItemType.getGroupName(),securityGroupItemType.getGroupId());
+  Exception finalException=null;
+  for (int i=0; i < 60; i++) {
+    Thread.sleep(5000L);
+    String groupName=info.getPhysicalResourceId();
+    String groupId=info.getGroupId();
+    DescribeSecurityGroupsType describeSecurityGroupsType=new DescribeSecurityGroupsType();
+    describeSecurityGroupsType.setEffectiveUserId(info.getEffectiveUserId());
+    DescribeSecurityGroupsResponseType describeSecurityGroupsResponseType=AsyncRequests.<DescribeSecurityGroupsType,DescribeSecurityGroupsResponseType>sendSync(configuration,describeSecurityGroupsType);
+    ArrayList<SecurityGroupItemType> securityGroupItemTypeArrayList=describeSecurityGroupsResponseType.getSecurityGroupInfo();
+    Map<String,String> nameToIdMap=Maps.newHashMap();
+    if (securityGroupItemTypeArrayList != null) {
+      for (      SecurityGroupItemType securityGroupItemType : securityGroupItemTypeArrayList) {
+        nameToIdMap.put(securityGroupItemType.getGroupName(),securityGroupItemType.getGroupId());
+      }
+    }
+    if (!nameToIdMap.containsKey(groupName) || !nameToIdMap.get(groupName).equals(groupId))     return;
+    DeleteSecurityGroupType deleteSecurityGroupType=new DeleteSecurityGroupType();
+    deleteSecurityGroupType.setGroupName(groupName);
+    deleteSecurityGroupType.setEffectiveUserId(getResourceInfo().getEffectiveUserId());
+    try {
+      DeleteSecurityGroupResponseType deleteSecurityGroupResponseType=AsyncRequests.<DeleteSecurityGroupType,DeleteSecurityGroupResponseType>sendSync(configuration,deleteSecurityGroupType);
+      return;
+    }
+ catch (    Exception ex) {
+      LOG.debug("Error deleting security group.  Will retry");
+      finalException=ex;
     }
   }
-  if (!nameToIdMap.containsKey(groupName) || !nameToIdMap.get(groupName).equals(groupId))   return;
-  DeleteSecurityGroupType deleteSecurityGroupType=new DeleteSecurityGroupType();
-  deleteSecurityGroupType.setGroupName(groupName);
-  deleteSecurityGroupType.setEffectiveUserId(getResourceInfo().getEffectiveUserId());
-  DeleteSecurityGroupResponseType deleteSecurityGroupResponseType=AsyncRequests.<DeleteSecurityGroupType,DeleteSecurityGroupResponseType>sendSync(configuration,deleteSecurityGroupType);
+  throw finalException;
 }
