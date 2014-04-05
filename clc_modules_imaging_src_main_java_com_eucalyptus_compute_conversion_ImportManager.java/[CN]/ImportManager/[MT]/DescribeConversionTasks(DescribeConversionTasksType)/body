@@ -1,11 +1,21 @@
 {
-  LOG.debug(request);
   DescribeConversionTasksResponseType reply=request.getReply();
   Context ctx=Contexts.lookup();
   boolean verbose=request.getConversionTaskIdSet().remove("verbose");
   Collection<String> ownerInfo=(ctx.isAdministrator() && verbose) ? Collections.<String>emptyList() : Collections.singleton(ctx.getAccount().getAccountNumber());
+  try {
+    if (!(ctx.isAdministrator() || Permissions.isAuthorized(VENDOR_EC2,EC2_RESOURCE_VOLUME,"",null,EC2_DESCRIBECONVERSIONTASKS,ctx.getAuthContext()))) {
+      throw new ImagingServiceException(ImagingServiceException.DEFAULT_CODE,"Not authorized to describe conversion tasks.");
+    }
+  }
+ catch (  final ImagingServiceException ex) {
+    throw ex;
+  }
+catch (  final Exception ex) {
+    throw new ImagingServiceException(ImagingServiceException.DEFAULT_CODE,"Not authorized to describe conversion tasks.");
+  }
   final Predicate<? super VolumeImagingTask> requestedAndAccessible=RestrictedTypes.filteringFor(VolumeImagingTask.class).byId(request.getConversionTaskIdSet()).byOwningAccount(ownerInfo).byPrivileges().buildPredicate();
-  Iterable<VolumeImagingTask> tasksToList=ImagingTasks.getVolumeImagingTasks(ctx.getUserFullName(),request.getConversionTaskIdSet());
+  Iterable<VolumeImagingTask> tasksToList=ImagingTasks.getVolumeImagingTasks(AccountFullName.getInstance(ctx.getAccount()),request.getConversionTaskIdSet());
   for (  VolumeImagingTask task : Iterables.filter(tasksToList,requestedAndAccessible)) {
     ConversionTask t=task.getTask();
     reply.getConversionTasks().add(t);
