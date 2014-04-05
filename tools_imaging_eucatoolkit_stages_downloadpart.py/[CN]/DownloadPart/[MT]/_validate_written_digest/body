@@ -1,0 +1,29 @@
+def _validate_written_digest(self, response, digest):
+    written_digest = str(digest.hexdigest())
+    if self.digest:
+        if (self.digest != written_digest):
+            raise ValueError('Part:"{0}". Expected Digest:"{1}" Written Digest:{2}'.format(self.part_index, self.digest, written_digest))
+    elif ((digest.name == 'md5') and hasattr(response, 'headers')):
+        content_md5 = response.headers.get('content_md5', None)
+        if content_md5:
+            content_md5 = str(content_md5).strip('"').strip()
+            if (written_digest and (str(written_digest) != str(content_md5))):
+                raise ValueError('Part:"{0}". Expected Digest:"{1}" != Written Digest:{2}'.format(self.part_index, content_md5, written_digest))
+            else:
+                self.log.debug('Part:"{0}". Expected Digest:"{1}" Written Digest:{2}'.format(self.part_index, content_md5, written_digest))
+        elif ('etag' in response.headers):
+            etag = str(response.headers.get('etag')).strip('"').strip()
+            etag_msg = 'Part:"{0}". etag:"{1}" vs Written Digest:"{2}"'.format(self.part_index, etag, written_digest)
+            if (written_digest != etag):
+                err_msg = (etag_msg + ', etag does not equal written digest')
+                if (len(etag) == 32):
+                    try:
+                        int(etag, 16)
+                    except ValueError:
+                        pass
+                    else:
+                        raise ValueError(err_msg)
+                self.log.warn(err_msg)
+            else:
+                self.log.debug((etag_msg + ', etag == digest'))
+    return written_digest

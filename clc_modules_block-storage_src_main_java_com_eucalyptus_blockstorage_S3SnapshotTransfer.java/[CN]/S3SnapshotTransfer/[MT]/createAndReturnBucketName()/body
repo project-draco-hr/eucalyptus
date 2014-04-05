@@ -1,0 +1,46 @@
+{
+  String bucket=null;
+  int bucketCreationRetries=SnapshotTransferConfiguration.DEFAULT_BUCKET_CREATION_RETRIES;
+  do {
+    bucketCreationRetries--;
+    if (StringUtils.isBlank(bucket)) {
+      try {
+        bucket=SnapshotTransferConfiguration.getInstance().getSnapshotBucket();
+      }
+ catch (      Exception ex1) {
+        try {
+          bucket=SnapshotTransferConfiguration.updateBucketName(StorageProperties.SNAPSHOT_BUCKET_PREFIX + UUID.randomUUID().toString().replaceAll("-","")).getSnapshotBucket();
+        }
+ catch (        Exception ex2) {
+          bucket=StorageProperties.SNAPSHOT_BUCKET_PREFIX + UUID.randomUUID().toString().replaceAll("-","");
+        }
+      }
+    }
+    try {
+      retryAfterRefresh(new Function<String,Bucket>(){
+        @Override @Nullable public Bucket apply(        @Nullable String arg0){
+          eucaS3Client.refreshEndpoint();
+          return eucaS3Client.createBucket(arg0);
+        }
+      }
+,bucket,REFRESH_TOKEN_RETRIES);
+      break;
+    }
+ catch (    Exception ex) {
+      if (bucketCreationRetries > 0) {
+        LOG.debug("Unable to create snapshot upload bucket " + bucket + ". Will retry with a different bucket name");
+        try {
+          bucket=SnapshotTransferConfiguration.updateBucketName(StorageProperties.SNAPSHOT_BUCKET_PREFIX + UUID.randomUUID().toString().replaceAll("-","")).getSnapshotBucket();
+        }
+ catch (        Exception ex2) {
+          bucket=StorageProperties.SNAPSHOT_BUCKET_PREFIX + UUID.randomUUID().toString().replaceAll("-","");
+        }
+      }
+ else {
+        throw new SnapshotTransferException("Unable to create bucket for snapshot uploads after " + SnapshotTransferConfiguration.DEFAULT_BUCKET_CREATION_RETRIES + " retries");
+      }
+    }
+  }
+ while (bucketCreationRetries > 0);
+  return bucket;
+}
