@@ -1,0 +1,48 @@
+{
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+switch (stepNum) {
+case 0:
+    CreateVolumeType createVolumeType=new CreateVolumeType();
+  createVolumeType.setAvailabilityZone(properties.getAvailabilityZone());
+if (properties.getIops() != null) {
+  createVolumeType.setIops(properties.getIops());
+}
+if (properties.getSize() != null) {
+createVolumeType.setSize(properties.getSize());
+}
+if (properties.getSnapshotId() != null) {
+createVolumeType.setSnapshotId(properties.getSnapshotId());
+}
+if (properties.getVolumeType() != null) {
+createVolumeType.setVolumeType(properties.getVolumeType());
+}
+ else {
+createVolumeType.setVolumeType("standard");
+}
+createVolumeType.setEffectiveUserId(info.getEffectiveUserId());
+CreateVolumeResponseType createVolumeResponseType=AsyncRequests.<CreateVolumeType,CreateVolumeResponseType>sendSync(configuration,createVolumeType);
+info.setPhysicalResourceId(createVolumeResponseType.getVolume().getVolumeId());
+info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(info.getPhysicalResourceId())));
+break;
+case 1:
+boolean available=false;
+for (int i=0; i < 60; i++) {
+Thread.sleep(5000L);
+DescribeVolumesType describeVolumesType=new DescribeVolumesType();
+describeVolumesType.setVolumeSet(Lists.newArrayList(info.getPhysicalResourceId()));
+describeVolumesType.setEffectiveUserId(info.getEffectiveUserId());
+DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.<DescribeVolumesType,DescribeVolumesResponseType>sendSync(configuration,describeVolumesType);
+if (describeVolumesResponseType.getVolumeSet().size() == 0) continue;
+if ("available".equals(describeVolumesResponseType.getVolumeSet().get(0).getStatus())) {
+available=true;
+break;
+}
+}
+if (!available) {
+throw new Exception("Timeout");
+}
+break;
+default :
+throw new IllegalStateException("Invalid step " + stepNum);
+}
+}

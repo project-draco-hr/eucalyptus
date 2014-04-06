@@ -13,15 +13,6 @@
   }
   if (!checkBucketName(bucketName))   throw new InvalidBucketNameException(bucketName);
   EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  if (WalrusProperties.shouldEnforceUsageLimits && !Contexts.lookup().hasAdministrativePrivileges()) {
-    BucketInfo searchBucket=new BucketInfo();
-    searchBucket.setOwnerId(account.getAccountNumber());
-    List<BucketInfo> bucketList=db.queryEscape(searchBucket);
-    if (bucketList.size() >= WalrusInfo.getWalrusInfo().getStorageMaxBucketsPerAccount()) {
-      db.rollback();
-      throw new TooManyBucketsException(bucketName);
-    }
-  }
   BucketInfo bucketInfo=new BucketInfo(bucketName);
   List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
   if (bucketList.size() > 0) {
@@ -34,45 +25,38 @@
     }
   }
  else {
-    if (ctx.hasAdministrativePrivileges() || (Permissions.isAuthorized(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,"",ctx.getAccount(),PolicySpec.S3_CREATEBUCKET,ctx.getAuthContext()) && Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,"",PolicySpec.S3_CREATEBUCKET,ctx.getUser(),1L))) {
-      BucketInfo bucket=new BucketInfo(account.getAccountNumber(),ctx.getUser().getUserId(),bucketName,new Date());
-      ArrayList<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-      bucket.addGrants(account.getAccountNumber(),grantInfos,accessControlList);
-      bucket.setGrants(grantInfos);
-      bucket.setBucketSize(0L);
-      bucket.setLoggingEnabled(false);
-      bucket.setVersioning(WalrusProperties.VersioningStatus.Disabled.toString());
-      bucket.setHidden(false);
-      if (locationConstraint != null && locationConstraint.length() > 0) {
-        bucket.setLocation(locationConstraint);
-      }
- else {
-        bucket.setLocation(null);
-      }
-      try {
-        db.add(bucket);
-        db.commit();
-        storageManager.createBucket(bucketName);
-      }
- catch (      IOException ex) {
-        LOG.error(ex,ex);
-        throw new BucketAlreadyExistsException(bucketName);
-      }
-catch (      Exception ex) {
-        LOG.error(ex,ex);
-        db.rollback();
-        if (Exceptions.isCausedBy(ex,ConstraintViolationException.class)) {
-          throw new BucketAlreadyExistsException(bucketName);
-        }
- else {
-          throw new EucalyptusCloudException("Unable to create bucket: " + bucketName);
-        }
-      }
+    BucketInfo bucket=new BucketInfo(account.getAccountNumber(),ctx.getUser().getUserId(),bucketName,new Date());
+    ArrayList<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+    bucket.addGrants(account.getAccountNumber(),grantInfos,accessControlList);
+    bucket.setGrants(grantInfos);
+    bucket.setBucketSize(0L);
+    bucket.setLoggingEnabled(false);
+    bucket.setVersioning(WalrusProperties.VersioningStatus.Disabled.toString());
+    bucket.setHidden(false);
+    if (locationConstraint != null && locationConstraint.length() > 0) {
+      bucket.setLocation(locationConstraint);
     }
  else {
-      LOG.error("Not authorized to create bucket by " + ctx.getUserFullName());
+      bucket.setLocation(null);
+    }
+    try {
+      db.add(bucket);
+      db.commit();
+      storageManager.createBucket(bucketName);
+    }
+ catch (    IOException ex) {
+      LOG.error(ex,ex);
+      throw new BucketAlreadyExistsException(bucketName);
+    }
+catch (    Exception ex) {
+      LOG.error(ex,ex);
       db.rollback();
-      throw new AccessDeniedException("Bucket",bucketName);
+      if (Exceptions.isCausedBy(ex,ConstraintViolationException.class)) {
+        throw new BucketAlreadyExistsException(bucketName);
+      }
+ else {
+        throw new InternalErrorException("Unable to create bucket: " + bucketName);
+      }
     }
   }
   reply.setBucket(bucketName);

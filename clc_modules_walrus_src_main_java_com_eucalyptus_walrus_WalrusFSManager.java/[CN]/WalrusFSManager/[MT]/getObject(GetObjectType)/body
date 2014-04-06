@@ -41,96 +41,85 @@
     List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
     if (objectInfos.size() > 0) {
       ObjectInfo objectInfo=objectInfos.get(0);
-      if (ctx.hasAdministrativePrivileges() || (objectInfo.canRead(account.getAccountNumber()) && (objectInfo.isGlobalRead() || Lookups.checkPrivilege(PolicySpec.S3_GETOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,objectKey),null)))) {
-        String objectName=objectInfo.getObjectName();
-        DefaultHttpResponse httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.OK);
-        if (getMetaData) {
-          List<MetaDataInfo> metaDataInfos=objectInfo.getMetaData();
-          for (          MetaDataInfo metaDataInfo : metaDataInfos) {
-            httpResponse.addHeader(WalrusProperties.AMZ_META_HEADER_PREFIX + metaDataInfo.getName(),metaDataInfo.getValue());
-          }
+      String objectName=objectInfo.getObjectName();
+      DefaultHttpResponse httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.OK);
+      if (getMetaData) {
+        List<MetaDataInfo> metaDataInfos=objectInfo.getMetaData();
+        for (        MetaDataInfo metaDataInfo : metaDataInfos) {
+          httpResponse.addHeader(WalrusProperties.AMZ_META_HEADER_PREFIX + metaDataInfo.getName(),metaDataInfo.getValue());
         }
-        Date lastModified=objectInfo.getLastModified();
-        Long size=objectInfo.getSize();
-        String etag=objectInfo.getEtag();
-        String contentType=objectInfo.getContentType();
-        String contentDisposition=objectInfo.getContentDisposition();
-        db.commit();
-        if (logData != null) {
-          updateLogData(bucket,logData);
-          logData.setObjectSize(size);
-        }
-        String versionId=null;
-        if (versioning) {
-          versionId=objectInfo.getVersionId();
-        }
-        if (request.getGetData()) {
-          if (objectInfo.isMultipart()) {
-            String inlineData=getMultipartData(httpResponse,objectInfo,request,reply);
-            if (inlineData != null) {
-              reply.setBase64Data(inlineData);
-            }
- else {
-              return null;
-            }
+      }
+      Date lastModified=objectInfo.getLastModified();
+      Long size=objectInfo.getSize();
+      String etag=objectInfo.getEtag();
+      String contentType=objectInfo.getContentType();
+      String contentDisposition=objectInfo.getContentDisposition();
+      db.commit();
+      if (logData != null) {
+        updateLogData(bucket,logData);
+        logData.setObjectSize(size);
+      }
+      String versionId=null;
+      if (versioning) {
+        versionId=objectInfo.getVersionId();
+      }
+      if (request.getGetData()) {
+        if (objectInfo.isMultipart()) {
+          String inlineData=getMultipartData(httpResponse,objectInfo,request,reply);
+          if (inlineData != null) {
+            reply.setBase64Data(inlineData);
           }
  else {
-            if (request.getInlineData()) {
-              if ((size * 4) > WalrusProperties.MAX_INLINE_DATA_SIZE) {
-                throw new InlineDataTooLargeException(bucketName + "/" + objectKey);
-              }
-              byte[] bytes=new byte[102400];
-              int bytesRead=0, offset=0;
-              String base64Data="";
-              try {
-                FileIO fileIO=storageManager.prepareForRead(bucketName,objectName);
-                while ((bytesRead=fileIO.read(offset)) > 0) {
-                  ByteBuffer buffer=fileIO.getBuffer();
-                  if (buffer != null) {
-                    buffer.get(bytes,0,bytesRead);
-                    base64Data+=new String(bytes,0,bytesRead);
-                    offset+=bytesRead;
-                  }
+            return null;
+          }
+        }
+ else {
+          if (request.getInlineData()) {
+            if ((size * 4) > WalrusProperties.MAX_INLINE_DATA_SIZE) {
+              throw new InlineDataTooLargeException(bucketName + "/" + objectKey);
+            }
+            byte[] bytes=new byte[102400];
+            int bytesRead=0, offset=0;
+            String base64Data="";
+            try {
+              FileIO fileIO=storageManager.prepareForRead(bucketName,objectName);
+              while ((bytesRead=fileIO.read(offset)) > 0) {
+                ByteBuffer buffer=fileIO.getBuffer();
+                if (buffer != null) {
+                  buffer.get(bytes,0,bytesRead);
+                  base64Data+=new String(bytes,0,bytesRead);
+                  offset+=bytesRead;
                 }
-                fileIO.finish();
               }
- catch (              Exception e) {
-                LOG.error(e,e);
-                throw new EucalyptusCloudException(e);
-              }
-              reply.setBase64Data(Hashes.base64encode(base64Data));
+              fileIO.finish();
             }
+ catch (            Exception e) {
+              LOG.error(e,e);
+              throw new InternalErrorException(e);
+            }
+            reply.setBase64Data(Hashes.base64encode(base64Data));
+          }
  else {
-              reply.setHasStreamingData(true);
-              storageManager.sendObject(request,httpResponse,bucketName,objectName,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.RFC822_DATETIME_PATTERN),contentType,contentDisposition,request.getIsCompressed(),versionId,logData);
-              return null;
-            }
+            reply.setHasStreamingData(true);
+            storageManager.sendObject(request,httpResponse,bucketName,objectName,size,etag,DateFormatter.dateToHeaderFormattedString(lastModified),contentType,contentDisposition,request.getIsCompressed(),versionId,logData);
+            return null;
           }
         }
- else {
-          storageManager.sendHeaders(request,httpResponse,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.RFC822_DATETIME_PATTERN),contentType,contentDisposition,versionId,logData);
-          return null;
-        }
-        reply.setEtag(etag);
-        reply.setLastModified(DateUtils.format(lastModified,DateUtils.RFC822_DATETIME_PATTERN));
-        reply.setSize(size);
-        reply.setContentType(contentType);
-        reply.setContentDisposition(contentDisposition);
-        Status status=new Status();
-        status.setCode(200);
-        status.setDescription("OK");
-        reply.setStatus(status);
-        return reply;
       }
  else {
-        db.rollback();
-        if (getData) {
-          throw new AccessDeniedException("Key",objectKey,logData);
-        }
- else {
-          throw new HeadAccessDeniedException("Key",objectKey,logData);
-        }
+        storageManager.sendHeaders(request,httpResponse,size,etag,DateFormatter.dateToHeaderFormattedString(lastModified),contentType,contentDisposition,versionId,logData);
+        return null;
       }
+      reply.setEtag(etag);
+      reply.setLastModified(lastModified);
+      reply.setSize(size);
+      reply.setContentType(contentType);
+      reply.setContentDisposition(contentDisposition);
+      Status status=new Status();
+      status.setCode(200);
+      status.setDescription("OK");
+      reply.setStatus(status);
+      return reply;
     }
  else {
       db.rollback();

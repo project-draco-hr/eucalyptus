@@ -15,7 +15,7 @@
     ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
     if (request.getVersionid() == null) {
       db.rollback();
-      throw new EucalyptusCloudException("versionId is null");
+      throw new InternalErrorException("versionId is null");
     }
     searchObjectInfo.setVersionId(request.getVersionid());
     List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
@@ -23,46 +23,19 @@
       foundObject=objectInfos.get(0);
     }
     if (foundObject != null) {
-      if (ctx.hasAdministrativePrivileges() || (bucketInfo.getOwnerId().equals(account.getAccountNumber()) && Lookups.checkPrivilege(PolicySpec.S3_DELETEOBJECTVERSION,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,objectKey),foundObject.getOwnerId()))) {
-        dbObject.delete(foundObject);
-        if (!foundObject.getDeleted()) {
-          String objectName=foundObject.getObjectName();
-          for (          GrantInfo grantInfo : foundObject.getGrants()) {
-            db.delete(grantInfo);
-          }
-          Long size=foundObject.getSize();
-          boolean success=false;
-          int retryCount=0;
-          do {
-            try {
-              decrementBucketSize(bucketName,size);
-              success=true;
-            }
- catch (            NoSuchBucketException ex) {
-              db.rollback();
-              throw ex;
-            }
-catch (            RollbackException ex) {
-              retryCount++;
-              LOG.trace("retrying update: " + bucketName);
-            }
-catch (            EucalyptusCloudException ex) {
-              db.rollback();
-              throw ex;
-            }
-          }
- while (!success && (retryCount < 5));
-          ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectName,foundObject.getObjectKey(),foundObject.getUploadId(),foundObject.getVersionId(),size,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
-          Threads.lookup(Walrus.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
+      dbObject.delete(foundObject);
+      if (!foundObject.getDeleted()) {
+        String objectName=foundObject.getObjectName();
+        for (        GrantInfo grantInfo : foundObject.getGrants()) {
+          db.delete(grantInfo);
         }
-        if (logData != null) {
-          updateLogData(bucketInfo,logData);
-          reply.setLogData(logData);
-        }
+        Long size=foundObject.getSize();
+        ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectName,foundObject.getObjectKey(),foundObject.getUploadId(),foundObject.getVersionId(),size,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
+        Threads.lookup(WalrusBackend.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
       }
- else {
-        db.rollback();
-        throw new AccessDeniedException("Key",objectKey,logData);
+      if (logData != null) {
+        updateLogData(bucketInfo,logData);
+        reply.setLogData(logData);
       }
     }
   }

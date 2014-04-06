@@ -2,7 +2,9 @@
   final ObjectMetadataManager objectManager=ObjectMetadataManagers.getInstance();
   if (BucketState.extant.equals(entity.getBucket().getState())) {
     try {
-      entity=objectManager.initiateCreation(entity);
+      if (!ObjectState.extant.equals(entity.getState())) {
+        entity=objectManager.initiateCreation(entity);
+      }
     }
  catch (    Exception e) {
       LOG.warn("Error initiating an object in the db:",e);
@@ -13,6 +15,7 @@
     throw new NoSuchBucketException(entity.getBucket().getBucketName());
   }
   final String etag;
+  Date lastModified;
   CopyObjectResponseType response;
   try {
     final ObjectEntity uploadingObject=entity;
@@ -56,6 +59,7 @@
     }
 ;
     response=waitForCompletion(putTask,uploadingObject.getObjectUuid(),updateTimeout,failTime,checkIntervalSec);
+    lastModified=DateFormatter.dateFromListingFormattedString(response.getLastModified());
     etag=response.getEtag();
   }
  catch (  Exception e) {
@@ -69,7 +73,12 @@
     throw new InternalErrorException(entity.getObjectKey());
   }
   try {
-    return ObjectMetadataManagers.getInstance().finalizeCreation(entity,new Date(),etag);
+    if (!ObjectState.extant.equals(entity.getState())) {
+      return ObjectMetadataManagers.getInstance().finalizeCreation(entity,lastModified,etag);
+    }
+ else {
+      return entity;
+    }
   }
  catch (  Exception e) {
     LOG.warn("Failed to update object metadata for finalization. Failing PUT operation",e);

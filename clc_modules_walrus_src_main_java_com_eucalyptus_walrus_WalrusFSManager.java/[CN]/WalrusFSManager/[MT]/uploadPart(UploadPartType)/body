@@ -24,191 +24,178 @@
     }
  catch (    NumberFormatException e) {
       LOG.error("Invalid content length " + request.getContentLength());
-      throw new EucalyptusCloudException("Missing Content-Length");
+      throw new InternalErrorException("Missing Content-Length");
     }
-    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && (bucket.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucketName,null)))) {
-      String objectName=null;
-      PartInfo partInfo=null;
-      try {
-        PartInfo searchManifest=new PartInfo(bucketName,objectKey);
-        searchManifest.setUploadId(uploadId);
-        searchManifest.setCleanup(Boolean.FALSE);
-        EntityWrapper<PartInfo> dbPart=db.recast(PartInfo.class);
-        Criteria partCriteria=dbPart.createCriteria(PartInfo.class);
-        partCriteria.add(Example.create(searchManifest));
-        partCriteria.add(Restrictions.isNull("partNumber"));
-        List<PartInfo> found=partCriteria.list();
-        if (found.size() == 0) {
-          db.rollback();
-          throw new EucalyptusCloudException("Multipart upload ID is invalid. Intitiate a multipart upload request before uploading the parts");
-        }
-        if (found.size() > 1) {
-          db.rollback();
-          throw new EucalyptusCloudException("Multiple manifests found for same uploadId");
-        }
-        PartInfo foundManifest=found.get(0);
-        partInfo=PartInfo.create(bucketName,objectKey,account);
-        partInfo.setUploadId(uploadId);
-        partInfo.setPartNumber(partNumber);
-        partInfo.setCleanup(Boolean.FALSE);
-        objectName=partInfo.getObjectName();
-        dbPart.add(partInfo);
-        dbPart.commit();
+    String objectName=null;
+    PartInfo partInfo=null;
+    try {
+      PartInfo searchManifest=new PartInfo(bucketName,objectKey);
+      searchManifest.setUploadId(uploadId);
+      searchManifest.setCleanup(Boolean.FALSE);
+      EntityWrapper<PartInfo> dbPart=db.recast(PartInfo.class);
+      Criteria partCriteria=dbPart.createCriteria(PartInfo.class);
+      partCriteria.add(Example.create(searchManifest));
+      partCriteria.add(Restrictions.isNull("partNumber"));
+      List<PartInfo> found=partCriteria.list();
+      if (found.size() == 0) {
+        db.rollback();
+        throw new InternalErrorException("Multipart upload ID is invalid. Intitiate a multipart upload request before uploading the parts");
       }
- catch (      Exception ex) {
-        throw new EucalyptusCloudException(ex);
+      if (found.size() > 1) {
+        db.rollback();
+        throw new InternalErrorException("Multiple manifests found for same uploadId");
       }
-      WalrusDataQueue<WalrusDataMessage> putQueue=messenger.getQueue(key,randomKey);
-      try {
-        WalrusDataMessage dataMessage;
-        String tempObjectName=objectName;
-        MessageDigest digest=null;
-        long size=0;
-        FileIO fileIO=null;
-        while ((dataMessage=putQueue.take()) != null) {
-          if (putQueue.getInterrupted()) {
-            if (WalrusDataMessage.isEOF(dataMessage)) {
-              WalrusMonitor monitor=messenger.getMonitor(key);
-              if (monitor.getLastModified() == null) {
-                LOG.trace("Monitor wait: " + key + " random: "+ randomKey);
-synchronized (monitor) {
-                  monitor.wait();
-                }
-              }
-              LOG.trace("Monitor resume: " + key + " random: "+ randomKey);
-              lastModified=monitor.getLastModified();
-              md5=monitor.getMd5();
-              if (fileIO != null) {
-                fileIO.finish();
-              }
-              ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,null,null,null,-1L,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
-              Threads.lookup(Walrus.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
-              LOG.info("Transfer interrupted: " + key);
-              messenger.removeQueue(key,randomKey);
-              break;
-            }
-            continue;
-          }
-          if (WalrusDataMessage.isStart(dataMessage)) {
-            tempObjectName=UUID.randomUUID().toString();
-            digest=Digest.MD5.get();
-            try {
-              fileIO=storageManager.prepareForWrite(bucketName,tempObjectName);
-            }
- catch (            Exception ex) {
-              messenger.removeQueue(key,randomKey);
-              throw new EucalyptusCloudException(ex);
-            }
-          }
- else           if (WalrusDataMessage.isEOF(dataMessage)) {
-            if (digest != null) {
-              md5=Hashes.bytesToHex(digest.digest());
-            }
- else {
-              WalrusMonitor monitor=messenger.getMonitor(key);
-              md5=monitor.getMd5();
-              lastModified=monitor.getLastModified();
-              if (md5 == null) {
-                LOG.error("ETag did not match for: " + randomKey + " Computed MD5 is null");
-                throw new ContentMismatchException(bucketName + "/" + objectKey);
-              }
-              break;
-            }
-            String contentMD5=request.getContentMD5();
-            if (contentMD5 != null) {
-              String contentMD5AsHex=Hashes.bytesToHex(Base64.decode(contentMD5));
-              if (!contentMD5AsHex.equals(md5)) {
-                if (fileIO != null) {
-                  fileIO.finish();
-                }
-                cleanupTempObject(ctx,bucketName,tempObjectName);
-                messenger.removeQueue(key,randomKey);
-                LOG.error("ETag did not match for: " + randomKey + " Expected: "+ contentMD5AsHex+ " Computed: "+ md5);
-                throw new ContentMismatchException(bucketName + "/" + objectKey);
-              }
-            }
-            if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
-              cleanupTempObject(ctx,bucketName,tempObjectName);
-              messenger.removeQueue(key,randomKey);
-              LOG.error("Quota exceeded for Walrus putObject");
-              throw new EntityTooLargeException("Key",objectKey);
-            }
-            try {
-              if (fileIO != null) {
-                fileIO.finish();
-              }
-              storageManager.renameObject(bucketName,tempObjectName,objectName);
-            }
- catch (            IOException ex) {
-              LOG.error(ex);
-              messenger.removeQueue(key,randomKey);
-              throw new EucalyptusCloudException(objectKey);
-            }
-            lastModified=new Date();
-            PartInfo searchPart=new PartInfo(bucketName,objectKey);
-            searchPart.setObjectName(objectName);
-            searchPart.setPartNumber(partNumber);
-            searchPart.setUploadId(uploadId);
-            EntityWrapper<PartInfo> dbPart=EntityWrapper.get(PartInfo.class);
-            PartInfo foundPart=null;
-            try {
-              foundPart=dbPart.getUniqueEscape(searchPart);
-            }
- catch (            EucalyptusCloudException ex) {
-              dbPart.rollback();
-              throw new EucalyptusCloudException("Unable to update part: " + bucketName + "/"+ objectKey+ " uploadId: "+ uploadId+ " partNumber: "+ partNumber);
-            }
-            foundPart.setEtag(md5);
-            foundPart.setSize(size);
-            foundPart.setLastModified(lastModified);
-            foundPart.setCleanup(false);
-            foundPart.setStorageClass("STANDARD");
-            reply.setSize(size);
-            try {
-              dbPart.commit();
-            }
- catch (            RollbackException ex) {
-              dbPart.rollback();
-              LOG.error(ex,ex);
-            }
+      PartInfo foundManifest=found.get(0);
+      partInfo=PartInfo.create(bucketName,objectKey,account);
+      partInfo.setUploadId(uploadId);
+      partInfo.setPartNumber(partNumber);
+      partInfo.setCleanup(Boolean.FALSE);
+      objectName=partInfo.getObjectName();
+      dbPart.add(partInfo);
+      dbPart.commit();
+    }
+ catch (    Exception ex) {
+      throw new InternalErrorException(ex);
+    }
+    WalrusDataQueue<WalrusDataMessage> putQueue=messenger.getQueue(key,randomKey);
+    try {
+      WalrusDataMessage dataMessage;
+      String tempObjectName=objectName;
+      MessageDigest digest=null;
+      long size=0;
+      FileIO fileIO=null;
+      while ((dataMessage=putQueue.take()) != null) {
+        if (putQueue.getInterrupted()) {
+          if (WalrusDataMessage.isEOF(dataMessage)) {
             WalrusMonitor monitor=messenger.getMonitor(key);
+            if (monitor.getLastModified() == null) {
+              LOG.trace("Monitor wait: " + key + " random: "+ randomKey);
 synchronized (monitor) {
-              monitor.setLastModified(lastModified);
-              monitor.setMd5(md5);
-              monitor.notifyAll();
+                monitor.wait();
+              }
             }
-            messenger.clearQueues(key);
+            LOG.trace("Monitor resume: " + key + " random: "+ randomKey);
+            lastModified=monitor.getLastModified();
+            md5=monitor.getMd5();
+            if (fileIO != null) {
+              fileIO.finish();
+            }
+            ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,tempObjectName,null,null,null,-1L,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
+            Threads.lookup(WalrusBackend.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
+            LOG.info("Transfer interrupted: " + key);
             messenger.removeQueue(key,randomKey);
-            LOG.info("Transfer complete: " + key + " uploadId: "+ uploadId+ " partNumber: "+ partNumber);
             break;
           }
+          continue;
+        }
+        if (WalrusDataMessage.isStart(dataMessage)) {
+          tempObjectName=UUID.randomUUID().toString();
+          digest=Digest.MD5.get();
+          try {
+            fileIO=storageManager.prepareForWrite(bucketName,tempObjectName);
+          }
+ catch (          Exception ex) {
+            messenger.removeQueue(key,randomKey);
+            throw new InternalErrorException(ex);
+          }
+        }
+ else         if (WalrusDataMessage.isEOF(dataMessage)) {
+          if (digest != null) {
+            md5=Hashes.bytesToHex(digest.digest());
+          }
  else {
-            assert(WalrusDataMessage.isData(dataMessage));
-            byte[] data=dataMessage.getPayload();
-            try {
-              if (fileIO != null)               fileIO.write(data);
+            WalrusMonitor monitor=messenger.getMonitor(key);
+            md5=monitor.getMd5();
+            lastModified=monitor.getLastModified();
+            if (md5 == null) {
+              LOG.error("ETag did not match for: " + randomKey + " Computed MD5 is null");
+              throw new ContentMismatchException(bucketName + "/" + objectKey);
             }
- catch (            IOException ex) {
-              LOG.error(ex);
+            break;
+          }
+          String contentMD5=request.getContentMD5();
+          if (contentMD5 != null) {
+            String contentMD5AsHex=Hashes.bytesToHex(Base64.decode(contentMD5));
+            if (!contentMD5AsHex.equals(md5)) {
+              if (fileIO != null) {
+                fileIO.finish();
+              }
+              cleanupTempObject(ctx,bucketName,tempObjectName);
+              messenger.removeQueue(key,randomKey);
+              LOG.error("ETag did not match for: " + randomKey + " Expected: "+ contentMD5AsHex+ " Computed: "+ md5);
+              throw new ContentMismatchException(bucketName + "/" + objectKey);
             }
-            size+=data.length;
-            if (digest != null) {
-              digest.update(data);
+          }
+          try {
+            if (fileIO != null) {
+              fileIO.finish();
             }
+            storageManager.renameObject(bucketName,tempObjectName,objectName);
+          }
+ catch (          IOException ex) {
+            LOG.error(ex);
+            messenger.removeQueue(key,randomKey);
+            throw new InternalErrorException(objectKey);
+          }
+          lastModified=new Date();
+          PartInfo searchPart=new PartInfo(bucketName,objectKey);
+          searchPart.setObjectName(objectName);
+          searchPart.setPartNumber(partNumber);
+          searchPart.setUploadId(uploadId);
+          EntityWrapper<PartInfo> dbPart=EntityWrapper.get(PartInfo.class);
+          PartInfo foundPart=null;
+          try {
+            foundPart=dbPart.getUniqueEscape(searchPart);
+          }
+ catch (          EucalyptusCloudException ex) {
+            dbPart.rollback();
+            throw new InternalErrorException("Unable to update part: " + bucketName + "/"+ objectKey+ " uploadId: "+ uploadId+ " partNumber: "+ partNumber);
+          }
+          foundPart.setEtag(md5);
+          foundPart.setSize(size);
+          foundPart.setLastModified(lastModified);
+          foundPart.setCleanup(false);
+          foundPart.setStorageClass("STANDARD");
+          reply.setSize(size);
+          try {
+            dbPart.commit();
+          }
+ catch (          RollbackException ex) {
+            dbPart.rollback();
+            LOG.error(ex,ex);
+          }
+          WalrusMonitor monitor=messenger.getMonitor(key);
+synchronized (monitor) {
+            monitor.setLastModified(lastModified);
+            monitor.setMd5(md5);
+            monitor.notifyAll();
+          }
+          messenger.clearQueues(key);
+          messenger.removeQueue(key,randomKey);
+          LOG.info("Transfer complete: " + key + " uploadId: "+ uploadId+ " partNumber: "+ partNumber);
+          break;
+        }
+ else {
+          assert(WalrusDataMessage.isData(dataMessage));
+          byte[] data=dataMessage.getPayload();
+          try {
+            if (fileIO != null)             fileIO.write(data);
+          }
+ catch (          IOException ex) {
+            LOG.error(ex);
+          }
+          size+=data.length;
+          if (digest != null) {
+            digest.update(data);
           }
         }
       }
- catch (      Exception ex) {
-        LOG.error(ex,ex);
-        db.rollback();
-        messenger.removeQueue(key,randomKey);
-        throw new EucalyptusCloudException("Transfer interrupted: " + key + "."+ randomKey);
-      }
     }
- else {
+ catch (    Exception ex) {
+      LOG.error(ex,ex);
       db.rollback();
       messenger.removeQueue(key,randomKey);
-      throw new AccessDeniedException("Bucket",bucketName,logData);
+      throw new InternalErrorException("Transfer interrupted: " + key + "."+ randomKey);
     }
   }
  else {
@@ -217,6 +204,6 @@ synchronized (monitor) {
     throw new NoSuchBucketException(bucketName);
   }
   reply.setEtag(md5);
-  reply.setLastModified(DateUtils.format(lastModified.getTime(),DateUtils.RFC822_DATETIME_PATTERN));
+  reply.setLastModified(lastModified);
   return reply;
 }

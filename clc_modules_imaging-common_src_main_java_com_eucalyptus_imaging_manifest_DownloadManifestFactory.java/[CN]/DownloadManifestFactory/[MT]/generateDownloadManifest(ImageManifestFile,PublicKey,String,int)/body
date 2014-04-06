@@ -1,13 +1,14 @@
 {
   try {
-    AccessKey adminAccessKey=Accounts.lookupSystemAdmin().getKeys().get(0);
-    AWSCredentials myCredentials=new BasicAWSCredentials(adminAccessKey.getAccessKey(),adminAccessKey.getSecretKey());
-    AmazonS3 s3Client=new AmazonS3Client(myCredentials);
-    ServiceConfiguration OSLocation=Topology.lookup(ObjectStorage.class);
-    s3Client.setEndpoint(OSLocation.getUri().getScheme() + "://" + OSLocation.getUri().getAuthority());
+    EucaS3Client s3Client=EucaS3ClientFactory.getEucaS3Client(getDownloadManifestS3User());
     java.util.Date expiration=new java.util.Date();
     long msec=expiration.getTime() + 1000 * 60 * 60* expirationHours;
     expiration.setTime(msec);
+    if (objectExist(s3Client,DOWNLOAD_MANIFEST_BUCKET_NAME,DOWNLOAD_MANIFEST_PREFIX + manifestName)) {
+      LOG.debug("Manifest '" + (DOWNLOAD_MANIFEST_PREFIX + manifestName) + "' is alredy created. Skipping creation");
+      URL s=s3Client.generatePresignedUrl(DOWNLOAD_MANIFEST_BUCKET_NAME,DOWNLOAD_MANIFEST_PREFIX + manifestName,expiration,HttpMethod.GET);
+      return String.format("%s://imaging@%s%s?%s",s.getProtocol(),s.getAuthority(),s.getPath(),s.getQuery());
+    }
     final String manifest=baseManifest.getManifest();
     if (manifest == null) {
       throw new DownloadManifestException("Can't generate download manifest from null base manifest");
@@ -77,17 +78,13 @@
     if (parts == null) {
       throw new InvalidBaseManifestException("Base manifest does not have parts");
     }
-    String bucketBase="services/objectstorage/";
-    if (baseManifest.getManifestType().signPartUrl()) {
-      bucketBase+=baseManifest.getBaseBucket();
-    }
     for (int i=0; i < parts.getLength(); i++) {
       Node part=parts.item(i);
       String partIndex=part.getAttributes().getNamedItem("index").getNodeValue();
       String partKey=((Node)xpath.evaluate(baseManifest.getManifestType().getPartUrlElement(),part,XPathConstants.NODE)).getTextContent();
       String partDownloadUrl=partKey;
       if (baseManifest.getManifestType().signPartUrl()) {
-        GeneratePresignedUrlRequest generatePresignedUrlRequest=new GeneratePresignedUrlRequest(bucketBase,partKey,HttpMethod.GET);
+        GeneratePresignedUrlRequest generatePresignedUrlRequest=new GeneratePresignedUrlRequest(baseManifest.getBaseBucket(),partKey,HttpMethod.GET);
         generatePresignedUrlRequest.setExpiration(expiration);
         URL s=s3Client.generatePresignedUrl(generatePresignedUrlRequest);
         partDownloadUrl=s.toString();
@@ -107,11 +104,9 @@
     signature.appendChild(manifestDoc.createTextNode(Signatures.SHA256withRSA.trySign(Eucalyptus.class,signatureData.getBytes())));
     root.appendChild(signature);
     String downloadManifest=nodeToString(manifestDoc,true);
-    createManifestsBucket();
-    putManifestData(DOWNLOAD_MANIFEST_BUCKET_NAME,DOWNLOAD_MANIFEST_PREFIX + manifestName,downloadManifest);
-    GeneratePresignedUrlRequest generatePresignedUrlRequest=new GeneratePresignedUrlRequest("services/objectstorage/" + DOWNLOAD_MANIFEST_BUCKET_NAME,DOWNLOAD_MANIFEST_PREFIX + manifestName,HttpMethod.GET);
-    generatePresignedUrlRequest.setExpiration(expiration);
-    URL s=s3Client.generatePresignedUrl(generatePresignedUrlRequest);
+    createManifestsBucket(s3Client);
+    putManifestData(s3Client,DOWNLOAD_MANIFEST_BUCKET_NAME,DOWNLOAD_MANIFEST_PREFIX + manifestName,downloadManifest);
+    URL s=s3Client.generatePresignedUrl(DOWNLOAD_MANIFEST_BUCKET_NAME,DOWNLOAD_MANIFEST_PREFIX + manifestName,expiration,HttpMethod.GET);
     return String.format("%s://imaging@%s%s?%s",s.getProtocol(),s.getAuthority(),s.getPath(),s.getQuery());
   }
  catch (  Exception ex) {

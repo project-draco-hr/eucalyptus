@@ -14,38 +14,32 @@
   List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
   if (bucketList.size() > 0) {
     BucketInfo bucket=bucketList.get(0);
-    if (ctx.hasAdministrativePrivileges() || (bucket.canWrite(account.getAccountNumber()) && (bucket.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,bucket.getBucketName(),null)))) {
-      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-      ObjectInfo searchObjectInfo=new ObjectInfo();
-      searchObjectInfo.setBucketName(bucketName);
-      List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
-      for (      ObjectInfo objectInfo : objectInfos) {
-        if (objectInfo.getObjectKey().equals(key)) {
-          db.rollback();
-          throw new EucalyptusCloudException("object already exists " + key);
-        }
+    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+    ObjectInfo searchObjectInfo=new ObjectInfo();
+    searchObjectInfo.setBucketName(bucketName);
+    List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
+    for (    ObjectInfo objectInfo : objectInfos) {
+      if (objectInfo.getObjectKey().equals(key)) {
+        db.rollback();
+        throw new InternalErrorException("object already exists " + key);
       }
-      ObjectInfo objectInfo=new ObjectInfo(bucketName,key);
-      objectInfo.setObjectName(objectName);
-      List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-      objectInfo.addGrants(account.getAccountNumber(),bucket.getOwnerId(),grantInfos,accessControlList);
-      objectInfo.setGrants(grantInfos);
-      dbObject.add(objectInfo);
-      objectInfo.setObjectKey(key);
-      objectInfo.setOwnerId(account.getAccountNumber());
-      objectInfo.setSize(storageManager.getSize(bucketName,objectName));
-      objectInfo.setEtag(request.getEtag());
-      objectInfo.setLastModified(new Date());
-      objectInfo.setStorageClass("STANDARD");
     }
- else {
-      db.rollback();
-      throw new AccessDeniedException("Bucket",bucketName);
-    }
+    ObjectInfo objectInfo=new ObjectInfo(bucketName,key);
+    objectInfo.setObjectName(objectName);
+    List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+    objectInfo.addGrants(account.getAccountNumber(),bucket.getOwnerId(),grantInfos,accessControlList);
+    objectInfo.setGrants(grantInfos);
+    dbObject.add(objectInfo);
+    objectInfo.setObjectKey(key);
+    objectInfo.setOwnerId(account.getAccountNumber());
+    objectInfo.setSize(storageManager.getSize(bucketName,objectName));
+    objectInfo.setEtag(request.getEtag());
+    objectInfo.setLastModified(new Date());
+    objectInfo.setStorageClass("STANDARD");
   }
  else {
     db.rollback();
-    throw new NoSuchBucketException(bucketName);
+    throw new AccessDeniedException("Bucket",bucketName);
   }
   db.commit();
   return reply;

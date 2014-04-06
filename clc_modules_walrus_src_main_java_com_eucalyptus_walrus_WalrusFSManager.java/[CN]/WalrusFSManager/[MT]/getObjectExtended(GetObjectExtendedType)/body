@@ -29,91 +29,80 @@
     List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
     if (objectInfos.size() > 0) {
       ObjectInfo objectInfo=objectInfos.get(0);
-      if (ctx.hasAdministrativePrivileges() || (objectInfo.canRead(account.getAccountNumber()) && (objectInfo.isGlobalRead() || Lookups.checkPrivilege(PolicySpec.S3_GETOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,PolicySpec.objectFullName(bucketName,objectKey),null)))) {
-        String etag=objectInfo.getEtag();
-        String objectName=objectInfo.getObjectName();
-        Long byteRangeStart=request.getByteRangeStart();
-        Long byteRangeEnd=request.getByteRangeEnd();
-        DefaultHttpResponse httpResponse=null;
-        if (byteRangeStart != null || byteRangeEnd != null) {
-          httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.PARTIAL_CONTENT);
-        }
- else {
-          httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.OK);
-        }
-        if (byteRangeStart == null) {
-          byteRangeStart=0L;
-        }
-        if (byteRangeEnd == null) {
-          byteRangeEnd=-1L;
-        }
-        if (byteRangeEnd == -1 || (byteRangeEnd + 1) > objectInfo.getSize()) {
-          byteRangeEnd=objectInfo.getSize() - 1;
-        }
-        if ((byteRangeStart > objectInfo.getSize()) || (byteRangeStart > byteRangeEnd) || (byteRangeStart < 0 || byteRangeEnd < 0)) {
-          db.rollback();
-          throw new InvalidRangeException("Range: " + byteRangeStart + "-"+ byteRangeEnd+ "object: "+ bucketName+ "/"+ objectKey);
-        }
-        if (ifMatch != null) {
-          if (!ifMatch.equals(etag) && !returnCompleteObjectOnFailure) {
-            db.rollback();
-            throw new PreconditionFailedException(objectKey + " etag: " + etag);
-          }
-        }
-        if (ifNoneMatch != null) {
-          if (ifNoneMatch.equals(etag) && !returnCompleteObjectOnFailure) {
-            db.rollback();
-            throw new NotModifiedException(objectKey + " ETag: " + etag);
-          }
-        }
-        Date lastModified=objectInfo.getLastModified();
-        if (ifModifiedSince != null) {
-          if ((ifModifiedSince.getTime() >= lastModified.getTime()) && !returnCompleteObjectOnFailure) {
-            db.rollback();
-            throw new NotModifiedException(objectKey + " LastModified: " + lastModified.toString());
-          }
-        }
-        if (ifUnmodifiedSince != null) {
-          if ((ifUnmodifiedSince.getTime() < lastModified.getTime()) && !returnCompleteObjectOnFailure) {
-            db.rollback();
-            throw new PreconditionFailedException(objectKey + " lastModified: " + lastModified.toString());
-          }
-        }
-        if (request.getGetMetaData()) {
-          List<MetaDataInfo> metaDataInfos=objectInfo.getMetaData();
-          for (          MetaDataInfo metaDataInfo : metaDataInfos) {
-            httpResponse.addHeader(WalrusProperties.AMZ_META_HEADER_PREFIX + metaDataInfo.getName(),metaDataInfo.getValue());
-          }
-        }
-        Long size=objectInfo.getSize();
-        String contentType=objectInfo.getContentType();
-        String contentDisposition=objectInfo.getContentDisposition();
-        db.commit();
-        if (logData != null) {
-          updateLogData(bucket,logData);
-          logData.setObjectSize(size);
-        }
-        String versionId=null;
-        if (versioning) {
-          versionId=objectInfo.getVersionId() != null ? objectInfo.getVersionId() : WalrusProperties.NULL_VERSION_ID;
-        }
-        if (request.getGetData()) {
-          storageManager.sendObject(request,httpResponse,bucketName,objectName,byteRangeStart,byteRangeEnd + 1,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.RFC822_DATETIME_PATTERN),contentType,contentDisposition,request.getIsCompressed(),versionId,logData);
-          return null;
-        }
- else {
-          storageManager.sendHeaders(request,httpResponse,size,etag,DateUtils.format(lastModified.getTime(),DateUtils.RFC822_DATETIME_PATTERN),contentType,contentDisposition,versionId,logData);
-          return null;
-        }
+      String etag=objectInfo.getEtag();
+      String objectName=objectInfo.getObjectName();
+      Long byteRangeStart=request.getByteRangeStart();
+      Long byteRangeEnd=request.getByteRangeEnd();
+      DefaultHttpResponse httpResponse=null;
+      if (byteRangeStart != null || byteRangeEnd != null) {
+        httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.PARTIAL_CONTENT);
       }
  else {
+        httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.OK);
+      }
+      if (byteRangeStart == null) {
+        byteRangeStart=0L;
+      }
+      if (byteRangeEnd == null) {
+        byteRangeEnd=-1L;
+      }
+      if (byteRangeEnd == -1 || (byteRangeEnd + 1) > objectInfo.getSize()) {
+        byteRangeEnd=objectInfo.getSize() - 1;
+      }
+      if ((byteRangeStart > objectInfo.getSize()) || (byteRangeStart > byteRangeEnd) || (byteRangeStart < 0 || byteRangeEnd < 0)) {
         db.rollback();
-        if (getData) {
-          throw new AccessDeniedException("Key",objectKey,logData);
+        throw new InvalidRangeException("Range: " + byteRangeStart + "-"+ byteRangeEnd+ "object: "+ bucketName+ "/"+ objectKey);
+      }
+      if (ifMatch != null) {
+        if (!ifMatch.equals(etag) && !returnCompleteObjectOnFailure) {
+          db.rollback();
+          throw new PreconditionFailedException(objectKey + " etag: " + etag);
         }
+      }
+      if (ifNoneMatch != null) {
+        if (ifNoneMatch.equals(etag) && !returnCompleteObjectOnFailure) {
+          db.rollback();
+          throw new NotModifiedException(objectKey + " ETag: " + etag);
+        }
+      }
+      Date lastModified=objectInfo.getLastModified();
+      if (ifModifiedSince != null) {
+        if ((ifModifiedSince.getTime() >= lastModified.getTime()) && !returnCompleteObjectOnFailure) {
+          db.rollback();
+          throw new NotModifiedException(objectKey + " LastModified: " + lastModified.toString());
+        }
+      }
+      if (ifUnmodifiedSince != null) {
+        if ((ifUnmodifiedSince.getTime() < lastModified.getTime()) && !returnCompleteObjectOnFailure) {
+          db.rollback();
+          throw new PreconditionFailedException(objectKey + " lastModified: " + lastModified.toString());
+        }
+      }
+      if (request.getGetMetaData()) {
+        List<MetaDataInfo> metaDataInfos=objectInfo.getMetaData();
+        for (        MetaDataInfo metaDataInfo : metaDataInfos) {
+          httpResponse.addHeader(WalrusProperties.AMZ_META_HEADER_PREFIX + metaDataInfo.getName(),metaDataInfo.getValue());
+        }
+      }
+      Long size=objectInfo.getSize();
+      String contentType=objectInfo.getContentType();
+      String contentDisposition=objectInfo.getContentDisposition();
+      db.commit();
+      if (logData != null) {
+        updateLogData(bucket,logData);
+        logData.setObjectSize(size);
+      }
+      String versionId=null;
+      if (versioning) {
+        versionId=objectInfo.getVersionId() != null ? objectInfo.getVersionId() : WalrusProperties.NULL_VERSION_ID;
+      }
+      if (request.getGetData()) {
+        storageManager.sendObject(request,httpResponse,bucketName,objectName,byteRangeStart,byteRangeEnd + 1,size,etag,DateFormatter.dateToHeaderFormattedString(lastModified),contentType,contentDisposition,request.getIsCompressed(),versionId,logData);
+        return null;
+      }
  else {
-          throw new HeadAccessDeniedException("Key",objectKey,logData);
-        }
+        storageManager.sendHeaders(request,httpResponse,size,etag,DateFormatter.dateToHeaderFormattedString(lastModified),contentType,contentDisposition,versionId,logData);
+        return null;
       }
     }
  else {

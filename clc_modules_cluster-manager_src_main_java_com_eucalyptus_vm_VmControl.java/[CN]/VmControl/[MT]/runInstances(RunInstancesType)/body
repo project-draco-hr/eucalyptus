@@ -17,7 +17,7 @@
     }
     Predicates.and(VerifyMetadata.get(),AdmissionControl.run(),ContractEnforcement.run()).apply(allocInfo);
     allocInfo.commit();
-    ReservationInfoType reservation=new ReservationInfoType(allocInfo.getReservationId(),allocInfo.getOwnerFullName().getAccountNumber(),allocInfo.getNetworkGroupsMap());
+    ReservationInfoType reservation=new ReservationInfoType(allocInfo.getReservationId(),allocInfo.getOwnerFullName().getAccountNumber(),Collections2.transform(allocInfo.getNetworkGroups(),TypeMappers.lookup(NetworkGroup.class,GroupItemType.class)));
     reply.setRsvInfo(reservation);
     for (    ResourceToken allocToken : allocInfo.getAllocationTokens()) {
       VmInstance entity=Entities.merge(allocToken.getVmInstance());
@@ -26,12 +26,16 @@
     db.commit();
   }
  catch (  Exception ex) {
-    LOG.error(ex,ex);
     allocInfo.abort();
     final ImageInstanceTypeVerificationException e1=Exceptions.findCause(ex,ImageInstanceTypeVerificationException.class);
     if (e1 != null)     throw new ClientComputeException("InvalidParameterCombination",e1.getMessage());
     final NotEnoughResourcesException e2=Exceptions.findCause(ex,NotEnoughResourcesException.class);
     if (e2 != null)     throw new ComputeException("InsufficientInstanceCapacity",e2.getMessage());
+    final NoSuchKeyMetadataException e3=Exceptions.findCause(ex,NoSuchKeyMetadataException.class);
+    if (e3 != null)     throw new ClientComputeException("InvalidKeyPair.NotFound",e3.getMessage());
+    final InvalidInstanceProfileMetadataException e4=Exceptions.findCause(ex,InvalidInstanceProfileMetadataException.class);
+    if (e4 != null)     throw new ClientComputeException("InvalidParameterValue",e4.getMessage());
+    LOG.error(ex,ex);
     throw ex;
   }
  finally {
