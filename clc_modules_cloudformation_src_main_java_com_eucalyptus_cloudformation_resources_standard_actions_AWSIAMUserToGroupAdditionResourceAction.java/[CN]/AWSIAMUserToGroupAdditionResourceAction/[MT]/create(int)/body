@@ -1,0 +1,75 @@
+{
+switch (stepNum) {
+case 0:
+    ServiceConfiguration configuration=Topology.lookup(Euare.class);
+  boolean seenAllGroups=false;
+boolean foundGroup=false;
+String groupMarker=null;
+while (!seenAllGroups && !foundGroup) {
+ListGroupsType listGroupsType=new ListGroupsType();
+listGroupsType.setEffectiveUserId(info.getEffectiveUserId());
+if (groupMarker != null) {
+listGroupsType.setMarker(groupMarker);
+}
+ListGroupsResponseType listGroupsResponseType=AsyncRequests.<ListGroupsType,ListGroupsResponseType>sendSync(configuration,listGroupsType);
+if (listGroupsResponseType.getListGroupsResult().getIsTruncated() == Boolean.TRUE) {
+groupMarker=listGroupsResponseType.getListGroupsResult().getMarker();
+}
+ else {
+seenAllGroups=true;
+}
+if (listGroupsResponseType.getListGroupsResult().getGroups() != null && listGroupsResponseType.getListGroupsResult().getGroups().getMemberList() != null) {
+for (GroupType groupType : listGroupsResponseType.getListGroupsResult().getGroups().getMemberList()) {
+  if (groupType.getGroupName().equals(properties.getGroupName())) {
+    foundGroup=true;
+    break;
+  }
+}
+}
+}
+if (!foundGroup) throw new ValidationErrorException("No such group " + properties.getGroupName());
+boolean seenAllUsers=false;
+List<String> currentUsers=Lists.newArrayList();
+String userMarker=null;
+while (!seenAllUsers) {
+ListUsersType listUsersType=new ListUsersType();
+listUsersType.setEffectiveUserId(info.getEffectiveUserId());
+if (userMarker != null) {
+listUsersType.setMarker(userMarker);
+}
+ListUsersResponseType listUsersResponseType=AsyncRequests.<ListUsersType,ListUsersResponseType>sendSync(configuration,listUsersType);
+if (listUsersResponseType.getListUsersResult().getIsTruncated() == Boolean.TRUE) {
+userMarker=listUsersResponseType.getListUsersResult().getMarker();
+}
+ else {
+seenAllUsers=true;
+}
+if (listUsersResponseType.getListUsersResult().getUsers() != null && listUsersResponseType.getListUsersResult().getUsers().getMemberList() != null) {
+for (UserType userType : listUsersResponseType.getListUsersResult().getUsers().getMemberList()) {
+currentUsers.add(userType.getUserName());
+}
+}
+}
+List<String> nonexistantUsers=Lists.newArrayList();
+for (String user : properties.getUsers()) {
+if (!currentUsers.contains(user)) {
+nonexistantUsers.add(user);
+}
+}
+if (!nonexistantUsers.isEmpty()) {
+throw new ValidationErrorException("No such user(s) " + nonexistantUsers.toString());
+}
+for (String userName : properties.getUsers()) {
+AddUserToGroupType addUserToGroupType=new AddUserToGroupType();
+addUserToGroupType.setGroupName(properties.getGroupName());
+addUserToGroupType.setUserName(userName);
+addUserToGroupType.setEffectiveUserId(info.getEffectiveUserId());
+AsyncRequests.<AddUserToGroupType,AddUserToGroupResponseType>sendSync(configuration,addUserToGroupType);
+}
+info.setPhysicalResourceId(getDefaultPhysicalResourceId());
+info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(info.getPhysicalResourceId())));
+break;
+default :
+throw new IllegalStateException("Invalid step " + stepNum);
+}
+}

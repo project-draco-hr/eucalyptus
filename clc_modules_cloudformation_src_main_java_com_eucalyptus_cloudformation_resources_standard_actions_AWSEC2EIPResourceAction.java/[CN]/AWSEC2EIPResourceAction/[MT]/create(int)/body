@@ -1,0 +1,31 @@
+{
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+switch (stepNum) {
+case 0:
+    AllocateAddressType allocateAddressType=new AllocateAddressType();
+  allocateAddressType.setEffectiveUserId(info.getEffectiveUserId());
+AllocateAddressResponseType allocateAddressResponseType=AsyncRequests.<AllocateAddressType,AllocateAddressResponseType>sendSync(configuration,allocateAddressType);
+String publicIp=allocateAddressResponseType.getPublicIp();
+info.setPhysicalResourceId(publicIp);
+info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(info.getPhysicalResourceId())));
+break;
+case 1:
+if (properties.getInstanceId() != null) {
+DescribeInstancesType describeInstancesType=new DescribeInstancesType();
+describeInstancesType.setInstancesSet(Lists.newArrayList(properties.getInstanceId()));
+describeInstancesType.setEffectiveUserId(info.getEffectiveUserId());
+DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.<DescribeInstancesType,DescribeInstancesResponseType>sendSync(configuration,describeInstancesType);
+if (describeInstancesResponseType.getReservationSet() == null || describeInstancesResponseType.getReservationSet().isEmpty()) {
+throw new ValidationErrorException("No such instance " + properties.getInstanceId());
+}
+AssociateAddressType associateAddressType=new AssociateAddressType();
+associateAddressType.setInstanceId(properties.getInstanceId());
+associateAddressType.setPublicIp(info.getPhysicalResourceId());
+associateAddressType.setEffectiveUserId(info.getEffectiveUserId());
+AsyncRequests.<AssociateAddressType,AssociateAddressResponseType>sendSync(configuration,associateAddressType);
+}
+break;
+default :
+throw new IllegalStateException("Invalid step " + stepNum);
+}
+}

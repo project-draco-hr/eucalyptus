@@ -1,0 +1,51 @@
+{
+  ServiceConfiguration configuration=Topology.lookup(Euare.class);
+switch (stepNum) {
+case 0:
+    String userName=getDefaultPhysicalResourceId();
+  CreateUserType createUserType=new CreateUserType();
+createUserType.setEffectiveUserId(info.getEffectiveUserId());
+createUserType.setUserName(userName);
+createUserType.setPath(properties.getPath());
+CreateUserResponseType createUserResponseType=AsyncRequests.<CreateUserType,CreateUserResponseType>sendSync(configuration,createUserType);
+String arn=createUserResponseType.getCreateUserResult().getUser().getArn();
+info.setPhysicalResourceId(userName);
+info.setArn(JsonHelper.getStringFromJsonNode(new TextNode(arn)));
+info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(info.getPhysicalResourceId())));
+break;
+case 1:
+if (properties.getLoginProfile() != null) {
+CreateLoginProfileType createLoginProfileType=new CreateLoginProfileType();
+createLoginProfileType.setPassword(properties.getLoginProfile().getPassword());
+createLoginProfileType.setUserName(info.getPhysicalResourceId());
+createLoginProfileType.setEffectiveUserId(info.getEffectiveUserId());
+AsyncRequests.<CreateLoginProfileType,CreateLoginProfileResponseType>sendSync(configuration,createLoginProfileType);
+}
+break;
+case 2:
+if (properties.getPolicies() != null) {
+for (EmbeddedIAMPolicy policy : properties.getPolicies()) {
+PutUserPolicyType putUserPolicyType=new PutUserPolicyType();
+putUserPolicyType.setUserName(info.getPhysicalResourceId());
+putUserPolicyType.setPolicyName(policy.getPolicyName());
+putUserPolicyType.setPolicyDocument(policy.getPolicyDocument().toString());
+putUserPolicyType.setEffectiveUserId(info.getEffectiveUserId());
+AsyncRequests.<PutUserPolicyType,PutUserPolicyResponseType>sendSync(configuration,putUserPolicyType);
+}
+}
+break;
+case 3:
+if (properties.getGroups() != null) {
+for (String groupName : properties.getGroups()) {
+AddUserToGroupType addUserToGroupType=new AddUserToGroupType();
+addUserToGroupType.setGroupName(groupName);
+addUserToGroupType.setUserName(info.getPhysicalResourceId());
+addUserToGroupType.setEffectiveUserId(info.getEffectiveUserId());
+AsyncRequests.<AddUserToGroupType,AddUserToGroupResponseType>sendSync(configuration,addUserToGroupType);
+}
+}
+break;
+default :
+throw new IllegalStateException("Invalid step " + stepNum);
+}
+}

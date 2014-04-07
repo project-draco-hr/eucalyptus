@@ -1,2 +1,31 @@
 {
+  if (info.getPhysicalResourceId() == null)   return;
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  DescribeVolumesType describeVolumesType=new DescribeVolumesType();
+  describeVolumesType.setVolumeSet(Lists.newArrayList(info.getPhysicalResourceId()));
+  describeVolumesType.setEffectiveUserId(info.getEffectiveUserId());
+  DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.<DescribeVolumesType,DescribeVolumesResponseType>sendSync(configuration,describeVolumesType);
+  if (describeVolumesResponseType.getVolumeSet().size() == 0)   return;
+  if ("deleted".equals(describeVolumesResponseType.getVolumeSet().get(0).getStatus()))   return;
+  DeleteVolumeType deleteVolumeType=new DeleteVolumeType();
+  deleteVolumeType.setVolumeId(info.getPhysicalResourceId());
+  deleteVolumeType.setEffectiveUserId(info.getEffectiveUserId());
+  AsyncRequests.<DeleteVolumeType,DeleteVolumeResponseType>sendSync(configuration,deleteVolumeType);
+  boolean deleted=false;
+  for (int i=0; i < 60; i++) {
+    Thread.sleep(5000L);
+    DescribeVolumesType describeVolumesType2=new DescribeVolumesType();
+    describeVolumesType2.setVolumeSet(Lists.newArrayList(info.getPhysicalResourceId()));
+    describeVolumesType2.setEffectiveUserId(info.getEffectiveUserId());
+    DescribeVolumesResponseType describeVolumesResponseType2=AsyncRequests.<DescribeVolumesType,DescribeVolumesResponseType>sendSync(configuration,describeVolumesType2);
+    if (describeVolumesResponseType2.getVolumeSet().size() == 0) {
+      deleted=true;
+      break;
+    }
+    if ("deleted".equals(describeVolumesResponseType2.getVolumeSet().get(0).getStatus())) {
+      deleted=true;
+      break;
+    }
+  }
+  if (!deleted)   throw new Exception("Timeout");
 }
