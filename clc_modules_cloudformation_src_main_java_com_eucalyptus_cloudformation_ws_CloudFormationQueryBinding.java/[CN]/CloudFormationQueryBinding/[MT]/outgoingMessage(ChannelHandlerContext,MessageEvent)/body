@@ -1,0 +1,60 @@
+{
+  Context context=Contexts.lookup(ctx.getChannel());
+  if (context == null || context.getHttpRequest() == null || context.getHttpRequest().getParameters() == null || !"JSON".equals(context.getHttpRequest().getParameters().get("ContentType"))) {
+    super.outgoingMessage(ctx,event);
+  }
+ else {
+    if (event.getMessage() instanceof MappingHttpResponse) {
+      MappingHttpResponse httpResponse=(MappingHttpResponse)event.getMessage();
+      ByteArrayOutputStream byteOut=new ByteArrayOutputStream(8192);
+      HoldMe.canHas.lock();
+      try {
+        if (httpResponse.getMessage() == null) {
+        }
+ else         if (httpResponse.getMessage() instanceof EucalyptusErrorMessageType) {
+          EucalyptusErrorMessageType errMsg=(EucalyptusErrorMessageType)httpResponse.getMessage();
+          byteOut.write(Binding.createRestFault(errMsg.getSource(),errMsg.getMessage(),errMsg.getCorrelationId()).getBytes());
+          httpResponse.setStatus(HttpResponseStatus.BAD_REQUEST);
+        }
+ else         if (httpResponse.getMessage() instanceof ExceptionResponseType) {
+          ExceptionResponseType msg=(ExceptionResponseType)httpResponse.getMessage();
+          String detail=msg.getError();
+          if (msg.getException() != null) {
+            Logs.extreme().debug(msg,msg.getException());
+          }
+          if (msg.getException() instanceof EucalyptusWebServiceException) {
+            detail=msg.getCorrelationId();
+          }
+          String response=Binding.createRestFault(msg.getRequestType(),msg.getMessage(),detail);
+          byteOut.write(response.getBytes());
+          httpResponse.setStatus(msg.getHttpStatus());
+        }
+ else {
+          try {
+            ObjectMapper mapper=new ObjectMapper();
+            String className=httpResponse.getMessage().getClass().getName();
+            className=className.substring(className.lastIndexOf(".") + 1);
+            String messageType=className.replace("ResponseType","Response");
+            byteOut.write("{".getBytes());
+            byteOut.write(("\"" + messageType + "\" : ").getBytes());
+            mapper.writer().without(SerializationFeature.FAIL_ON_EMPTY_BEANS).writeValue(byteOut,httpResponse.getMessage());
+            byteOut.write("}".getBytes());
+          }
+ catch (          Exception e) {
+            LOG.debug(e);
+            Logs.exhaust().error(e,e);
+            throw e;
+          }
+        }
+        byte[] req=byteOut.toByteArray();
+        ChannelBuffer buffer=ChannelBuffers.wrappedBuffer(req);
+        httpResponse.addHeader(HttpHeaders.Names.CONTENT_LENGTH,String.valueOf(buffer.readableBytes()));
+        httpResponse.addHeader(HttpHeaders.Names.CONTENT_TYPE,"application/json; charset=UTF-8");
+        httpResponse.setContent(buffer);
+      }
+  finally {
+        HoldMe.canHas.unlock();
+      }
+    }
+  }
+}
