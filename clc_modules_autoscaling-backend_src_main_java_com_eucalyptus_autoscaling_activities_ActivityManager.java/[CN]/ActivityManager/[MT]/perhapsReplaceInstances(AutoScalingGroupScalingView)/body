@@ -1,8 +1,10 @@
 {
   final List<String> instancesToTerminate=Lists.newArrayList();
+  boolean anyRegisteredInstances=false;
   if (scalingProcessEnabled(ScalingProcessType.ReplaceUnhealthy,group))   try {
     final List<AutoScalingInstanceCoreView> currentInstances=autoScalingInstances.listUnhealthyByGroup(group,TypeMappers.lookup(AutoScalingInstance.class,AutoScalingInstanceCoreView.class));
     Iterables.addAll(instancesToTerminate,Iterables.limit(Iterables.transform(currentInstances,RestrictedTypes.toDisplayName()),Math.min(AutoScalingConfiguration.getMaxLaunchIncrement(),currentInstances.size())));
+    anyRegisteredInstances=Iterables.any(currentInstances,ConfigurationState.Registered.forView());
     if (!instancesToTerminate.isEmpty()) {
       logger.info("Terminating unhealthy instances: " + instancesToTerminate);
     }
@@ -10,5 +12,5 @@
  catch (  final Exception e) {
     logger.error(e,e);
   }
-  return removeFromLoadBalancerOrTerminate(group,group.getCapacity(),instancesToTerminate,Collections.singletonList(new ActivityCause("an instance was taken out of service in response to a health-check")),true);
+  return removeFromLoadBalancerOrTerminate(group,group.getCapacity(),anyRegisteredInstances,instancesToTerminate,Collections.singletonList(new ActivityCause("an instance was taken out of service in response to a health-check")),true);
 }

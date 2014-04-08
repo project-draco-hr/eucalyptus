@@ -1,11 +1,13 @@
 {
   final List<String> instancesToTerminate=Lists.newArrayList();
+  boolean anyRegisteredInstances=false;
   int currentCapacity=0;
   try {
     final List<AutoScalingInstanceCoreView> currentInstances=autoScalingInstances.listByGroup(group,Predicates.alwaysTrue(),TypeMappers.lookup(AutoScalingInstance.class,AutoScalingInstanceCoreView.class));
     currentCapacity=currentInstances.size();
     if (currentInstances.size() == terminateCount) {
       Iterables.addAll(instancesToTerminate,Iterables.transform(currentInstances,RestrictedTypes.toDisplayName()));
+      anyRegisteredInstances=Iterables.any(currentInstances,ConfigurationState.Registered.forView());
     }
  else {
       final Set<String> groupZones=Sets.newLinkedHashSet(group.getAvailabilityZones());
@@ -20,6 +22,7 @@
           Iterable<AutoScalingInstanceCoreView> unwantedInstances=Iterables.filter(currentInstances,withAvailabilityZone(unwantedZones));
           Iterables.addAll(instancesToTerminate,Iterables.transform(unwantedInstances,RestrictedTypes.toDisplayName()));
           Iterables.removeAll(remainingInstances,Lists.newArrayList(unwantedInstances));
+          anyRegisteredInstances=Iterables.any(unwantedInstances,ConfigurationState.Registered.forView());
           targetZones=groupZones;
         }
  else {
@@ -36,6 +39,7 @@
         remainingInstances.remove(instanceForTermination);
         entry.setValue(entry.getValue() - 1);
         instancesToTerminate.add(instanceForTermination.getInstanceId());
+        anyRegisteredInstances|=ConfigurationState.Registered.forView().apply(instanceForTermination);
       }
     }
   }
@@ -47,5 +51,5 @@
   for (  final String instanceId : instancesToTerminate) {
     causes.add(new ActivityCause(String.format("instance %1$s was selected for termination",instanceId)));
   }
-  return removeFromLoadBalancerOrTerminate(group,currentCapacity,instancesToTerminate,causes,false);
+  return removeFromLoadBalancerOrTerminate(group,currentCapacity,anyRegisteredInstances,instancesToTerminate,causes,false);
 }

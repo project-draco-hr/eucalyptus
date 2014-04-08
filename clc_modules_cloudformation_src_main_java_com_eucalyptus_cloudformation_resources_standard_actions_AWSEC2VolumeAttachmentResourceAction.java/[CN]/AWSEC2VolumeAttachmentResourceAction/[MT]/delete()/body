@@ -1,2 +1,40 @@
 {
+  if (info.getPhysicalResourceId() == null)   return;
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  DetachVolumeType detachVolumeType=new DetachVolumeType();
+  detachVolumeType.setEffectiveUserId(info.getEffectiveUserId());
+  DescribeInstancesType describeInstancesType=new DescribeInstancesType();
+  describeInstancesType.setInstancesSet(Lists.newArrayList(properties.getInstanceId()));
+  describeInstancesType.setEffectiveUserId(info.getEffectiveUserId());
+  DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.<DescribeInstancesType,DescribeInstancesResponseType>sendSync(configuration,describeInstancesType);
+  if (describeInstancesResponseType.getReservationSet() == null || describeInstancesResponseType.getReservationSet().isEmpty()) {
+    return;
+  }
+  detachVolumeType.setInstanceId(properties.getInstanceId());
+  DescribeVolumesType describeVolumesType=new DescribeVolumesType();
+  describeVolumesType.setVolumeSet(Lists.newArrayList(properties.getVolumeId()));
+  describeVolumesType.setEffectiveUserId(info.getEffectiveUserId());
+  DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.<DescribeVolumesType,DescribeVolumesResponseType>sendSync(configuration,describeVolumesType);
+  if (describeVolumesResponseType.getVolumeSet().size() == 0)   return;
+  detachVolumeType.setVolumeId(properties.getVolumeId());
+  detachVolumeType.setDevice(properties.getDevice());
+  AsyncRequests.<DetachVolumeType,DetachVolumeResponseType>sendSync(configuration,detachVolumeType);
+  boolean detached=false;
+  for (int i=0; i < 60; i++) {
+    Thread.sleep(5000L);
+    DescribeVolumesType describeVolumesType2=new DescribeVolumesType();
+    describeVolumesType2.setVolumeSet(Lists.newArrayList(properties.getVolumeId()));
+    describeVolumesType2.setEffectiveUserId(info.getEffectiveUserId());
+    DescribeVolumesResponseType describeVolumesResponseType2=AsyncRequests.<DescribeVolumesType,DescribeVolumesResponseType>sendSync(configuration,describeVolumesType2);
+    if (describeVolumesResponseType2.getVolumeSet().size() == 0)     return;
+    if (describeVolumesResponseType2.getVolumeSet().get(0).getAttachmentSet() == null || describeVolumesResponseType2.getVolumeSet().get(0).getAttachmentSet().isEmpty())     return;
+    for (    AttachedVolume attachedVolume : describeVolumesResponseType2.getVolumeSet().get(0).getAttachmentSet()) {
+      if (attachedVolume.getInstanceId().equals(properties.getInstanceId()) && attachedVolume.getDevice().equals(properties.getDevice()) && attachedVolume.getStatus().equals("detached")) {
+        detached=true;
+        break;
+      }
+    }
+    if (detached == true)     break;
+  }
+  if (!detached)   throw new Exception("Timeout");
 }
