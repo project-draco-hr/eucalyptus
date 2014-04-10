@@ -1,0 +1,29 @@
+{
+  int retries=3;
+  long backoffTime=500L;
+  for (int i=0; i < retries; i++) {
+    try {
+      Map<String,String> metadata=new HashMap<String,String>();
+      metadata.put(MANIFEST_EXPIRATION,Long.toString(expiration.getTime()));
+      String etag=s3Client.putObjectContent(bucketName,objectName,data,metadata);
+      LOG.debug("Added manifest to " + bucketName + "/"+ objectName+ " Etag: "+ etag);
+      return;
+    }
+ catch (    AmazonClientException e) {
+      LOG.warn("Upload error while trying to upload manifest data. Attempt: " + String.valueOf((i + 1)) + " of "+ String.valueOf(retries),e);
+    }
+catch (    Exception e) {
+      LOG.warn("Non-upload error while trying to upload manifest data. Attempt: " + String.valueOf((i + 1)) + " of "+ String.valueOf(retries),e);
+    }
+    try {
+      Thread.sleep(backoffTime);
+    }
+ catch (    InterruptedException e) {
+      LOG.warn("Interrupted during backoff sleep for upload.",e);
+      throw new EucalyptusCloudException(e);
+    }
+    s3Client.refreshEndpoint();
+    backoffTime*=2;
+  }
+  throw new EucalyptusCloudException("Failed to put manifest file: " + bucketName + "/"+ objectName+ ". Exceeded retry limit");
+}

@@ -1,0 +1,34 @@
+{
+  LOG.trace(LogUtil.dumpObject(channelEvent));
+  UpstreamMessageEvent firstChunkEvent=null;
+  DefaultHttpChunk firstChunk=null;
+  if (channelEvent instanceof MessageEvent) {
+    final MessageEvent msgEvent=(MessageEvent)channelEvent;
+    try {
+      if (msgEvent.getMessage() instanceof MappingHttpRequest) {
+        MappingHttpRequest request=(MappingHttpRequest)msgEvent.getMessage();
+        if (request.getFormFields() != null && request.getFormFields().get(ObjectStorageProperties.FIRST_CHUNK_FIELD) != null) {
+          firstChunk=new DefaultHttpChunk((ChannelBuffer)request.getFormFields().get(ObjectStorageProperties.FIRST_CHUNK_FIELD));
+          if (request.isChunked()) {
+            firstChunkEvent=new UpstreamMessageEvent(channelHandlerContext.getChannel(),firstChunk,msgEvent.getRemoteAddress());
+          }
+        }
+      }
+      this.incomingMessage(channelHandlerContext,msgEvent);
+      if (firstChunkEvent == null && firstChunk != null && msgEvent.getMessage() instanceof MappingHttpRequest && ((MappingHttpRequest)msgEvent.getMessage()).getMessage() instanceof ObjectStorageDataRequestType) {
+        ObjectStorageDataRequestType dataReq=(ObjectStorageDataRequestType)((MappingHttpRequest)msgEvent.getMessage()).getMessage();
+        handleData(dataReq,firstChunk.getContent());
+      }
+    }
+ catch (    Exception e) {
+      LOG.error("Error in POST multipart form binding",e);
+      Channels.fireExceptionCaught(channelHandlerContext,e);
+      return;
+    }
+  }
+  channelHandlerContext.sendUpstream(channelEvent);
+  if (firstChunkEvent != null) {
+    LOG.trace("Dispatching follow-up chunk directly after initial request.");
+    channelHandlerContext.sendUpstream(firstChunkEvent);
+  }
+}

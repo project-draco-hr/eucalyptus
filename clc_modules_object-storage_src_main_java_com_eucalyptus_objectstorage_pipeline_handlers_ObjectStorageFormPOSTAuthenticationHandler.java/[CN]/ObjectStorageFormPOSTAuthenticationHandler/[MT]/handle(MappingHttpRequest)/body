@@ -1,16 +1,42 @@
 {
-  if (httpRequest.getFormFields().size() > 0) {
-    String data=httpRequest.getAndRemoveHeader(ObjectStorageProperties.FormField.FormUploadPolicyData.toString());
-    String auth_part=httpRequest.getAndRemoveHeader(SecurityParameter.Authorization.toString());
-    if (auth_part != null) {
-      String sigString[]=getSigInfo(auth_part);
-      String signature=sigString[1];
-      authenticate(httpRequest,sigString[0],signature,data);
+  String accessKey=(String)httpRequest.getFormFields().get(SecurityParameter.AWSAccessKeyId.toString());
+  String signature=(String)httpRequest.getFormFields().get(SecurityParameter.Signature.toString());
+  String policy=(String)httpRequest.getFormFields().get(SecurityParameter.Policy.toString());
+  String securityToken=(String)httpRequest.getFormFields().get(SecurityParameter.SecurityToken.toString());
+  if (!Strings.isNullOrEmpty(policy)) {
+    if (Strings.isNullOrEmpty(signature)) {
+      throw new InvalidPolicyDocumentException(httpRequest.getUri(),"Policy specified, but no signature field found.");
+    }
+ else     if (Strings.isNullOrEmpty(accessKey)) {
+      throw new InvalidPolicyDocumentException(httpRequest.getUri(),"Policy specified, but no AWSAccessKeyId field found");
     }
  else {
-      throw new AuthenticationException("User authentication failed.");
+      try {
+        SecurityContext.getLoginContext(new ObjectStorageWrappedCredentials(httpRequest.getCorrelationId(),policy,accessKey,signature,securityToken)).login();
+      }
+ catch (      LoginException ex) {
+        if (ex.getMessage().contains("The AWS Access Key Id you provided does not exist in our records")) {
+          throw new InvalidAccessKeyIdException(accessKey);
+        }
+ else {
+          LOG.debug("CorrelationId: " + httpRequest.getCorrelationId() + " Authentication failed due to signature mismatch:",ex);
+          throw new SignatureDoesNotMatchException(signature);
+        }
+      }
+catch (      Exception e) {
+        LOG.warn("CorrelationId: " + httpRequest.getCorrelationId() + " Unexpected failure trying to authenticate request",e);
+        throw new InternalErrorException(e);
+      }
     }
   }
  else {
+    try {
+      Context ctx=Contexts.lookup(httpRequest.getCorrelationId());
+      ctx.setUser(Principals.nobodyUser());
+    }
+ catch (    NoSuchContextException e) {
+      LOG.error("Could not find context for anonymous request",e);
+      throw new InternalErrorException(httpRequest.getUri(),e);
+    }
   }
 }

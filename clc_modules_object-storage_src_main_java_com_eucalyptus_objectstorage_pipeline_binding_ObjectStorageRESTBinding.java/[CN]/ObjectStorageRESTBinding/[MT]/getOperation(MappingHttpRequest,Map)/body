@@ -31,7 +31,6 @@
         Map formFields=httpRequest.getFormFields();
         String objectKey=null;
         String file=(String)formFields.get(ObjectStorageProperties.FormField.file.toString());
-        String authenticationHeader="";
         if (formFields.containsKey(ObjectStorageProperties.FormField.key.toString())) {
           objectKey=(String)formFields.get(ObjectStorageProperties.FormField.key.toString());
           objectKey=objectKey.replaceAll("\\$\\{filename\\}",file);
@@ -51,20 +50,31 @@
         }
         if (formFields.containsKey(ObjectStorageProperties.FormField.success_action_status.toString())) {
           Integer successActionStatus=Integer.parseInt((String)formFields.get(ObjectStorageProperties.FormField.success_action_status.toString()));
-          if (successActionStatus == 200 || successActionStatus == 201)           operationParams.put("SuccessActionStatus",successActionStatus);
- else           operationParams.put("SuccessActionStatus",204);
+          if (successActionStatus == 200 || successActionStatus == 201) {
+            operationParams.put("SuccessActionStatus",successActionStatus);
+          }
+ else {
+            operationParams.put("SuccessActionStatus",204);
+          }
         }
  else {
           operationParams.put("SuccessActionStatus",204);
         }
-        if (formFields.containsKey(ObjectStorageProperties.CONTENT_TYPE)) {
-          operationParams.put("ContentType",formFields.get(ObjectStorageProperties.CONTENT_TYPE));
+        if (formFields.containsKey(HttpHeaders.Names.CONTENT_TYPE)) {
+          operationParams.put("ContentType",formFields.get(HttpHeaders.Names.CONTENT_TYPE));
+        }
+        if (formFields.get(ObjectStorageProperties.UPLOAD_LENGTH_FIELD) != null) {
+          operationParams.put("ContentLength",(long)formFields.get(ObjectStorageProperties.IGNORE_PREFIX + "FileContentLength"));
+        }
+ else {
+          throw new MalformedPOSTRequestException("Could not calculate upload content length from request");
         }
         key=target[0] + "." + objectKey;
-        randomKey=key + "." + Hashes.getRandom(10);
-        if (contentLengthString != null)         operationParams.put("ContentLength",(new Long(contentLength).toString()));
-        operationParams.put(ObjectStorageProperties.Headers.RandomKey.toString(),randomKey);
-        httpRequest.setContent((ChannelBuffer)formFields.get(ObjectStorageProperties.IGNORE_PREFIX + "FirstDataChunk"));
+        ChannelBuffer buffer=(ChannelBuffer)formFields.get(ObjectStorageProperties.FIRST_CHUNK_FIELD);
+        if (buffer == null) {
+          LOG.trace("No data content found for POST upload");
+          throw new MalformedPOSTRequestException("No upload content found");
+        }
       }
  else       if (ObjectStorageProperties.HTTPVerb.PUT.toString().equals(verb)) {
         if (params.containsKey(ObjectStorageProperties.BucketParameter.logging.toString())) {
@@ -153,12 +163,11 @@
         }
  else {
           key=target[0] + "." + objectKey;
-          randomKey=key + "." + Hashes.getRandom(10);
-          String contentType=httpRequest.getHeader(ObjectStorageProperties.CONTENT_TYPE);
+          String contentType=httpRequest.getHeader(HttpHeaders.Names.CONTENT_TYPE);
           if (contentType != null)           operationParams.put("ContentType",contentType);
           String contentDisposition=httpRequest.getHeader("Content-Disposition");
           if (contentDisposition != null)           operationParams.put("ContentDisposition",contentDisposition);
-          String contentMD5=httpRequest.getHeader(ObjectStorageProperties.CONTENT_MD5);
+          String contentMD5=httpRequest.getHeader(HttpHeaders.Names.CONTENT_MD5);
           if (contentMD5 != null)           operationParams.put("ContentMD5",contentMD5);
           if (contentLengthString != null)           operationParams.put("ContentLength",(new Long(contentLength).toString()));
         }
