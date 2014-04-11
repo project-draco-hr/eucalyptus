@@ -1,0 +1,44 @@
+{
+  LOG.info("Copying rows from " + OLDTABLE + " table to "+ NEWTABLE);
+  Sql sql=null;
+  try {
+    sql=DatabaseFilters.NEWVERSION.getConnection("eucalyptus_storage");
+    try {
+      List<GroovyRowResult> result=sql.rows(String.format("select id from %s where id is not null",NEWTABLE));
+      if (result != null && result.size() > 0) {
+        return true;
+      }
+    }
+ catch (    Exception e) {
+      LOG.error("Select statement from " + NEWTABLE + " failed. The table may not exist or was not setup correctly");
+      return false;
+    }
+    try {
+      List<GroovyRowResult> result=sql.rows(String.format("select id from %s where id is not null",OLDTABLE));
+      if (result == null || result.size() <= 0) {
+        return true;
+      }
+    }
+ catch (    Exception e) {
+      LOG.info("Select statement from " + OLDTABLE + " failed. The table may not exist");
+      return true;
+    }
+    try {
+      sql.execute(String.format("insert into %s (id, creation_timestamp, last_update_timestamp, metadata_perm_uuid, version, encryptedpassword, iqn, scname, size, snapshot_of, status, storeuser, volumeid) " + "select id, creation_timestamp, last_update_timestamp, metadata_perm_uuid, version, encryptedpassword, iqn, scname, size, snapshot_of, status, storeuser, volumeid from %s",NEWTABLE,OLDTABLE));
+    }
+ catch (    Exception e) {
+      LOG.error("Failed to copy rows using select into statement from " + OLDTABLE + " to "+ NEWTABLE);
+      return false;
+    }
+    return true;
+  }
+ catch (  Exception e) {
+    LOG.warn("Failed to copy entities from " + OLDTABLE + " table to "+ NEWTABLE);
+    return false;
+  }
+ finally {
+    if (sql != null) {
+      sql.close();
+    }
+  }
+}

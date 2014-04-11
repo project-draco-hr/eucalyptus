@@ -7,12 +7,12 @@
   try {
     vol=Volumes.lookup(ctx.getUserFullName().asAccountFullName(),volumeId);
   }
- catch (  Exception ex) {
-    if ((ex instanceof NoSuchElementException || ex.getCause() instanceof NoSuchElementException) && "eucalyptus".equals(ctx.getAccount().getName())) {
+ catch (  NoSuchElementException ex) {
+    try {
       vol=Volumes.lookup(null,volumeId);
     }
- else {
-      throw new EucalyptusCloudException("Volume does not exist: " + volumeId,ex);
+ catch (    NoSuchElementException e) {
+      throw new ClientComputeException("InvalidVolume.NotFound","The volume '" + request.getVolumeId() + "' does not exist");
     }
   }
   if (!RestrictedTypes.filterPrivileged().apply(vol)) {
@@ -30,20 +30,20 @@
       throw new EucalyptusCloudException(ex.getMessage() + " Cannot be detached");
     }
  else {
-      throw new EucalyptusCloudException("Volume is not currently attached to any instance");
+      throw new ClientComputeException("IncorrectState","Volume is not attached: " + volumeId);
     }
   }
   if (vm != null && MigrationState.isMigrating(vm)) {
     throw Exceptions.toUndeclared("Cannot detach a volume from an instance which is currently migrating: " + vm.getInstanceId() + " "+ vm.getMigrationTask());
   }
   if (volume == null) {
-    throw new EucalyptusCloudException("Volume is not attached: " + volumeId);
+    throw new ClientComputeException("IncorrectState","Volume is not attached: " + volumeId);
   }
   if (!RestrictedTypes.filterPrivileged().apply(vm)) {
     throw new EucalyptusCloudException("Not authorized to detach volume from instance " + instanceId + " by "+ ctx.getUser().getName());
   }
-  if (instanceId != null && !vm.getInstanceId().equals(instanceId)) {
-    throw new EucalyptusCloudException("Volume is not attached to instance: " + instanceId);
+  if (instanceId != null && vm != null && !vm.getInstanceId().equals(instanceId)) {
+    throw new ClientComputeException("InvalidAttachment.NotFound","Volume is not attached to instance: " + instanceId);
   }
   if (request.getDevice() != null && !request.getDevice().equals("") && !volume.getDevice().equals(request.getDevice())) {
     throw new EucalyptusCloudException("Volume is not attached to device: " + request.getDevice());
