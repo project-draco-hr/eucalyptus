@@ -36,8 +36,9 @@
     StringBuilder sb=new StringBuilder();
     String userNumber=u.getAccount().getAccountNumber();
     sb.append("EUCA_KEY_DIR=$(cd $(dirname ${BASH_SOURCE:-$0}); pwd -P)");
-    if (Topology.isEnabled(Compute.class)) {
-      sb.append("\nexport EC2_URL=" + ServiceUris.remotePublicify(Topology.lookup(Compute.class)));
+    final Optional<String> computeUrl=remotePublicify(Compute.class);
+    if (computeUrl.isPresent()) {
+      sb.append(entryFor("EC2_URL",null,computeUrl));
     }
  else {
       sb.append("\necho WARN:  Eucalyptus URL is not configured. >&2");
@@ -45,50 +46,13 @@
       ServiceConfiguration localConfig=builder.newInstance(Internets.localHostAddress(),Internets.localHostAddress(),Internets.localHostAddress(),Eucalyptus.INSTANCE.getPort());
       sb.append("\nexport EC2_URL=" + ServiceUris.remotePublicify(localConfig));
     }
-    if (Topology.isEnabled(ObjectStorage.class)) {
-      ServiceConfiguration walrusConfig=Topology.lookup(ObjectStorage.class);
-      try {
-        String uri=ServiceUris.remotePublicify(walrusConfig).toASCIIString();
-        LOG.debug("Found walrus uri/configuration: uri=" + uri + " config="+ walrusConfig);
-        sb.append("\nexport S3_URL=" + uri);
-      }
- catch (      Exception e) {
-        LOG.error("Failed to set Walrus URL: " + walrusConfig,e);
-      }
-    }
- else {
-      sb.append("\necho WARN:  A valid OSG is not configured. S3_URL is not set. " + "Please register/configure an OSG and download credentials again. " + "Or set S3_URL manually to http://OSG-IP:8773/services/objectstorage >&2");
-    }
-    if (Topology.isEnabled(Euare.class)) {
-      sb.append("\nexport EUARE_URL=" + ServiceUris.remotePublicify(Euare.class));
-    }
- else {
-      sb.append("\necho WARN:  EUARE URL is not configured. >&2");
-    }
-    if (Topology.isEnabled(Tokens.class)) {
-      sb.append("\nexport TOKEN_URL=" + ServiceUris.remotePublicify(Tokens.class));
-    }
- else {
-      sb.append("\necho WARN:  TOKEN URL is not configured. >&2");
-    }
-    if (Topology.isEnabled(AutoScaling.class)) {
-      sb.append("\nexport AWS_AUTO_SCALING_URL=" + ServiceUris.remotePublicify(AutoScaling.class));
-    }
- else {
-      sb.append("\necho WARN:  Auto Scaling service URL is not configured. >&2");
-    }
-    if (Topology.isEnabled(CloudWatch.class)) {
-      sb.append("\nexport AWS_CLOUDWATCH_URL=" + ServiceUris.remotePublicify(CloudWatch.class));
-    }
- else {
-      sb.append("\necho WARN:  Cloud Watch service URL is not configured. >&2");
-    }
-    if (Topology.isEnabled(LoadBalancing.class)) {
-      sb.append("\nexport AWS_ELB_URL=" + ServiceUris.remotePublicify(LoadBalancing.class));
-    }
- else {
-      sb.append("\necho WARN:  Load Balancing service URL is not configured. >&2");
-    }
+    sb.append(entryFor("S3_URL","A valid OSG is not configured. S3_URL is not set. " + "Please register/configure an OSG and download credentials again. " + "Or set S3_URL manually to http://OSG-IP:8773/services/objectstorage",remotePublicify(ObjectStorage.class)));
+    sb.append(entryFor("EUARE_URL","EUARE URL is not configured.",remotePublicify(Euare.class)));
+    sb.append(entryFor("TOKEN_URL","TOKEN URL is not configured.",remotePublicify(Tokens.class)));
+    sb.append(entryFor("AWS_AUTO_SCALING_URL","Auto Scaling service URL is not configured.",remotePublicify(AutoScaling.class)));
+    sb.append(entryFor("AWS_CLOUDFORMATION_URL",null,remotePublicify(CloudFormation.class)));
+    sb.append(entryFor("AWS_CLOUDWATCH_URL","Cloud Watch service URL is not configured.",remotePublicify(CloudWatch.class)));
+    sb.append(entryFor("AWS_ELB_URL","Load Balancing service URL is not configured.",remotePublicify(LoadBalancing.class)));
     sb.append("\nexport EUSTORE_URL=" + StackConfiguration.DEFAULT_EUSTORE_URL);
     sb.append("\nexport EC2_PRIVATE_KEY=${EUCA_KEY_DIR}/" + baseName + "-pk.pem");
     sb.append("\nexport EC2_CERT=${EUCA_KEY_DIR}/" + baseName + "-cert.pem");

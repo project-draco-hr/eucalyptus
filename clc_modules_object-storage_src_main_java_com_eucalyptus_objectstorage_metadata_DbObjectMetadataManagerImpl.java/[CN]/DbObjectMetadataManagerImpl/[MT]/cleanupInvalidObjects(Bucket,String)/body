@@ -3,19 +3,24 @@
   final Predicate<ObjectEntity> repairPredicate=new Predicate<ObjectEntity>(){
     public boolean apply(    ObjectEntity example){
       try {
-        ObjectEntity searchExample=new ObjectEntity().withKey(example.getObjectKey()).withBucket(example.getBucket()).withState(ObjectState.extant).withVersionId(ObjectStorageProperties.NULL_VERSION_ID);
+        ObjectEntity searchExample=new ObjectEntity().withKey(example.getObjectKey()).withBucket(example.getBucket()).withState(ObjectState.extant);
         Criteria searchCriteria=Entities.createCriteria(ObjectEntity.class);
-        searchCriteria.add(Example.create(searchExample)).addOrder(Order.desc("objectModifiedTimestamp"));
+        searchCriteria.add(Example.create(searchExample));
+        searchCriteria.add(Restrictions.or(Restrictions.eq("versionId",ObjectStorageProperties.NULL_VERSION_ID),Restrictions.eq("isLatest",Boolean.TRUE)));
+        searchCriteria.addOrder(Order.desc("objectModifiedTimestamp"));
         searchCriteria=getSearchByBucket(searchCriteria,example.getBucket());
         List<ObjectEntity> results=searchCriteria.list();
         if (results.size() <= 1) {
           return true;
         }
-        results.get(0).setIsLatest(true);
+        ObjectEntity latest=results.get(0);
+        latest.setIsLatest(Boolean.TRUE);
         for (        ObjectEntity obj : results.subList(1,results.size())) {
           LOG.trace("Marking object " + obj.getObjectUuid() + " as no longer latest version");
-          obj.setIsLatest(false);
-          obj=transitionObjectToState(obj,ObjectState.deleting);
+          obj.setIsLatest(Boolean.FALSE);
+          if (latest.getVersionId() != null && ObjectStorageProperties.NULL_VERSION_ID.equals(latest.getVersionId()) && obj.getVersionId() != null && ObjectStorageProperties.NULL_VERSION_ID.equals(obj.getVersionId())) {
+            transitionObjectToState(obj,ObjectState.deleting);
+          }
         }
       }
  catch (      NoSuchElementException e) {
