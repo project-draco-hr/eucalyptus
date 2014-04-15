@@ -1,26 +1,37 @@
 {
   Bucket bucket=getBucketAndCheckAuthorization(request);
   if (request.getAccessControlPolicy() == null || request.getAccessControlPolicy().getAccessControlList() == null) {
-    throw new MalformedACLErrorException(request.getBucket() + "/" + request.getKey()+ "?acl");
+    LOG.error("Cannot put ACL that does not exist in request");
+    throw new MalformedACLErrorException(request.getBucket() + "?acl");
   }
  else {
-    AccessControlPolicy fullPolicy;
-    if (isCannedAclPolicy(request.getAccessControlPolicy())) {
-      fullPolicy=new AccessControlPolicy();
+    AccessControlPolicy fullPolicy=new AccessControlPolicy();
+    try {
+      fullPolicy.setAccessControlList(AclUtils.expandCannedAcl(request.getAccessControlPolicy().getAccessControlList(),bucket.getOwnerCanonicalId(),null));
+    }
+ catch (    Exception e) {
+      LOG.error("Cannot expand the ACL in the request");
+      throw new MalformedACLErrorException(request.getBucket() + "?acl");
+    }
+    if (fullPolicy.getAccessControlList() == null || fullPolicy.getAccessControlList().getGrants() == null || fullPolicy.getAccessControlList().getGrants().size() == 0) {
+      LOG.error("Cannot put ACL that does not exist in request");
+      throw new MalformedACLErrorException(request.getBucket() + "?acl");
+    }
+    if (request.getAccessControlPolicy().getOwner() == null) {
       fullPolicy.setOwner(new CanonicalUser(bucket.getOwnerCanonicalId(),bucket.getOwnerDisplayName()));
-      try {
-        fullPolicy.setAccessControlList(AclUtils.expandCannedAcl(request.getAccessControlPolicy().getAccessControlList(),bucket.getOwnerCanonicalId(),null));
-      }
- catch (      Exception e) {
+    }
+ else {
+      fullPolicy.setOwner(request.getAccessControlPolicy().getOwner());
+    }
+    try {
+      String aclString=S3AccessControlledEntity.marshallAcpToString(fullPolicy);
+      if (Strings.isNullOrEmpty(aclString)) {
         throw new MalformedACLErrorException(request.getBucket() + "?acl");
       }
     }
- else {
-      fullPolicy=request.getAccessControlPolicy();
-      if (fullPolicy.getAccessControlList() == null || fullPolicy.getOwner() == null) {
-        LOG.error("Cannot put ACL that does not exist in request");
-        throw new MalformedACLErrorException(request.getBucket() + "?acl");
-      }
+ catch (    Exception e) {
+      LOG.error("Invalid ACL policy");
+      throw new MalformedACLErrorException(request.getBucket() + "?acl");
     }
     try {
       BucketMetadataManagers.getInstance().setAcp(bucket,fullPolicy);
