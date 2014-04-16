@@ -3,7 +3,13 @@
   final String instanceId=normalizeIdentifier(request.getInstanceId());
   Context ctx=Contexts.lookup();
   try (final TransactionResource tx=Entities.transactionFor(VmInstance.class)){
-    final VmInstance vm=RestrictedTypes.doPrivileged(instanceId,VmInstance.class);
+    final VmInstance vm;
+    try {
+      vm=RestrictedTypes.doPrivileged(instanceId,VmInstance.class);
+    }
+ catch (    AuthException|NoSuchElementException e) {
+      throw new ClientComputeException("InvalidInstanceID.NotFound","The instance ID '" + instanceId + "' does not exist");
+    }
     if (request.getBlockDeviceMappingAttribute() != null) {
       boolean isValidBlockDevice=false;
       Set<VmVolumeAttachment> persistentVolumes=vm.getBootRecord().getPersistentVolumes();
@@ -72,7 +78,13 @@
         }
       }
  else       if (request.getUserDataValue() != null) {
-        byte[] userData=B64.standard.dec(request.getUserDataValue());
+        final byte[] userData;
+        try {
+          userData=B64.standard.dec(request.getUserDataValue());
+        }
+ catch (        ArrayIndexOutOfBoundsException|StringIndexOutOfBoundsException|DecoderException e) {
+          throw new ClientComputeException("InvalidParameterValue","User data decoding error.");
+        }
         if (userData.length > Integer.parseInt(VmInstances.USER_DATA_MAX_SIZE_KB) * 1024) {
           throw new InvalidMetadataException("User data may not exceed " + VmInstances.USER_DATA_MAX_SIZE_KB + " KB");
         }
@@ -85,8 +97,10 @@
     }
     reply.set_return(true);
   }
- catch (  Exception ex) {
-    LOG.error(ex);
+ catch (  final ComputeException e) {
+    throw e;
+  }
+catch (  Exception ex) {
     if (Exceptions.isCausedBy(ex,EucalyptusCloudException.class)) {
       throw new ClientComputeException("IncorrectInstanceState","The instance '" + instanceId + "' is not in the 'stopped' state.");
     }
@@ -111,7 +125,8 @@
  else     if (Exceptions.isCausedBy(ex,InvalidMetadataException.class)) {
       throw new ClientComputeException("InvalidParameterValue","User data is limited to 16384 bytes");
     }
-    throw new ClientComputeException("InvalidInstanceID.NotFound","The instance ID '" + instanceId + "' does not exist");
+    LOG.error(ex,ex);
+    throw new ComputeException("InternalError","Error processing request: " + ex.getMessage());
   }
   return reply;
 }
