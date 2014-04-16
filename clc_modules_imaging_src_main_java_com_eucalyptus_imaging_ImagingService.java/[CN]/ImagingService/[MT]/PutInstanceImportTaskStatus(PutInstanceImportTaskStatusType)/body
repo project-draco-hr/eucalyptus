@@ -53,7 +53,26 @@ catch (  final Exception ex) {
       }
 switch (workerState) {
 case EXTANT:
-        ;
+        if (imagingTask.isTimedOut()) {
+          try {
+            if (imagingTask.getTimeoutCount() < MAX_TIMEOUT_AND_RETRY) {
+              LOG.warn(String.format("Imaging import task %s has timed out; will retry later",imagingTask.getDisplayName()));
+              ImagingTasks.timeoutTask(taskId);
+              ImagingTasks.killAndRerunTask(taskId);
+            }
+ else {
+              LOG.warn(String.format("Imaging import task %s has timed out and failed",imagingTask.getDisplayName()));
+              ImagingTasks.setState(imagingTask,ImportTaskState.FAILED,"Task timed out during conversion");
+            }
+          }
+ catch (          final Exception ex) {
+            LOG.error("Failed to handle timed-out task",ex);
+            ImagingTasks.setState(imagingTask,ImportTaskState.FAILED,"Task timed out during conversion");
+          }
+ finally {
+            reply.setCancelled(true);
+          }
+        }
       break;
 case DONE:
     if (imagingTask instanceof VolumeImagingTask) {
