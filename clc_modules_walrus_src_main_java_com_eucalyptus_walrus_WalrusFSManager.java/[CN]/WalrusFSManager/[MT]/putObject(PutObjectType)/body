@@ -86,7 +86,7 @@ catch (      EucalyptusCloudException ex) {
       MessageDigest digest=null;
       long size=0;
       FileIO fileIO=null;
-      while ((dataMessage=putQueue.take()) != null) {
+      while ((dataMessage=putQueue.poll(60L,TimeUnit.SECONDS)) != null) {
         if (putQueue.getInterrupted()) {
           if (WalrusDataMessage.isEOF(dataMessage)) {
             WalrusMonitor monitor=messenger.getMonitor(key);
@@ -258,6 +258,11 @@ synchronized (monitor) {
             digest.update(data);
           }
         }
+      }
+      if (dataMessage == null) {
+        db.rollback();
+        messenger.removeQueue(key,randomKey);
+        throw new InternalErrorException("Put timed out: " + key + "."+ randomKey);
       }
     }
  catch (    InterruptedException ex) {
