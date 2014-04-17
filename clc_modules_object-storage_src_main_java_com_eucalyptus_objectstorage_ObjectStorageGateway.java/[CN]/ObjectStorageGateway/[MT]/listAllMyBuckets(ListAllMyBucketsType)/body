@@ -8,19 +8,14 @@
     ListAllMyBucketsResponseType response=request.getReply();
     Account accnt;
     try {
-      accnt=Contexts.lookup().getAccount();
+      accnt=Contexts.lookup(request.getCorrelationId()).getAccount();
       if (accnt == null) {
         throw new NoSuchContextException();
       }
     }
  catch (    NoSuchContextException e) {
-      try {
-        accnt=Accounts.lookupUserByAccessKeyId(request.getAccessKeyID()).getAccount();
-      }
- catch (      AuthException ex) {
-        LOG.error("Could not retrieve canonicalId for user with accessKey: " + request.getAccessKeyID());
-        throw new InternalErrorException();
-      }
+      LOG.error("Could not retrieve canonicalId for user with userId: " + request.getUserId() + " effectiveUserId: "+ request.getEffectiveUserId());
+      throw new AccountProblemException(request.getUserId());
     }
     try {
       List<Bucket> listing=BucketMetadataManagers.getInstance().lookupBucketsByOwner(accnt.getCanonicalId());
@@ -29,7 +24,7 @@
       return response;
     }
  catch (    Exception e) {
-      throw new InternalErrorException();
+      throw new InternalErrorException("Error getting bucket metadata",e);
     }
   }
  else {
