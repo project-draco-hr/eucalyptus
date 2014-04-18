@@ -1,0 +1,34 @@
+{
+  PartIterator iter=new PartIterator(boundaryBytes,finalBoundaryBytes,buffer);
+  int offset=0;
+  while (iter.hasNext()) {
+    ChannelBuffer partSlice=iter.next();
+    partSlice.markReaderIndex();
+    if (partSlice.readableBytes() > boundaryBytes.length) {
+      int headerEnd=OSGUtil.findFirstMatchInBuffer(partSlice,0,PART_HEADER_BOUNDARY_BYTES);
+      if (headerEnd == -1) {
+        throw new MalformedPOSTRequestException("Invalid form part starting at byte offset: " + offset);
+      }
+ else {
+        headerEnd+=PART_HEADER_BOUNDARY_BYTES.length;
+      }
+      String partHeader=getMessageString(partSlice.slice(0,headerEnd)).trim();
+      Map<String,String> keyMap=parseFormPartHeaders(partHeader);
+      String key=keyMap.get("name");
+      if (Strings.isNullOrEmpty(key)) {
+        throw new MalformedPOSTRequestException("Invalid part name null: " + partHeader);
+      }
+      if (ObjectStorageProperties.FormField.file.toString().equals(key)) {
+        formFields.put(key,keyMap.get("filename"));
+        String contentType=keyMap.get(HttpHeaders.Names.CONTENT_TYPE);
+        formFields.put(ObjectStorageProperties.FormField.Content_Type.toString(),contentType);
+        getFirstChunk(formFields,partSlice,offset,fullContentLength,boundaryBytes,finalBoundaryBytes);
+      }
+ else {
+        formFields.put(key,getMessageString(partSlice.slice(headerEnd,partSlice.readableBytes() - headerEnd - boundaryBytes.length)).trim());
+      }
+    }
+    partSlice.resetReaderIndex();
+    offset+=partSlice.readableBytes();
+  }
+}

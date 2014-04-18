@@ -1,0 +1,69 @@
+{
+  if (formFields.containsKey(ObjectStorageProperties.FormField.Policy.toString())) {
+    String policy=new String(Base64.decode(formFields.get(ObjectStorageProperties.FormField.Policy.toString())));
+    String policyData;
+    try {
+      policyData=new String(Base64.encode(policy.getBytes()));
+    }
+ catch (    Exception ex) {
+      LOG.warn("Denying POST upload due to inability to decode/read required upload Policy from request",ex);
+      throw new InvalidPolicyDocumentException(policy,"Invalid policy content");
+    }
+    try {
+      JsonSlurper jsonSlurper=new JsonSlurper();
+      JSONObject policyObject=(JSONObject)jsonSlurper.parseText(policy);
+      String expiration=(String)policyObject.get(ObjectStorageProperties.PolicyHeaders.expiration.toString());
+      if (expiration != null) {
+        Date expirationDate=DateUtils.parseIso8601DateTimeOrDate(expiration);
+        if ((new Date()).getTime() > expirationDate.getTime()) {
+          LOG.warn("Denying POST upload because included policy has expired.");
+          throw new InvalidPolicyDocumentException(expiration,"Expired policy: " + expiration);
+        }
+      }
+      List<String> policyItemNames=new ArrayList<String>();
+      JSONArray conditions=(JSONArray)policyObject.get(ObjectStorageProperties.PolicyHeaders.conditions.toString());
+      for (int i=0; i < conditions.size(); ++i) {
+        Object policyItem=conditions.get(i);
+        if (policyItem instanceof JSONObject) {
+          JSONObject jsonObject=(JSONObject)policyItem;
+          if (!exactMatch(jsonObject,formFields,policyItemNames)) {
+            LOG.warn("Denying POST upload because Policy verification failed due to mismatch of conditions");
+            throw new InvalidPolicyDocumentException(jsonObject.toString(),"Policy conditions not met");
+          }
+        }
+ else         if (policyItem instanceof JSONArray) {
+          JSONArray jsonArray=(JSONArray)policyItem;
+          if (!partialMatch(jsonArray,formFields,policyItemNames)) {
+            LOG.warn("Denying POST upload because Policy verification failed due to mismatch of conditions");
+            throw new InvalidPolicyDocumentException(jsonArray.toString(),"Policy conditions not met");
+          }
+        }
+      }
+      Set<String> formFieldsKeys=formFields.keySet();
+      for (      String formKey : formFieldsKeys) {
+        if (formKey.startsWith(ObjectStorageProperties.IGNORE_PREFIX))         continue;
+        boolean fieldOkay=false;
+        for (        ObjectStorageProperties.IgnoredFields field : ObjectStorageProperties.IgnoredFields.values()) {
+          if (formKey.equals(field.toString())) {
+            fieldOkay=true;
+            break;
+          }
+        }
+        if (fieldOkay)         continue;
+        if (policyItemNames.contains(formKey))         continue;
+        if (ObjectStorageProperties.FormField.isHttpField(formKey)) {
+          continue;
+        }
+        LOG.warn("Denying POST upload due to: All fields except those marked with x-ignore- should be in policy. Form Key: " + formKey);
+        throw new InvalidPolicyDocumentException(formKey,"All fields except those marked with x-ignore- should be in policy.");
+      }
+    }
+ catch (    S3Exception e) {
+      throw e;
+    }
+catch (    Exception ex) {
+      LOG.error("Denying POST upload due to: Unexpected exception during POST policy checks",ex);
+      throw new InvalidPolicyDocumentException(policy,"Error processing the policy");
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  MappingHttpRequest upstreamRequest=null;
+  ChannelBuffer content=null;
+  MessageEvent upstreamEvent=event;
+  if (aggregator.offer(event)) {
+    HttpThresholdBufferingAggregator.AggregatedMessageEvent result=aggregator.poll();
+    if (result == null) {
+      return;
+    }
+ else {
+      aggregator.hardReset();
+      if (result.getMessageEvent() == null || result.getMessageEvent().getMessage() == null) {
+        throw new InternalErrorException("Unexpected state in message stack");
+      }
+      upstreamRequest=(MappingHttpRequest)(result.getMessageEvent().getMessage());
+      content=result.getAggregatedContentBuffer();
+      upstreamEvent=result.getMessageEvent();
+    }
+  }
+ else {
+    if (event.getMessage() instanceof MappingHttpRequest) {
+      upstreamRequest=(MappingHttpRequest)event.getMessage();
+      content=upstreamRequest.getContent();
+    }
+  }
+  if (upstreamRequest != null && content != null) {
+    this.handleFormMessage(upstreamRequest,content);
+  }
+  ctx.sendUpstream(upstreamEvent);
+}

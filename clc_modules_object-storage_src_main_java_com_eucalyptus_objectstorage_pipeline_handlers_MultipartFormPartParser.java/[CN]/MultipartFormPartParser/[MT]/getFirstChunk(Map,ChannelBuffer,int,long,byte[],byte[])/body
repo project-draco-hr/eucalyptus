@@ -1,0 +1,30 @@
+{
+  buffer.markReaderIndex();
+  byte[] read=new byte[buffer.readableBytes()];
+  buffer.readBytes(read);
+  int index=getLastIndex(read,PART_HEADER_BOUNDARY_BYTES);
+  if (index > -1) {
+    int firstIndex=index + 1;
+    int lastIndex;
+    long fileContentLength=contentLength - startingOffset - firstIndex- finalBoundary.length- PART_LINE_DELIMITER_BYTES.length;
+    lastIndex=(int)(firstIndex + fileContentLength);
+    if (lastIndex > read.length) {
+      lastIndex=read.length;
+    }
+ else {
+      index=getFirstIndex(read,firstIndex,finalBoundary);
+      if (index < 0) {
+        index=getFirstIndex(read,firstIndex,boundary);
+      }
+      if (index > firstIndex) {
+        lastIndex=index - PART_LINE_DELIMITER_BYTES.length;
+        fileContentLength=lastIndex - firstIndex;
+      }
+    }
+    ChannelBuffer firstBuffer=buffer.slice(firstIndex,(lastIndex - firstIndex));
+    Logs.extreme().debug("Setting first buffer chunk with size: " + firstBuffer.readableBytes());
+    formFields.put(ObjectStorageProperties.FormField.x_ignore_firstdatachunk.toString(),firstBuffer);
+    formFields.put(ObjectStorageProperties.FormField.x_ignore_filecontentlength.toString(),fileContentLength);
+  }
+  buffer.resetReaderIndex();
+}
