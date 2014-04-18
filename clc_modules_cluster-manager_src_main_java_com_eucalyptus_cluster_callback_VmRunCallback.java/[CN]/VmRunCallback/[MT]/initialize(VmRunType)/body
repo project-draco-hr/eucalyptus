@@ -1,20 +1,13 @@
 {
   LOG.debug(this.token + ":" + msg);
-  try {
-    this.token.submit();
-  }
- catch (  final NoSuchTokenException e2) {
-    LOG.error(e2);
-    Logs.extreme().error(e2,e2);
-  }
-  EntityTransaction db=Entities.get(VmInstance.class);
+  final EntityTransaction db=Entities.get(VmInstance.class);
   try {
     final VmInstance vm=VmInstances.lookup(msg.getInstanceId());
     msg.setUserId(vm.getOwnerUserId());
     msg.setOwnerId(vm.getOwnerUserId());
     msg.setAccountId(vm.getOwnerAccountNumber());
-    if (!VmState.PENDING.equals(vm.getState())) {
-      throw new EucalyptusClusterException("Intercepted a RunInstances request for an instance which has meanwhile been terminated.");
+    if (!VmState.PENDING.apply(vm)) {
+      throw new EucalyptusClusterException("Intercepted a RunInstances request for an instance with unexpected state: " + vm.getState());
     }
     db.rollback();
   }
@@ -30,5 +23,15 @@
       Logs.extreme().error(ex,ex);
     }
     throw new EucalyptusClusterException("Error while initializing request state: " + this.getRequest(),e);
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+  try {
+    this.token.submit();
+  }
+ catch (  final NoSuchTokenException e2) {
+    LOG.error(e2);
+    Logs.extreme().error(e2,e2);
   }
 }
