@@ -8,9 +8,9 @@
       String targetPrefix=xmlParser.getValue("//TargetPrefix");
       ArrayList<Grant> grants=new ArrayList<Grant>();
       List<String> permissions=xmlParser.getValues("//TargetGrants/Grant/Permission");
-      if (permissions == null)       throw new BindingException("malformed access control list");
+      if (permissions == null)       throw new MalformedACLErrorException("/TargetGrants/Grant/Permission");
       DTMNodeList grantees=xmlParser.getNodes("//TargetGrants/Grant/Grantee");
-      if (grantees == null)       throw new BindingException("malformed access control list");
+      if (grantees == null)       throw new MalformedACLErrorException("//TargetGrants/Grant/Grantee");
       for (int i=0; i < grantees.getLength(); ++i) {
         String id=xmlParser.getValue(grantees.item(i),"ID");
         if (id.length() > 0) {
@@ -24,7 +24,7 @@
         }
  else {
           String groupUri=xmlParser.getValue(grantees.item(i),"URI");
-          if (groupUri.length() == 0)           throw new BindingException("malformed access control list");
+          if (groupUri.length() == 0)           throw new MalformedACLErrorException("ACL group URI");
           Grant grant=new Grant();
           Grantee grantee=new Grantee();
           grantee.setGroup(new Group(groupUri));
@@ -37,9 +37,14 @@
       LoggingEnabled loggingEnabled=new LoggingEnabled(targetBucket,targetPrefix,new TargetGrants(grants));
       operationParams.put("LoggingEnabled",loggingEnabled);
     }
- catch (    Exception ex) {
-      LOG.warn(ex);
-      throw new BindingException("Unable to parse logging configuration " + ex.getMessage());
+ catch (    S3Exception e) {
+      throw e;
+    }
+catch (    Exception ex) {
+      LOG.warn("Unexpected error binding bucket logging target config",ex);
+      MalformedXMLException malEx=new MalformedXMLException("//TargetBucket");
+      malEx.initCause(ex);
+      throw malEx;
     }
   }
 }
