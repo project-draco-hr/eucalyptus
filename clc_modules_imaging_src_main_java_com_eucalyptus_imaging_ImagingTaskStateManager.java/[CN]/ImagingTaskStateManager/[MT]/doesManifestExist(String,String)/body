@@ -18,10 +18,24 @@
     bucket=bucket.substring(0,bucket.indexOf("."));
   }
   try {
-    final S3Object obj=s3c.getObject(bucket,key);
-    return obj != null;
+    final ObjectListing listing=s3c.listObjects(bucket);
+    final List<S3ObjectSummary> objects=listing.getObjectSummaries();
+    final Set<String> keySet=Sets.newHashSet();
+    for (    final S3ObjectSummary object : objects) {
+      keySet.add(object.getKey());
+    }
+    final ImageManifestFile manifestFile=new ImageManifestFile(manifestUrl,ImportImageManifest.INSTANCE);
+    final String manifest=manifestFile.getManifest();
+    final List<String> partsKey=getPartsKey(manifest);
+    for (    final String keyName : partsKey) {
+      if (!keySet.contains(keyName)) {
+        return false;
+      }
+    }
+    return true;
   }
  catch (  final Exception ex) {
+    LOG.warn("Failed to check parts of the import manifest",ex);
     return false;
   }
 }
