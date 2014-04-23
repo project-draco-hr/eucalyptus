@@ -5,22 +5,28 @@
   if (jsonNode.isArray()) {
     ArrayNode arrayCopy=objectMapper.createArrayNode();
     for (int i=0; i < jsonNode.size(); i++) {
-      JsonNode arrayElement=evaluateFunctions(jsonNode.get(i),stackEntity,resourceInfoMap);
+      JsonNode arrayElement=evaluateFunctions(jsonNode.get(i),stackEntity,resourceInfoMap,templateSection);
       arrayCopy.add(arrayElement);
     }
     return arrayCopy;
   }
   for (  IntrinsicFunction intrinsicFunction : IntrinsicFunctions.values()) {
+    if ((intrinsicFunction == IntrinsicFunctions.CONDITION || intrinsicFunction == IntrinsicFunctions.AND || intrinsicFunction == IntrinsicFunctions.EQUALS || intrinsicFunction == IntrinsicFunctions.NOT || intrinsicFunction == IntrinsicFunctions.OR) && templateSection != TemplateSection.CONDITION) {
+      continue;
+    }
+    if (intrinsicFunction == IntrinsicFunctions.IF && !(templateSection == TemplateSection.RESOURCE_METADATA || templateSection == TemplateSection.RESOURCE_PROPERTY || templateSection == TemplateSection.RESOURCE_UPDATE_POLICY)) {
+      continue;
+    }
     IntrinsicFunction.MatchResult matchResult=intrinsicFunction.evaluateMatch(jsonNode);
     if (matchResult.isMatch()) {
       IntrinsicFunction.ValidateResult validateResult=intrinsicFunction.validateArgTypesWherePossible(matchResult);
-      return intrinsicFunction.evaluateFunction(validateResult,stackEntity,resourceInfoMap);
+      return intrinsicFunction.evaluateFunction(validateResult,stackEntity,resourceInfoMap,templateSection);
     }
   }
   ObjectNode objectCopy=objectMapper.createObjectNode();
   List<String> fieldNames=Lists.newArrayList(jsonNode.fieldNames());
   for (  String key : fieldNames) {
-    JsonNode objectElement=evaluateFunctions(jsonNode.get(key),stackEntity,resourceInfoMap);
+    JsonNode objectElement=evaluateFunctions(jsonNode.get(key),stackEntity,resourceInfoMap,templateSection);
     objectCopy.put(key,objectElement);
   }
   return objectCopy;
