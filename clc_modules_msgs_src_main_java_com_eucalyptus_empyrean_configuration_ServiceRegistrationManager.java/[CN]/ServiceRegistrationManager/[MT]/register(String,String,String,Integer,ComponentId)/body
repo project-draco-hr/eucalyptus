@@ -1,0 +1,22 @@
+{
+  final Collection<Future<ServiceConfiguration>> registered=Lists.newArrayList();
+  final ServiceBuilder<? extends ServiceConfiguration> builder=ServiceBuilders.lookup(componentId);
+  final ServiceConfiguration config=builder.newInstance(partition,name,hostName,port);
+  if (ServiceGroups.isGroup(config)) {
+    final ServiceGroupConfiguration groupConfig=(ServiceGroupConfiguration)config;
+    final ServiceGroupBuilder<ServiceGroupConfiguration> groupBuilder=(ServiceGroupBuilder<ServiceGroupConfiguration>)builder;
+    final Collection<ServiceConfiguration> configsToRegister=groupBuilder.onRegister(groupConfig);
+    final Future<ServiceConfiguration> groupFuture=ServiceEvents.registerFunction().apply(groupConfig);
+    registered.add(groupFuture);
+    try {
+      groupFuture.get();
+      registered.addAll(Collections2.transform(configsToRegister,ServiceEvents.registerFunction()));
+    }
+ catch (    Exception e) {
+    }
+  }
+ else {
+    registered.add(ServiceEvents.registerFunction().apply(config));
+  }
+  return registered;
+}

@@ -1,0 +1,26 @@
+{
+  final DeregisterServiceResponseType reply=request.getReply();
+  final String name=request.getName();
+  try {
+    checkParam("Name must not be null: " + request,name,notNullValue());
+    ServiceConfiguration config=ServiceConfigurations.lookupByName(request.getName());
+    final ComponentId componentId=config.getComponentId();
+    ServiceBuilders.lookup(componentId);
+    Collection<Future<ServiceConfiguration>> configurations=deregister(componentId,name);
+    final Function<ServiceConfiguration,ServiceId> typeMapper=TypeMappers.lookup(ServiceConfiguration.class,ServiceId.class);
+    for (    Future<ServiceConfiguration> regResult : configurations) {
+      try {
+        reply.getDeregisteredServices().add(typeMapper.apply(regResult.get()));
+      }
+ catch (      Exception e) {
+        reply.set_return(Boolean.FALSE);
+        reply.getStatusMessages().add(Throwables.getRootCause(e).getMessage());
+      }
+    }
+  }
+ catch (  final Exception ex) {
+    reply.set_return(false);
+    reply.getStatusMessages().add("Failed to deregister " + request.getType() + ": "+ name+ " because of : "+ ex.getMessage());
+  }
+  return reply;
+}
