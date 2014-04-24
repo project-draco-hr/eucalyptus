@@ -17,18 +17,29 @@
   }
 ;
   final ServerBootstrap bootstrap=serverBootstrap(serverChannelFactory,pipelineFactory);
-  if (!StackConfiguration.INTERNAL_PORT.equals(StackConfiguration.PORT)) {
+  final List<Pair<InetAddress,Integer>> internalAddressAndPorts=Arrays.asList(Pair.pair(Internets.localHostInetAddress(),StackConfiguration.INTERNAL_PORT),Pair.pair(Internets.loopback(),StackConfiguration.INTERNAL_PORT));
+  final Set<Pair<InetAddress,Integer>> listenerAddressAndPorts=Sets.newLinkedHashSet();
+  listenerAddressAndPorts.addAll(internalAddressAndPorts);
+  if (Bootstrap.isOperational()) {
+    Iterables.addAll(listenerAddressAndPorts,Iterables.transform(Iterables.filter(Iterables.concat(Collections.singleton(Internets.any()),Internets.getAllInetAddresses()),Predicates.or(parse(Cidr.parse(),StackConfiguration.LISTENER_ADDRESS_MATCH))),CollectionUtils.flipCurried(Pair.<InetAddress,Integer>pair()).apply(StackConfiguration.PORT)));
+  }
+  if (listenerAddressAndPorts.contains(Pair.pair(Internets.any(),StackConfiguration.INTERNAL_PORT))) {
+    listenerAddressAndPorts.removeAll(internalAddressAndPorts);
+  }
+  LOG.info("Starting web services listeners on " + Joiner.on(',').join(Iterables.transform(listenerAddressAndPorts,Pair.<InetAddress,Integer>left())));
+  for (  final Pair<InetAddress,Integer> listenerAddressAndPort : listenerAddressAndPorts) {
+    final InetAddress address=listenerAddressAndPort.getLeft();
+    final int port=listenerAddressAndPort.getRight();
     try {
-      final Channel serverChannel=bootstrap.bind(new InetSocketAddress(StackConfiguration.PORT));
+      final Channel serverChannel=bootstrap.bind(new InetSocketAddress(address,port));
       serverChannelGroup.add(serverChannel);
     }
  catch (    ChannelException ex) {
-      LOG.error("Unable to bind to auxiliary port " + StackConfiguration.PORT + " in the web services stack, port may be already in use.  "+ "Port "+ StackConfiguration.INTERNAL_PORT+ " will still be available as the internal web services port, however.");
+      LOG.error("Unable to bind web services listener " + address + ":"+ port+ ", port may be already in use.");
+      Logs.extreme().error(ex,ex);
     }
   }
   try {
-    final Channel serverChannel=bootstrap.bind(new InetSocketAddress(StackConfiguration.INTERNAL_PORT));
-    serverChannelGroup.add(serverChannel);
     serverShutdown=new Runnable(){
       AtomicBoolean ranned=new AtomicBoolean(false);
       @Override public void run(){

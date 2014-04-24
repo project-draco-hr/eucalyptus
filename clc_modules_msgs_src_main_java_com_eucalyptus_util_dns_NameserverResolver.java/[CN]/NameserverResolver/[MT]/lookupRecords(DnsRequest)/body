@@ -1,0 +1,27 @@
+{
+  final Record query=request.getQuery();
+  Name name=query.getName();
+  if (RequestType.A.apply(query) && DomainNames.isSystemSubdomain(name)) {
+    String label0=name.getLabelString(0);
+    if (name.equals(Name.fromConstantString(label0 + "." + DomainNames.internalSubdomain())) || name.equals(Name.fromConstantString(label0 + "." + DomainNames.externalSubdomain()))) {
+      NavigableSet<ServiceConfiguration> nsServers=Components.lookup(Eucalyptus.class).services();
+      Integer index=Objects.firstNonNull(Ints.tryParse(label0.substring(2)),1);
+      if (nsServers.size() >= index) {
+        ServiceConfiguration conf=nsServers.toArray(new ServiceConfiguration[]{})[index - 1];
+        final Record addressRecord=DomainNameRecords.addressRecord(query.getName(),conf.getInetAddress());
+        return DnsResponse.forName(name).answer(addressRecord);
+      }
+    }
+  }
+ else   if (RequestType.NS.apply(query)) {
+    NavigableSet<ServiceConfiguration> nsServers=Components.lookup(Eucalyptus.class).services();
+    List<Record> aRecs=Lists.newArrayList();
+    Name domain=DomainNames.isInternalSubdomain(name) ? DomainNames.internalSubdomain() : DomainNames.externalSubdomain();
+    int idx=1;
+    for (    ServiceConfiguration conf : nsServers) {
+      aRecs.add(DomainNameRecords.addressRecord(Name.fromConstantString("ns" + (idx++) + "."+ domain),conf.getInetAddress()));
+    }
+    return DnsResponse.forName(name).withAdditional(aRecs).answer(DomainNameRecords.nameservers(name));
+  }
+  return null;
+}
