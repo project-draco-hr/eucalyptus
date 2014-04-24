@@ -7,9 +7,6 @@
   boolean returnCompleteObjectOnFailure=request.getReturnCompleteObjectOnConditionFailure();
   String bucketName=request.getBucket();
   String objectKey=request.getKey();
-  Context ctx=Contexts.lookup();
-  Account account=ctx.getAccount();
-  Status status=new Status();
   Boolean getData=request.getGetData();
   if (getData == null) {
     getData=false;
@@ -79,10 +76,12 @@
         }
       }
       if (request.getGetMetaData()) {
+        ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
         List<MetaDataInfo> metaDataInfos=objectInfo.getMetaData();
         for (        MetaDataInfo metaDataInfo : metaDataInfos) {
-          httpResponse.addHeader(WalrusProperties.AMZ_META_HEADER_PREFIX + metaDataInfo.getName(),metaDataInfo.getValue());
+          metaData.add(new MetaDataEntry(metaDataInfo.getName(),metaDataInfo.getValue()));
         }
+        reply.setMetaData(metaData);
       }
       Long size=objectInfo.getSize();
       String contentType=objectInfo.getContentType();
@@ -97,13 +96,21 @@
         versionId=objectInfo.getVersionId() != null ? objectInfo.getVersionId() : WalrusProperties.NULL_VERSION_ID;
       }
       if (request.getGetData()) {
-        storageManager.sendObject(request,httpResponse,bucketName,objectName,byteRangeStart,byteRangeEnd + 1,size,etag,DateFormatter.dateToHeaderFormattedString(lastModified),contentType,contentDisposition,request.getIsCompressed(),versionId,logData);
-        return null;
+        storageManager.getObject(bucketName,objectName,reply,byteRangeStart,byteRangeEnd + 1,request.getIsCompressed());
       }
- else {
-        storageManager.sendHeaders(request,httpResponse,size,etag,DateFormatter.dateToHeaderFormattedString(lastModified),contentType,contentDisposition,versionId,logData);
-        return null;
-      }
+      reply.setEtag(etag);
+      reply.setLastModified(lastModified);
+      reply.setSize(size);
+      reply.setContentType(contentType);
+      reply.setContentDisposition(contentDisposition);
+      reply.setByteRangeStart(byteRangeStart);
+      reply.setByteRangeEnd(byteRangeEnd);
+      reply.setVersionId(versionId);
+      Status status=new Status();
+      status.setCode(200);
+      status.setDescription("OK");
+      reply.setStatus(status);
+      return reply;
     }
  else {
       db.rollback();

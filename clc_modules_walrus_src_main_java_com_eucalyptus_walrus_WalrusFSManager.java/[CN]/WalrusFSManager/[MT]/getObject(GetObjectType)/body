@@ -9,10 +9,6 @@
   if (deleteAfterGet == null) {
     deleteAfterGet=false;
   }
-  Boolean getTorrent=request.getGetTorrent();
-  if (getTorrent == null) {
-    getTorrent=false;
-  }
   Boolean getMetaData=request.getGetMetaData();
   if (getMetaData == null) {
     getMetaData=false;
@@ -42,12 +38,13 @@
     if (objectInfos.size() > 0) {
       ObjectInfo objectInfo=objectInfos.get(0);
       String objectName=objectInfo.getObjectName();
-      DefaultHttpResponse httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.OK);
       if (getMetaData) {
+        ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
         List<MetaDataInfo> metaDataInfos=objectInfo.getMetaData();
         for (        MetaDataInfo metaDataInfo : metaDataInfos) {
-          httpResponse.addHeader(WalrusProperties.AMZ_META_HEADER_PREFIX + metaDataInfo.getName(),metaDataInfo.getValue());
+          metaData.add(new MetaDataEntry(metaDataInfo.getName(),metaDataInfo.getValue()));
         }
+        reply.setMetaData(metaData);
       }
       Date lastModified=objectInfo.getLastModified();
       Long size=objectInfo.getSize();
@@ -65,12 +62,9 @@
       }
       if (request.getGetData()) {
         if (objectInfo.isMultipart()) {
-          String inlineData=getMultipartData(httpResponse,objectInfo,request,reply);
+          String inlineData=getMultipartData(objectInfo,request,reply);
           if (inlineData != null) {
             reply.setBase64Data(inlineData);
-          }
- else {
-            return null;
           }
         }
  else {
@@ -101,17 +95,13 @@
           }
  else {
             reply.setHasStreamingData(true);
-            storageManager.sendObject(request,httpResponse,bucketName,objectName,size,etag,DateFormatter.dateToHeaderFormattedString(lastModified),contentType,contentDisposition,request.getIsCompressed(),versionId,logData);
-            return null;
+            storageManager.getObject(bucketName,objectName,reply,size,request.getIsCompressed());
           }
         }
       }
- else {
-        storageManager.sendHeaders(request,httpResponse,size,etag,DateFormatter.dateToHeaderFormattedString(lastModified),contentType,contentDisposition,versionId,logData);
-        return null;
-      }
       reply.setEtag(etag);
       reply.setLastModified(lastModified);
+      reply.setVersionId(versionId);
       reply.setSize(size);
       reply.setContentType(contentType);
       reply.setContentDisposition(contentDisposition);
