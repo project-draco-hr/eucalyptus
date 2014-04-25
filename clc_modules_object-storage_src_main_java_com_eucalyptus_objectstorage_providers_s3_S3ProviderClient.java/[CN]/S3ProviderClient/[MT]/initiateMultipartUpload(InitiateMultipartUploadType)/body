@@ -1,7 +1,7 @@
 {
   InitiateMultipartUploadResponseType reply=request.getReply();
   User requestUser=getRequestUser(request);
-  AmazonS3Client s3Client=getS3Client(requestUser);
+  OsgInternalS3Client internalS3Client=null;
   String bucketName=request.getBucket();
   String key=request.getKey();
   InitiateMultipartUploadRequest initiateMultipartUploadRequest=new InitiateMultipartUploadRequest(bucketName,key);
@@ -11,6 +11,8 @@
   }
   initiateMultipartUploadRequest.setObjectMetadata(metadata);
   try {
+    internalS3Client=getS3Client(requestUser);
+    AmazonS3Client s3Client=internalS3Client.getS3Client();
     InitiateMultipartUploadResult result=s3Client.initiateMultipartUpload(initiateMultipartUploadRequest);
     reply.setUploadId(result.getUploadId());
     reply.setBucket(bucketName);
@@ -20,5 +22,10 @@
  catch (  AmazonServiceException e) {
     LOG.debug("Error from backend",e);
     throw S3ExceptionMapper.fromAWSJavaSDK(e);
+  }
+ finally {
+    if (internalS3Client != null && requestUser != null) {
+      returnS3Client(requestUser,internalS3Client);
+    }
   }
 }

@@ -1,0 +1,26 @@
+{
+  try (final TransactionResource db=Entities.transactionFor(MachineImageInfo.class)){
+    try {
+      List<MachineImageInfo> images=Entities.query(new MachineImageInfo());
+      for (      MachineImageInfo image : images) {
+        LOG.info("Upgrading MachineImageInfo: " + image.toString());
+        if (ImageMetadata.VirtualizationType.paravirtualized.equals(image.virtType)) {
+          image.setState(ImageMetadata.State.pending_available);
+          image.setImageFormat(ImageMetadata.ImageFormat.partitioned.name());
+        }
+ else {
+          image.setImageFormat(ImageMetadata.ImageFormat.fulldisk.name());
+          image.setRunManifestLocation(image.getManifestLocation());
+        }
+        Entities.persist(image);
+      }
+      db.commit();
+      return true;
+    }
+ catch (    final Exception ex) {
+      LOG.error("Error upgrading MachineImageInfo: ",ex);
+      db.rollback();
+      throw Exceptions.toUndeclared(ex);
+    }
+  }
+ }

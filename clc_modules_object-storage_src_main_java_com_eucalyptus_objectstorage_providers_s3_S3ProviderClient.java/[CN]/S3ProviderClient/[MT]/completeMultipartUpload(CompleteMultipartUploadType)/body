@@ -1,7 +1,7 @@
 {
   CompleteMultipartUploadResponseType reply=request.getReply();
   User requestUser=getRequestUser(request);
-  AmazonS3Client s3Client=getS3Client(requestUser);
+  OsgInternalS3Client internalS3Client=null;
   String bucketName=request.getBucket();
   String key=request.getKey();
   String uploadId=request.getUploadId();
@@ -13,6 +13,8 @@
   }
   CompleteMultipartUploadRequest multipartRequest=new CompleteMultipartUploadRequest(bucketName,key,uploadId,partETags);
   try {
+    internalS3Client=getS3Client(requestUser);
+    AmazonS3Client s3Client=internalS3Client.getS3Client();
     CompleteMultipartUploadResult result=s3Client.completeMultipartUpload(multipartRequest);
     reply.setEtag(result.getETag());
     reply.setBucket(bucketName);
@@ -23,6 +25,11 @@
  catch (  AmazonServiceException e) {
     LOG.debug("Error from backend",e);
     throw S3ExceptionMapper.fromAWSJavaSDK(e);
+  }
+ finally {
+    if (internalS3Client != null && requestUser != null) {
+      returnS3Client(requestUser,internalS3Client);
+    }
   }
   return reply;
 }
