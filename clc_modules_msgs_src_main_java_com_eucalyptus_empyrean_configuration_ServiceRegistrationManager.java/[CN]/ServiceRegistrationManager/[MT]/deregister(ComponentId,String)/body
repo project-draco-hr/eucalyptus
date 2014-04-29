@@ -1,0 +1,30 @@
+{
+  final List<Future<ServiceConfiguration>> deregistered=Lists.newArrayList();
+  try {
+    final ServiceBuilder<? extends ServiceConfiguration> builder=ServiceBuilders.lookup(componentId);
+    final ServiceConfiguration config=ServiceConfigurations.lookupByName(componentId.getClass(),name);
+    if (ServiceGroups.isGroup(config)) {
+      final ServiceGroupConfiguration groupConfig=(ServiceGroupConfiguration)config;
+      final ServiceGroupBuilder<ServiceGroupConfiguration> groupBuilder=(ServiceGroupBuilder<ServiceGroupConfiguration>)builder;
+      final Collection<ServiceConfiguration> configsToRegister=groupBuilder.onRegister(groupConfig);
+      final Future<ServiceConfiguration> groupFuture=ServiceEvents.deregisterFunction().apply(groupConfig);
+      deregistered.add(groupFuture);
+      try {
+        groupFuture.get();
+        deregistered.addAll(Collections2.transform(configsToRegister,ServiceEvents.deregisterFunction()));
+      }
+ catch (      Exception e) {
+        e.printStackTrace();
+      }
+    }
+ else {
+      deregistered.add(ServiceEvents.deregisterFunction().apply(config));
+    }
+  }
+ catch (  Exception e) {
+    LOG.error(e);
+    LOG.debug(e,e);
+    throw e;
+  }
+  return deregistered;
+}
