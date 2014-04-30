@@ -62,12 +62,12 @@ case EXTANT:
             }
  else {
               LOG.warn(String.format("Imaging import task %s has timed out and failed",imagingTask.getDisplayName()));
-              ImagingTasks.setState(imagingTask,ImportTaskState.FAILED,"Task timed out during conversion");
+              ImagingTasks.setState(imagingTask,ImportTaskState.FAILED,ImportTaskState.STATE_MSG_CONVERSION_TIMEOUT);
             }
           }
  catch (          final Exception ex) {
             LOG.error("Failed to handle timed-out task",ex);
-            ImagingTasks.setState(imagingTask,ImportTaskState.FAILED,"Task timed out during conversion");
+            ImagingTasks.setState(imagingTask,ImportTaskState.FAILED,ImportTaskState.STATE_MSG_CONVERSION_TIMEOUT);
           }
  finally {
             reply.setCancelled(true);
@@ -80,16 +80,16 @@ case DONE:
         ImagingTasks.updateVolumeStatus((VolumeImagingTask)imagingTask,volumeId,ImportTaskState.COMPLETED,null);
       }
  catch (      final Exception ex) {
-        ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.FAILED,"Failed to update volume's state");
+        ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.FAILED,ImportTaskState.STATE_MSG_FAILED_UNEXPECTED);
         LOG.error("Failed to update volume's state",ex);
         break;
       }
       try {
         if (imagingTask instanceof ImportVolumeImagingTask) {
-          ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.COMPLETED,null);
+          ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.COMPLETED,ImportTaskState.STATE_MSG_DONE);
         }
  else         if (ImagingTasks.isConversionDone((VolumeImagingTask)imagingTask)) {
-          ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.INSTANTIATING,null);
+          ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.INSTANTIATING,ImportTaskState.STATE_MSG_LAUNCHING_INSTANCE);
         }
       }
  catch (      final Exception ex) {
@@ -97,11 +97,14 @@ case DONE:
       }
     }
  else     if (imagingTask instanceof DiskImagingTask) {
-      ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.COMPLETED,null);
+      ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.COMPLETED,ImportTaskState.STATE_MSG_DONE);
     }
   break;
 case FAILED:
-ImagingTasks.setState(imagingTask,ImportTaskState.FAILED,request.getStatusMessage());
+String stateMsg=ImportTaskState.STATE_MSG_CONVERSION_FAILED;
+if (request.getStatusMessage() != null) stateMsg=request.getStatusMessage();
+ImagingTasks.setState(imagingTask,ImportTaskState.FAILED,stateMsg);
+LOG.warn(String.format("Worker reported failed conversion: %s",stateMsg));
 break;
 }
 }

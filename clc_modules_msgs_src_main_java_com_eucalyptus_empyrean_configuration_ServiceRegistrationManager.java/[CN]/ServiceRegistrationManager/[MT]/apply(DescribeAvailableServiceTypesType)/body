@@ -1,0 +1,47 @@
+{
+  try {
+    DescribeAvailableServiceTypesResponseType reply=input.getReply();
+    for (    Class<? extends ComponentId> compId : ServiceBuilders.listRegisterableComponents()) {
+      final ComponentId componentId=ComponentIds.lookup(compId);
+      Predicate<ComponentId> filterIn=new Predicate<ComponentId>(){
+        @Override public boolean apply(        ComponentId input){
+          return input.isRegisterable();
+        }
+      }
+;
+      if (!input.getVerbose() && !filterIn.apply(componentId)) {
+        continue;
+      }
+      final AvailableComponentInfo compInfo=new AvailableComponentInfo();
+      String description=componentId.getAwsServiceName() + " service implementation";
+      if (Ats.from(componentId).has(Description.class)) {
+        description=Ats.from(componentId).get(Description.class).value();
+      }
+      if (componentId.isPartitioned() && !componentId.isRegisterable()) {
+        description="A sub component of " + componentId.getPartition() + " for: "+ componentId.getCapitalizedName();
+      }
+      compInfo.setComponentName(componentId.name());
+      compInfo.setComponentCapitalizedName(componentId.getCapitalizedName());
+      compInfo.setDescription(description);
+      compInfo.setHasCredentials(componentId.hasCredentials());
+      compInfo.setRegisterable(componentId.isRegisterable());
+      compInfo.setPartitioned(componentId.isPartitioned());
+      compInfo.setPublicApiService(componentId.isPublicService());
+      compInfo.setRequiresName(componentId.isPartitioned());
+      if (componentId instanceof ServiceGroup) {
+        ServiceGroup sg=(ServiceGroup)componentId;
+        for (        ComponentId m : sg.list()) {
+          compInfo.getServiceGroupMembers().add(m.name());
+        }
+      }
+      for (      ComponentId m : ServiceGroups.listMembership(componentId)) {
+        compInfo.getServiceGroups().add(m.name());
+      }
+      reply.getAvailable().add(compInfo);
+    }
+    return reply;
+  }
+ catch (  final Exception ex) {
+    throw Exceptions.toUndeclared(ex);
+  }
+}
