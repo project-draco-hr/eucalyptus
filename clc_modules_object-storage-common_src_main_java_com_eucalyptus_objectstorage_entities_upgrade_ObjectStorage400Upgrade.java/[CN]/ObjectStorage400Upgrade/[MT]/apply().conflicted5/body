@@ -1,0 +1,56 @@
+{
+  EntityTransaction walrusImageTran=Entities.get(ImageCacheInfo.class);
+  try {
+    List<ImageCacheInfo> images=Entities.query(new ImageCacheInfo());
+    if (images != null && !images.isEmpty()) {
+      EntityTransaction osgObjectTran=Entities.get(ObjectEntity.class);
+      EntityTransaction walrusObjectTran=Entities.get(ObjectInfo.class);
+      ObjectEntity osgObject=null;
+      ObjectInfo walrusObject=null;
+      for (      ImageCacheInfo image : images) {
+        osgObject=imageToOSGObjectTransformation().apply(image);
+        walrusObject=imageToWalrusObjectTransformation().apply(image);
+        if (osgObject != null && walrusObject != null) {
+          try {
+            Entities.persist(osgObject);
+            Entities.persist(walrusObject);
+          }
+ catch (          Exception e) {
+            LOG.warn("Failed to persist cached image object" + e);
+            continue;
+          }
+          Entities.delete(image);
+        }
+      }
+      try {
+        osgObjectTran.commit();
+        walrusObjectTran.commit();
+      }
+ catch (      Exception e) {
+        osgObjectTran.rollback();
+        walrusObjectTran.rollback();
+        throw e;
+      }
+ finally {
+        if (osgObjectTran.isActive()) {
+          osgObjectTran.commit();
+        }
+        if (walrusObjectTran.isActive()) {
+          walrusObjectTran.commit();
+        }
+      }
+    }
+ else {
+    }
+    walrusImageTran.commit();
+  }
+ catch (  Exception e) {
+    walrusImageTran.rollback();
+    throw e;
+  }
+ finally {
+    if (walrusImageTran.isActive()) {
+      walrusImageTran.commit();
+    }
+  }
+}
