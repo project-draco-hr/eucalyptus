@@ -1,4 +1,52 @@
 {
+  final ChannelHandler limitSockets=new SimpleChannelHandler(){
+    private final String uuid=UUID.randomUUID().toString();
+    @Override public void writeRequested(    ChannelHandlerContext ctx,    MessageEvent e) throws Exception {
+      try {
+        final MappingHttpRequest message=((MappingHttpRequest)e.getMessage());
+        final String logMessage=message.getMessage() != null ? message.getMessage().getClass().toString().replaceAll("^.*\\.","") : message.toString();
+        LOG.debug(Joiner.on(" ").join(uuid,"writeRequested",ctx.getChannel(),"message",logMessage));
+      }
+ catch (      Exception e1) {
+        LOG.debug(e1);
+      }
+      super.writeRequested(ctx,e);
+    }
+    /** 
+ * @see org.jboss.netty.channel.ChannelEvent()
+ */
+    @Override public void connectRequested(    final ChannelHandlerContext ctx,    ChannelStateEvent e) throws Exception {
+      try {
+        final InetSocketAddress remoteAddress=((InetSocketAddress)e.getValue());
+        final Semaphore sem=counters.getUnchecked(remoteAddress.getAddress());
+        final int semAvailable=sem.availablePermits();
+        final int semQueued=sem.getQueueLength();
+        final long start=System.nanoTime();
+        sem.acquire();
+        final long waitTime=System.nanoTime();
+        e.getChannel().getCloseFuture().addListener(new ChannelFutureListener(){
+          @Override public void operationComplete(          ChannelFuture future) throws Exception {
+            try {
+              final long end=System.nanoTime();
+              LOG.debug(Joiner.on(" ").join(uuid,remoteAddress,String.format("%d/%d+%d-queue",semAvailable,CLUSTER_CLIENT_PERMITS,semQueued),String.format("%d+%d=%d-msec",TimeUnit.NANOSECONDS.toMillis(waitTime - start),TimeUnit.NANOSECONDS.toMillis(end - waitTime),TimeUnit.NANOSECONDS.toMillis(end - start))));
+            }
+ catch (            Exception e1) {
+              LOG.debug(e1);
+            }
+ finally {
+              sem.release();
+            }
+          }
+        }
+);
+      }
+ catch (      Exception e1) {
+        LOG.debug(e1);
+      }
+      super.connectRequested(ctx,e);
+    }
+  }
+;
   final ChannelPipeline pipeline=Channels.pipeline();
   for (  final Map.Entry<String,ChannelHandler> e : Handlers.channelMonitors(TimeUnit.SECONDS,StackConfiguration.CLIENT_INTERNAL_TIMEOUT_SECS).entrySet()) {
     pipeline.addLast(e.getKey(),e.getValue());
@@ -11,5 +59,6 @@
   pipeline.addLast("addressing",Handlers.newAddressingHandler("EucalyptusCC#"));
   pipeline.addLast("soap",Handlers.soapHandler());
   pipeline.addLast("binding",Handlers.bindingHandler("eucalyptus_ucsb_edu"));
+  pipeline.addLast("gating",limitSockets);
   return pipeline;
 }
