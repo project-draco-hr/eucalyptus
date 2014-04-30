@@ -16,18 +16,44 @@
       try {
         if (event.isAsserted(TimeUnit.MINUTES.toSeconds(DEFAULT_POLL_INTERVAL_MINS))) {
           if (Bootstrap.isFinished() && Hosts.isCoordinator()) {
-            List<VmInstance> instList=VmInstances.list(VmState.RUNNING);
-            List<String> instIdList=Lists.newArrayList();
-            for (            final VmInstance inst : instList) {
-              instIdList.add(inst.getInstanceId());
-            }
-            Iterable<List<String>> processInts=Iterables.paddedPartition(instIdList,SENSOR_QUERY_BATCH_SIZE);
-            for (            final ServiceConfiguration ccConfig : Topology.enabledServices(ClusterController.class)) {
-              for (              List<String> instIds : processInts) {
-                ArrayList<String> instanceIds=Lists.newArrayList(instIds);
-                Iterables.removeIf(instanceIds,Predicates.isNull());
-                AsyncRequests.newRequest(new DescribeSensorCallback(HISTORY_SIZE,COLLECTION_INTERVAL_TIME_MS,instanceIds)).sendSync(ccConfig);
+            if (busy.compareAndSet(false,true)) {
+              Threads.lookup(Reporting.class).limitTo(REPORTING_NUM_THREADS).submit(new Callable<Object>(){
+                @Override public Object call() throws Exception {
+                  try {
+                    List<VmInstance> instList=VmInstances.list(VmState.RUNNING);
+                    List<String> instIdList=Lists.newArrayList();
+                    for (                    final VmInstance inst : instList) {
+                      instIdList.add(inst.getInstanceId());
+                    }
+                    Iterable<List<String>> processInts=Iterables.paddedPartition(instIdList,SENSOR_QUERY_BATCH_SIZE);
+                    for (                    final ServiceConfiguration ccConfig : Topology.enabledServices(ClusterController.class)) {
+                      for (                      List<String> instIds : processInts) {
+                        ArrayList<String> instanceIds=Lists.newArrayList(instIds);
+                        Iterables.removeIf(instanceIds,Predicates.isNull());
+                        final DescribeSensorCallback msgCallback=new DescribeSensorCallback(HISTORY_SIZE,COLLECTION_INTERVAL_TIME_MS,instanceIds){
+                          @Override public void fireException(                          Throwable e){
+                          }
+                          @Override public void fire(                          DescribeSensorsResponse msg){
+                          }
+                        }
+;
+                        Future<DescribeSensorsResponse> ret=AsyncRequests.newRequest(msgCallback).dispatch(ccConfig);
+                        try {
+                          msgCallback.fire(ret.get());
+                        }
+ catch (                        Exception e) {
+                          Exceptions.maybeInterrupted(e);
+                        }
+                      }
+                    }
+                  }
+  finally {
+                    busy.set(false);
+                  }
+                  return null;
+                }
               }
+);
             }
           }
         }
