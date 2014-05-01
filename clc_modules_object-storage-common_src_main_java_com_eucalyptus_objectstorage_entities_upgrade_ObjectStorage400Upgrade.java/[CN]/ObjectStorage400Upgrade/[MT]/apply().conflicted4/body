@@ -1,40 +1,56 @@
 {
-  EntityTransaction walrusdb=Entities.get(ObjectInfo.class);
+  EntityTransaction walrusImageTran=Entities.get(ImageCacheInfo.class);
   try {
-    List<ObjectInfo> walrusObjects=Entities.query(new ObjectInfo());
-    if (walrusObjects != null && !walrusObjects.isEmpty()) {
-      for (      ObjectInfo walrusObject : walrusObjects) {
-        try {
-          if (walrusObject.getDeleted() != null && walrusObject.getDeleted()) {
-            LOG.info("Removing delete marker from Walrus: bucket=" + walrusObject.getBucketName() + ", object key="+ walrusObject.getObjectKey()+ ", version ID="+ walrusObject.getVersionId());
-            Entities.delete(walrusObject);
+    List<ImageCacheInfo> images=Entities.query(new ImageCacheInfo());
+    if (images != null && !images.isEmpty()) {
+      EntityTransaction osgObjectTran=Entities.get(ObjectEntity.class);
+      EntityTransaction walrusObjectTran=Entities.get(ObjectInfo.class);
+      ObjectEntity osgObject=null;
+      ObjectInfo walrusObject=null;
+      for (      ImageCacheInfo image : images) {
+        osgObject=imageToOSGObjectTransformation().apply(image);
+        walrusObject=imageToWalrusObjectTransformation().apply(image);
+        if (osgObject != null && walrusObject != null) {
+          try {
+            Entities.persist(osgObject);
+            Entities.persist(walrusObject);
+          }
+ catch (          Exception e) {
+            LOG.warn("Failed to persist cached image " + image.getManifestName() + " as an object in Walrus and or objectstorage",e);
             continue;
           }
-          walrusObject.setObjectKey(walrusObject.getObjectName());
-          walrusObject.setVersionId(WalrusProperties.NULL_VERSION_ID);
-          walrusObject.setLast(Boolean.TRUE);
-          walrusObject.setOwnerId(getEucalyptusAccount().getAccountNumber());
-          walrusObject.resetGlobalGrants();
-          List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-          GrantInfo.setFullControl(walrusObject.getOwnerId(),grantInfos);
-          walrusObject.setGrants(grantInfos);
+          Entities.delete(image);
         }
- catch (        Exception e) {
-          LOG.warn("Cannot modify walrus object " + walrusObject.getObjectKey(),e);
+      }
+      try {
+        osgObjectTran.commit();
+        walrusObjectTran.commit();
+      }
+ catch (      Exception e) {
+        osgObjectTran.rollback();
+        walrusObjectTran.rollback();
+        throw e;
+      }
+ finally {
+        if (osgObjectTran.isActive()) {
+          osgObjectTran.commit();
+        }
+        if (walrusObjectTran.isActive()) {
+          walrusObjectTran.commit();
         }
       }
     }
  else {
     }
-    walrusdb.commit();
+    walrusImageTran.commit();
   }
  catch (  Exception e) {
-    walrusdb.rollback();
+    walrusImageTran.rollback();
     throw e;
   }
  finally {
-    if (walrusdb.isActive()) {
-      walrusdb.commit();
+    if (walrusImageTran.isActive()) {
+      walrusImageTran.commit();
     }
   }
 }

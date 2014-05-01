@@ -1,51 +1,37 @@
 {
-  EntityTransaction osgdb=Entities.get(ObjectEntity.class);
+  EntityTransaction walrusdb=Entities.get(BucketInfo.class);
   try {
-    List<ObjectEntity> osgObjects=Entities.query(new ObjectEntity());
-    if (osgObjects != null && osgObjects.isEmpty()) {
-      EntityTransaction walrusdb=Entities.get(ObjectInfo.class);
-      try {
-        List<ObjectInfo> walrusObjects=Entities.query(new ObjectInfo(),Boolean.TRUE);
-        if (walrusObjects != null && !walrusObjects.isEmpty()) {
-          for (          ObjectEntity osgObject : Lists.transform(walrusObjects,objectTransformationFunction())) {
-            if (osgObject != null) {
-              try {
-                Entities.persist(osgObject);
-              }
- catch (              Exception e) {
-                LOG.warn("Failed to persist object " + osgObject.getObjectKey() + " to osg",e);
-              }
-            }
- else {
-              throw new Exception("Failed to convert Walrus object to OSG object");
-            }
+    List<BucketInfo> walrusBuckets=Entities.query(new BucketInfo());
+    if (walrusBuckets != null && !walrusBuckets.isEmpty()) {
+      for (      BucketInfo walrusBucket : walrusBuckets) {
+        try {
+          walrusBucket.setOwnerId(getEucalyptusAccount().getAccountNumber());
+          walrusBucket.setUserId(getEucalyptusAdmin().getUserId());
+          walrusBucket.resetGlobalGrants();
+          List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+          GrantInfo.setFullControl(walrusBucket.getOwnerId(),grantInfos);
+          walrusBucket.setGrants(grantInfos);
+          if (walrusBucket.getVersioning() != null && (WalrusProperties.VersioningStatus.Enabled.toString().equals(walrusBucket.getVersioning()) || WalrusProperties.VersioningStatus.Suspended.toString().equals(walrusBucket.getVersioning()))) {
+            walrusBucket.setVersioning(WalrusProperties.VersioningStatus.Disabled.toString());
           }
         }
- else {
-        }
-        walrusdb.commit();
-      }
- catch (      Exception e) {
-        walrusdb.rollback();
-        throw e;
-      }
- finally {
-        if (walrusdb.isActive()) {
-          walrusdb.commit();
+ catch (        Exception e) {
+          LOG.error("Failed to modify Walrus bucket " + walrusBucket.getBucketName(),e);
+          throw e;
         }
       }
     }
  else {
     }
-    osgdb.commit();
+    walrusdb.commit();
   }
  catch (  Exception e) {
-    osgdb.rollback();
+    walrusdb.rollback();
     throw e;
   }
  finally {
-    if (osgdb.isActive()) {
-      osgdb.commit();
+    if (walrusdb.isActive()) {
+      walrusdb.commit();
     }
   }
 }
