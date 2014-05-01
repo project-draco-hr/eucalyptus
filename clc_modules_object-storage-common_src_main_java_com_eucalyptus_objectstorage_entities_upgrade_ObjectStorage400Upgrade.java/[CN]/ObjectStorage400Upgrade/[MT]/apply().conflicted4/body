@@ -1,0 +1,40 @@
+{
+  EntityTransaction walrusdb=Entities.get(ObjectInfo.class);
+  try {
+    List<ObjectInfo> walrusObjects=Entities.query(new ObjectInfo());
+    if (walrusObjects != null && !walrusObjects.isEmpty()) {
+      for (      ObjectInfo walrusObject : walrusObjects) {
+        try {
+          if (walrusObject.getDeleted() != null && walrusObject.getDeleted()) {
+            LOG.info("Removing delete marker from Walrus: bucket=" + walrusObject.getBucketName() + ", object key="+ walrusObject.getObjectKey()+ ", version ID="+ walrusObject.getVersionId());
+            Entities.delete(walrusObject);
+            continue;
+          }
+          walrusObject.setObjectKey(walrusObject.getObjectName());
+          walrusObject.setVersionId(WalrusProperties.NULL_VERSION_ID);
+          walrusObject.setLast(Boolean.TRUE);
+          walrusObject.setOwnerId(getEucalyptusAccount().getAccountNumber());
+          walrusObject.resetGlobalGrants();
+          List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+          GrantInfo.setFullControl(walrusObject.getOwnerId(),grantInfos);
+          walrusObject.setGrants(grantInfos);
+        }
+ catch (        Exception e) {
+          LOG.warn("Cannot modify walrus object " + walrusObject.getObjectKey(),e);
+        }
+      }
+    }
+ else {
+    }
+    walrusdb.commit();
+  }
+ catch (  Exception e) {
+    walrusdb.rollback();
+    throw e;
+  }
+ finally {
+    if (walrusdb.isActive()) {
+      walrusdb.commit();
+    }
+  }
+}
