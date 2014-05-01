@@ -1,0 +1,69 @@
+{
+  EntityTransaction osgdb=Entities.get(Bucket.class);
+  try {
+    List<Bucket> osgBuckets=Entities.query(new Bucket());
+    if (osgBuckets != null && osgBuckets.isEmpty()) {
+      EntityTransaction walrusdb=Entities.get(BucketInfo.class);
+      try {
+        List<BucketInfo> walrusBuckets=Entities.query(new BucketInfo(),Boolean.TRUE);
+        if (walrusBuckets != null && !walrusBuckets.isEmpty()) {
+          EntityTransaction walrusSnapshotsdb=Entities.get(WalrusSnapshotInfo.class);
+          try {
+            List<WalrusSnapshotInfo> walrusSnapshots=Entities.query(new WalrusSnapshotInfo(),Boolean.TRUE);
+            for (            WalrusSnapshotInfo walrusSnapshot : walrusSnapshots) {
+              walrusSnapshotBuckets.add(walrusSnapshot.getSnapshotBucket());
+              walrusSnapshotObjects.add(walrusSnapshot.getSnapshotId());
+            }
+            walrusSnapshotsdb.commit();
+          }
+ catch (          Exception e) {
+            walrusSnapshotsdb.rollback();
+            throw e;
+          }
+ finally {
+            if (walrusSnapshotsdb.isActive()) {
+              walrusSnapshotsdb.commit();
+            }
+          }
+          for (          Bucket osgBucket : Lists.transform(walrusBuckets,bucketTransformationFunction())) {
+            if (osgBucket != null) {
+              try {
+                Entities.persist(osgBucket);
+              }
+ catch (              Exception e) {
+                LOG.warn("Failed to persist bucket " + osgBucket.getBucketName() + " to osg",e);
+              }
+            }
+ else {
+              throw new Exception("Failed to convert Walrus bucket to OSG bucket");
+            }
+          }
+        }
+ else {
+        }
+        walrusdb.commit();
+      }
+ catch (      Exception e) {
+        walrusdb.rollback();
+        throw e;
+      }
+ finally {
+        if (walrusdb.isActive()) {
+          walrusdb.commit();
+        }
+      }
+    }
+ else {
+    }
+    osgdb.commit();
+  }
+ catch (  Exception e) {
+    osgdb.rollback();
+    throw e;
+  }
+ finally {
+    if (osgdb.isActive()) {
+      osgdb.commit();
+    }
+  }
+}

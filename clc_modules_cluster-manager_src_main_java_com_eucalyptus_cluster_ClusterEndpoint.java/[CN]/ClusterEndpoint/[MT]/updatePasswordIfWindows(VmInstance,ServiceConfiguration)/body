@@ -1,0 +1,23 @@
+{
+  if (Platform.windows.name().equals(vm.getPlatform()) && (vm.getPasswordData() == null || vm.getPasswordData().length() <= 0)) {
+    try {
+      final GetConsoleOutputResponseType consoleOutput=AsyncRequests.sendSync(ccConfig,new GetConsoleOutputType(vm.getInstanceId()));
+      final String tempCo=B64.standard.decString(String.valueOf(consoleOutput.getOutput())).replaceAll("[\r\n]*","");
+      final String passwordData=tempCo.replaceAll(".*<Password>","").replaceAll("</Password>.*","");
+      if (tempCo.matches(".*<Password>[\\w=+/]*</Password>.*")) {
+        Entities.asTransaction(VmInstance.class,new Predicate<String>(){
+          @Override public boolean apply(          final String passwordData){
+            final VmInstance vmMerge=Entities.merge(vm);
+            vmMerge.updatePasswordData(passwordData);
+            return true;
+          }
+        }
+).apply(passwordData);
+        vm.updatePasswordData(passwordData);
+      }
+    }
+ catch (    Exception e) {
+      throw new ComputeException("InternalError","Error processing request: " + e.getMessage());
+    }
+  }
+}

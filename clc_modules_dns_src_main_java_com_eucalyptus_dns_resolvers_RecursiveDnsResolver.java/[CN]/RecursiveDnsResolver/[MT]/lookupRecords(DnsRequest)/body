@@ -1,0 +1,63 @@
+{
+  final Record query=request.getQuery();
+  final Name name=query.getName();
+  final int type=query.getType();
+  final Cache cache=new Cache();
+  Lookup aLookup=new Lookup(name,type);
+  aLookup.setCache(cache);
+  Record[] found=aLookup.run();
+  List<Record> queriedrrs=Arrays.asList(found != null ? found : new Record[]{});
+  List<Name> cnames=(List<Name>)(aLookup.getAliases().length > 0 ? Arrays.asList(aLookup.getAliases()) : Lists.newArrayList());
+  final Set<Record> answer=Sets.newLinkedHashSet();
+  final Set<Record> authority=Sets.newLinkedHashSet();
+  final Set<Record> additional=Sets.newLinkedHashSet();
+  for (  Name cnameRec : cnames) {
+    SetResponse sr=cache.lookupRecords(cnameRec,Type.CNAME,Credibility.ANY);
+    if (sr != null && sr.isSuccessful() && sr.answers() != null) {
+      for (      RRset result : sr.answers()) {
+        Iterator rrs=result.rrs(false);
+        if (rrs != null) {
+          for (          Object record : ImmutableSet.copyOf(rrs)) {
+            answer.add((Record)record);
+          }
+        }
+      }
+    }
+  }
+  for (  Record queriedRec : queriedrrs) {
+    SetResponse sr=cache.lookupRecords(queriedRec.getName(),queriedRec.getType(),Credibility.ANY);
+    if (sr != null && sr.isSuccessful() && sr.answers() != null) {
+      for (      RRset result : sr.answers()) {
+        Iterator rrs=result.rrs(false);
+        if (rrs != null) {
+          for (          Object record : ImmutableSet.copyOf(rrs)) {
+            answer.add((Record)record);
+          }
+        }
+      }
+    }
+  }
+  for (  Record aRec : queriedrrs) {
+    List<Record> nsRecs=lookupNSRecords(aRec.getName(),cache);
+    for (    Record nsRec : nsRecs) {
+      authority.add(nsRec);
+      Lookup nsLookup=new Lookup(((NSRecord)nsRec).getTarget(),type);
+      nsLookup.setCache(cache);
+      Record[] nsAnswers=nsLookup.run();
+      if (nsAnswers != null) {
+        additional.addAll(Arrays.asList(nsAnswers));
+      }
+    }
+  }
+  if ((aLookup.getResult() == Lookup.SUCCESSFUL || aLookup.getResult() == Lookup.TYPE_NOT_FOUND) && queriedrrs.size() == 0) {
+    List<Record> nsRecs=lookupNSRecords(name,cache);
+    for (    Record nsRec : nsRecs) {
+      authority.add(nsRec);
+    }
+  }
+  DnsResponse response=DnsResponse.forName(query.getName()).recursive().withAuthority(Lists.newArrayList(authority)).withAdditional(Lists.newArrayList(additional)).answer(Lists.newArrayList(answer));
+  if (aLookup.getResult() == Lookup.HOST_NOT_FOUND && queriedrrs.size() == 0) {
+    response=DnsResponse.forName(query.getName()).recursive().withAuthority(Lists.newArrayList(authority)).nxdomain();
+  }
+  return response;
+}

@@ -5,10 +5,26 @@
     throw new EucalyptusCloudException("Authorization failed.");
   }
   if (!Strings.isNullOrEmpty(request.getSourceHost())) {
+    final Predicate<VmInstance> filterHost=new Predicate<VmInstance>(){
+      @Override public boolean apply(      @Nullable VmInstance input){
+        String vmHost=URI.create(input.getServiceTag()).getHost();
+        return Strings.nullToEmpty(vmHost).equals(request.getSourceHost());
+      }
+    }
+;
     for (    ServiceConfiguration ccConfig : Topology.enabledServices(ClusterController.class)) {
       try {
         ServiceConfiguration node=Nodes.lookup(ccConfig,request.getSourceHost());
         Cluster cluster=Clusters.lookup(ccConfig);
+        final List<VmInstance> instances=VmInstances.list(filterHost);
+        for (        final VmInstance instance : instances) {
+          try {
+            updatePasswordIfWindows(instance,ccConfig);
+          }
+ catch (          final Exception ex) {
+            ;
+          }
+        }
         try {
           cluster.migrateInstances(request.getSourceHost(),request.getAllowHosts(),request.getDestinationHosts());
           return reply.markWinning();
@@ -31,7 +47,7 @@ catch (      Exception ex) {
     throw new EucalyptusCloudException("No ENABLED cluster found which can service the requested node: " + request.getSourceHost());
   }
  else   if (!Strings.isNullOrEmpty(request.getInstanceId())) {
-    VmInstance vm;
+    final VmInstance vm;
     try {
       vm=VmInstances.lookup(request.getInstanceId());
       if (!VmInstance.VmState.RUNNING.apply(vm)) {
@@ -47,6 +63,12 @@ catch (    NoSuchElementException ex) {
     try {
       ServiceConfiguration ccConfig=Topology.lookup(ClusterController.class,vm.lookupPartition());
       Cluster cluster=Clusters.lookup(ccConfig);
+      try {
+        updatePasswordIfWindows(vm,ccConfig);
+      }
+ catch (      final Exception ex) {
+        ;
+      }
       try {
         cluster.migrateInstance(request.getInstanceId(),request.getAllowHosts(),request.getDestinationHosts());
         return reply.markWinning();

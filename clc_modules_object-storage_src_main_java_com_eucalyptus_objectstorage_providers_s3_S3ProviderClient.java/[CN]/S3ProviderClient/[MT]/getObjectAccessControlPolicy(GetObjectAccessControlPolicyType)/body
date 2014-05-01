@@ -1,14 +1,21 @@
 {
   GetObjectAccessControlPolicyResponseType reply=request.getReply();
   User requestUser=getRequestUser(request);
+  OsgInternalS3Client internalS3Client=null;
   try {
-    AmazonS3Client s3Client=getS3Client(requestUser);
+    internalS3Client=getS3Client(requestUser);
+    AmazonS3Client s3Client=internalS3Client.getS3Client();
     com.amazonaws.services.s3.model.AccessControlList acl=s3Client.getObjectAcl(request.getBucket(),request.getKey(),request.getVersionId());
     reply.setAccessControlPolicy(sdkAclToEucaAcl(acl));
   }
  catch (  AmazonServiceException e) {
     LOG.debug("Error from backend",e);
     throw S3ExceptionMapper.fromAWSJavaSDK(e);
+  }
+ finally {
+    if (internalS3Client != null && requestUser != null) {
+      returnS3Client(requestUser,internalS3Client);
+    }
   }
   return reply;
 }
