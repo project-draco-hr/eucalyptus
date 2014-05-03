@@ -1,70 +1,44 @@
 {
-  EntityTransaction osgdb=Entities.get(Bucket.class);
+  EntityTransaction walrusImageTran=Entities.get(ImageCacheInfo.class);
   try {
-    List<Bucket> osgBuckets=Entities.query(new Bucket());
-    if (osgBuckets != null && osgBuckets.isEmpty()) {
-      EntityTransaction walrusdb=Entities.get(BucketInfo.class);
+    List<ImageCacheInfo> images=Entities.query(new ImageCacheInfo());
+    if (images != null && !images.isEmpty()) {
+      EntityTransaction osgObjectTran=Entities.get(ObjectEntity.class);
+      EntityTransaction walrusObjectTran=Entities.get(ObjectInfo.class);
       try {
-        List<BucketInfo> walrusBuckets=Entities.query(new BucketInfo(),Boolean.TRUE);
-        if (walrusBuckets != null && !walrusBuckets.isEmpty()) {
-          EntityTransaction walrusSnapshotsdb=Entities.get(WalrusSnapshotInfo.class);
-          try {
-            List<WalrusSnapshotInfo> walrusSnapshots=Entities.query(new WalrusSnapshotInfo(),Boolean.TRUE);
-            for (            WalrusSnapshotInfo walrusSnapshot : walrusSnapshots) {
-              walrusSnapshotBuckets.add(walrusSnapshot.getSnapshotBucket());
-              walrusSnapshotObjects.add(walrusSnapshot.getSnapshotId());
-            }
-            walrusSnapshotsdb.commit();
-          }
- catch (          Exception e) {
-            walrusSnapshotsdb.rollback();
-            throw e;
-          }
- finally {
-            if (walrusSnapshotsdb.isActive()) {
-              walrusSnapshotsdb.commit();
-            }
-          }
-          for (          Bucket osgBucket : Lists.transform(walrusBuckets,bucketTransformationFunction())) {
-            if (osgBucket != null) {
-              try {
-                Entities.persist(osgBucket);
-              }
- catch (              Exception e) {
-                LOG.error("Failed to persist bucket " + osgBucket.getBucketName() + " to objectstorage",e);
-                throw e;
-              }
-            }
- else {
-              throw new Exception("Error transforming Walrus bucket to objectstorage bucket");
-            }
-          }
+        for (        ImageCacheInfo image : images) {
+          Entities.persist(imageToOSGObjectTransformation().apply(image));
+          Entities.persist(imageToWalrusObjectTransformation().apply(image));
+          Entities.delete(image);
         }
- else {
-        }
-        walrusdb.commit();
+        osgObjectTran.commit();
+        walrusObjectTran.commit();
       }
  catch (      Exception e) {
-        walrusdb.rollback();
+        osgObjectTran.rollback();
+        walrusObjectTran.rollback();
         throw e;
       }
  finally {
-        if (walrusdb.isActive()) {
-          walrusdb.commit();
+        if (osgObjectTran.isActive()) {
+          osgObjectTran.commit();
+        }
+        if (walrusObjectTran.isActive()) {
+          walrusObjectTran.commit();
         }
       }
     }
  else {
     }
-    osgdb.commit();
+    walrusImageTran.commit();
   }
  catch (  Exception e) {
-    osgdb.rollback();
-    throw e;
+    walrusImageTran.rollback();
+    LOG.warn("Cannot flush cached images in Walrus due to an error. May have to be flushed manually");
   }
  finally {
-    if (osgdb.isActive()) {
-      osgdb.commit();
+    if (walrusImageTran.isActive()) {
+      walrusImageTran.commit();
     }
   }
 }
