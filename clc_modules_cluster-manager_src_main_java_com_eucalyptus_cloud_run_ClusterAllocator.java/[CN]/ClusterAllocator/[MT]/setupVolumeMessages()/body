@@ -3,7 +3,7 @@
     List<BlockDeviceMappingItemType> instanceDeviceMappings=new ArrayList<BlockDeviceMappingItemType>(this.allocInfo.getRequest().getBlockDeviceMapping());
     final ServiceConfiguration sc=Topology.lookup(Storage.class,this.cluster.getConfiguration().lookupPartition());
     final BlockStorageImageInfo imgInfo=((BlockStorageImageInfo)this.allocInfo.getBootSet().getMachine());
-    String rootDevName=imgInfo.getRootDeviceName();
+    final String rootDevName=imgInfo.getRootDeviceName();
     Long volSizeBytes=imgInfo.getImageSizeBytes();
     for (    final BlockDeviceMappingItemType blockDevMapping : Iterables.filter(instanceDeviceMappings,findEbsRootOptionalSnapshot(rootDevName))) {
       if (blockDevMapping.getEbs().getVolumeSize() != null) {
@@ -14,7 +14,7 @@
     for (    final ResourceToken token : this.allocInfo.getAllocationTokens()) {
       final VmInstance vm=VmInstances.lookup(token.getInstanceId());
       if (!vm.getBootRecord().hasPersistentVolumes()) {
-        for (        BlockDeviceMappingItemType mapping : instanceDeviceMappings) {
+        for (        final BlockDeviceMappingItemType mapping : instanceDeviceMappings) {
           if (Images.isEbsMapping(mapping)) {
             LOG.debug("About to prepare volume for instance " + vm.getDisplayName() + " to be mapped to "+ mapping.getDeviceName()+ " device");
             int volumeSize=mapping.getEbs().getVolumeSize() != null ? mapping.getEbs().getVolumeSize() : -1;
@@ -25,19 +25,41 @@
               }
  else               volumeSize=rootVolSizeInGb;
             }
-            final Volume volume=Volumes.createStorageVolume(sc,this.allocInfo.getOwnerFullName(),ResourceIdentifiers.tryNormalize().apply(mapping.getEbs().getSnapshotId()),volumeSize,this.allocInfo.getRequest());
-            Boolean isRootDevice=mapping.getDeviceName().equals(rootDevName);
-            if (mapping.getEbs().getDeleteOnTermination()) {
-              vm.addPersistentVolume(mapping.getDeviceName(),volume,isRootDevice);
-            }
+            final UserFullName fullName=this.allocInfo.getOwnerFullName();
+            final String snapshotId=ResourceIdentifiers.tryNormalize().apply(mapping.getEbs().getSnapshotId());
+            final int volSize=volumeSize;
+            final BaseMessage request=this.allocInfo.getRequest();
+            Callable<Boolean> createVolume=new Callable<Boolean>(){
+              public Boolean call(){
+                Volume volume=null;
+                try {
+                  volume=Volumes.createStorageVolume(sc,fullName,snapshotId,volSize,request);
+                }
+ catch (                ExecutionException e) {
+                  LOG.error(e);
+                }
+                Boolean isRootDevice=mapping.getDeviceName().equals(rootDevName);
+                if (mapping.getEbs().getDeleteOnTermination()) {
+                  vm.addPersistentVolume(mapping.getDeviceName(),volume,isRootDevice);
+                }
  else {
-              vm.addPermanentVolume(mapping.getDeviceName(),volume,isRootDevice);
-            }
-            if (isRootDevice) {
-              token.setRootVolume(volume);
-            }
+                  vm.addPermanentVolume(mapping.getDeviceName(),volume,isRootDevice);
+                }
+                if (isRootDevice) {
+                  token.setRootVolume(volume);
+                }
  else {
-              token.getEbsVolumes().put(mapping.getDeviceName(),volume);
+                  token.getEbsVolumes().put(mapping.getDeviceName(),volume);
+                }
+                return true;
+              }
+            }
+;
+            try {
+              Threads.enqueue(Eucalyptus.class,Volume.class,createVolume).wait();
+            }
+ catch (            InterruptedException e) {
+              LOG.error(e);
             }
           }
  else           if (mapping.getVirtualName() != null) {
