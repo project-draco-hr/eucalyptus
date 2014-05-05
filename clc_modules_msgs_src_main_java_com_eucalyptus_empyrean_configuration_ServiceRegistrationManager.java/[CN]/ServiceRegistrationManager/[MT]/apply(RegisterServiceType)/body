@@ -1,0 +1,30 @@
+{
+  final RegisterServiceResponseType reply=request.getReply();
+  final String partition=request.getPartition();
+  final String name=request.getName();
+  final String hostName=request.getHost();
+  final Integer port=request.getPort();
+  try {
+    final ComponentId componentId=ComponentIds.lookup(request.getType());
+    ServiceBuilders.lookup(componentId);
+    checkParam("Name must not be null: " + request,name,notNullValue());
+    checkParam("Hostname must not be null: " + request,hostName,notNullValue());
+    checkParam("Port must not be null: " + request,port,notNullValue());
+    final Collection<Future<ServiceConfiguration>> configurations=register(partition,name,hostName,port,componentId);
+    final Function<ServiceConfiguration,ServiceId> typeMapper=TypeMappers.lookup(ServiceConfiguration.class,ServiceId.class);
+    for (    Future<ServiceConfiguration> regResult : configurations) {
+      try {
+        reply.getRegisteredServices().add(typeMapper.apply(regResult.get()));
+      }
+ catch (      Exception e) {
+        reply.set_return(Boolean.FALSE);
+        reply.getStatusMessages().add(Throwables.getRootCause(e).getMessage());
+      }
+    }
+  }
+ catch (  final Exception ex) {
+    reply.set_return(false);
+    reply.getStatusMessages().add("Failed to register " + request.getType() + ": "+ name+ " at host: "+ hostName+ ":"+ port+ " because of : "+ ex.getMessage());
+  }
+  return reply;
+}

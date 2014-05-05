@@ -15,7 +15,6 @@ catch (  Exception e) {
   if (OsgAuthorizationHandler.getInstance().operationAllowed(request,srcBucket,srcObject,0)) {
     CopyObjectResponseType reply=request.getReply();
     Bucket destBucket=ensureBucketExists(request.getDestinationBucket());
-    String versionId=destBucket.getVersion().toString();
     String destinationKey=request.getDestinationObject();
     String metadataDirective=request.getMetadataDirective();
     String copyIfMatch=request.getCopySourceIfMatch();
@@ -39,12 +38,12 @@ catch (    Exception e) {
       throw new InternalErrorException(destBucket.getBucketName() + "/" + destinationKey);
     }
     try {
-      if (destObject == null) {
+      if (destObject == null || (destBucket.getVersioning() != null && destBucket.getVersioning() == ObjectStorageProperties.VersioningStatus.Enabled)) {
         destObject=ObjectEntity.newInitializedForCreate(destBucket,destinationKey,srcObject.getSize().longValue(),requestUser);
       }
     }
  catch (    Exception e) {
-      LOG.error("Error intializing entity for persiting object metadata for " + destBucket.getBucketName() + "/"+ request.getDestinationObject());
+      LOG.error("Error initializing entity for persisting object metadata for " + destBucket.getBucketName() + "/"+ request.getDestinationObject());
       throw new InternalErrorException(destBucket.getBucketName() + "/" + destinationKey);
     }
     if (OsgAuthorizationHandler.getInstance().operationAllowed(request,destBucket,destObject,newBucketSize)) {
@@ -73,7 +72,8 @@ catch (    Exception e) {
         }
       }
       try {
-        AccessControlPolicy acp=getFullAcp(request.getAccessControlList(),requestUser,destBucket.getOwnerCanonicalId());
+        String requestUserCanonicalId=requestUser.getAccount() != null ? requestUser.getAccount().getCanonicalId() : null;
+        AccessControlPolicy acp=getFullAcp(AclUtils.expandCannedAcl(request.getAccessControlList(),requestUserCanonicalId,requestUserCanonicalId),requestUser,requestUserCanonicalId);
         destObject.setAcl(acp);
       }
  catch (      Exception e) {
@@ -82,18 +82,12 @@ catch (    Exception e) {
       }
       destObject.setSize(srcObject.getSize());
       destObject.setStorageClass(srcObject.getStorageClass());
-      destObject.setOwnerCanonicalId(srcObject.getOwnerCanonicalId());
-      destObject.setOwnerDisplayName(srcObject.getOwnerDisplayName());
-      destObject.setOwnerIamUserId(srcObject.getOwnerIamUserId());
-      destObject.setOwnerIamUserDisplayName(srcObject.getOwnerIamUserDisplayName());
       String etag=srcObject.geteTag();
-      final Date srcLastMod=srcObject.getObjectModifiedTimestamp();
       destObject.seteTag(etag);
-      destObject.setObjectModifiedTimestamp(srcLastMod);
       destObject.setIsLatest(Boolean.TRUE);
       if (destBucket.getVersioning() == ObjectStorageProperties.VersioningStatus.Enabled) {
-        reply.setCopySourceVersionId(versionId);
-        reply.setVersionId(versionId);
+        reply.setCopySourceVersionId(srcObject.getVersionId());
+        reply.setVersionId(destObject.getVersionId());
       }
       String sourceObjUuid=srcObject.getObjectUuid();
       String sourceBckUuid=srcBucket.getBucketUuid();
@@ -109,7 +103,9 @@ catch (    Exception e) {
         reply.setLastModified(DateFormatter.dateToListingFormattedString(objectEntity.getObjectModifiedTimestamp()));
         reply.setEtag(objectEntity.geteTag());
         try {
-          fireObjectCreationEvent(destBucket.getBucketName(),destObject.getObjectKey(),versionId,requestUser.getUserId(),destObject.getSize(),origDestObjectSize);
+          if (!(destBucket.getBucketName().equals(srcBucket.getBucketName()) && destObject.getObjectKey().equals(srcObject.getObjectKey()))) {
+            fireObjectCreationEvent(destBucket.getBucketName(),destObject.getObjectKey(),destObject.getVersionId(),requestUser.getUserId(),destObject.getSize(),origDestObjectSize);
+          }
         }
  catch (        Exception ex) {
           LOG.debug("Failed to fire reporting event for OSG COPY object operation",ex);

@@ -1,0 +1,32 @@
+{
+  return new CacheLoader<EventListener,Function<Event,Callable<Object>>>(){
+    @Override public Function<Event,Callable<Object>> load(    final EventListener key) throws Exception {
+      return new Function<Event,Callable<Object>>(){
+        final AtomicBoolean busy=new AtomicBoolean(false);
+        @Override public Callable<Object> apply(        final Event input){
+          return new Callable<Object>(){
+            @Override public Object call() throws Exception {
+              if (Ats.inClassHierarchy(input).has(Periodic.class) && busy.compareAndSet(false,true)) {
+                try {
+                  key.fireEvent(input);
+                }
+ catch (                Exception ex) {
+                  EventFailedException eventEx=new EventFailedException("Failed to fire event: listener=" + key.getClass().getCanonicalName() + " event="+ ex.toString()+ " because of: "+ ex.getMessage(),Exceptions.filterStackTrace(ex));
+                  Logs.extreme().error(eventEx,eventEx);
+                  LOG.error(eventEx);
+                }
+ finally {
+                  busy.set(false);
+                }
+              }
+              return input;
+            }
+          }
+;
+        }
+      }
+;
+    }
+  }
+;
+}

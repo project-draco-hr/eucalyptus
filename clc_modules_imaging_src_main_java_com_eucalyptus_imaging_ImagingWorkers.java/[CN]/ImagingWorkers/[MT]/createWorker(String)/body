@@ -1,4 +1,12 @@
 {
+  String availabilityZone=null;
+  try {
+    final List<RunningInstancesItemType> instances=EucalyptusActivityTasks.getInstance().describeSystemInstances(Lists.newArrayList(workerId));
+    availabilityZone=instances.get(0).getPlacement();
+  }
+ catch (  final Exception ex) {
+    throw Exceptions.toUndeclared("Unable to find the instance named: " + workerId);
+  }
   try (final TransactionResource db=Entities.transactionFor(ImagingWorker.class)){
     try {
       final ImagingWorker entity=Entities.uniqueResult(ImagingWorker.named(workerId));
@@ -7,8 +15,10 @@
  catch (    final NoSuchElementException ex) {
       final ImagingWorker worker=new ImagingWorker(ImagingWorker.STATE.RUNNING,workerId);
       worker.setWorkerUpdateTime();
+      worker.setAvailabilityZone(availabilityZone);
       Entities.persist(worker);
       db.commit();
+      return worker;
     }
 catch (    final Exception ex) {
       throw Exceptions.toUndeclared(ex);

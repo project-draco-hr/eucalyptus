@@ -1,0 +1,125 @@
+{
+  return new Function<ObjectInfo,ObjectEntity>(){
+    @Override @Nullable public ObjectEntity apply(    @Nonnull ObjectInfo walrusObject){
+      ObjectEntity osgObject=null;
+      try {
+        Bucket osgBucket=null;
+        if (bucketMap.containsKey(walrusObject.getBucketName())) {
+          osgBucket=bucketMap.get(walrusObject.getBucketName());
+        }
+ else {
+          osgBucket=Transactions.find(new Bucket(walrusObject.getBucketName()));
+          bucketMap.put(walrusObject.getBucketName(),osgBucket);
+        }
+        osgObject=new ObjectEntity(osgBucket,walrusObject.getObjectKey(),walrusObject.getVersionId());
+        if (walrusObject.getDeleted() != null && walrusObject.getDeleted()) {
+          osgObject.setObjectUuid(UUID.randomUUID().toString());
+          osgObject.setStorageClass(ObjectStorageProperties.STORAGE_CLASS.STANDARD.toString());
+          osgObject.setObjectModifiedTimestamp(walrusObject.getLastModified());
+          osgObject.setIsDeleteMarker(Boolean.TRUE);
+          osgObject.setSize(0L);
+          osgObject.setIsLatest(walrusObject.getLast());
+          osgObject.setState(ObjectState.extant);
+          osgObject.setOwnerCanonicalId(osgBucket.getOwnerCanonicalId());
+          osgObject.setOwnerDisplayName(osgBucket.getOwnerDisplayName());
+          osgObject.setOwnerIamUserId(osgBucket.getOwnerIamUserId());
+          osgObject.setOwnerIamUserDisplayName(osgBucket.getOwnerIamUserDisplayName());
+          AccessControlList acl=new AccessControlList();
+          acl.setGrants(new ArrayList<Grant>());
+          AccessControlPolicy acp=new AccessControlPolicy(new CanonicalUser(osgBucket.getOwnerCanonicalId(),osgBucket.getOwnerDisplayName()),acl);
+          osgObject.setAcl(acp);
+        }
+ else {
+          Account owningAccount=null;
+          User adminUser=null;
+          if (walrusSnapshotObjects.contains(walrusObject.getObjectKey())) {
+            LOG.warn("Changing the ownership of snapshot object " + walrusObject.getObjectKey() + " to blockstorage system account");
+            owningAccount=getBlockStorageAccount();
+            adminUser=getBlockStorageAdmin();
+          }
+ else           if (accountIdAccountMap.containsKey(walrusObject.getOwnerId())) {
+            owningAccount=accountIdAccountMap.get(walrusObject.getOwnerId());
+          }
+ else           if (deletedAccountIds.contains(walrusObject.getOwnerId())) {
+            LOG.warn("Account ID " + walrusObject.getOwnerId() + " does not not exist. Changing the ownership of object "+ walrusObject.getObjectKey()+ " in bucket "+ walrusObject.getBucketName()+ " to eucalyptus admin account");
+            owningAccount=getEucalyptusAccount();
+            adminUser=getEucalyptusAdmin();
+          }
+ else           if (noCanonicalIdAccountIds.contains(walrusObject.getOwnerId())) {
+            LOG.warn("Account ID " + walrusObject.getOwnerId() + " does not have a canonical ID. Changing the ownership of object "+ walrusObject.getObjectKey()+ " in bucket "+ walrusObject.getBucketName()+ " to eucalyptus admin account");
+            owningAccount=getEucalyptusAccount();
+            adminUser=getEucalyptusAdmin();
+          }
+ else {
+            try {
+              owningAccount=Accounts.lookupAccountById(walrusObject.getOwnerId());
+              if (StringUtils.isBlank(owningAccount.getCanonicalId())) {
+                LOG.warn("Account ID " + walrusObject.getOwnerId() + " does not have a canonical ID. Changing the ownership of object "+ walrusObject.getObjectKey()+ " in bucket "+ walrusObject.getBucketName()+ " to eucalyptus admin account");
+                owningAccount=getEucalyptusAccount();
+                adminUser=getEucalyptusAdmin();
+                noCanonicalIdAccountIds.add(walrusObject.getOwnerId());
+              }
+ else {
+                accountIdAccountMap.put(walrusObject.getOwnerId(),owningAccount);
+              }
+            }
+ catch (            AuthException e) {
+              LOG.warn("Account ID " + walrusObject.getOwnerId() + " does not not exist. Changing the ownership of object "+ walrusObject.getObjectKey()+ " in bucket "+ walrusObject.getBucketName()+ " to eucalyptus admin account");
+              owningAccount=getEucalyptusAccount();
+              adminUser=getEucalyptusAdmin();
+              deletedAccountIds.add(walrusObject.getOwnerId());
+            }
+          }
+          if (adminUser == null) {
+            if (accountIdAdminMap.containsKey(walrusObject.getOwnerId())) {
+              adminUser=accountIdAdminMap.get(walrusObject.getOwnerId());
+            }
+ else             if (deletedAdminAccountIds.contains(walrusObject.getOwnerId())) {
+              LOG.warn("Admin for account ID " + walrusObject.getOwnerId() + " does not exist. Changing the IAM ownership of object "+ walrusObject.getObjectKey()+ " in bucket "+ walrusObject.getBucketName()+ " to the eucalyptus account admin");
+              adminUser=getEucalyptusAdmin();
+            }
+ else {
+              try {
+                adminUser=owningAccount.lookupAdmin();
+                accountIdAdminMap.put(walrusObject.getOwnerId(),adminUser);
+              }
+ catch (              AuthException e) {
+                LOG.warn("Admin for account ID " + walrusObject.getOwnerId() + " does not exist. Changing the IAM ownership of object "+ walrusObject.getObjectKey()+ " in bucket "+ walrusObject.getBucketName()+ " to the eucalyptus account admin");
+                adminUser=getEucalyptusAdmin();
+                deletedAdminAccountIds.add(walrusObject.getOwnerId());
+              }
+            }
+          }
+          osgObject.seteTag(walrusObject.getEtag());
+          osgObject.setIsDeleteMarker(Boolean.FALSE);
+          osgObject.setIsLatest(walrusObject.getLast());
+          osgObject.setObjectModifiedTimestamp(walrusObject.getLastModified());
+          osgObject.setObjectUuid(walrusObject.getObjectName());
+          osgObject.setSize(walrusObject.getSize());
+          osgObject.setState(ObjectState.extant);
+          osgObject.setLastState(ObjectState.creating);
+          osgObject.setStorageClass(walrusObject.getStorageClass());
+          osgObject.setOwnerCanonicalId(owningAccount.getCanonicalId());
+          osgObject.setOwnerDisplayName(owningAccount.getName());
+          osgObject.setOwnerIamUserId(adminUser.getUserId());
+          osgObject.setOwnerIamUserDisplayName(adminUser.getName());
+          AccessControlList acl=new AccessControlList();
+          if (walrusSnapshotObjects.contains(walrusObject.getObjectKey())) {
+            acl.setGrants(new ArrayList<Grant>());
+          }
+ else {
+            acl.setGrants(getObjectGrants(walrusObject));
+          }
+          AccessControlPolicy acp=new AccessControlPolicy(new CanonicalUser(owningAccount.getCanonicalId(),owningAccount.getName()),acl);
+          osgObject.setAcl(acp);
+        }
+      }
+ catch (      Exception e) {
+        LOG.error("Failed to transform Walrus object " + walrusObject.getObjectKey() + " to objectstorage object",e);
+        Exceptions.toUndeclared("Failed to transform Walrus object " + walrusObject.getObjectKey() + " to objectstorage object",e);
+      }
+      return osgObject;
+    }
+  }
+;
+}

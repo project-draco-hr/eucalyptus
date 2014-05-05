@@ -1,0 +1,25 @@
+{
+  DefaultHttpResponse httpResponse=createHttpResponse(response);
+  if (!Strings.isNullOrEmpty(response.getCorrelationId())) {
+    httpResponse.setHeader(WalrusProperties.AMZ_REQUEST_ID,response.getCorrelationId());
+  }
+  final Channel channel=ctx.getChannel();
+  if (channel.isWritable()) {
+    ChannelFuture writeFuture=Channels.future(ctx.getChannel());
+    Channels.write(ctx,writeFuture,httpResponse);
+    List<ChunkedInput> dataStreams=response.getDataInputStream();
+    if (dataStreams != null) {
+      for (      final ChunkedInput dataStream : dataStreams) {
+        channel.write(dataStream).addListener(new ChannelFutureListener(){
+          @Override public void operationComplete(          ChannelFuture future) throws Exception {
+            dataStream.close();
+          }
+        }
+);
+      }
+    }
+ else {
+      writeFuture.addListener(ChannelFutureListener.CLOSE);
+    }
+  }
+}
