@@ -15,8 +15,30 @@
     this.add("eucalyptus_path",path);
     this.add("elb_service_url",String.format("loadbalancing.%s",DNSProperties.DOMAIN));
     this.add("euare_service_url",String.format("euare.%s",DNSProperties.DOMAIN));
-    final ServiceConfiguration dns=Topology.lookup(Dns.class);
-    this.add("dns_server",dns.getInetAddress().getHostAddress());
+    final List<String> dnsHosts=Lists.newArrayList(Iterables.transform(ServiceConfigurations.list(Eucalyptus.class),new Function<ServiceConfiguration,String>(){
+      @Override public String apply(      ServiceConfiguration arg0){
+        return arg0.getInetAddress().getHostAddress();
+      }
+    }
+));
+    final List<String> enabledDns=Lists.newArrayList(Collections2.transform(Topology.enabledServices(Eucalyptus.class),new Function<ServiceConfiguration,String>(){
+      @Override public String apply(      ServiceConfiguration arg0){
+        return arg0.getInetAddress().getHostAddress();
+      }
+    }
+));
+    final StringBuilder sbDns=new StringBuilder();
+    for (    final String address : enabledDns) {
+      if (sbDns.length() <= 0)       sbDns.append(address);
+ else       sbDns.append("," + address);
+    }
+    for (    final String address : dnsHosts) {
+      if (!enabledDns.contains(address)) {
+        if (sbDns.length() <= 0)         sbDns.append(address);
+ else         sbDns.append("," + address);
+      }
+    }
+    this.add("dns_server",sbDns.toString());
     if (LOADBALANCER_VM_NTP_SERVER != null && LOADBALANCER_VM_NTP_SERVER.length() > 0) {
       this.add("ntp_server",LOADBALANCER_VM_NTP_SERVER);
     }
