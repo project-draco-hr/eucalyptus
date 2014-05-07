@@ -29,37 +29,31 @@
             final String snapshotId=ResourceIdentifiers.tryNormalize().apply(mapping.getEbs().getSnapshotId());
             final int volSize=volumeSize;
             final BaseMessage request=this.allocInfo.getRequest();
-            Callable<Boolean> createVolume=new Callable<Boolean>(){
-              public Boolean call(){
-                Volume volume=null;
-                try {
-                  volume=Volumes.createStorageVolume(sc,fullName,snapshotId,volSize,request);
-                }
- catch (                ExecutionException e) {
-                  LOG.error(e);
-                }
-                Boolean isRootDevice=mapping.getDeviceName().equals(rootDevName);
-                if (mapping.getEbs().getDeleteOnTermination()) {
-                  vm.addPersistentVolume(mapping.getDeviceName(),volume,isRootDevice);
-                }
- else {
-                  vm.addPermanentVolume(mapping.getDeviceName(),volume,isRootDevice);
-                }
-                if (isRootDevice) {
-                  token.setRootVolume(volume);
-                }
- else {
-                  token.getEbsVolumes().put(mapping.getDeviceName(),volume);
-                }
-                return true;
+            final Callable<Volume> createVolume=new Callable<Volume>(){
+              public Volume call() throws Exception {
+                return Volumes.createStorageVolume(sc,fullName,snapshotId,volSize,request);
               }
             }
 ;
+            final Volume volume;
             try {
-              Threads.enqueue(Eucalyptus.class,Volume.class,createVolume).wait();
+              volume=Threads.enqueue(Eucalyptus.class,ClusterAllocator.class,createVolume).get();
             }
  catch (            InterruptedException e) {
-              LOG.error(e);
+              throw Exceptions.toUndeclared("Interrupted when creating volume from snapshot.",e);
+            }
+            final Boolean isRootDevice=mapping.getDeviceName().equals(rootDevName);
+            if (mapping.getEbs().getDeleteOnTermination()) {
+              vm.addPersistentVolume(mapping.getDeviceName(),volume,isRootDevice);
+            }
+ else {
+              vm.addPermanentVolume(mapping.getDeviceName(),volume,isRootDevice);
+            }
+            if (isRootDevice) {
+              token.setRootVolume(volume);
+            }
+ else {
+              token.getEbsVolumes().put(mapping.getDeviceName(),volume);
             }
           }
  else           if (mapping.getVirtualName() != null) {
