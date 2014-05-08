@@ -18,10 +18,26 @@
       objCriteria.addOrder(Order.desc("objectModifiedTimestamp"));
       objCriteria.setMaxResults(queryStrideSize);
       if (!Strings.isNullOrEmpty(fromKeyMarker)) {
-        objCriteria.add(Restrictions.gt("objectKey",fromKeyMarker));
+        if (!Strings.isNullOrEmpty(fromVersionId)) {
+          ObjectEntity searchObject=new ObjectEntity(bucket,fromKeyMarker,fromVersionId);
+          ObjectEntity matchingObject=null;
+          try {
+            matchingObject=Entities.uniqueResult(searchObject);
+            if (matchingObject == null || matchingObject.getObjectModifiedTimestamp() == null) {
+              throw new NoSuchKeyException(bucket.getBucketName() + "/" + fromKeyMarker+ "?versionId="+ fromVersionId);
+            }
+          }
+ catch (          Exception e) {
+            LOG.warn("No matching object found for key-marker=" + fromKeyMarker + " and version-id-marker="+ fromVersionId);
+            throw new NoSuchKeyException(bucket.getBucketName() + "/" + fromKeyMarker+ "?versionId="+ fromVersionId);
+          }
+          objCriteria.add(Restrictions.or(Restrictions.and(Restrictions.eq("objectKey",fromKeyMarker),Restrictions.lt("objectModifiedTimestamp",matchingObject.getObjectModifiedTimestamp())),Restrictions.gt("objectKey",fromKeyMarker)));
+        }
+ else {
+          objCriteria.add(Restrictions.gt("objectKey",fromKeyMarker));
+        }
       }
-      if (!Strings.isNullOrEmpty(fromVersionId)) {
-        objCriteria.add(Restrictions.gt("versionId",fromVersionId));
+ else {
       }
       if (!Strings.isNullOrEmpty(prefix)) {
         objCriteria.add(Restrictions.like("objectKey",prefix,MatchMode.START));
