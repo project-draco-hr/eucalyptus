@@ -1,4 +1,5 @@
 {
+  S3ProviderConfiguration providerConfig=ConfigurationCache.getConfiguration(S3ProviderConfiguration.class);
   AWSCredentials credentials;
   try {
     credentials=mapCredentials(requestUser);
@@ -7,12 +8,25 @@
     LOG.error("Error mapping credentials for user " + (requestUser != null ? requestUser.getUserId() : "null") + " for walrus backend call.",e);
     throw new InternalErrorException("Cannot construct s3client due to inability to map credentials for user: " + (requestUser != null ? requestUser.getUserId() : "null"),e);
   }
+  if (this.backendClient == null) {
+synchronized (this) {
+      if (this.backendClient == null) {
+        try {
+          this.backendClient=new OsgInternalS3Client(credentials,this.getUpstreamEndpoint().toASCIIString(),providerConfig.getS3UseHttps(),providerConfig.getS3UseBackendDns());
+          return this.backendClient;
+        }
+ catch (        Exception e) {
+          LOG.error("exception thrown retrieving internal s3 client",e);
+          throw new InternalErrorException("Cannot get s3client from pool",e);
+        }
+      }
+    }
+  }
   try {
-    OsgInternalS3Client internalS3Client=getClientPool(credentials,this.getUpstreamEndpoint(),this.doUsePathStyle()).borrowObject();
-    return internalS3Client;
+    this.backendClient.update(credentials,this.getUpstreamEndpoint().toASCIIString(),providerConfig.getS3UseHttps(),providerConfig.getS3UseBackendDns());
+    return this.backendClient;
   }
  catch (  Exception e) {
-    LOG.error("exception thrown retrieving internal s3 client",e);
-    throw new InternalErrorException("Cannot get s3client from pool",e);
+    throw new InternalErrorException(e);
   }
 }
