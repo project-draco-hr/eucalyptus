@@ -2,13 +2,40 @@
   final HttpResponseStatus status=Objects.firstNonNull(remoteFault.getStatus(),HttpResponseStatus.INTERNAL_SERVER_ERROR);
   final String code=remoteFault.getFaultCode();
   final String message=remoteFault.getFaultDetail();
-  if (HttpResponseStatus.FORBIDDEN.equals(status)) {
+  final String exceptionType=remoteFault.getFaultString();
+  if (HttpResponseStatus.NOT_ACCEPTABLE.equals(status)) {
+    if (exceptionType.contains(S3ErrorCodeStrings.BucketNotEmpty)) {
+      throw new BucketNotEmptyException(message);
+    }
+ else     if (exceptionType.contains(S3ErrorCodeStrings.NoSuchBucket)) {
+      throw new NoSuchBucketException(message);
+    }
+ else     if (exceptionType.contains(S3ErrorCodeStrings.NoSuchKey)) {
+      throw new NoSuchKeyException(message);
+    }
+ else     if (exceptionType.contains(S3ErrorCodeStrings.AccessDenied)) {
+      throw new AccessDeniedException(message);
+    }
+ else {
+      throw new InternalErrorException(message);
+    }
+  }
+ else   if (HttpResponseStatus.CONFLICT.equals(status)) {
+    throw new BucketNotEmptyException(message);
+  }
+ else   if (HttpResponseStatus.PRECONDITION_FAILED.equals(status)) {
+    throw new PreconditionFailedException(message);
+  }
+ else   if (HttpResponseStatus.FORBIDDEN.equals(status)) {
     throw new AccessDeniedException(message);
   }
  else   if (HttpResponseStatus.NOT_FOUND.equals(status)) {
-    throw new NoSuchElementException(message);
+    if (exceptionType.contains("Bucket")) {
+      throw new NoSuchBucketException(message);
+    }
+ else     if (exceptionType.contains("Key")) {
+      throw new NoSuchKeyException(message);
+    }
   }
- else {
-    throw new S3Exception(code,message,status);
-  }
+  throw new S3Exception(code,message,status);
 }

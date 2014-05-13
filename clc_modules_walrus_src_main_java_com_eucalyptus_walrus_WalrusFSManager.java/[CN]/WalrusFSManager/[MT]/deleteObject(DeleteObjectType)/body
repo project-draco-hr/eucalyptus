@@ -12,14 +12,13 @@
     try {
       bucketInfo=db.uniqueResultEscape(bucketInfos);
     }
- catch (    NoSuchElementException e) {
+ catch (    TransactionException e) {
       bucketInfo=null;
     }
-catch (    TransactionException e) {
-      LOG.error("Transaction error looking up bucket: " + bucketName,e);
-      throw new NoSuchBucketException(e);
+    if (bucketInfo == null) {
+      throw new NoSuchBucketException(bucketName);
     }
-    if (bucketInfo != null) {
+ else {
       BucketLogData logData=bucketInfo.getLoggingEnabled() ? request.getLogData() : null;
       EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
       if (bucketInfo.isVersioningEnabled()) {
@@ -103,15 +102,16 @@ catch (        EucalyptusCloudException ex) {
         }
       }
     }
- else {
-      throw new NoSuchBucketException(bucketName);
-    }
     db.commit();
     reply.setStatus(HttpResponseStatus.NO_CONTENT);
     reply.setStatusMessage("NO CONTENT");
     return reply;
   }
- catch (  EucalyptusCloudException e) {
+ catch (  WalrusException e) {
+    LOG.debug("Replying to client with error: " + e.getCode());
+    throw e;
+  }
+catch (  EucalyptusCloudException e) {
     LOG.error("DeleteObject operation for " + bucketName + "/"+ objectKey+ " failed with: "+ e.getMessage());
     throw new InternalErrorException(e);
   }
