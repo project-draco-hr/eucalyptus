@@ -1,41 +1,41 @@
 {
-  EntityTransaction tran=Entities.get(ObjectInfo.class);
+  EntityTransaction osgTran=Entities.get(ObjectEntity.class);
   try {
-    List<ObjectInfo> walrusObjects=Entities.query(new ObjectInfo());
-    if (walrusObjects != null && !walrusObjects.isEmpty()) {
-      for (      ObjectInfo walrusObject : walrusObjects) {
-        try {
-          if (walrusObject.getDeleted() != null && walrusObject.getDeleted()) {
-            LOG.info("Removing delete marker from Walrus for object " + walrusObject.getObjectKey() + " in bucket "+ walrusObject.getBucketName()+ " with version ID "+ walrusObject.getVersionId());
-            Entities.delete(walrusObject);
-            continue;
+    List<ObjectEntity> osgObjects=Entities.query(new ObjectEntity());
+    if (osgObjects != null && osgObjects.isEmpty()) {
+      EntityTransaction walrusTran=Entities.get(ObjectInfo.class);
+      try {
+        List<ObjectInfo> walrusObjects=Entities.query(new ObjectInfo(),Boolean.TRUE);
+        if (walrusObjects != null && !walrusObjects.isEmpty()) {
+          for (          ObjectEntity osgObject : Lists.transform(walrusObjects,objectTransformationFunction())) {
+            Entities.persist(osgObject);
           }
-          walrusObject.setObjectKey(walrusObject.getObjectName());
-          walrusObject.setVersionId(WalrusProperties.NULL_VERSION_ID);
-          walrusObject.setLast(Boolean.TRUE);
-          walrusObject.setOwnerId(getEucalyptusAccount().getAccountNumber());
-          walrusObject.resetGlobalGrants();
-          List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-          GrantInfo.setFullControl(walrusObject.getOwnerId(),grantInfos);
-          walrusObject.setGrants(grantInfos);
         }
- catch (        Exception e) {
-          LOG.error("Failed to modify Walrus object " + walrusObject.getObjectKey(),e);
-          throw e;
+ else {
+        }
+        walrusTran.commit();
+      }
+ catch (      Exception e) {
+        walrusTran.rollback();
+        throw e;
+      }
+ finally {
+        if (walrusTran.isActive()) {
+          walrusTran.commit();
         }
       }
     }
  else {
     }
-    tran.commit();
+    osgTran.commit();
   }
  catch (  Exception e) {
-    tran.rollback();
+    osgTran.rollback();
     throw e;
   }
  finally {
-    if (tran.isActive()) {
-      tran.commit();
+    if (osgTran.isActive()) {
+      osgTran.commit();
     }
   }
 }
