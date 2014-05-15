@@ -1,6 +1,7 @@
 {
   validateInput();
   loadTransferConfig();
+  SnapshotProgressCallback progressCallback=new SnapshotProgressCallback(snapshotId);
   Boolean error=Boolean.FALSE;
   ArrayBlockingQueue<SnapshotPart> partQueue=null;
   SnapshotPart part=null;
@@ -14,6 +15,7 @@
   int len;
   int partNumber=1;
   try {
+    Long uncompressedSize=getFileSize(sourceFileName);
     snapUploadInfo=SnapshotUploadInfo.create(snapshotId,bucketName,keyName);
     Path zipFilePath=Files.createTempFile(keyName + '-','-' + String.valueOf(partNumber));
     part=SnapshotPart.createPart(snapUploadInfo,zipFilePath.toString(),partNumber,readOffset);
@@ -42,11 +44,12 @@
           }
  else {
             LOG.info("Uploading snapshot " + snapshotId + " to objectstorage using multipart upload");
-            uploadId=initiateMulitpartUpload();
+            progressCallback.setUploadSize(uncompressedSize);
+            uploadId=initiateMulitpartUpload(uncompressedSize);
             snapUploadInfo=snapUploadInfo.updateUploadId(uploadId);
             part=part.updateStateCreated(uploadId,bytesWritten,bytesRead,Boolean.FALSE);
             partQueue=new ArrayBlockingQueue<SnapshotPart>(queueSize);
-            uploadPartsFuture=Threads.enqueue(serviceConfig,UploadPartTask.class,poolSize,new UploadPartTask(partQueue,new SnapshotProgressCallback(snapshotId,sourceFileName)));
+            uploadPartsFuture=Threads.enqueue(serviceConfig,UploadPartTask.class,poolSize,new UploadPartTask(partQueue,progressCallback));
           }
           if (uploadPartsFuture != null && uploadPartsFuture.isDone()) {
             throw new SnapshotUploadPartException("Error uploading parts, aborting part creation process. Check previous log messages for the exact error");
@@ -97,7 +100,7 @@
  else {
       try {
         LOG.info("Uploading snapshot " + snapshotId + " to objectstorage as a single object. Compressed size of snapshot ("+ bytesWritten+ " bytes) is less than minimum part size ("+ partSize+ " bytes) for multipart upload");
-        PutObjectResult putResult=uploadSnapshotAsSingleObject(zipFilePath.toString(),bytesWritten);
+        PutObjectResult putResult=uploadSnapshotAsSingleObject(zipFilePath.toString(),bytesWritten,uncompressedSize,progressCallback);
         markSnapshotAvailable();
         try {
           part=part.updateStateUploaded(putResult.getETag());
