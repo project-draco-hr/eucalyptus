@@ -52,6 +52,33 @@
     }
   }
 ;
+  final Function<String,AccessKey> LookupAccessKey=new Function<String,AccessKey>(){
+    @Override public AccessKey apply(    final String policySignature){
+      try {
+        final List<AccessKey> keys=ctx.getUser().getKeys();
+        AccessKey keyForSign=null;
+        final Mac hmac=Mac.getInstance("HmacSHA1");
+        for (        final AccessKey key : keys) {
+          hmac.init(new SecretKeySpec(key.getSecretKey().getBytes("UTF-8"),"HmacSHA1"));
+          final String sig=B64.standard.encString(hmac.doFinal(request.getUploadPolicy().getBytes("UTF-8")));
+          if (sig.equals(policySignature)) {
+            keyForSign=key;
+            break;
+          }
+        }
+        return keyForSign;
+      }
+ catch (      final Exception ex) {
+        LOG.warn("Failed to generate upload policy signature",ex);
+        return null;
+      }
+    }
+  }
+;
+  final AccessKey accessKeyForPolicySignature=LookupAccessKey.apply(request.getUploadPolicySignature());
+  if (accessKeyForPolicySignature == null) {
+    throw new ComputeException("InternalError","Error processing request: unable to find the access key signed the upload policy");
+  }
   VmInstance bundledVm=Entities.asTransaction(VmInstance.class,bundleFunc).apply(instanceId);
   try {
     ServiceConfiguration cluster=Topology.lookup(ClusterController.class,bundledVm.lookupPartition());
@@ -60,7 +87,7 @@
         setInstanceId(request.getInstanceId());
         setBucket(request.getBucket());
         setPrefix(request.getPrefix());
-        setAwsAccessKeyId(request.getAwsAccessKeyId());
+        setAwsAccessKeyId(accessKeyForPolicySignature.getAccessKey());
         setUploadPolicy(request.getUploadPolicy());
         setUploadPolicySignature(request.getUploadPolicySignature());
         setUrl(request.getUrl());
