@@ -3,31 +3,32 @@
   Callable<Object> call=new Callable<Object>(){
     @Override public Object call(){
       try {
-        TimeUnit.SECONDS.sleep(backoff);
         return RunChecks.INSTANCE.call();
       }
- catch (      InterruptedException ex) {
-        return Exceptions.maybeInterrupted(ex);
-      }
- finally {
+  finally {
         busy.set(false);
       }
     }
   }
 ;
-  if (Hosts.isCoordinator() && busy.compareAndSet(false,true)) {
+  if (busy.compareAndSet(false,true)) {
     try {
-      Queue.INTERNAL.enqueue(call);
+      TimeUnit.SECONDS.sleep(backoff);
     }
- catch (    Exception ex) {
+ catch (    InterruptedException ex) {
       busy.set(false);
+      return;
     }
-  }
- else   if (counter.incrementAndGet() % 5 == 0 && busy.compareAndSet(false,true)) {
-    try {
-      Queue.INTERNAL.enqueue(call);
+    if (lock.writeLock().tryLock() && (Hosts.isCoordinator() || counter.incrementAndGet() % 5 == 0)) {
+      lock.writeLock().unlock();
+      try {
+        Queue.INTERNAL.enqueue(call);
+      }
+ catch (      Exception ex) {
+        busy.set(false);
+      }
     }
- catch (    Exception ex) {
+ else {
       busy.set(false);
     }
   }
