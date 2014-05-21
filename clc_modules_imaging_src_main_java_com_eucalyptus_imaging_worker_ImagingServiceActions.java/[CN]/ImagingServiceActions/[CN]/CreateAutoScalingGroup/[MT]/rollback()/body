@@ -15,11 +15,43 @@
       ;
     }
     try {
-      EucalyptusActivityTasks.getInstance().deleteAutoScalingGroup(this.createdAutoScalingGroup,true);
+      EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(this.createdAutoScalingGroup,null,0);
     }
  catch (    final Exception ex) {
-      throw new ImagingServiceActionException("failed to delete autoscaling group",ex);
+      LOG.warn(String.format("Unable to set desired capacity for %s",this.createdAutoScalingGroup),ex);
     }
+    boolean error=false;
+    final int NUM_DELETE_ASG_RETRY=4;
+    for (int i=0; i < NUM_DELETE_ASG_RETRY; i++) {
+      try {
+        EucalyptusActivityTasks.getInstance().deleteAutoScalingGroup(this.createdAutoScalingGroup,true);
+        boolean asgFound=false;
+        try {
+          final DescribeAutoScalingGroupsResponseType resp=EucalyptusActivityTasks.getInstance().describeAutoScalingGroups(Lists.newArrayList(this.createdAutoScalingGroup));
+          for (          final AutoScalingGroupType asg : resp.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember()) {
+            if (this.createdAutoScalingGroup.equals(asg.getAutoScalingGroupName()))             asgFound=true;
+          }
+        }
+ catch (        final Exception ex) {
+          asgFound=false;
+        }
+        if (asgFound)         throw new Exception("Autoscaling group was not deleted");
+        error=false;
+      }
+ catch (      final Exception ex) {
+        error=true;
+        LOG.warn(String.format("Failed to delete autoscale group (%d'th attempt): %s",(i + 1),this.createdAutoScalingGroup));
+        try {
+          long sleepMs=(i + 1) * 500;
+          Thread.sleep(sleepMs);
+        }
+ catch (        final Exception ex2) {
+          ;
+        }
+      }
+      if (!error)       break;
+    }
+    if (error)     throw new ImagingServiceActionException("Failed to delete autoscaling group");
     do {
       final List<String> terminated=Lists.newArrayList();
       for (      final String instanceId : instances) {
