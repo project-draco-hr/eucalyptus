@@ -1,5 +1,26 @@
 {
   logRequest(request);
+  int maxParts=ObjectStorageProperties.MAX_KEYS;
+  if (!Strings.isNullOrEmpty(request.getMaxParts())) {
+    try {
+      maxParts=Integer.parseInt(request.getMaxParts());
+      if (maxParts < 0 || maxParts > ObjectStorageProperties.MAX_KEYS) {
+        throw new InvalidArgumentException("max-parts");
+      }
+    }
+ catch (    NumberFormatException e) {
+      throw new InvalidArgumentException("max-parts");
+    }
+  }
+  int partNumberMarker=0;
+  if (!Strings.isNullOrEmpty(request.getPartNumberMarker())) {
+    try {
+      partNumberMarker=Integer.parseInt(request.getPartNumberMarker());
+    }
+ catch (    NumberFormatException e) {
+      throw new InvalidArgumentException("part-number-marker");
+    }
+  }
   ListPartsResponseType reply=request.getReply();
   String bucketName=request.getBucket();
   String objectKey=request.getKey();
@@ -15,45 +36,31 @@ catch (  Exception e) {
     throw new InternalErrorException(e.getMessage());
   }
   try {
-    objectEntity=ObjectMetadataManagers.getInstance().lookupUpload(bucket,request.getUploadId());
+    objectEntity=ObjectMetadataManagers.getInstance().lookupUpload(bucket,request.getKey(),request.getUploadId());
   }
  catch (  NoSuchElementException e) {
-    throw new NoSuchKeyException(request.getBucket() + "/" + request.getKey());
+    throw new NoSuchUploadException(request.getUploadId());
   }
 catch (  Exception e) {
     throw new InternalErrorException(e.getMessage());
   }
   if (OsgAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,0)) {
-    int maxParts=1000;
     try {
-      if (request.getMaxParts() != null) {
-        maxParts=request.getMaxParts();
-      }
-    }
- catch (    NumberFormatException e) {
-      LOG.error("Failed to parse max parts from request properly: " + request.getMaxParts(),e);
-      throw new InvalidArgumentException("maxParts");
-    }
-    try {
-      Initiator initiator=new Initiator(objectEntity.getOwnerIamUserId(),objectEntity.getOwnerIamUserDisplayName());
-      reply.setInitiator(initiator);
-      CanonicalUser owner=new CanonicalUser(objectEntity.getOwnerCanonicalId(),objectEntity.getOwnerDisplayName());
-      reply.setOwner(owner);
+      PaginatedResult<PartEntity> result=MpuPartMetadataManagers.getInstance().listPartsForUpload(bucket,objectKey,request.getUploadId(),partNumberMarker,maxParts);
       reply.setStorageClass(objectEntity.getStorageClass());
-      reply.setPartNumberMarker(request.getPartNumberMarker());
-      reply.setMaxParts(request.getMaxParts());
+      reply.setPartNumberMarker(partNumberMarker);
+      reply.setMaxParts(maxParts);
       reply.setBucket(bucketName);
       reply.setKey(objectKey);
       reply.setUploadId(request.getUploadId());
-    }
- catch (    Exception e) {
-      throw new NoSuchUploadException(request.getUploadId());
-    }
-    try {
-      PaginatedResult<PartEntity> result=MpuPartMetadataManagers.getInstance().listPartsForUpload(bucket,objectKey,request.getUploadId(),request.getPartNumberMarker(),maxParts);
       reply.setIsTruncated(result.getIsTruncated());
+      reply.setInitiator(new Initiator(Accounts.getUserArn(Accounts.lookupUserById(objectEntity.getOwnerIamUserId())),objectEntity.getOwnerIamUserDisplayName()));
+      reply.setOwner(new CanonicalUser(objectEntity.getOwnerCanonicalId(),objectEntity.getOwnerDisplayName()));
       if (result.getLastEntry() instanceof PartEntity) {
         reply.setNextPartNumberMarker(((PartEntity)result.getLastEntry()).getPartNumber());
+      }
+ else {
+        reply.setNextPartNumberMarker(0);
       }
       for (      PartEntity entity : result.getEntityList()) {
         List<Part> replyParts=reply.getParts();
