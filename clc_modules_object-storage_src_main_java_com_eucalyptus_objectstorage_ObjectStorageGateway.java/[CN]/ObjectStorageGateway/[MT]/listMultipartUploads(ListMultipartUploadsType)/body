@@ -1,49 +1,55 @@
 {
   Bucket bucket=getBucketAndCheckAuthorization(request);
   int maxUploads=ObjectStorageProperties.MAX_KEYS;
-  try {
-    if (request.getMaxUploads() != null) {
-      maxUploads=request.getMaxUploads();
+  if (!Strings.isNullOrEmpty(request.getMaxUploads())) {
+    try {
+      maxUploads=Integer.parseInt(request.getMaxUploads());
+      if (maxUploads < 0 || maxUploads > ObjectStorageProperties.MAX_KEYS) {
+        throw new InvalidArgumentException("max-uploads");
+      }
     }
-  }
- catch (  NumberFormatException e) {
-    LOG.error("Failed to parse max uploads from request properly: " + request.getMaxUploads(),e);
-    throw new InvalidArgumentException("MaxKeys");
+ catch (    NumberFormatException e) {
+      throw new InvalidArgumentException("max-uploads");
+    }
   }
   ListMultipartUploadsResponseType reply=request.getReply();
   reply.setMaxUploads(maxUploads);
   reply.setBucket(request.getBucket());
   reply.setDelimiter(request.getDelimiter());
-  reply.setKeyMarker(request.getKeyMarker());
+  reply.setKeyMarker(request.getKeyMarker() != null ? request.getKeyMarker() : "");
+  reply.setUploadIdMarker(request.getUploadIdMarker() != null ? request.getUploadIdMarker() : "");
   reply.setPrefix(request.getPrefix());
   reply.setIsTruncated(false);
+  reply.setNextKeyMarker("");
+  reply.setNextUploadIdMarker("");
   PaginatedResult<ObjectEntity> result;
   try {
     result=ObjectMetadataManagers.getInstance().listUploads(bucket,maxUploads,request.getPrefix(),request.getDelimiter(),request.getKeyMarker(),request.getUploadIdMarker());
+    if (result != null) {
+      reply.setUploads(new ArrayList<Upload>());
+      for (      ObjectEntity obj : result.getEntityList()) {
+        reply.getUploads().add(new Upload(obj.getObjectKey(),obj.getUploadId(),new Initiator(Accounts.getUserArn(Accounts.lookupUserById(obj.getOwnerIamUserId())),obj.getOwnerIamUserDisplayName()),new CanonicalUser(obj.getOwnerCanonicalId(),obj.getOwnerDisplayName()),obj.getStorageClass(),obj.getCreationTimestamp()));
+      }
+      if (result.getCommonPrefixes() != null && result.getCommonPrefixes().size() > 0) {
+        reply.setCommonPrefixes(new ArrayList<CommonPrefixesEntry>());
+        for (        String s : result.getCommonPrefixes()) {
+          reply.getCommonPrefixes().add(new CommonPrefixesEntry(s));
+        }
+      }
+      reply.setIsTruncated(result.isTruncated);
+      if (result.getLastEntry() instanceof ObjectEntity) {
+        reply.setNextKeyMarker(((ObjectEntity)result.getLastEntry()).getObjectKey());
+        reply.setNextUploadIdMarker(((ObjectEntity)result.getLastEntry()).getUploadId());
+      }
+ else {
+        reply.setNextKeyMarker("");
+        reply.setNextUploadIdMarker("");
+      }
+    }
   }
  catch (  Exception e) {
     LOG.error("Error getting object listing for bucket: " + request.getBucket(),e);
     throw new InternalErrorException(request.getBucket());
-  }
-  if (result != null) {
-    reply.setUploads(new ArrayList<Upload>());
-    for (    ObjectEntity obj : result.getEntityList()) {
-      reply.getUploads().add(new Upload(obj.getObjectKey(),obj.getUploadId(),new Initiator(obj.getOwnerIamUserId(),obj.getOwnerIamUserDisplayName()),new CanonicalUser(obj.getOwnerCanonicalId(),obj.getOwnerDisplayName()),obj.getStorageClass(),obj.getCreationTimestamp()));
-    }
-    if (result.getCommonPrefixes() != null && result.getCommonPrefixes().size() > 0) {
-      reply.setCommonPrefixes(new ArrayList<CommonPrefixesEntry>());
-      for (      String s : result.getCommonPrefixes()) {
-        reply.getCommonPrefixes().add(new CommonPrefixesEntry(s));
-      }
-    }
-    reply.setIsTruncated(result.isTruncated);
-    if (result.getLastEntry() instanceof ObjectEntity) {
-      reply.setNextKeyMarker(((ObjectEntity)result.getLastEntry()).getObjectKey());
-      reply.setNextUploadIdMarker(((ObjectEntity)result.getLastEntry()).getUploadId());
-    }
- else {
-      reply.setNextKeyMarker((result.getLastEntry() != null ? result.getLastEntry().toString() : ""));
-    }
   }
   return reply;
 }
