@@ -1,0 +1,50 @@
+{
+  try {
+    List<ChunkedInput> dataStreams=new ArrayList<>();
+    isCompressed=isCompressed == null ? false : isCompressed;
+    Long requestedSize=byteRangeEnd - byteRangeStart + 1;
+    Iterator<PartInfo> partIterator=parts.iterator();
+    PartInfo part=null;
+    Long rangeElapsed=-1L;
+    Long startMarker=0L;
+    while (partIterator.hasNext()) {
+      part=partIterator.next();
+      rangeElapsed+=part.getSize();
+      if (byteRangeStart <= rangeElapsed) {
+        startMarker=part.getSize() - (rangeElapsed - byteRangeStart + 1);
+        break;
+      }
+    }
+    Long bytesRead=0L;
+    Long tempLength=0L;
+    do {
+      if (part == null & partIterator.hasNext()) {
+        part=partIterator.next();
+      }
+      final ChunkedInput file;
+      RandomAccessFile raf=new RandomAccessFile(new File(getObjectPath(part.getBucketName(),part.getObjectName())),"r");
+      if (requestedSize > ((part.getSize() - startMarker) + bytesRead)) {
+        tempLength=part.getSize() - startMarker;
+      }
+ else {
+        tempLength=requestedSize - bytesRead;
+      }
+      if (isCompressed) {
+        file=new CompressedChunkedFile(raf,startMarker,tempLength,(int)Math.min(tempLength,8192));
+      }
+ else {
+        file=new ChunkedDataFile(raf,startMarker,tempLength,(int)Math.min(tempLength,8192));
+      }
+      dataStreams.add(file);
+      bytesRead=bytesRead + tempLength;
+      startMarker=0L;
+      tempLength=0L;
+      part=null;
+    }
+ while (bytesRead < requestedSize && partIterator.hasNext());
+    reply.setDataInputStream(dataStreams);
+  }
+ catch (  IOException ex) {
+    throw new WalrusException(ex.getMessage());
+  }
+}
