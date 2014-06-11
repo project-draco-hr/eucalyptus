@@ -8,7 +8,7 @@
     throw new NoSuchBucketException(request.getBucket());
   }
 catch (  Exception e) {
-    throw new InternalErrorException();
+    throw new InternalErrorException("Error during bucket lookup: " + request.getBucket(),e);
   }
   ObjectEntity objectEntity;
   User requestUser=Contexts.lookup().getUser();
@@ -19,10 +19,13 @@ catch (  Exception e) {
     throw new NoSuchUploadException(request.getUploadId());
   }
 catch (  Exception e) {
-    throw new InternalErrorException("Cannot get size for uploaded parts for: " + bucket.getBucketName() + "/"+ request.getKey());
+    throw new InternalErrorException("Error during upload lookup: " + request.getBucket() + "/"+ request.getKey()+ "?uploadId="+ request.getUploadId(),e);
   }
   long newBucketSize=bucket.getBucketSize() == null ? 0 : bucket.getBucketSize();
   if (OsgAuthorizationHandler.getInstance().operationAllowed(request,bucket,objectEntity,newBucketSize)) {
+    if (request.getParts() == null || request.getParts().isEmpty()) {
+      throw new InvalidRequestException(request.getBucket() + "/" + request.getKey()+ "?uploadId="+ request.getUploadId(),"You must specify at least one part");
+    }
     try {
       ObjectEntity completedEntity=OsgObjectFactory.getFactory().completeMultipartUpload(ospClient,objectEntity,request.getParts(),requestUser);
       try {
@@ -40,9 +43,12 @@ catch (  Exception e) {
       response.setKey(request.getKey());
       return response;
     }
- catch (    Exception e) {
+ catch (    S3Exception e) {
+      throw e;
+    }
+catch (    Exception e) {
       LOG.warn("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with 500 InternalError because of:",e);
-      throw new InternalErrorException(objectEntity.getResourceFullName(),e);
+      throw new InternalErrorException(request.getBucket() + "/" + request.getKey()+ "?uploadId="+ request.getUploadId(),e);
     }
   }
  else {
