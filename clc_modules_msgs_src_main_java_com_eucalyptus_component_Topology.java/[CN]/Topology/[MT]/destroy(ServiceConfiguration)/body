@@ -45,19 +45,31 @@
     Logs.extreme().debug(ex,ex);
   }
   if (Hosts.isCoordinator()) {
-    DestroyServiceType msg=new DestroyServiceType();
     try {
-      msg.getServices().add(TypeMappers.transform(config,ServiceId.class));
+      final ServiceId service=TypeMappers.transform(config,ServiceId.class);
+      final List<CheckedListenableFuture<?>> futures=Lists.newArrayList();
       for (      Host h : Hosts.list()) {
         if (!h.isLocalHost() && h.hasBootstrapped()) {
           try {
-            AsyncRequests.sendSync(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE,h.getBindAddress()),msg);
+            DestroyServiceType msg=new DestroyServiceType();
+            msg.getServices().add(service);
+            futures.add(AsyncRequests.dispatch(ServiceConfigurations.createEphemeral(Empyrean.INSTANCE,h.getBindAddress()),msg));
           }
  catch (          Exception ex) {
             Exceptions.maybeInterrupted(ex);
             LOG.error(ex);
             Logs.extreme().debug(ex,ex);
           }
+        }
+      }
+      for (      CheckedListenableFuture<?> future : futures) {
+        try {
+          future.get();
+        }
+ catch (        Exception ex) {
+          Exceptions.maybeInterrupted(ex);
+          LOG.error(ex);
+          Logs.extreme().debug(ex,ex);
         }
       }
     }
