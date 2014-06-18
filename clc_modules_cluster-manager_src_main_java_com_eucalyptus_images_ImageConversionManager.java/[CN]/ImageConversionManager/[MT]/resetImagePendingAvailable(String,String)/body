@@ -1,0 +1,33 @@
+{
+  String taskMessage="";
+  try {
+    final ImageInfo image=Images.lookupImage(imageId);
+    final String taskId=((MachineImageInfo)image).getImageConversionId();
+    if (taskId != null) {
+      conversionTaskCache.invalidate(taskId);
+      Optional<DiskImageConversionTask> task=conversionTaskCache.get(taskId);
+      if (task.isPresent())       taskMessage=task.get().getStatusMessage();
+    }
+    final String tagMessage=reason != null ? reason : taskMessage;
+    this.tagResources(imageId,"failed",tagMessage);
+  }
+ catch (  final Exception ex) {
+    ;
+  }
+ finally {
+    taggedImages.remove(imageId);
+  }
+  try (final TransactionResource db=Entities.transactionFor(ImageInfo.class)){
+    try {
+      final ImageInfo entity=Entities.uniqueResult(Images.exampleWithImageId(imageId));
+      entity.setState(ImageMetadata.State.pending_available);
+      entity.setImageFormat(ImageMetadata.ImageFormat.partitioned.name());
+      ((MachineImageInfo)entity).setImageConversionId(null);
+      Entities.persist(entity);
+      db.commit();
+    }
+ catch (    final Exception ex) {
+      LOG.error("Failed to mark the image state available for conversion: " + imageId,ex);
+    }
+  }
+ }
