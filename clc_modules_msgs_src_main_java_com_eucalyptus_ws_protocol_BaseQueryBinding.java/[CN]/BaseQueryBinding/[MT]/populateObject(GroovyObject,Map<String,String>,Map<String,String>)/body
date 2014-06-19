@@ -12,9 +12,11 @@
     }
   }
   for (  final Map.Entry<String,String> e : paramFieldMap.entrySet()) {
+    Field field=null;
     Class<?> declaredType=null;
     try {
-      declaredType=getRecursiveField(obj.getClass(),e.getValue()).getType();
+      field=getRecursiveField(obj.getClass(),e.getValue());
+      declaredType=field.getType();
     }
  catch (    final Exception e2) {
       LOG.debug("Field not found: " + e.getValue(),e2);
@@ -26,11 +28,20 @@
       try {
         final Map<String,String> fieldMap=this.buildFieldMap(declaredType);
         final Object newInstance=declaredType.newInstance();
-        final Map<String,String> subParams=Maps.newHashMap();
-        for (        final String item : Sets.newHashSet(params.keySet())) {
-          if (item.startsWith(e.getKey())) {
-            params.get(item);
-            subParams.put(item.replace(e.getKey() + ".",""),params.remove(item));
+        Map<String,String> subParams=Maps.newHashMap();
+        HttpEmbedded httpEmbedded=null;
+        if (field != null && (field.isAnnotationPresent(HttpEmbedded.class) || field.isAnnotationPresent(HttpEmbeddeds.class))) {
+          httpEmbedded=getHttpEmbeddedAnnotation(field);
+        }
+        if (httpEmbedded != null && !httpEmbedded.multiple()) {
+          subParams=params;
+        }
+ else {
+          for (          final String item : Sets.newHashSet(params.keySet())) {
+            if (item.startsWith(e.getKey())) {
+              params.get(item);
+              subParams.put(item.replace(e.getKey() + ".",""),params.remove(item));
+            }
           }
         }
         this.populateObject((GroovyObject)newInstance,fieldMap,subParams);
