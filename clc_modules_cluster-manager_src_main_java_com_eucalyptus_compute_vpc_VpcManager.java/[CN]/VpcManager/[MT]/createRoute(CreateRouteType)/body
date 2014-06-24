@@ -1,4 +1,32 @@
 {
-  CreateRouteResponseType reply=request.getReply();
+  final CreateRouteResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final String gatewayId=Identifier.igw.normalize(request.getGatewayId());
+  final String routeTableId=Identifier.rtb.normalize(request.getRouteTableId());
+  final Supplier<Route> allocator=transactional(new Supplier<Route>(){
+    @Override public Route get(){
+      try {
+        final InternetGateway internetGateway=internetGateways.lookupByName(accountFullName,gatewayId,Functions.<InternetGateway>identity());
+        routeTables.updateByExample(RouteTable.exampleWithName(accountFullName,routeTableId),accountFullName,request.getRouteTableId(),new Callback<RouteTable>(){
+          @Override public void fire(          final RouteTable routeTable){
+            routeTable.getRoutes().add(Route.create(routeTable,Route.RouteOrigin.CreateRoute,request.getDestinationCidrBlock(),internetGateway));
+          }
+        }
+);
+        return null;
+      }
+ catch (      Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    }
+  }
+);
+  try {
+    allocator.get();
+  }
+ catch (  Exception e) {
+    handleException(e);
+  }
   return reply;
 }

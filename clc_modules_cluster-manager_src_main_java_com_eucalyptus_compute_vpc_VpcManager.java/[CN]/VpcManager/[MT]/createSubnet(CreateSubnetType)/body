@@ -1,4 +1,22 @@
 {
-  CreateSubnetResponseType reply=request.getReply();
+  final CreateSubnetResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final String vpcId=Identifier.vpc.normalize(request.getVpcId());
+  final Supplier<Subnet> allocator=new Supplier<Subnet>(){
+    @Override public Subnet get(){
+      try {
+        final Vpc vpc=vpcs.lookupByName(accountFullName,vpcId,Functions.<Vpc>identity());
+        final NetworkAcl networkAcl=networkAcls.lookupDefault(vpc.getDisplayName(),Functions.<NetworkAcl>identity());
+        final RouteTable routeTable=routeTables.lookupMain(vpc.getDisplayName(),Functions.<RouteTable>identity());
+        return subnets.save(Subnet.create(ctx.getUserFullName(),vpc,networkAcl,routeTable,Identifier.subnet.generate(),request.getCidrBlock(),request.getAvailabilityZone()));
+      }
+ catch (      Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    }
+  }
+;
+  reply.setSubnet(allocate(allocator,Subnet.class,SubnetType.class));
   return reply;
 }

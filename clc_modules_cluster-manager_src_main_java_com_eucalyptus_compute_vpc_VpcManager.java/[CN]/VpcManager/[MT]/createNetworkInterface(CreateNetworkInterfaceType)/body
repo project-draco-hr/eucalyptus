@@ -1,4 +1,27 @@
 {
-  CreateNetworkInterfaceResponseType reply=request.getReply();
+  final CreateNetworkInterfaceResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final String subnetId=Identifier.subnet.normalize(request.getSubnetId());
+  final Supplier<NetworkInterface> allocator=new Supplier<NetworkInterface>(){
+    @Override public NetworkInterface get(){
+      try {
+        final Subnet subnet=subnets.lookupByName(accountFullName,subnetId,Functions.<Subnet>identity());
+        final Vpc vpc=subnet.getVpc();
+        final String identifier=Identifier.eni.generate();
+        final String privateIp=request.getPrivateIpAddress();
+        if (privateIp == null) {
+          throw new ClientComputeException(" InvalidParameterValue","Private IP address is required");
+        }
+        final String mac=String.format("d0:0d:%s:%s:%s:%s",identifier.substring(4,6),identifier.substring(6,8),identifier.substring(8,10),identifier.substring(10,12));
+        return networkInterfaces.save(NetworkInterface.create(ctx.getUserFullName(),vpc,subnet,identifier,mac,privateIp,request.getDescription()));
+      }
+ catch (      Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    }
+  }
+;
+  reply.setNetworkInterface(allocate(allocator,NetworkInterface.class,NetworkInterfaceType.class));
   return reply;
 }

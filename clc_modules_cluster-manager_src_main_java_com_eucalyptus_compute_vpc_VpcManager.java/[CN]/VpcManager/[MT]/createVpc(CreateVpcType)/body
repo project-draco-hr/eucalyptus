@@ -1,4 +1,29 @@
 {
-  CreateVpcResponseType reply=request.getReply();
+  final CreateVpcResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final UserFullName userFullName=ctx.getUserFullName();
+  final AccountFullName accountFullName=userFullName.asAccountFullName();
+  final Supplier<Vpc> allocator=new Supplier<Vpc>(){
+    @Override public Vpc get(){
+      try {
+        DhcpOptionSet options;
+        try {
+          options=dhcpOptionSets.lookupByExample(DhcpOptionSet.exampleDefault(accountFullName),accountFullName,"default",Predicates.alwaysTrue(),Functions.<DhcpOptionSet>identity());
+        }
+ catch (        VpcMetadataNotFoundException e) {
+          options=dhcpOptionSets.save(DhcpOptionSet.createDefault(userFullName,Identifier.dopt.generate()));
+        }
+        final Vpc vpc=vpcs.save(Vpc.create(userFullName,Identifier.vpc.generate(),options,request.getCidrBlock(),false));
+        routeTables.save(RouteTable.create(userFullName,vpc,Identifier.rtb.generate(),vpc.getCidr(),true));
+        networkAcls.save(NetworkAcl.create(userFullName,vpc,Identifier.acl.generate(),true));
+        return vpc;
+      }
+ catch (      Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    }
+  }
+;
+  reply.setVpc(allocate(allocator,Vpc.class,VpcType.class));
   return reply;
 }
