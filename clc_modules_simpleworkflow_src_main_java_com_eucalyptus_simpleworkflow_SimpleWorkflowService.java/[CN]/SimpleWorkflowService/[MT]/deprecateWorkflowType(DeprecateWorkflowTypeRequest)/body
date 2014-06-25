@@ -1,0 +1,26 @@
+{
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final Predicate<? super WorkflowType> accessible=SimpleWorkflowMetadatas.filteringFor(WorkflowType.class).byPrivileges().buildPredicate();
+  try {
+    workflowTypes.updateByExample(WorkflowType.exampleWithUniqueName(accountFullName,request.getDomain(),request.getWorkflowType().getName(),request.getWorkflowType().getVersion()),accountFullName,request.getWorkflowType().getName(),new Callback<WorkflowType>(){
+      @Override public void fire(      final WorkflowType workflowType){
+        if (accessible.apply(workflowType)) {
+          if (workflowType.getState() == WorkflowType.Status.Deprecated) {
+            throw Exceptions.toUndeclared(new SimpleWorkflowClientException("TypeDeprecatedFault","Workflow type already deprecated: " + request.getWorkflowType().getName()));
+          }
+          workflowType.setState(WorkflowType.Status.Deprecated);
+          workflowType.setDeprecationTimestamp(new Date());
+        }
+      }
+    }
+);
+  }
+ catch (  SwfMetadataNotFoundException e) {
+    throw new SimpleWorkflowClientException("UnknownResourceFault","Workflow type not found: " + request.getWorkflowType().getName());
+  }
+catch (  Exception e) {
+    throw handleException(e);
+  }
+  return request.reply(new SimpleWorkflowMessage());
+}

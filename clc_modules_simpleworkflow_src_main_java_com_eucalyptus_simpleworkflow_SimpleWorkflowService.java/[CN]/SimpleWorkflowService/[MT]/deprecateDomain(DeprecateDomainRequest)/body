@@ -1,0 +1,25 @@
+{
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final Predicate<? super Domain> accessible=SimpleWorkflowMetadatas.filteringFor(Domain.class).byPrivileges().buildPredicate();
+  try {
+    domains.updateByExample(Domain.exampleWithName(accountFullName,request.getName()),accountFullName,request.getName(),new Callback<Domain>(){
+      @Override public void fire(      final Domain domain){
+        if (accessible.apply(domain)) {
+          if (domain.getState() == Domain.Status.Deprecated) {
+            throw Exceptions.toUndeclared(new SimpleWorkflowClientException("DomainDeprecatedFault","Domain already deprecated: " + request.getName()));
+          }
+          domain.setState(Domain.Status.Deprecated);
+        }
+      }
+    }
+);
+  }
+ catch (  SwfMetadataNotFoundException e) {
+    throw new SimpleWorkflowClientException("UnknownResourceFault","Domain not found: " + request.getName());
+  }
+catch (  Exception e) {
+    throw handleException(e);
+  }
+  return request.reply(new SimpleWorkflowMessage());
+}

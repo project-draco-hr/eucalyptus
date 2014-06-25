@@ -1,0 +1,27 @@
+{
+  if (event.getMessage() instanceof MappingHttpResponse) {
+    MappingHttpResponse httpResponse=(MappingHttpResponse)event.getMessage();
+    ByteArrayOutputStream byteOut=new ByteArrayOutputStream(8192);
+    if (httpResponse.getMessage() instanceof EucalyptusErrorMessageType) {
+      httpResponse.setStatus(HttpResponseStatus.BAD_REQUEST);
+    }
+ else     if (httpResponse.getMessage() instanceof ExceptionResponseType) {
+      ExceptionResponseType msg=(ExceptionResponseType)httpResponse.getMessage();
+      httpResponse.setStatus(msg.getHttpStatus());
+    }
+ else     if (httpResponse.getMessage() != null) {
+      final Object message=httpResponse.getMessage();
+      if (message instanceof SimpleWorkflowMessage) {
+        httpResponse.addHeader("x-amzn-RequestId",((SimpleWorkflowMessage)message).getCorrelationId());
+        if (!SimpleWorkflowMessage.class.equals(message.getClass())) {
+          mapper.writeValue(byteOut,message);
+        }
+      }
+    }
+    byte[] req=byteOut.toByteArray();
+    ChannelBuffer buffer=ChannelBuffers.wrappedBuffer(req);
+    httpResponse.addHeader(HttpHeaders.Names.CONTENT_LENGTH,String.valueOf(buffer.readableBytes()));
+    httpResponse.addHeader(HttpHeaders.Names.CONTENT_TYPE,"application/json");
+    httpResponse.setContent(buffer);
+  }
+}

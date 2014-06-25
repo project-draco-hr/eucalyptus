@@ -1,0 +1,32 @@
+{
+  final String target=Objects.toString(httpRequest.getHeader("X-Amz-Target"),"");
+  final String simpleClassName;
+  if (target.startsWith("SimpleWorkflowService.")) {
+    simpleClassName=target.substring(22) + "Request";
+  }
+ else {
+    throw new BindingException("Unable to get action from target header: " + target);
+  }
+  final ChannelBuffer buffer=httpRequest.getContent();
+  buffer.markReaderIndex();
+  byte[] read=new byte[buffer.readableBytes()];
+  buffer.readBytes(read);
+  final String content=new String(read,Charsets.UTF_8);
+  buffer.resetReaderIndex();
+  final BaseMessage message;
+  try {
+    message=mapper.readValue(new StringReader(content){
+      @Override public String toString(){
+        return "message";
+      }
+    }
+,(Class<? extends BaseMessage>)Class.forName(SimpleWorkflowMessage.class.getPackage().getName() + "." + simpleClassName));
+  }
+ catch (  JsonProcessingException e) {
+    throw new BindingException(e.getMessage());
+  }
+catch (  ClassNotFoundException e) {
+    throw new BindingException("Binding not found for target: " + target);
+  }
+  return message;
+}
