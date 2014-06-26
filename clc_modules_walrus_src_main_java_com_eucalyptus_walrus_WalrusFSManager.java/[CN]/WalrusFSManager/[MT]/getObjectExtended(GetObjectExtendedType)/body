@@ -11,130 +11,118 @@
   if (getData == null) {
     getData=false;
   }
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  BucketInfo bucketInfo=new BucketInfo(bucketName);
-  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
-  if (bucketList.size() > 0) {
-    BucketInfo bucket=bucketList.get(0);
-    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
-    boolean versioning=false;
-    if (bucket.isVersioningEnabled()) {
-      versioning=true;
-    }
-    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
-    List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
-    if (objectInfos.size() > 0) {
-      ObjectInfo objectInfo=objectInfos.get(0);
-      String etag=objectInfo.getEtag();
-      String objectName=objectInfo.getObjectName();
-      Long byteRangeStart=request.getByteRangeStart();
-      Long byteRangeEnd=request.getByteRangeEnd();
-      DefaultHttpResponse httpResponse=null;
-      if (byteRangeStart != null || byteRangeEnd != null) {
-        httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.PARTIAL_CONTENT);
-      }
- else {
-        httpResponse=new DefaultHttpResponse(HttpVersion.HTTP_1_1,HttpResponseStatus.OK);
-      }
-      if (byteRangeStart == null) {
-        byteRangeStart=0L;
-      }
-      if (byteRangeEnd == null) {
-        byteRangeEnd=-1L;
-      }
-      if (byteRangeEnd == -1 || (byteRangeEnd + 1) > objectInfo.getSize()) {
-        byteRangeEnd=objectInfo.getSize() - 1;
-      }
-      if ((byteRangeStart > objectInfo.getSize()) || (byteRangeStart > byteRangeEnd) || (byteRangeStart < 0 || byteRangeEnd < 0)) {
-        db.rollback();
-        throw new InvalidRangeException("Range: " + byteRangeStart + "-"+ byteRangeEnd+ "object: "+ bucketName+ "/"+ objectKey);
-      }
-      if (ifMatch != null) {
-        if (!ifMatch.equals(etag) && !returnCompleteObjectOnFailure) {
-          db.rollback();
-          throw new PreconditionFailedException(objectKey + " etag: " + etag);
-        }
-      }
-      if (ifNoneMatch != null) {
-        if (ifNoneMatch.equals(etag) && !returnCompleteObjectOnFailure) {
-          db.rollback();
-          throw new NotModifiedException(objectKey + " ETag: " + etag);
-        }
-      }
-      Date lastModified=objectInfo.getLastModified();
-      if (ifModifiedSince != null) {
-        if ((ifModifiedSince.getTime() >= lastModified.getTime()) && !returnCompleteObjectOnFailure) {
-          db.rollback();
-          throw new NotModifiedException(objectKey + " LastModified: " + lastModified.toString());
-        }
-      }
-      if (ifUnmodifiedSince != null) {
-        if ((ifUnmodifiedSince.getTime() < lastModified.getTime()) && !returnCompleteObjectOnFailure) {
-          db.rollback();
-          throw new PreconditionFailedException(objectKey + " lastModified: " + lastModified.toString());
-        }
-      }
-      if (request.getGetMetaData()) {
-        ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
-        List<MetaDataInfo> metaDataInfos=objectInfo.getMetaData();
-        for (        MetaDataInfo metaDataInfo : metaDataInfos) {
-          metaData.add(new MetaDataEntry(metaDataInfo.getName(),metaDataInfo.getValue()));
-        }
-        reply.setMetaData(metaData);
-      }
-      Long size=byteRangeEnd - byteRangeStart + 1;
-      String contentType=objectInfo.getContentType();
-      String contentDisposition=objectInfo.getContentDisposition();
-      db.commit();
-      if (logData != null) {
-        updateLogData(bucket,logData);
-        logData.setObjectSize(size);
-      }
-      String versionId=null;
-      if (versioning) {
-        versionId=objectInfo.getVersionId() != null ? objectInfo.getVersionId() : WalrusProperties.NULL_VERSION_ID;
-      }
-      if (request.getGetData()) {
-        if (objectInfo.isMultipart()) {
-          List<PartInfo> parts=getOrderedListOfParts(objectInfo);
-          storageManager.getMultipartObject(reply,parts,request.getIsCompressed(),byteRangeStart,byteRangeEnd);
-        }
- else {
-          storageManager.getObject(bucketName,objectName,reply,byteRangeStart,byteRangeEnd + 1,request.getIsCompressed());
-        }
-      }
-      reply.setEtag(etag);
-      reply.setLastModified(lastModified);
-      reply.setSize(size);
-      reply.setContentType(contentType);
-      reply.setContentDisposition(contentDisposition);
-      reply.setByteRangeStart(byteRangeStart);
-      reply.setByteRangeEnd(byteRangeEnd);
-      reply.setVersionId(versionId);
-      Status status=new Status();
-      status.setCode(200);
-      status.setDescription("OK");
-      reply.setStatus(status);
-      return reply;
-    }
- else {
-      db.rollback();
-      if (getData) {
-        throw new NoSuchEntityException(objectKey);
-      }
- else {
-        throw new HeadNoSuchEntityException(objectKey);
-      }
-    }
+  try {
+    Transactions.find(new BucketInfo(bucketName));
   }
- else {
-    db.rollback();
+ catch (  NoSuchElementException e) {
     if (getData) {
       throw new NoSuchBucketException(bucketName);
     }
  else {
       throw new HeadNoSuchBucketException(bucketName);
     }
+  }
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for bucket=" + bucketName,e);
+    throw new InternalErrorException("Failed to lookup bucket " + bucketName,e);
+  }
+  ObjectInfo objectInfo=null;
+  try (TransactionResource tr=Entities.transactionFor(ObjectInfo.class)){
+    objectInfo=Entities.uniqueResult(new ObjectInfo(bucketName,objectKey));
+    objectInfo.getMetaData();
+    if (objectInfo.getMetaData() != null) {
+      objectInfo.getMetaData().size();
+    }
+    tr.commit();
+  }
+ catch (  NoSuchElementException e) {
+    if (getData) {
+      throw new NoSuchEntityException(objectKey);
+    }
+ else {
+      throw new HeadNoSuchEntityException(objectKey);
+    }
+  }
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for object-key=" + objectKey + ", bucket="+ bucketName,e);
+    throw new InternalErrorException("Failed to look up metadata for object-key=" + objectKey + ", bucket="+ bucketName,e);
+  }
+  try {
+    String etag=objectInfo.getEtag();
+    String objectName=objectInfo.getObjectName();
+    Long byteRangeStart=request.getByteRangeStart();
+    Long byteRangeEnd=request.getByteRangeEnd();
+    if (byteRangeStart == null) {
+      byteRangeStart=0L;
+    }
+    if (byteRangeEnd == null) {
+      byteRangeEnd=-1L;
+    }
+    if (byteRangeEnd == -1 || (byteRangeEnd + 1) > objectInfo.getSize()) {
+      byteRangeEnd=objectInfo.getSize() - 1;
+    }
+    if ((byteRangeStart > objectInfo.getSize()) || (byteRangeStart > byteRangeEnd) || (byteRangeStart < 0 || byteRangeEnd < 0)) {
+      throw new InvalidRangeException("Range: " + byteRangeStart + "-"+ byteRangeEnd+ "object: "+ bucketName+ "/"+ objectKey);
+    }
+    if (ifMatch != null) {
+      if (!ifMatch.equals(etag) && !returnCompleteObjectOnFailure) {
+        throw new PreconditionFailedException(objectKey + " etag: " + etag);
+      }
+    }
+    if (ifNoneMatch != null) {
+      if (ifNoneMatch.equals(etag) && !returnCompleteObjectOnFailure) {
+        throw new NotModifiedException(objectKey + " ETag: " + etag);
+      }
+    }
+    Date lastModified=objectInfo.getLastModified();
+    if (ifModifiedSince != null) {
+      if ((ifModifiedSince.getTime() >= lastModified.getTime()) && !returnCompleteObjectOnFailure) {
+        throw new NotModifiedException(objectKey + " LastModified: " + lastModified.toString());
+      }
+    }
+    if (ifUnmodifiedSince != null) {
+      if ((ifUnmodifiedSince.getTime() < lastModified.getTime()) && !returnCompleteObjectOnFailure) {
+        throw new PreconditionFailedException(objectKey + " lastModified: " + lastModified.toString());
+      }
+    }
+    if (request.getGetMetaData() && objectInfo.getMetaData() != null) {
+      ArrayList<MetaDataEntry> metaData=new ArrayList<MetaDataEntry>();
+      for (      MetaDataInfo metaDataInfo : objectInfo.getMetaData()) {
+        metaData.add(new MetaDataEntry(metaDataInfo.getName(),metaDataInfo.getValue()));
+      }
+      reply.setMetaData(metaData);
+    }
+    Long size=byteRangeEnd - byteRangeStart + 1;
+    String contentType=objectInfo.getContentType();
+    String contentDisposition=objectInfo.getContentDisposition();
+    if (request.getGetData()) {
+      if (objectInfo.isMultipart()) {
+        List<PartInfo> parts=getOrderedListOfParts(objectInfo);
+        storageManager.getMultipartObject(reply,parts,request.getIsCompressed(),byteRangeStart,byteRangeEnd);
+      }
+ else {
+        storageManager.getObject(bucketName,objectName,reply,byteRangeStart,byteRangeEnd + 1,request.getIsCompressed());
+      }
+    }
+    reply.setEtag(etag);
+    reply.setLastModified(lastModified);
+    reply.setSize(size);
+    reply.setContentType(contentType);
+    reply.setContentDisposition(contentDisposition);
+    reply.setByteRangeStart(byteRangeStart);
+    reply.setByteRangeEnd(byteRangeEnd);
+    reply.setVersionId(WalrusProperties.NULL_VERSION_ID);
+    Status status=new Status();
+    status.setCode(200);
+    status.setDescription("OK");
+    reply.setStatus(status);
+    return reply;
+  }
+ catch (  WalrusException e) {
+    throw e;
+  }
+catch (  Exception e) {
+    LOG.error("Failed to perform get extended operation for object-key=" + objectKey + ", bucket="+ bucketName,e);
+    throw new InternalErrorException("Failed to perform get extended operation for object-key=" + objectKey + ", bucket="+ bucketName,e);
   }
 }

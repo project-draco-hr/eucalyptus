@@ -1,35 +1,15 @@
 {
   GetBucketLoggingStatusResponseType reply=(GetBucketLoggingStatusResponseType)request.getReply();
-  String bucket=request.getBucket();
-  Context ctx=Contexts.lookup();
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
+  String bucketName=request.getBucket();
   try {
-    BucketInfo bucketInfo=db.getUniqueEscape(new BucketInfo(bucket));
-    if (bucketInfo.getLoggingEnabled()) {
-      String targetBucket=bucketInfo.getTargetBucket();
-      ArrayList<Grant> grants=new ArrayList<Grant>();
-      try {
-        BucketInfo targetBucketInfo=db.getUniqueEscape(new BucketInfo(targetBucket));
-        List<GrantInfo> grantInfos=targetBucketInfo.getGrants();
-        addGrants(grants,grantInfos);
-      }
- catch (      EucalyptusCloudException ex) {
-        db.rollback();
-        throw new InvalidTargetBucketForLoggingException(targetBucket);
-      }
-      LoggingEnabled loggingEnabled=new LoggingEnabled();
-      loggingEnabled.setTargetBucket(bucketInfo.getTargetBucket());
-      loggingEnabled.setTargetPrefix(bucketInfo.getTargetPrefix());
-      TargetGrants targetGrants=new TargetGrants();
-      targetGrants.setGrants(grants);
-      loggingEnabled.setTargetGrants(targetGrants);
-      reply.setLoggingEnabled(loggingEnabled);
-    }
+    Transactions.find(new BucketInfo(bucketName));
   }
- catch (  EucalyptusCloudException ex) {
-    db.rollback();
-    throw new NoSuchBucketException(bucket);
+ catch (  NoSuchElementException e) {
+    throw new NoSuchBucketException(bucketName);
   }
-  db.commit();
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for bucket=" + bucketName,e);
+    throw new InternalErrorException("Failed to lookup bucket " + bucketName,e);
+  }
   return reply;
 }

@@ -1,42 +1,31 @@
 {
   InitiateMultipartUploadResponseType reply=(InitiateMultipartUploadResponseType)request.getReply();
-  Context ctx=Contexts.lookup();
-  Account account=ctx.getAccount();
   String bucketName=request.getBucket();
   String objectKey=request.getKey();
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  BucketInfo bucketInfo=new BucketInfo(bucketName);
-  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
-  if (bucketList.size() > 0) {
-    BucketInfo bucket=bucketList.get(0);
-    AccessControlList accessControlList=request.getAccessControlList();
-    if (accessControlList == null) {
-      accessControlList=new AccessControlList();
-    }
-    EntityWrapper<PartInfo> dbPart=db.recast(PartInfo.class);
-    PartInfo manifest=PartInfo.create(bucketName,objectKey,account);
-    manifest.setStorageClass("STANDARD");
-    manifest.setContentEncoding(request.getContentEncoding());
-    manifest.setContentType(request.getContentType());
-    List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-    manifest.addGrants(account.getAccountNumber(),bucket.getOwnerId(),grantInfos,accessControlList);
-    manifest.setGrants(grantInfos);
-    manifest.replaceMetaData(request.getMetaData());
-    manifest.setObjectName(null);
-    dbPart.add(manifest);
-    try {
-      dbPart.commit();
-    }
- catch (    RollbackException ex) {
-      dbPart.rollback();
-      LOG.error("Error comitting new object entity to database",ex);
-    }
-    reply.setUploadId(manifest.getUploadId());
+  try {
+    Transactions.find(new BucketInfo(bucketName));
   }
- else {
-    db.rollback();
+ catch (  NoSuchElementException e) {
     throw new NoSuchBucketException(bucketName);
   }
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for bucket=" + bucketName,e);
+    throw new InternalErrorException("Failed to lookup bucket " + bucketName,e);
+  }
+  PartInfo manifest=PartInfo.generateManifest(bucketName,objectKey);
+  manifest.setStorageClass("STANDARD");
+  manifest.setContentEncoding(request.getContentEncoding());
+  manifest.setContentType(request.getContentType());
+  manifest.replaceMetaData(request.getMetaData());
+  manifest.setObjectName(null);
+  try {
+    manifest=Transactions.saveDirect(manifest);
+  }
+ catch (  Exception e) {
+    LOG.error("Failed to save part manifest metatdata for object-key=" + objectKey + ", bucket="+ bucketName,e);
+    throw new InternalErrorException("Failed to save part manifest metatdata for object-key=" + objectKey + ", bucket="+ bucketName,e);
+  }
+  reply.setUploadId(manifest.getUploadId());
   reply.setBucket(bucketName);
   reply.setKey(objectKey);
   return reply;

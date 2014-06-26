@@ -1,153 +1,131 @@
 {
   CompleteMultipartUploadResponseType reply=(CompleteMultipartUploadResponseType)request.getReply();
-  Context ctx=Contexts.lookup();
-  Account account=ctx.getAccount();
   String bucketName=request.getBucket();
   String objectKey=request.getKey();
+  String uploadId=request.getUploadId();
   List<Part> requestParts=request.getParts();
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  BucketInfo bucketInfo=new BucketInfo(bucketName);
-  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
-  if (bucketList.size() > 0) {
-    BucketInfo bucket=bucketList.get(0);
-    try {
-      PartInfo searchManifest=new PartInfo(bucketName,objectKey);
-      searchManifest.setUploadId(request.getUploadId());
-      searchManifest.setCleanup(Boolean.FALSE);
-      EntityWrapper<PartInfo> dbPart=db.recast(PartInfo.class);
-      Criteria partCriteria=dbPart.createCriteria(PartInfo.class);
-      partCriteria.add(Example.create(searchManifest));
-      partCriteria.add(Restrictions.isNull("partNumber"));
-      List<PartInfo> found=partCriteria.list();
-      if (found.size() == 0) {
-        db.rollback();
-        throw new NoSuchUploadException(request.getUploadId());
-      }
-      if (found.size() > 1) {
-        db.rollback();
-        throw new InternalErrorException("Multiple manifests found for same uploadId: " + request.getUploadId());
-      }
-      PartInfo foundManifest=found.get(0);
-      if (foundManifest != null) {
-        long oldBucketSize=0L;
-        long oldObjectSize=0L;
-        String versionId=null;
-        if (bucket.isVersioningEnabled()) {
-          versionId=foundManifest.getVersionId();
-        }
- else {
-          versionId=WalrusProperties.NULL_VERSION_ID;
-          ObjectInfo searchObject=new ObjectInfo(bucketName,objectKey);
-          searchObject.setVersionId(versionId);
-          EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-          try {
-            ObjectInfo foundObject=dbObject.getUniqueEscape(searchObject);
-            if (!foundObject.canWrite(account.getAccountNumber())) {
-              db.rollback();
-              throw new AccessDeniedException("Key",objectKey);
-            }
-            if (foundManifest.getGrants().size() > 0 && (!foundObject.canWriteACP(account.getAccountNumber()))) {
-              db.rollback();
-              throw new AccessDeniedException("Key",objectKey);
-            }
-            oldObjectSize=foundObject.getSize() == null ? 0L : foundObject.getSize();
-            oldBucketSize=-oldObjectSize;
-          }
- catch (          AccessDeniedException ex) {
-            throw ex;
-          }
-catch (          EucalyptusCloudException ex) {
-          }
-        }
-        PartInfo searchPart=new PartInfo(bucketName,objectKey);
-        searchPart.setUploadId(request.getUploadId());
-        partCriteria=dbPart.createCriteria(PartInfo.class);
-        partCriteria.add(Example.create(searchManifest));
-        partCriteria.add(Restrictions.isNotNull("partNumber"));
-        List<PartInfo> foundParts=partCriteria.list();
-        String eTagString="";
-        long size=0;
-        if (foundParts != null && foundParts.size() > 0) {
-          if (requestParts != null && requestParts.size() > foundParts.size()) {
-            throw new InternalErrorException("One or more parts has not been uploaded yet. Either upload the part or fix the manifest. Upload Id: " + request.getUploadId());
-          }
- else {
-            Map<Integer,PartInfo> partsMap=new HashMap<Integer,PartInfo>(foundParts.size());
-            for (            PartInfo foundPart : foundParts) {
-              partsMap.put(foundPart.getPartNumber(),foundPart);
-            }
-            PartInfo lookupPart=null;
-            for (            Part requestPart : requestParts) {
-              if ((lookupPart=partsMap.get(requestPart.getPartNumber())) != null) {
-                lookupPart.setCleanup(Boolean.FALSE);
-                eTagString+=lookupPart.getEtag();
-                size+=lookupPart.getSize();
-                partsMap.remove(lookupPart.getPartNumber());
-              }
- else {
-                throw new InvalidPartException("Part Number: " + requestPart.getPartNumber() + " upload id: "+ request.getUploadId());
-              }
-            }
-            MessageDigest digest=Digest.MD5.get();
-            digest.update(eTagString.getBytes());
-            final String eTag="uuid-" + Hashes.bytesToHex(digest.digest());
-            foundManifest.setEtag(eTag);
-            foundManifest.setCleanup(Boolean.FALSE);
-            if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
-              LOG.error("Quota exceeded for WalrusBackend putObject");
-              throw new EntityTooLargeException("Key",objectKey);
-            }
-            ObjectInfo objectInfo=new ObjectInfo(bucketName,objectKey);
-            objectInfo.setOwnerId(account.getAccountNumber());
-            objectInfo.setCleanup(false);
-            objectInfo.setEtag(eTag);
-            objectInfo.setUploadId(foundManifest.getUploadId());
-            objectInfo.setDeleted(false);
-            objectInfo.setSize(size);
-            objectInfo.setLastModified(new Date());
-            objectInfo.setVersionId(versionId);
-            objectInfo.setStorageClass(foundManifest.getStorageClass());
-            objectInfo.setContentDisposition(foundManifest.getContentDisposition());
-            objectInfo.setContentType(foundManifest.getContentType());
-            objectInfo.setLast(true);
-            objectInfo.setDeleted(false);
-            objectInfo.updateGrants(foundManifest);
-            objectInfo.setMetaData(foundManifest.cloneMetaData());
-            objectInfo.setLastModified(new Date());
-            EntityWrapper<ObjectInfo> dbOject=db.recast(ObjectInfo.class);
-            dbOject.add(objectInfo);
-            Set<Integer> keys=partsMap.keySet();
-            for (            Integer key : keys) {
-              partsMap.get(key).markForCleanup();
-            }
-            db.commit();
-            reply.setEtag(foundManifest.getEtag());
-            reply.setLocation("WalrusBackend" + foundManifest.getBucketName() + "/"+ foundManifest.getObjectKey());
-            reply.setBucket(foundManifest.getBucketName());
-            reply.setKey(foundManifest.getObjectKey());
-            reply.setLastModified(objectInfo.getLastModified());
-            firePartsCleanupTask(foundManifest.getBucketName(),request.getKey(),request.getUploadId());
-          }
-        }
- else {
-          throw new InvalidPartException("No parts found for: " + request.getUploadId());
-        }
-      }
- else {
-        throw new NoSuchUploadException(request.getUploadId());
-      }
-    }
- catch (    Exception ex) {
-      db.rollback();
-      throw new InternalErrorException(ex);
-    }
+  try {
+    Transactions.find(new BucketInfo(bucketName));
   }
- else {
-    db.rollback();
+ catch (  NoSuchElementException e) {
     throw new NoSuchBucketException(bucketName);
   }
-  reply.setLocation(request.getBucket() + '/' + request.getKey());
-  reply.setBucket(request.getBucket());
-  reply.setKey(request.getKey());
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for bucket=" + bucketName,e);
+    throw new InternalErrorException("Failed to lookup bucket " + bucketName,e);
+  }
+  if (requestParts == null || requestParts.isEmpty()) {
+    throw new InvalidArgumentException("List of parts cannot be emtpy");
+  }
+  PartInfo manifest=null;
+  List<PartInfo> foundParts=null;
+  long size=0;
+  Date lastModified=null;
+  String eTag=new String();
+  String eTagString=new String();
+  String prevObjectName=null;
+  try (TransactionResource tr=Entities.transactionFor(PartInfo.class)){
+    PartInfo search=new PartInfo(bucketName,objectKey,uploadId);
+    Criteria manifestCriteria=Entities.createCriteria(PartInfo.class);
+    manifestCriteria.add(Example.create(search));
+    manifestCriteria.add(Restrictions.isNull("partNumber"));
+    manifestCriteria.add(Restrictions.isNull("cleanup"));
+    List<PartInfo> foundManifests=manifestCriteria.list();
+    if (foundManifests == null || foundManifests.size() != 1) {
+      if (foundManifests == null) {
+        throw new InternalErrorException("Got invalid metadata");
+      }
+ else       if (foundManifests.size() < 1) {
+        throw new NoSuchUploadException("Multipart upload ID is invalid");
+      }
+ else {
+        throw new InternalErrorException("Multiple manifests found for same uploadId");
+      }
+    }
+ else {
+      manifest=foundManifests.get(0);
+      if (manifest.getMetaData() != null) {
+        manifest.getMetaData().size();
+      }
+    }
+    Criteria partCriteria=Entities.createCriteria(PartInfo.class);
+    partCriteria.add(Example.create(search));
+    partCriteria.add(Restrictions.isNotNull("partNumber"));
+    foundParts=partCriteria.list();
+    if (foundParts == null || foundParts.isEmpty()) {
+      throw new InvalidPartException("No parts uploaded for upload-Id=" + request.getUploadId());
+    }
+ else {
+    }
+    if (requestParts.size() > foundParts.size()) {
+      throw new InvalidArgumentException("Number of parts in the manifest is greater than the number of parts uploaded. Upload Id: " + request.getUploadId());
+    }
+    Map<Integer,PartInfo> partsMap=new HashMap<Integer,PartInfo>(foundParts.size());
+    for (    PartInfo foundPart : foundParts) {
+      partsMap.put(foundPart.getPartNumber(),foundPart);
+    }
+    PartInfo include=null;
+    for (    Part requestPart : requestParts) {
+      if ((include=partsMap.remove(requestPart.getPartNumber())) != null) {
+        eTagString+=include.getEtag();
+        size+=include.getSize();
+        include.setCleanup(Boolean.FALSE);
+      }
+ else {
+        throw new InvalidPartException("Part Number: " + requestPart.getPartNumber() + " upload id: "+ request.getUploadId());
+      }
+    }
+    manifest.setCleanup(Boolean.FALSE);
+    for (    PartInfo excluded : partsMap.values()) {
+      excluded.setCleanup(Boolean.TRUE);
+    }
+    tr.commit();
+  }
+ catch (  WalrusException e) {
+    throw e;
+  }
+catch (  Exception e) {
+    LOG.error("Failed to process part metadata for upload-id=" + uploadId + ", object-key="+ objectKey+ ", bucket="+ bucketName,e);
+    throw new InternalErrorException("Failed to process part metadata for upload-id=" + uploadId + ", object-key="+ objectKey+ ", bucket="+ bucketName,e);
+  }
+  MessageDigest digest=Digest.MD5.get();
+  digest.update(eTagString.getBytes());
+  eTag="uuid-" + Hashes.bytesToHex(digest.digest());
+  lastModified=new Date();
+  try (TransactionResource tr=Entities.transactionFor(ObjectInfo.class)){
+    ObjectInfo objectInfo=null;
+    try {
+      objectInfo=Entities.uniqueResult(new ObjectInfo(bucketName,objectKey));
+      prevObjectName=objectInfo.getObjectName();
+    }
+ catch (    NoSuchElementException e) {
+      objectInfo=Entities.persist(new ObjectInfo(bucketName,objectKey));
+    }
+    objectInfo.setUploadId(uploadId);
+    objectInfo.setEtag(eTag);
+    objectInfo.setSize(size);
+    objectInfo.setLastModified(lastModified);
+    objectInfo.setStorageClass(manifest.getStorageClass());
+    objectInfo.setContentDisposition(manifest.getContentDisposition());
+    objectInfo.setContentType(manifest.getContentType());
+    objectInfo.setMetaData(manifest.cloneMetaData());
+    objectInfo.setObjectName(null);
+    tr.commit();
+  }
+ catch (  Exception e) {
+    LOG.error("Failed to process metadata for upload-id=" + uploadId + ", object-key="+ objectKey+ ", bucket="+ bucketName,e);
+    throw new InternalErrorException("Failed to process metadata for upload-id=" + uploadId + ", object-key="+ objectKey+ ", bucket="+ bucketName,e);
+  }
+  firePartsCleanupTask(bucketName,objectKey,uploadId);
+  if (prevObjectName != null) {
+    ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,prevObjectName,null,null);
+    Threads.lookup(WalrusBackend.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
+  }
+  reply.setEtag(eTag);
+  reply.setLastModified(lastModified);
+  reply.setLocation("WalrusBackend" + bucketName + "/"+ objectKey);
+  reply.setBucket(bucketName);
+  reply.setKey(objectKey);
+  reply.setVersionId(WalrusProperties.NULL_VERSION_ID);
   return reply;
 }

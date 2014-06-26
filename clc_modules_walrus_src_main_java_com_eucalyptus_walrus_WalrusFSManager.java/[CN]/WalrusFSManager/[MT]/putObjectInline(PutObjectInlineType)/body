@@ -1,117 +1,78 @@
 {
   PutObjectInlineResponseType reply=(PutObjectInlineResponseType)request.getReply();
-  Context ctx=Contexts.lookup();
-  Account account=ctx.getAccount();
   String bucketName=request.getBucket();
   String objectKey=request.getKey();
-  String md5="";
-  Long oldBucketSize=0L;
-  Date lastModified;
-  AccessControlList accessControlList=request.getAccessControlList();
-  if (accessControlList == null) {
-    accessControlList=new AccessControlList();
+  try {
+    Transactions.find(new BucketInfo(bucketName));
   }
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  BucketInfo bucketInfo=new BucketInfo(bucketName);
-  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
-  if (bucketList.size() > 0) {
-    BucketInfo bucket=bucketList.get(0);
-    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
-    long objSize=0;
+ catch (  NoSuchElementException e) {
+    throw new NoSuchBucketException(bucketName);
+  }
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for bucket=" + bucketName,e);
+    throw new InternalErrorException("Failed to lookup bucket " + bucketName,e);
+  }
+  long size=0;
+  Date lastModified=null;
+  String md5=new String();
+  String prevObjectName=null;
+  String objectName=UUID.randomUUID().toString();
+  try {
+    if (request.getBase64Data().getBytes().length > WalrusProperties.MAX_INLINE_DATA_SIZE) {
+      throw new InlineDataTooLargeException(bucketName + "/" + objectKey);
+    }
+    byte[] base64Data=Hashes.base64decode(request.getBase64Data()).getBytes();
+    size=(long)base64Data.length;
     try {
-      objSize=Long.valueOf(request.getContentLength());
-    }
- catch (    NumberFormatException e) {
-      LOG.error("Invalid content length " + request.getContentLength());
-      objSize=1L;
-    }
-    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-    ObjectInfo searchObjectInfo=new ObjectInfo();
-    searchObjectInfo.setBucketName(bucketName);
-    ObjectInfo foundObject=null;
-    List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
-    for (    ObjectInfo objectInfo : objectInfos) {
-      if (objectInfo.getObjectKey().equals(objectKey)) {
-        if (!objectInfo.canWrite(account.getAccountNumber())) {
-          db.rollback();
-          throw new AccessDeniedException("Key",objectKey,logData);
-        }
-        foundObject=objectInfo;
-        oldBucketSize=-foundObject.getSize();
-        break;
-      }
-    }
-    String objectName;
-    Long oldObjectSize=0L;
-    if (foundObject == null) {
-      foundObject=new ObjectInfo(bucketName,objectKey);
-      foundObject.setOwnerId(account.getAccountNumber());
-      List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-      foundObject.addGrants(account.getAccountNumber(),bucket.getOwnerId(),grantInfos,accessControlList);
-      foundObject.setGrants(grantInfos);
-      objectName=UUID.randomUUID().toString();
-      foundObject.setObjectName(objectName);
-      dbObject.add(foundObject);
-    }
- else {
-      if (ctx.hasAdministrativePrivileges() || foundObject.canWriteACP(account.getAccountNumber())) {
-        List<GrantInfo> grantInfos=foundObject.getGrants();
-        foundObject.addGrants(account.getAccountNumber(),bucket.getOwnerId(),grantInfos,accessControlList);
-      }
-      objectName=foundObject.getObjectName();
-      oldObjectSize=foundObject.getSize();
-    }
-    foundObject.setObjectKey(objectKey);
-    try {
-      if (request.getBase64Data().getBytes().length > WalrusProperties.MAX_INLINE_DATA_SIZE) {
-        db.rollback();
-        throw new InlineDataTooLargeException(bucketName + "/" + objectKey);
-      }
-      byte[] base64Data=Hashes.base64decode(request.getBase64Data()).getBytes();
-      foundObject.setObjectName(objectName);
-      Long size=(long)base64Data.length;
-      if (!ctx.hasAdministrativePrivileges() && !Permissions.canAllocate(PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_OBJECT,bucketName,PolicySpec.S3_PUTOBJECT,ctx.getUser(),oldBucketSize + size)) {
-        db.rollback();
-        LOG.error("Quota exceeded in WalrusBackend putObject");
-        throw new EntityTooLargeException("Key",objectKey,logData);
-      }
-      boolean success=true;
-      try {
-        FileIO fileIO=storageManager.prepareForWrite(bucketName,objectName);
-        if (fileIO != null) {
-          fileIO.write(base64Data);
-          fileIO.finish();
-        }
-      }
- catch (      Exception ex) {
-        db.rollback();
-        throw new AccessDeniedException(ex);
-      }
-      md5=Hashes.getHexString(Digest.MD5.get().digest(base64Data));
-      foundObject.setEtag(md5);
-      foundObject.setSize(size);
-      if (request.getMetaData() != null)       foundObject.replaceMetaData(request.getMetaData());
-      foundObject.setStorageClass("STANDARD");
-      lastModified=new Date();
-      foundObject.setLastModified(lastModified);
-      if (logData != null) {
-        updateLogData(bucket,logData);
-        logData.setObjectSize(size);
-        reply.setLogData(logData);
+      FileIO fileIO=storageManager.prepareForWrite(bucketName,objectName);
+      if (fileIO != null) {
+        fileIO.write(base64Data);
+        fileIO.finish();
       }
     }
  catch (    Exception ex) {
-      LOG.error(ex);
-      db.rollback();
-      throw new InternalErrorException(bucketName);
+      throw new AccessDeniedException(ex);
+    }
+    md5=Hashes.getHexString(Digest.MD5.get().digest(base64Data));
+    lastModified=new Date();
+    try (TransactionResource tr=Entities.transactionFor(ObjectInfo.class)){
+      ObjectInfo objectInfo=null;
+      try {
+        objectInfo=Entities.uniqueResult(new ObjectInfo(bucketName,objectKey));
+        prevObjectName=objectInfo.getObjectName();
+      }
+ catch (      NoSuchElementException e) {
+        objectInfo=Entities.persist(new ObjectInfo(bucketName,objectKey));
+      }
+      objectInfo.setEtag(md5);
+      objectInfo.setSize(size);
+      objectInfo.setLastModified(lastModified);
+      objectInfo.setObjectName(objectName);
+      objectInfo.setStorageClass("STANDARD");
+      if (request.getMetaData() != null) {
+        objectInfo.replaceMetaData(request.getMetaData());
+      }
+      tr.commit();
+    }
+ catch (    Exception e) {
+      LOG.error("Failed to update metadata for object-key=" + objectKey + ", bucket="+ bucketName,e);
+      throw new InternalErrorException("Failed to update metadata for object-key=" + objectKey + ", bucket="+ bucketName,e);
+    }
+    if (prevObjectName != null) {
+      ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,prevObjectName,null,null);
+      Threads.lookup(WalrusBackend.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
     }
   }
- else {
-    db.rollback();
-    throw new NoSuchBucketException(bucketName);
+ catch (  WalrusException e) {
+    throw e;
   }
-  db.commit();
+catch (  Exception e) {
+    LOG.error("Failed to perform put object for object-key=" + objectKey + ", bucket="+ bucketName,e);
+    throw new InternalErrorException("Failed to perform put object for object-key=" + objectKey + ", bucket="+ bucketName,e);
+  }
+  reply.setSize(size);
   reply.setEtag(md5);
   reply.setLastModified(lastModified);
+  reply.setVersionId(WalrusProperties.NULL_VERSION_ID);
   return reply;
 }

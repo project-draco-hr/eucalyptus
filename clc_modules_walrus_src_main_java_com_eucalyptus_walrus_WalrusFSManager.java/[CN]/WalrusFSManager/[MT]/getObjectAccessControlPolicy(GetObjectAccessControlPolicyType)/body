@@ -4,56 +4,26 @@
   String objectKey=request.getKey();
   Context ctx=Contexts.lookup();
   Account account=ctx.getAccount();
-  String ownerId=null;
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  BucketInfo bucketInfo=new BucketInfo(bucketName);
-  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
-  BucketLogData logData;
-  AccessControlList accessControlList=new AccessControlList();
-  if (bucketList.size() > 0) {
-    BucketInfo bucket=bucketList.get(0);
-    logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
-    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
-    searchObjectInfo.setVersionId(request.getVersionId());
-    if (request.getVersionId() == null) {
-      searchObjectInfo.setLast(true);
-    }
-    searchObjectInfo.setDeleted(false);
-    List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
-    if (objectInfos.size() > 0) {
-      ObjectInfo objectInfo=objectInfos.get(0);
-      if (logData != null) {
-        updateLogData(bucket,logData);
-        logData.setObjectSize(objectInfo.getSize());
-        reply.setLogData(logData);
-      }
-      ownerId=objectInfo.getOwnerId();
-      ArrayList<Grant> grants=new ArrayList<Grant>();
-      List<GrantInfo> grantInfos=objectInfo.getGrants();
-      objectInfo.readPermissions(grants);
-      addGrants(grants,grantInfos);
-      accessControlList.setGrants(grants);
-    }
- else {
-      db.rollback();
-      throw new NoSuchEntityException(objectKey,logData);
-    }
+  try {
+    Transactions.find(new BucketInfo(bucketName));
   }
- else {
-    db.rollback();
+ catch (  NoSuchElementException e) {
     throw new NoSuchBucketException(bucketName);
   }
-  AccessControlPolicy accessControlPolicy=new AccessControlPolicy();
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for bucket=" + bucketName,e);
+    throw new InternalErrorException("Failed to lookup bucket " + bucketName,e);
+  }
   try {
-    Account ownerInfo=Accounts.lookupAccountById(ownerId);
-    accessControlPolicy.setOwner(new CanonicalUser(ownerInfo.getCanonicalId(),ownerInfo.getName()));
-    accessControlPolicy.setAccessControlList(accessControlList);
+    Transactions.find(new ObjectInfo(bucketName,objectKey));
   }
- catch (  AuthException e) {
-    throw new AccessDeniedException("Key",objectKey,logData);
+ catch (  NoSuchElementException e) {
+    throw new NoSuchEntityException(objectKey);
   }
-  reply.setAccessControlPolicy(accessControlPolicy);
-  db.commit();
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for object-key=" + objectKey + ", bucket="+ bucketName,e);
+    throw new InternalErrorException("Failed to look up metadata for object-key=" + objectKey + ", bucket="+ bucketName,e);
+  }
+  reply.setAccessControlPolicy(getPrivateACP(account.getCanonicalId(),account.getName()));
   return reply;
 }
