@@ -1,5 +1,31 @@
 {
+  final Context ctx=Contexts.lookup();
+  final UserFullName userFullName=ctx.getUserFullName();
+  final AccountFullName accountFullName=userFullName.asAccountFullName();
+  final Predicate<? super WorkflowType> accessible=SimpleWorkflowMetadatas.filteringFor(WorkflowType.class).byPrivileges().buildPredicate();
+  final WorkflowExecution workflowExecution=allocate(new Supplier<WorkflowExecution>(){
+    @Override public WorkflowExecution get(){
+      try {
+        if (!workflowExecutions.listByExample(WorkflowExecution.exampleForOpenWorkflow(accountFullName,request.getWorkflowId()),Predicates.alwaysTrue(),Functions.identity()).isEmpty()) {
+          throw new SimpleWorkflowClientException("WorkflowExecutionAlreadyStartedFault","Workflow open with ID " + request.getWorkflowId());
+        }
+        final Domain domain=domains.lookupByName(accountFullName,request.getDomain(),Functions.<Domain>identity());
+        final WorkflowType workflowType=workflowTypes.lookupByExample(WorkflowType.exampleWithUniqueName(accountFullName,request.getDomain(),request.getWorkflowType().getName(),request.getWorkflowType().getVersion()),accountFullName,request.getWorkflowType().getName(),accessible,Functions.<WorkflowType>identity());
+        final String childPolicy=Objects.firstNonNull(request.getChildPolicy(),workflowType.getDefaultChildPolicy());
+        final String taskList=request.getTaskList() == null ? workflowType.getDefaultTaskList() : request.getTaskList().getName();
+        final Integer executionStartToCloseTimeout=Objects.firstNonNull(parsePeriod(request.getExecutionStartToCloseTimeout()),workflowType.getDefaultExecutionStartToCloseTimeout());
+        final Integer taskStartToCloseTimeout=Objects.firstNonNull(parsePeriod(request.getTaskStartToCloseTimeout()),workflowType.getDefaultTaskStartToCloseTimeout());
+        final WorkflowExecution workflowExecution=WorkflowExecution.create(userFullName,UUID.randomUUID().toString(),domain,workflowType,request.getWorkflowId(),childPolicy,taskList,executionStartToCloseTimeout,taskStartToCloseTimeout,request.getTagList(),Lists.newArrayList(new WorkflowExecutionStartedEventAttributes().withChildPolicy(childPolicy).withExecutionStartToCloseTimeout(String.valueOf(executionStartToCloseTimeout)).withInput(request.getInput()).withParentInitiatedEventId(0L).withTaskList(new TaskList().withName(taskList)).withTagList(request.getTagList()).withTaskStartToCloseTimeout(String.valueOf(taskStartToCloseTimeout)).withWorkflowType(request.getWorkflowType()),new DecisionTaskScheduledEventAttributes().withStartToCloseTimeout(String.valueOf(taskStartToCloseTimeout)).withTaskList(request.getTaskList())));
+        return workflowExecutions.save(workflowExecution);
+      }
+ catch (      Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    }
+  }
+,WorkflowExecution.class,request.getWorkflowId());
+  longPollExit();
   final Run run=new Run();
-  run.setRunId(UUID.randomUUID().toString());
+  run.setRunId(workflowExecution.getDisplayName());
   return request.reply(run);
 }

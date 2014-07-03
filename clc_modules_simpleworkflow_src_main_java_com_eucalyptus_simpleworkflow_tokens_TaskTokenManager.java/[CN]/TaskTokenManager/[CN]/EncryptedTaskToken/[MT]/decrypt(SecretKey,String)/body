@@ -1,0 +1,24 @@
+{
+  try {
+    final Cipher cipher=Ciphers.AES_GCM.get();
+    final byte[] taskTokenBytes=B64.standard.dec(taskToken);
+    if (taskTokenBytes.length < 64 + TOKEN_PREFIX.length || !Arrays.equals(TOKEN_PREFIX,Arrays.copyOf(taskTokenBytes,TOKEN_PREFIX.length))) {
+      throw new GeneralSecurityException("Invalid token format");
+    }
+    cipher.init(Cipher.DECRYPT_MODE,key,new IvParameterSpec(taskTokenBytes,TOKEN_PREFIX.length,32),randomSupplier.get());
+    final int offset=TOKEN_PREFIX.length + 32;
+    final TaskTokenInput in=new TaskTokenInput(cipher.doFinal(taskTokenBytes,offset,taskTokenBytes.length - offset));
+    if (in.readInt() != 1)     throw new GeneralSecurityException("Invalid token format");
+    final String accountNumber=in.readString();
+    final String domainUuid=in.readString();
+    final String runId=in.readString();
+    final long scheduledEventId=in.readLong();
+    final long startedEventId=in.readLong();
+    final long created=in.readLong();
+    final long expires=in.readLong();
+    return new EncryptedTaskToken(new TaskToken(accountNumber,domainUuid,runId,scheduledEventId,startedEventId,created,expires));
+  }
+ catch (  IOException e) {
+    throw Exceptions.toUndeclared(e);
+  }
+}

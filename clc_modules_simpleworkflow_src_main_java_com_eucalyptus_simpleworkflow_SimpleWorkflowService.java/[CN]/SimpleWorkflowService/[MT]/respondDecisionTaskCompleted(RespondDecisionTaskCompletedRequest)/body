@@ -1,0 +1,57 @@
+{
+  final Context ctx=Contexts.lookup();
+  final UserFullName userFullName=ctx.getUserFullName();
+  final AccountFullName accountFullName=userFullName.asAccountFullName();
+  final Predicate<? super WorkflowExecution> accessible=SimpleWorkflowMetadatas.filteringFor(WorkflowExecution.class).byPrivileges().buildPredicate();
+  try {
+    final TaskToken token=taskTokenManager.decryptTaskToken(accountFullName.getAccountNumber(),request.getTaskToken());
+    final Domain domain=domains.lookupByExample(Domain.exampleWithUuid(accountFullName,token.getDomainUuid()),accountFullName,token.getDomainUuid(),Predicates.alwaysTrue(),Functions.<Domain>identity());
+    workflowExecutions.updateByExample(WorkflowExecution.exampleWithUniqueName(accountFullName,domain.getDisplayName(),token.getRunId()),accountFullName,token.getRunId(),new Function<WorkflowExecution,WorkflowExecution>(){
+      @Nullable @Override public WorkflowExecution apply(      final WorkflowExecution workflowExecution){
+        if (accessible.apply(workflowExecution)) {
+          final List<WorkflowHistoryEvent> events=workflowExecution.getWorkflowHistory();
+          final List<WorkflowHistoryEvent> reverseEvents=Lists.reverse(events);
+          final WorkflowHistoryEvent started=Iterables.find(reverseEvents,CollectionUtils.propertyPredicate("DecisionTaskStarted",WorkflowExecutions.WorkflowHistoryEventStringFunctions.EVENT_TYPE));
+          if (!started.getEventId().equals(token.getStartedEventId())) {
+            throw Exceptions.toUndeclared(new SimpleWorkflowClientException("ValidationError","Bad token"));
+          }
+          workflowExecution.setDecisionStatus(Idle);
+          workflowExecution.setLatestExecutionContext(request.getExecutionContext());
+          if (request.getDecisions() != null)           for (          final Decision decision : request.getDecisions()) {
+            final Long completedId=workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskCompletedEventAttributes().withExecutionContext(request.getExecutionContext()).withScheduledEventId(token.getScheduledEventId()).withStartedEventId(token.getStartedEventId())));
+switch (decision.getDecisionType()) {
+case "CompleteWorkflowExecution":
+              final CompleteWorkflowExecutionDecisionAttributes completed=decision.getCompleteWorkflowExecutionDecisionAttributes();
+            workflowExecution.setState(WorkflowExecution.ExecutionStatus.Closed);
+          workflowExecution.setCloseStatus(WorkflowExecution.CloseStatus.Completed);
+        workflowExecution.setCloseTimestamp(new Date());
+      workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionCompletedEventAttributes().withDecisionTaskCompletedEventId(completedId).withResult(completed.getResult())));
+    break;
+case "ScheduleActivityTask":
+  workflowExecution.setLatestActivityTaskScheduled(new Date());
+final ScheduleActivityTaskDecisionAttributes scheduleActivity=decision.getScheduleActivityTaskDecisionAttributes();
+final Long scheduledId=workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ActivityTaskScheduledEventAttributes().withDecisionTaskCompletedEventId(completedId).withActivityId(scheduleActivity.getActivityId()).withActivityType(scheduleActivity.getActivityType()).withControl(scheduleActivity.getControl()).withHeartbeatTimeout(scheduleActivity.getHeartbeatTimeout()).withInput(scheduleActivity.getInput()).withScheduleToCloseTimeout(scheduleActivity.getScheduleToCloseTimeout()).withScheduleToStartTimeout(scheduleActivity.getScheduleToStartTimeout()).withStartToCloseTimeout(scheduleActivity.getStartToCloseTimeout()).withTaskList(scheduleActivity.getTaskList())));
+try {
+final ActivityType activityType=activityTypes.lookupByExample(ActivityType.exampleWithUniqueName(accountFullName,domain.getDisplayName(),scheduleActivity.getActivityType().getName(),scheduleActivity.getActivityType().getVersion()),accountFullName,scheduleActivity.getActivityType().getName(),Predicates.alwaysTrue(),Functions.<ActivityType>identity());
+activityTasks.save(com.eucalyptus.simpleworkflow.ActivityTask.create(userFullName,workflowExecution,domain.getDisplayName(),scheduleActivity.getActivityId(),scheduleActivity.getActivityType().getName(),scheduleActivity.getActivityType().getVersion(),scheduleActivity.getInput(),scheduledId,scheduleActivity.getTaskList() == null ? activityType.getDefaultTaskList() : scheduleActivity.getTaskList().getName()));
+}
+ catch (Exception e) {
+throw Exceptions.toUndeclared(e);
+}
+break;
+default :
+throw Exceptions.toUndeclared(new SimpleWorkflowException("InternalFailure",Role.Receiver,"Unsupported decision type: " + decision.getDecisionType()));
+}
+}
+}
+return workflowExecution;
+}
+}
+);
+}
+ catch (Exception e) {
+throw handleException(e);
+}
+longPollExit();
+return request.reply(new SimpleWorkflowMessage());
+}
