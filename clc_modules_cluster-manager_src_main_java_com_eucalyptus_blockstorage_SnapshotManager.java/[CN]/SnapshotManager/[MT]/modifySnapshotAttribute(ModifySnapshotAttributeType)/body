@@ -1,4 +1,54 @@
 {
   ModifySnapshotAttributeResponseType reply=request.getReply();
-  return reply;
+  final Context ctx=Contexts.lookup();
+  final String snapshotId=normalizeSnapshotIdentifier(request.getSnapshotId());
+  Function<Snapshot,Boolean> modifySnapshotAttribute=Functions.forPredicate(new Predicate<Snapshot>(){
+    @Override public boolean apply(    Snapshot snap){
+      if (!State.EXTANT.equals(snap.getState()) && !State.GENERATING.equals(snap.getState())) {
+        return false;
+      }
+ else       if (!canModifySnapshot(snap)) {
+        throw Exceptions.toUndeclared(new EucalyptusCloudException("Not authorized to modify attribute for snapshot " + request.getSnapshotId() + " by "+ ctx.getUser().getName()));
+      }
+ else {
+switch (request.snapshotAttribute()) {
+case CreateVolumePermission:
+          try {
+            snap.addPermissions(verifyAccountIds(request.addUserIds()));
+          }
+ catch (          EucalyptusCloudException e) {
+            LOG.warn("Failed validating accountIds",e);
+            throw Exceptions.toUndeclared(e);
+          }
+        if (request.addGroupAll()) {
+          snap.setSnapshotPublic(true);
+        }
+      snap.removePermissions(request.removeUserIds());
+    if (request.removeGroupAll()) {
+      snap.setSnapshotPublic(false);
+    }
+  break;
+case ProductCode:
+for (String productCode : request.getProductCodes()) {
+  snap.addProductCode(productCode);
+}
+break;
+}
+return true;
+}
+}
+}
+);
+boolean result=false;
+try {
+result=Transactions.one(Snapshot.named(ctx.getUserFullName().asAccountFullName(),snapshotId),modifySnapshotAttribute);
+}
+ catch (NoSuchElementException ex2) {
+throw new ClientComputeException("InvalidSnapshot.NotFound","The snapshot '" + request.getSnapshotId() + "' does not exist.");
+}
+catch (ExecutionException ex1) {
+throw new EucalyptusCloudException(ex1.getCause());
+}
+reply.set_return(result);
+return reply;
 }
