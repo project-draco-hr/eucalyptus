@@ -1,5 +1,43 @@
 {
-  final DecisionTask decisionTask=new DecisionTask();
-  longPollSimulation();
+  final Context ctx=Contexts.lookup();
+  final UserFullName userFullName=ctx.getUserFullName();
+  final AccountFullName accountFullName=userFullName.asAccountFullName();
+  final Predicate<? super WorkflowExecution> accessible=SimpleWorkflowMetadatas.filteringFor(WorkflowExecution.class).byPrivileges().buildPredicate();
+  DecisionTask decisionTask=null;
+  try {
+    final List<WorkflowExecution> pending=workflowExecutions.listByExample(WorkflowExecution.exampleWithPendingDecision(accountFullName,request.getDomain(),request.getTaskList().getName()),accessible,Functions.<WorkflowExecution>identity());
+    Collections.sort(pending,Ordering.natural().onResultOf(AbstractPersistentSupport.creation()));
+    for (    final WorkflowExecution execution : pending) {
+      if (decisionTask != null)       break;
+      try {
+        decisionTask=workflowExecutions.updateByExample(WorkflowExecution.exampleWithUniqueName(accountFullName,execution.getDomainName(),execution.getDisplayName()),accountFullName,execution.getDisplayName(),new Function<WorkflowExecution,DecisionTask>(){
+          @Nullable @Override public DecisionTask apply(          final WorkflowExecution workflowExecution){
+            if (workflowExecution.getDecisionStatus() == Pending) {
+              final List<WorkflowHistoryEvent> events=workflowExecution.getWorkflowHistory();
+              final List<WorkflowHistoryEvent> reverseEvents=Lists.reverse(events);
+              final WorkflowHistoryEvent scheduled=Iterables.find(reverseEvents,CollectionUtils.propertyPredicate("DecisionTaskScheduled",WorkflowExecutions.WorkflowHistoryEventStringFunctions.EVENT_TYPE));
+              final Optional<WorkflowHistoryEvent> previousStarted=Iterables.tryFind(reverseEvents,CollectionUtils.propertyPredicate("DecisionTaskStarted",WorkflowExecutions.WorkflowHistoryEventStringFunctions.EVENT_TYPE));
+              workflowExecution.setDecisionStatus(Active);
+              final WorkflowHistoryEvent started=WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskStartedEventAttributes().withIdentity(request.getIdentity()).withScheduledEventId(scheduled.getEventId()));
+              workflowExecution.addHistoryEvent(started);
+              return new DecisionTask().withWorkflowExecution(new com.eucalyptus.simpleworkflow.common.model.WorkflowExecution().withWorkflowId(workflowExecution.getWorkflowId()).withRunId(workflowExecution.getDisplayName())).withWorkflowType(new com.eucalyptus.simpleworkflow.common.model.WorkflowType().withName(workflowExecution.getWorkflowType().getDisplayName()).withVersion(workflowExecution.getWorkflowType().getWorkflowVersion())).withTaskToken(taskTokenManager.encryptTaskToken(new TaskToken(accountFullName.getAccountNumber(),workflowExecution.getDomain().getNaturalId(),workflowExecution.getDisplayName(),scheduled.getEventId(),started.getEventId(),System.currentTimeMillis(),System.currentTimeMillis()))).withStartedEventId(started.getEventId()).withPreviousStartedEventId(previousStarted.transform(WorkflowExecutions.WorkflowHistoryEventLongFunctions.EVENT_ID).or(0L)).withEvents(Collections2.transform(Objects.firstNonNull(request.isReverseOrder(),Boolean.FALSE) ? reverseEvents : events,TypeMappers.lookup(WorkflowHistoryEvent.class,HistoryEvent.class)));
+            }
+            return null;
+          }
+        }
+);
+      }
+ catch (      Exception e) {
+        logger.error("Error taking decision task",e);
+      }
+    }
+  }
+ catch (  Exception e) {
+    throw handleException(e);
+  }
+  if (decisionTask == null) {
+    longPollSimulation();
+    decisionTask=new DecisionTask();
+  }
   return request.reply(decisionTask);
 }
