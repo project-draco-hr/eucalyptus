@@ -1,4 +1,31 @@
 {
-  AssociateDhcpOptionsResponseType reply=request.getReply();
+  final AssociateDhcpOptionsResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final String dhcpOptionsId="default".equals(request.getDhcpOptionsId()) ? "default" : Identifier.dopt.normalize(request.getDhcpOptionsId());
+  final String vpcId=Identifier.vpc.normalize(request.getVpcId());
+  try {
+    vpcs.updateByExample(Vpc.exampleWithName(accountFullName,vpcId),accountFullName,request.getVpcId(),new Callback<Vpc>(){
+      @Override public void fire(      final Vpc vpc){
+        if (RestrictedTypes.filterPrivileged().apply(vpc))         try {
+          final DhcpOptionSet dhcpOptionSet="default".equals(dhcpOptionsId) ? dhcpOptionSets.lookupByExample(DhcpOptionSet.exampleDefault(accountFullName),accountFullName,"default",Predicates.alwaysTrue(),Functions.<DhcpOptionSet>identity()) : dhcpOptionSets.lookupByName(accountFullName,dhcpOptionsId,Functions.<DhcpOptionSet>identity());
+          vpc.setDhcpOptionSet(dhcpOptionSet);
+        }
+ catch (        VpcMetadataNotFoundException e) {
+          throw Exceptions.toUndeclared(new ClientComputeException("InvalidDhcpOptionsID.NotFound","DHCP options not found '" + request.getDhcpOptionsId() + "'"));
+        }
+catch (        Exception e) {
+          throw Exceptions.toUndeclared(e);
+        }
+      }
+    }
+);
+  }
+ catch (  VpcMetadataNotFoundException e) {
+    throw new ClientComputeException("InvalidVpcID.NotFound","Vpc not found '" + request.getVpcId() + "'");
+  }
+catch (  Exception e) {
+    throw handleException(e);
+  }
   return reply;
 }

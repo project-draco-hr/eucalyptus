@@ -6,16 +6,41 @@
       try {
         final DhcpOptionSet dhcpOptionSet=DhcpOptionSet.create(ctx.getUserFullName(),Identifier.dopt.generate());
         for (        final DhcpConfigurationItemType item : request.getDhcpConfigurationSet().getItem()) {
-          dhcpOptionSet.getDhcpOptions().add(DhcpOption.create(dhcpOptionSet,item.getKey(),item.values()));
-        }
-        return dhcpOptionSets.save(dhcpOptionSet);
-      }
- catch (      Exception ex) {
-        throw new RuntimeException(ex);
-      }
+          final List<String> values=item.values();
+          boolean validValue=false;
+          out: switch (item.getKey()) {
+case DhcpOptionSets.DHCP_OPTION_DOMAIN_NAME:
+            validValue=values.size() == 1 && InternetDomainName.isValid(values.get(0));
+          break;
+case DhcpOptionSets.DHCP_OPTION_DOMAIN_NAME_SERVERS:
+        validValue=values.size() == 1 && "AmazonProvidedDNS".equals(values.get(0));
+      if (validValue)       break;
+case DhcpOptionSets.DHCP_OPTION_NTP_SERVERS:
+case DhcpOptionSets.DHCP_OPTION_NETBIOS_NAME_SERVERS:
+    for (    final String value : values) {
+      validValue=InetAddresses.isInetAddress(value);
+      if (!validValue)       break out;
     }
-  }
+  break;
+case DhcpOptionSets.DHCP_OPTION_NETBIOS_NODE_TYPE:
+validValue=values.size() == 1 && Optional.fromNullable(Ints.tryParse(values.get(0))).transform(Functions.forPredicate(Predicates.in(Lists.newArrayList(1,2,4,8)))).or(false);
+break;
+default :
+throw new ClientComputeException("InvalidParameterValue","Value (" + item.getKey() + ") for parameter name is invalid. Unknown DHCP option");
+}
+if (!validValue || values.isEmpty()) {
+throw new ClientComputeException("InvalidParameterValue","Value (" + Joiner.on(',').join(values) + ") for parameter value is invalid. Invalid DHCP option value.");
+}
+dhcpOptionSet.getDhcpOptions().add(DhcpOption.create(dhcpOptionSet,item.getKey(),item.values()));
+}
+return dhcpOptionSets.save(dhcpOptionSet);
+}
+ catch (Exception ex) {
+throw Exceptions.toUndeclared(ex);
+}
+}
+}
 ;
-  reply.setDhcpOptions(allocate(allocator,DhcpOptionSet.class,DhcpOptionsType.class));
-  return reply;
+reply.setDhcpOptions(allocate(allocator,DhcpOptionSet.class,DhcpOptionsType.class));
+return reply;
 }

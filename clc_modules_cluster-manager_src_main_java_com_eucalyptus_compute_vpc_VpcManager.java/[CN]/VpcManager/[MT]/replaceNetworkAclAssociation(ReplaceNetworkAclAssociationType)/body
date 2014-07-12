@@ -1,4 +1,33 @@
 {
-  ReplaceNetworkAclAssociationResponseType reply=request.getReply();
+  final ReplaceNetworkAclAssociationResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final String networkAclId=Identifier.acl.normalize(request.getNetworkAclId());
+  final String associationId=Identifier.aclassoc.normalize(request.getAssociationId());
+  try {
+    final Subnet subnet=subnets.updateByExample(Subnet.exampleWithNetworkAclAssociation(accountFullName,associationId),accountFullName,request.getAssociationId(),new Callback<Subnet>(){
+      @Override public void fire(      final Subnet subnet){
+        if (RestrictedTypes.filterPrivileged().apply(subnet))         try {
+          final NetworkAcl networkAcl=networkAcls.lookupByName(accountFullName,networkAclId,Functions.<NetworkAcl>identity());
+          subnet.setNetworkAcl(networkAcl);
+          subnet.setNetworkAclAssociationId(Identifier.aclassoc.generate());
+        }
+ catch (        VpcMetadataNotFoundException e) {
+          throw Exceptions.toUndeclared(new ClientComputeException("InvalidNetworkAclID.NotFound","Network ACL not found '" + request.getAssociationId() + "'"));
+        }
+catch (        Exception e) {
+          throw Exceptions.toUndeclared(e);
+        }
+      }
+    }
+);
+    reply.setNewAssociationId(subnet.getNetworkAclAssociationId());
+  }
+ catch (  VpcMetadataNotFoundException e) {
+    throw new ClientComputeException("InvalidAssociationID.NotFound","Network ACL association (" + request.getAssociationId() + ") not found ");
+  }
+catch (  Exception e) {
+    throw handleException(e);
+  }
   return reply;
 }
