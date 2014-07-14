@@ -1,10 +1,11 @@
 {
-  EntityWrapper<CHAPUserInfo> dbUser=StorageProperties.getEntityWrapper();
+  TransactionResource outter=Entities.transactionFor(CHAPUserInfo.class);
   try {
-    CHAPUserInfo userInfo=dbUser.getUnique(new CHAPUserInfo("eucalyptus"));
+    CHAPUserInfo userInfo=Entities.uniqueResult(new CHAPUserInfo("eucalyptus"));
+    outter.commit();
     if (!checkUser("eucalyptus")) {
       try {
-        addUser("eucalyptus",BlockStorageUtil.decryptSCTargetPassword(userInfo.getEncryptedPassword()));
+        addUser("eucalyptus",blockStorageUtilSvc.decryptSCTargetPassword(userInfo.getEncryptedPassword()));
       }
  catch (      EucalyptusCloudException e1) {
         LOG.error(e1);
@@ -12,52 +13,55 @@
       }
     }
   }
- catch (  EucalyptusCloudException ex) {
+ catch (  NoSuchElementException ex) {
+    outter.rollback();
     boolean addUser=true;
     String encryptedPassword=null;
-    if (checkUser("eucalyptus")) {
-      try {
-        LOG.debug("No DB record found for chapuser although a eucalyptus account exists on SC. Looking for all records with chapuser eucalyptus");
-        CHAPUserInfo uesrInfo=new CHAPUserInfo("eucalyptus");
-        uesrInfo.setScName(null);
-        CHAPUserInfo currentUserInfo=dbUser.getUnique(uesrInfo);
-        if (null != currentUserInfo && null != currentUserInfo.getEncryptedPassword()) {
-          LOG.debug("Found a DB record, copying the password to the new record");
-          addUser=false;
-          encryptedPassword=currentUserInfo.getEncryptedPassword();
+    try (TransactionResource inner=Entities.transactionFor(CHAPUserInfo.class)){
+      if (checkUser("eucalyptus")) {
+        try {
+          LOG.debug("No DB record found for chapuser although a eucalyptus account exists on SC. Looking for all records with chapuser eucalyptus");
+          CHAPUserInfo userInfo=new CHAPUserInfo("eucalyptus");
+          userInfo.setScName(null);
+          CHAPUserInfo currentUserInfo=Entities.uniqueResult(userInfo);
+          if (null != currentUserInfo && null != currentUserInfo.getEncryptedPassword()) {
+            LOG.debug("Found a DB record, copying the password to the new record");
+            addUser=false;
+            encryptedPassword=currentUserInfo.getEncryptedPassword();
+          }
+        }
+ catch (        Exception e1) {
+          LOG.debug("No old DB records found. The only way is to delete the chapuser and create a fresh account");
+          try {
+            deleteUser("eucalyptus");
+          }
+ catch (          Exception e) {
+            LOG.error("Failed to delete chapuser",e);
+          }
         }
       }
- catch (      Exception e1) {
-        LOG.debug("No old DB records found. The only way is to delete the chapuser and create a fresh account");
+      if (addUser) {
+        String password=Hashes.getRandom(16);
+        password=password.substring(0,16);
         try {
-          deleteUser("eucalyptus");
+          addUser("eucalyptus",password);
+          encryptedPassword=blockStorageUtilSvc.encryptSCTargetPassword(password);
         }
  catch (        Exception e) {
-          LOG.error("Failed to delete chapuser",e);
+          LOG.error("Failed to add chapuser to SC",e);
+          return;
         }
       }
-    }
-    if (addUser) {
-      String password=Hashes.getRandom(16);
-      password=password.substring(0,16);
       try {
-        addUser("eucalyptus",password);
-        encryptedPassword=BlockStorageUtil.encryptSCTargetPassword(password);
+        Entities.persist(new CHAPUserInfo("eucalyptus",encryptedPassword));
       }
  catch (      Exception e) {
-        LOG.error("Failed to add chapuser to SC",e);
-        return;
+        LOG.error(e);
       }
+      inner.commit();
     }
-    try {
-      dbUser.add(new CHAPUserInfo("eucalyptus",encryptedPassword));
-    }
- catch (    Exception e) {
-      dbUser.rollback();
-      LOG.error(e);
-    }
-  }
- finally {
-    dbUser.commit();
+   }
+catch (  TransactionException e) {
+    LOG.error(e);
   }
 }

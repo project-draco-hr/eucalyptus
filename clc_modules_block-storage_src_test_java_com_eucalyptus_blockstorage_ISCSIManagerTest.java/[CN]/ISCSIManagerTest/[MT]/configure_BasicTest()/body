@@ -1,0 +1,40 @@
+{
+  final Long timeout=DirectStorageInfo.getStorageInfo().getTimeoutInMillis();
+  final TGTService tgtService=context.mock(TGTService.class);
+  final BlockStorageUtilSvc blockStorageUtilSvc=context.mock(BlockStorageUtilSvc.class);
+  context.checking(new Expectations(){
+{
+      oneOf(tgtService).userExists("eucalyptus",timeout);
+      will(returnValue(Boolean.FALSE));
+      oneOf(tgtService).addUser(with(equal("eucalyptus")),with(any(String.class)),with(equal(timeout)));
+      oneOf(blockStorageUtilSvc).encryptSCTargetPassword(with(any(String.class)));
+      will(returnValue("foo"));
+    }
+  }
+);
+  ISCSIManager iscsiManager=new ISCSIManager(tgtService,blockStorageUtilSvc);
+  iscsiManager.configure();
+  List<ISCSIMetaInfo> remaining;
+  try (TransactionResource tran=Entities.transactionFor(ISCSIMetaInfo.class)){
+    remaining=Entities.query(new ISCSIMetaInfo());
+    tran.commit();
+  }
+   assertTrue("expected to have a result set querying the eucalyptus_storage persistence context",remaining != null);
+  ISCSIMetaInfo retrieved=remaining.get(0);
+  assertTrue("expected store prefix to be " + StorageProperties.STORE_PREFIX + " but it was "+ retrieved.getStorePrefix(),StorageProperties.STORE_PREFIX.equals(retrieved.getStorePrefix()));
+  assertTrue("expected store number to be 0 but it was " + retrieved.getStoreNumber().intValue(),retrieved.getStoreNumber().intValue() == 0);
+  assertTrue("expected store user to be eucalyptus, but it was " + retrieved.getStoreUser(),"eucalyptus".equals(retrieved.getStoreUser()));
+  assertTrue("expected tid to be 1, but it was " + retrieved.getTid().intValue(),1 == retrieved.getTid().intValue());
+  CHAPUserInfo example=new CHAPUserInfo("eucalyptus");
+  example.setScName(StorageProperties.NAME);
+  try (TransactionResource tran=Entities.transactionFor(CHAPUserInfo.class)){
+    example=Entities.uniqueResult(example);
+    tran.commit();
+  }
+ catch (  Exception ex) {
+    fail("exception caught while looking for CHAPUserInfo record - " + ex.getMessage());
+    ex.printStackTrace();
+  }
+  assertTrue("expected chap user info to be non-null",example != null);
+  assertTrue("expected eucalyptus chap user info to be created","eucalyptus".equals(example.getUser()));
+}

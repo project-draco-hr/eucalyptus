@@ -7,26 +7,27 @@
   }
   String snapshotId=request.getSnapshotId();
   LOG.info("Processing DeleteStorageSnapshot request for snapshot " + snapshotId);
-  EntityWrapper<SnapshotInfo> db=StorageProperties.getEntityWrapper();
-  SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
-  List<SnapshotInfo> snapshotInfos=db.query(snapshotInfo);
-  reply.set_return(false);
-  if (snapshotInfos.size() > 0) {
-    SnapshotInfo foundSnapshotInfo=snapshotInfos.get(0);
-    String status=foundSnapshotInfo.getStatus();
-    if (status.equals(StorageProperties.Status.available.toString()) || status.equals(StorageProperties.Status.failed.toString())) {
-      foundSnapshotInfo.setStatus(StorageProperties.Status.deleting.toString());
-      db.commit();
+  try (TransactionResource tran=Entities.transactionFor(SnapshotInfo.class)){
+    SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
+    List<SnapshotInfo> snapshotInfos=Entities.query(snapshotInfo);
+    reply.set_return(false);
+    if (snapshotInfos.size() > 0) {
+      SnapshotInfo foundSnapshotInfo=snapshotInfos.get(0);
+      String status=foundSnapshotInfo.getStatus();
+      if (status.equals(StorageProperties.Status.available.toString()) || status.equals(StorageProperties.Status.failed.toString())) {
+        foundSnapshotInfo.setStatus(StorageProperties.Status.deleting.toString());
+        tran.commit();
+        reply.set_return(true);
+      }
+ else {
+        tran.rollback();
+        throw new SnapshotInUseException(snapshotId);
+      }
+    }
+ else {
       reply.set_return(true);
-    }
- else {
-      db.rollback();
-      throw new SnapshotInUseException(snapshotId);
+      tran.rollback();
     }
   }
- else {
-    reply.set_return(true);
-    db.rollback();
-  }
-  return reply;
+   return reply;
 }

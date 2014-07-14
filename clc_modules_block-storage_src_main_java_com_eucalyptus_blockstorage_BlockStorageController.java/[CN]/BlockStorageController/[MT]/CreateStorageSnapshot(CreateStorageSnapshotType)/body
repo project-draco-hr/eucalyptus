@@ -8,12 +8,11 @@
   String volumeId=request.getVolumeId();
   LOG.info("Processing CreateStorageSnapshot request for volume " + volumeId);
   String snapshotId=request.getSnapshotId();
-  EntityTransaction dbTrans=Entities.get(VolumeInfo.class);
   VolumeInfo sourceVolumeInfo=null;
-  try {
+  try (TransactionResource tran=Entities.transactionFor(VolumeInfo.class)){
     VolumeInfo volumeInfo=new VolumeInfo(volumeId);
     sourceVolumeInfo=Entities.uniqueResult(volumeInfo);
-    dbTrans.commit();
+    tran.commit();
   }
  catch (  NoSuchElementException e) {
     LOG.debug("Volume " + volumeId + " not found in db");
@@ -22,12 +21,6 @@
 catch (  final Throwable e) {
     LOG.warn("Volume " + volumeId + " error getting info from db. May not exist. "+ e.getMessage());
     throw new EucalyptusCloudException("Could not get volume information for volume " + volumeId,e);
-  }
- finally {
-    if (dbTrans.isActive()) {
-      dbTrans.rollback();
-    }
-    dbTrans=null;
   }
   if (sourceVolumeInfo == null) {
     throw new NoSuchVolumeException(volumeId);
@@ -57,9 +50,8 @@ catch (  final Throwable e) {
       }
       Snapshotter snapshotter=null;
       SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
-      EntityTransaction snapTrans=Entities.get(SnapshotInfo.class);
       Date startTime=new Date();
-      try {
+      try (TransactionResource tran=Entities.transactionFor(SnapshotInfo.class)){
         snapshotInfo.setUserName(sourceVolumeInfo.getUserName());
         snapshotInfo.setVolumeId(volumeId);
         snapshotInfo.setStartTime(startTime);
@@ -101,6 +93,7 @@ catch (  final Throwable e) {
         }
  finally {
           Entities.persist(snapshotInfo);
+          tran.commit();
         }
         snapshotter=new Snapshotter(volumeId,snapshotId,snapPointId);
         reply.setSnapshotId(snapshotId);
@@ -117,12 +110,6 @@ catch (      final Throwable e) {
         snapshotInfo.setStatus(StorageProperties.Status.failed.toString());
         LOG.error("Snapshot " + snapshotId + " Error committing state update to failed",e);
         throw new EucalyptusCloudException("Snapshot " + snapshotId + " unexpected throwable exception caught",e);
-      }
- finally {
-        if (snapTrans.isActive()) {
-          snapTrans.commit();
-        }
-        snapTrans=null;
       }
       reply.setStatus(snapshotInfo.getStatus());
       if (snapshotter != null) {

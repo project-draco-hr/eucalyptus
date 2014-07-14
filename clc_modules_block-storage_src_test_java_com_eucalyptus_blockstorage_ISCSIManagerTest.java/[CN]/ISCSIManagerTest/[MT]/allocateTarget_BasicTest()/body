@@ -1,0 +1,38 @@
+{
+  final String volId="vol-0000";
+  final ISCSIVolumeInfo iscsiVolumeInfo=new ISCSIVolumeInfo();
+  iscsiVolumeInfo.setVolumeId(volId);
+  final TGTService tgtService=context.mock(TGTService.class);
+  final BlockStorageUtilSvc blockStorageUtilSvc=context.mock(BlockStorageUtilSvc.class);
+  context.checking(new Expectations(){
+{
+      oneOf(tgtService).targetExists(volId,1,null,DirectStorageInfo.getStorageInfo().getTimeoutInMillis());
+      will(returnValue(Boolean.FALSE));
+    }
+  }
+);
+  ISCSIMetaInfo metaInfo=new ISCSIMetaInfo(StorageProperties.NAME);
+  metaInfo.setStoreNumber(new Integer(1));
+  metaInfo.setTid(new Integer(1));
+  metaInfo.setStorePrefix("foo:");
+  metaInfo.setStoreUser("unittestuser0");
+  try (TransactionResource tran=Entities.transactionFor(ISCSIMetaInfo.class)){
+    metaInfo=Entities.persist(metaInfo);
+    tran.commit();
+  }
+   ISCSIManager iscsiManager=new ISCSIManager(tgtService,blockStorageUtilSvc);
+  iscsiManager.allocateTarget(iscsiVolumeInfo);
+  List<ISCSIMetaInfo> remaining;
+  try (TransactionResource tran=Entities.transactionFor(ISCSIMetaInfo.class)){
+    remaining=Entities.query(new ISCSIMetaInfo());
+    tran.commit();
+  }
+   assertTrue("expected to have a result set querying the eucalyptus_storage persistence context",remaining != null);
+  ISCSIMetaInfo retrieved=remaining.get(0);
+  assertTrue("expected store number to be 2 but was " + retrieved.getStoreNumber(),retrieved.getStoreNumber().intValue() == 2);
+  assertTrue("expected tid to be 2",retrieved.getTid().intValue() == 2);
+  String storeName="foo:" + StorageProperties.NAME + ":store2";
+  assertTrue("expected iscsiVolumeInfo store name to be " + storeName,storeName.equals(iscsiVolumeInfo.getStoreName()));
+  assertTrue("expected iscsiVolumeInfo store user to be unittestuser0 but was " + iscsiVolumeInfo.getStoreUser(),"unittestuser0".equals(iscsiVolumeInfo.getStoreUser()));
+  assertTrue("expected iscsiVolumeInfo tid to be 1 and lun to be 1",iscsiVolumeInfo.getTid().intValue() == 1 && iscsiVolumeInfo.getLun().intValue() == 1);
+}

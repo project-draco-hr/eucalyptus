@@ -1,0 +1,35 @@
+{
+  final String volId="vol-0000";
+  final ISCSIVolumeInfo iscsiVolumeInfo=new ISCSIVolumeInfo();
+  iscsiVolumeInfo.setVolumeId(volId);
+  iscsiVolumeInfo.setTid(new Integer(1));
+  iscsiVolumeInfo.setVgName("foo");
+  iscsiVolumeInfo.setLvName("foo");
+  iscsiVolumeInfo.setLun(new Integer(1));
+  final TGTService tgtService=context.mock(TGTService.class);
+  final BlockStorageUtilSvc blockStorageUtilSvc=context.mock(BlockStorageUtilSvc.class);
+  final Long timeout=DirectStorageInfo.getStorageInfo().getTimeoutInMillis();
+  context.checking(new Expectations(){
+{
+      oneOf(tgtService).targetExists(volId,1,iscsiVolumeInfo.getAbsoluteLVPath(),timeout);
+      will(returnValue(Boolean.FALSE));
+    }
+  }
+);
+  try (TransactionResource tran=Entities.transactionFor(ISCSIVolumeInfo.class)){
+    Entities.persist(iscsiVolumeInfo);
+    tran.commit();
+  }
+   ISCSIManager iscsiManager=new ISCSIManager(tgtService,blockStorageUtilSvc);
+  iscsiManager.cleanup(iscsiVolumeInfo);
+  List<ISCSIVolumeInfo> remaining;
+  try (TransactionResource tran=Entities.transactionFor(ISCSIVolumeInfo.class)){
+    remaining=Entities.query(new ISCSIVolumeInfo());
+    tran.commit();
+  }
+   assertTrue("expected to have a result set querying the eucalyptus_storage persistence context",remaining != null);
+  ISCSIVolumeInfo retrieved=remaining.get(0);
+  assertTrue("expected store name to be null but was " + retrieved.getStoreName(),retrieved.getStoreName() == null);
+  assertTrue("expected tid to be -1",retrieved.getTid().intValue() == -1);
+  assertTrue("expected iscsiVolumeInfo lun to be -1 but was " + retrieved.getLun().intValue(),retrieved.getLun().intValue() == -1);
+}
