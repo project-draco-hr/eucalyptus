@@ -3,6 +3,9 @@
   final Context ctx=Contexts.lookup();
   final UserFullName userFullName=ctx.getUserFullName();
   final AccountFullName accountFullName=userFullName.asAccountFullName();
+  if (!Cidr.parse().apply(request.getCidrBlock()).transform(Cidr.prefix()).transform(Functions.forPredicate(Range.closed(16,28))).or(false)) {
+    throw new ClientComputeException("InvalidVpcRange","Cidr range invalid: " + request.getCidrBlock());
+  }
   final Supplier<Vpc> allocator=new Supplier<Vpc>(){
     @Override public Vpc get(){
       try {
@@ -16,6 +19,10 @@
         final Vpc vpc=vpcs.save(Vpc.create(userFullName,Identifier.vpc.generate(),options,request.getCidrBlock(),false));
         routeTables.save(RouteTable.create(userFullName,vpc,Identifier.rtb.generate(),vpc.getCidr(),true));
         networkAcls.save(NetworkAcl.create(userFullName,vpc,Identifier.acl.generate(),true));
+        final NetworkGroup group=NetworkGroup.create(userFullName,vpc,ResourceIdentifiers.generateString(NetworkGroup.ID_PREFIX),NetworkGroups.defaultNetworkName(),"default VPC security group");
+        final Collection<NetworkPeer> peers=Lists.newArrayList(NetworkPeer.create(group.getOwnerAccountNumber(),group.getName(),group.getGroupId()));
+        group.getNetworkRules().addAll(Lists.newArrayList(NetworkRule.create(NetworkRule.Protocol.icmp,-1,-1,peers,null),NetworkRule.create(NetworkRule.Protocol.tcp,0,65535,peers,null),NetworkRule.create(NetworkRule.Protocol.udp,0,65535,peers,null)));
+        securityGroups.save(group);
         return vpc;
       }
  catch (      Exception ex) {

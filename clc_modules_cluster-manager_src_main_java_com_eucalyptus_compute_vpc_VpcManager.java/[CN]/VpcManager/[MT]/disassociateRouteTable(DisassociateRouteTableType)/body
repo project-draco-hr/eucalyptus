@@ -1,4 +1,28 @@
 {
-  DisassociateRouteTableResponseType reply=request.getReply();
+  final DisassociateRouteTableResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final String associationId=Identifier.rtbassoc.normalize(request.getAssociationId());
+  try {
+    subnets.updateByExample(Subnet.exampleWithRouteTableAssociation(accountFullName,associationId),accountFullName,request.getAssociationId(),new Callback<Subnet>(){
+      @Override public void fire(      final Subnet subnet){
+        if (RestrictedTypes.filterPrivileged().apply(subnet))         try {
+          final RouteTable routeTable=routeTables.lookupMain(subnet.getVpc().getDisplayName(),Functions.<RouteTable>identity());
+          subnet.setRouteTable(routeTable);
+          subnet.setRouteTableAssociationId(Identifier.rtbassoc.generate());
+        }
+ catch (        Exception e) {
+          throw Exceptions.toUndeclared(e);
+        }
+      }
+    }
+);
+  }
+ catch (  VpcMetadataNotFoundException e) {
+    throw new ClientComputeException("InvalidAssociationID.NotFound","Route table association (" + request.getAssociationId() + ") not found ");
+  }
+catch (  Exception e) {
+    throw handleException(e);
+  }
   return reply;
 }

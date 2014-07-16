@@ -4,13 +4,18 @@
   final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
   final String gatewayId=Identifier.igw.normalize(request.getGatewayId());
   final String routeTableId=Identifier.rtb.normalize(request.getRouteTableId());
+  final String destinationCidr=request.getDestinationCidrBlock();
+  final Optional<Cidr> destinationCidrOption=Cidr.parse().apply(destinationCidr);
+  if (!destinationCidrOption.isPresent()) {
+    throw new ClientComputeException("InvalidParameterValue","Cidr invalid: " + destinationCidr);
+  }
   final Supplier<Route> allocator=transactional(new Supplier<Route>(){
     @Override public Route get(){
       try {
         final InternetGateway internetGateway=internetGateways.lookupByName(accountFullName,gatewayId,Functions.<InternetGateway>identity());
         routeTables.updateByExample(RouteTable.exampleWithName(accountFullName,routeTableId),accountFullName,request.getRouteTableId(),new Callback<RouteTable>(){
           @Override public void fire(          final RouteTable routeTable){
-            routeTable.getRoutes().add(Route.create(routeTable,Route.RouteOrigin.CreateRoute,request.getDestinationCidrBlock(),internetGateway));
+            if (RestrictedTypes.filterPrivileged().apply(routeTable))             routeTable.getRoutes().add(Route.create(routeTable,Route.RouteOrigin.CreateRoute,destinationCidr,internetGateway));
           }
         }
 );
@@ -26,7 +31,7 @@
     allocator.get();
   }
  catch (  Exception e) {
-    handleException(e);
+    throw handleException(e);
   }
   return reply;
 }

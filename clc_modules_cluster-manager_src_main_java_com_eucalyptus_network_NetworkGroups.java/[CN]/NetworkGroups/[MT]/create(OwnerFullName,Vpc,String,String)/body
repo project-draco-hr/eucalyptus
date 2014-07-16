@@ -1,0 +1,36 @@
+{
+  UserFullName userFullName=null;
+  if (ownerFullName instanceof UserFullName) {
+    userFullName=(UserFullName)ownerFullName;
+  }
+ else {
+    try {
+      User admin=Accounts.lookupAccountById(ownerFullName.getAccountNumber()).lookupAdmin();
+      userFullName=UserFullName.getInstance(admin);
+    }
+ catch (    Exception ex) {
+      LOG.error(ex,ex);
+      throw new NoSuchMetadataException("Failed to create group because owning user could not be identified.",ex);
+    }
+  }
+  final String resourceDesc=groupName + (vpc != null ? " in " + vpc.getDisplayName() : "") + " for "+ userFullName.toString();
+  try (final TransactionResource db=Entities.transactionFor(NetworkGroup.class)){
+    try {
+      Entities.uniqueResult(NetworkGroup.withUniqueName(userFullName.asAccountFullName(),CloudMetadatas.toDisplayName().apply(vpc),groupName));
+      throw new DuplicateMetadataException("Failed to create group: " + resourceDesc);
+    }
+ catch (    final NoSuchElementException ex) {
+      final NetworkGroup entity=Entities.persist(new NetworkGroup(userFullName,vpc,groupName,groupDescription));
+      db.commit();
+      return entity;
+    }
+  }
+ catch (  final ConstraintViolationException ex) {
+    Logs.exhaust().error(ex);
+    throw new DuplicateMetadataException("Failed to create group: " + resourceDesc,ex);
+  }
+catch (  final Exception ex) {
+    Logs.exhaust().error(ex,ex);
+    throw new MetadataException("Failed to create group: " + resourceDesc,PersistenceExceptions.transform(ex));
+  }
+}

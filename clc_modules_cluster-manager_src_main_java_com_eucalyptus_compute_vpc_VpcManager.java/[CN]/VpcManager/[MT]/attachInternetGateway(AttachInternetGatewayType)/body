@@ -1,4 +1,34 @@
 {
-  AttachInternetGatewayResponseType reply=request.getReply();
+  final AttachInternetGatewayResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final String gatewayId=Identifier.igw.normalize(request.getInternetGatewayId());
+  final String vpcId=Identifier.vpc.normalize(request.getVpcId());
+  try {
+    internetGateways.updateByExample(InternetGateway.exampleWithName(accountFullName,gatewayId),accountFullName,request.getInternetGatewayId(),new Callback<InternetGateway>(){
+      @Override public void fire(      final InternetGateway internetGateway){
+        if (RestrictedTypes.filterPrivileged().apply(internetGateway))         try {
+          final Vpc vpc=vpcs.lookupByName(accountFullName,vpcId,Functions.<Vpc>identity());
+          if (internetGateway.getVpc() != null) {
+            throw Exceptions.toUndeclared(new ClientComputeException("Resource.AlreadyAssociated","resource " + gatewayId + " is already attached to network "+ internetGateway.getVpc().getDisplayName()));
+          }
+          internetGateway.setVpc(vpc);
+        }
+ catch (        VpcMetadataNotFoundException e) {
+          throw Exceptions.toUndeclared(new ClientComputeException("InvalidVpcID.NotFound","Vpc not found '" + request.getVpcId() + "'"));
+        }
+catch (        Exception e) {
+          throw Exceptions.toUndeclared(e);
+        }
+      }
+    }
+);
+  }
+ catch (  VpcMetadataNotFoundException e) {
+    throw new ClientComputeException("InvalidInternetGatewayID.NotFound","Internet gateway (" + request.getInternetGatewayId() + ") not found ");
+  }
+catch (  Exception e) {
+    throw handleException(e);
+  }
   return reply;
 }

@@ -1,4 +1,37 @@
 {
-  ReplaceRouteTableAssociationResponseType reply=request.getReply();
+  final ReplaceRouteTableAssociationResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final String routeTableId=Identifier.rtb.normalize(request.getRouteTableId());
+  final String associationId=Identifier.rtbassoc.normalize(request.getAssociationId());
+  try {
+    final Subnet subnet=subnets.updateByExample(Subnet.exampleWithRouteTableAssociation(accountFullName,associationId),accountFullName,request.getAssociationId(),new Callback<Subnet>(){
+      @Override public void fire(      final Subnet subnet){
+        if (RestrictedTypes.filterPrivileged().apply(subnet))         try {
+          final RouteTable routeTable=routeTables.lookupByName(accountFullName,routeTableId,Functions.<RouteTable>identity());
+          if (subnet.getRouteTable().getMain()) {
+            subnet.getRouteTable().setMain(false);
+            routeTable.setMain(true);
+          }
+          subnet.setRouteTable(routeTable);
+          subnet.setRouteTableAssociationId(Identifier.rtbassoc.generate());
+        }
+ catch (        VpcMetadataNotFoundException e) {
+          throw Exceptions.toUndeclared(new ClientComputeException("InvalidRouteTableID.NotFound","Route table not found '" + request.getRouteTableId() + "'"));
+        }
+catch (        Exception e) {
+          throw Exceptions.toUndeclared(e);
+        }
+      }
+    }
+);
+    reply.setNewAssociationId(subnet.getRouteTableAssociationId());
+  }
+ catch (  VpcMetadataNotFoundException e) {
+    throw new ClientComputeException("InvalidAssociationID.NotFound","Route table association (" + request.getAssociationId() + ") not found ");
+  }
+catch (  Exception e) {
+    throw handleException(e);
+  }
   return reply;
 }

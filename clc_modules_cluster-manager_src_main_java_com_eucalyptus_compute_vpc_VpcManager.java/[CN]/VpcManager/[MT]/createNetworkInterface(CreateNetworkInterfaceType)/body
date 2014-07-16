@@ -13,10 +13,20 @@
         if (privateIp == null) {
           throw new ClientComputeException(" InvalidParameterValue","Private IP address is required");
         }
+        final Cidr cidr=Cidr.parse(subnet.getCidr());
+        if (!cidr.contains(privateIp)) {
+          throw new ClientComputeException(" InvalidParameterValue","Address does not fall within the subnet's address range");
+        }
+ else         if (!Iterables.contains(Iterables.skip(IPRange.fromCidr(cidr),3),PrivateAddresses.asInteger(privateIp))) {
+          throw new ClientComputeException(" InvalidParameterValue","Address is in subnet's reserved address range");
+        }
         final String mac=String.format("d0:0d:%s:%s:%s:%s",identifier.substring(4,6),identifier.substring(6,8),identifier.substring(8,10),identifier.substring(10,12));
         return networkInterfaces.save(NetworkInterface.create(ctx.getUserFullName(),vpc,subnet,identifier,mac,privateIp,request.getDescription()));
       }
- catch (      Exception ex) {
+ catch (      VpcMetadataNotFoundException ex) {
+        throw Exceptions.toUndeclared(new ClientComputeException("InvalidSubnetID.NotFound","Subnet not found '" + request.getSubnetId() + "'"));
+      }
+catch (      Exception ex) {
         throw new RuntimeException(ex);
       }
     }
