@@ -1,4 +1,64 @@
 {
-  CreateNetworkAclEntryResponseType reply=request.getReply();
-  return reply;
+  final CreateNetworkAclEntryResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final String networkAclId=Identifier.acl.normalize(request.getNetworkAclId());
+  final String cidr=request.getCidrBlock();
+  final Optional<Cidr> cidrOptional=Cidr.parse().apply(cidr);
+  if (!cidrOptional.isPresent()) {
+    throw new ClientComputeException("InvalidParameterValue","Cidr invalid: " + cidr);
+  }
+  final Optional<Integer> protocolOptional=protocolNumber(request.getProtocol());
+  if (!protocolOptional.isPresent()) {
+    throw new ClientComputeException("InvalidParameterValue","Protocol invalid: " + request.getProtocol());
+  }
+  if (!Range.closed(1,32766).apply(request.getRuleNumber())) {
+    throw new ClientComputeException("InvalidParameterValue","Rule number invalid: " + request.getRuleNumber());
+  }
+  final Supplier<NetworkAclEntry> allocator=transactional(new Supplier<NetworkAclEntry>(){
+    @Override public NetworkAclEntry get(){
+      try {
+        networkAcls.updateByExample(NetworkAcl.exampleWithName(accountFullName,networkAclId),accountFullName,request.getNetworkAclId(),new Callback<NetworkAcl>(){
+          @Override public void fire(          final NetworkAcl networkAcl){
+            if (RestrictedTypes.filterPrivileged().apply(networkAcl))             try {
+              final List<NetworkAclEntry> entries=networkAcl.getEntries();
+              final Optional<NetworkAclEntry> existingEntry=Iterables.tryFind(entries,entryPredicate(request.getEgress(),request.getRuleNumber()));
+              if (existingEntry.isPresent()) {
+                throw new ClientComputeException("NetworkAclEntryAlreadyExists","Entry exists with rule number: " + request.getRuleNumber());
+              }
+              final NetworkAclEntry entry;
+switch (protocolOptional.get()) {
+case 1:
+                entry=NetworkAclEntry.createIcmpEntry(networkAcl,request.getRuleNumber(),Enums.valueOfFunction(NetworkAclEntry.RuleAction.class).apply(request.getRuleAction()),request.getEgress(),cidr,request.getIcmpTypeCode().getCode(),request.getIcmpTypeCode().getType());
+              break;
+case 6:
+case 17:
+            entry=NetworkAclEntry.createTcpUdpEntry(networkAcl,request.getRuleNumber(),protocolOptional.get(),Enums.valueOfFunction(NetworkAclEntry.RuleAction.class).apply(request.getRuleAction()),request.getEgress(),cidr,request.getPortRange().getFrom(),request.getPortRange().getTo());
+          break;
+default :
+        entry=NetworkAclEntry.createEntry(networkAcl,request.getRuleNumber(),protocolOptional.get(),Enums.valueOfFunction(NetworkAclEntry.RuleAction.class).apply(request.getRuleAction()),request.getEgress(),cidr);
+    }
+    entries.add(entry);
+  }
+ catch (  Exception e) {
+    throw Exceptions.toUndeclared(e);
+  }
+}
+}
+);
+return null;
+}
+ catch (Exception ex) {
+throw new RuntimeException(ex);
+}
+}
+}
+);
+try {
+allocator.get();
+}
+ catch (Exception e) {
+throw handleException(e);
+}
+return reply;
 }

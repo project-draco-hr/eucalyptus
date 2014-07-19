@@ -6,14 +6,19 @@
   try {
     routeTables.updateByExample(RouteTable.exampleWithName(accountFullName,routeTableId),accountFullName,request.getRouteTableId(),new Callback<RouteTable>(){
       @Override public void fire(      final RouteTable routeTable){
-        final Optional<Route> route=Iterables.tryFind(routeTable.getRoutes(),CollectionUtils.propertyPredicate(request.getDestinationCidrBlock(),new Function<Route,String>(){
-          @Override public String apply(          final Route route){
-            return route.getDestinationCidr();
+        try {
+          final Optional<Route> route=Iterables.tryFind(routeTable.getRoutes(),CollectionUtils.propertyPredicate(request.getDestinationCidrBlock(),RouteTables.RouteFilterStringFunctions.DESTINATION_CIDR));
+          if (RestrictedTypes.filterPrivileged().apply(routeTable)) {
+            if (route.isPresent()) {
+              routeTable.getRoutes().remove(route.get());
+            }
+ else {
+              throw new ClientComputeException("InvalidRoute.NotFound","Route not found for cidr: " + request.getDestinationCidrBlock());
+            }
           }
         }
-));
-        if (RestrictedTypes.filterPrivileged().apply(routeTable)) {
-          routeTable.getRoutes().removeAll(route.asSet());
+ catch (        Exception e) {
+          throw Exceptions.toUndeclared(e);
         }
       }
     }
