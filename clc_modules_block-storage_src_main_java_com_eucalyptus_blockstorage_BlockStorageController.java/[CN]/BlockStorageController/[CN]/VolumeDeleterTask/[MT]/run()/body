@@ -1,25 +1,25 @@
 {
-  EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
-  try {
+  try (TransactionResource tran=Entities.transactionFor(VolumeInfo.class)){
     VolumeInfo searchVolume=new VolumeInfo();
     searchVolume.setStatus(StorageProperties.Status.deleted.toString());
-    List<VolumeInfo> deletedVolumes=db.query(searchVolume);
+    List<VolumeInfo> deletedVolumes=Entities.query(searchVolume);
     for (    VolumeInfo deletedVolume : deletedVolumes) {
       if (deletedVolume.cleanupOnDeletion()) {
         LOG.info("Volume deletion time expired for: " + deletedVolume.getVolumeId() + " ...cleaning up.");
-        db.delete(deletedVolume);
+        Entities.delete(deletedVolume);
       }
     }
-    db.commit();
-    db=StorageProperties.getEntityWrapper();
-    searchVolume=new VolumeInfo();
-    searchVolume.setStatus(StorageProperties.Status.deleting.toString());
-    List<VolumeInfo> volumes=db.query(searchVolume);
-    db.rollback();
-    for (    VolumeInfo vol : volumes) {
-      db=StorageProperties.getEntityWrapper();
-      try {
-        vol=db.getUnique(vol);
+    tran.commit();
+    List<VolumeInfo> volumes;
+    try (TransactionResource tran2=Entities.transactionFor(VolumeInfo.class)){
+      searchVolume=new VolumeInfo();
+      searchVolume.setStatus(StorageProperties.Status.deleting.toString());
+      volumes=Entities.query(searchVolume);
+      tran2.commit();
+    }
+     for (    VolumeInfo vol : volumes) {
+      try (TransactionResource tran3=Entities.transactionFor(VolumeInfo.class)){
+        vol=Entities.uniqueResult(vol);
         final String volumeId=vol.getVolumeId();
         LOG.info("Volume: " + volumeId + " marked for deletion. Checking export status");
         if (Iterables.any(vol.getAttachmentTokens(),new Predicate<VolumeToken>(){
@@ -53,14 +53,11 @@
         vol.setStatus(StorageProperties.Status.deleted.toString());
         vol.setDeletionTime(new Date());
         EucaSemaphoreDirectory.removeSemaphore(volumeId);
-        db.commit();
+        tran3.commit();
       }
  catch (      Exception e) {
         LOG.error("Error deleting volume " + vol.getVolumeId() + ": "+ e.getMessage());
         LOG.debug("Exception during deleting volume " + vol.getVolumeId() + ".",e);
-      }
- finally {
-        db.rollback();
       }
     }
   }

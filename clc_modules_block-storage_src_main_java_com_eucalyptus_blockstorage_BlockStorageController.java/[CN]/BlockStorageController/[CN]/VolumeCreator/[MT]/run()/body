@@ -1,25 +1,23 @@
 {
   boolean success=true;
   if (snapshotId != null) {
-    EntityWrapper<SnapshotInfo> db=StorageProperties.getEntityWrapper();
-    try {
+    try (TransactionResource tran=Entities.transactionFor(SnapshotInfo.class)){
       SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
-      List<SnapshotInfo> foundSnapshotInfos=db.query(snapshotInfo);
+      List<SnapshotInfo> foundSnapshotInfos=Entities.query(snapshotInfo);
       if (foundSnapshotInfos.size() == 0) {
-        db.commit();
+        tran.commit();
         EucaSemaphore semaphore=EucaSemaphoreDirectory.getSolitarySemaphore(snapshotId);
-        try {
+        try (TransactionResource tran2=Entities.transactionFor(SnapshotInfo.class)){
           semaphore.acquire();
-          db=StorageProperties.getEntityWrapper();
-          foundSnapshotInfos=db.query(snapshotInfo);
+          foundSnapshotInfos=Entities.query(snapshotInfo);
           if (foundSnapshotInfos.size() == 0) {
             SnapshotInfo firstSnap=null;
             snapshotInfo.setScName(null);
-            Criteria snapCriteria=db.createCriteria(SnapshotInfo.class);
+            Criteria snapCriteria=Entities.createCriteria(SnapshotInfo.class);
             snapCriteria.add(Example.create(snapshotInfo));
             snapCriteria.addOrder(Order.asc("creationTimestamp"));
             foundSnapshotInfos=(List<SnapshotInfo>)snapCriteria.list();
-            db.commit();
+            tran2.commit();
             if (foundSnapshotInfos != null && foundSnapshotInfos.size() > 0) {
               firstSnap=foundSnapshotInfos.get(0);
             }
@@ -85,23 +83,24 @@
             }
  else {
             }
-            db=StorageProperties.getEntityWrapper();
-            snapshotInfo=copySnapshotInfo(firstSnap);
-            snapshotInfo.setProgress("100");
-            snapshotInfo.setStartTime(new Date());
-            snapshotInfo.setStatus(StorageProperties.Status.available.toString());
-            db.add(snapshotInfo);
-            db.commit();
-          }
+            try (TransactionResource tran3=Entities.transactionFor(SnapshotInfo.class)){
+              snapshotInfo=copySnapshotInfo(firstSnap);
+              snapshotInfo.setProgress("100");
+              snapshotInfo.setStartTime(new Date());
+              snapshotInfo.setStatus(StorageProperties.Status.available.toString());
+              Entities.persist(snapshotInfo);
+              tran3.commit();
+            }
+           }
  else {
             SnapshotInfo foundSnapshotInfo=foundSnapshotInfos.get(0);
             if (!StorageProperties.Status.available.toString().equals(foundSnapshotInfo.getStatus())) {
               success=false;
-              db.rollback();
+              tran.rollback();
               LOG.warn("snapshot " + foundSnapshotInfo.getSnapshotId() + " not available.");
             }
  else {
-              db.commit();
+              tran.commit();
             }
           }
         }
@@ -122,11 +121,11 @@
         SnapshotInfo foundSnapshotInfo=foundSnapshotInfos.get(0);
         if (!StorageProperties.Status.available.toString().equals(foundSnapshotInfo.getStatus())) {
           success=false;
-          db.rollback();
+          tran.rollback();
           LOG.warn("snapshot " + foundSnapshotInfo.getSnapshotId() + " not available.");
         }
  else {
-          db.commit();
+          tran.commit();
           size=blockManager.createVolume(volumeId,snapshotId,size);
         }
       }
@@ -150,23 +149,22 @@
       LOG.error(ex,ex);
     }
   }
-  EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
   VolumeInfo volumeInfo=new VolumeInfo(volumeId);
-  try {
-    VolumeInfo foundVolumeInfo=db.getUnique(volumeInfo);
+  try (TransactionResource tran4=Entities.transactionFor(VolumeInfo.class)){
+    VolumeInfo foundVolumeInfo=Entities.uniqueResult(volumeInfo);
     if (foundVolumeInfo != null) {
       if (success) {
         if (StorageProperties.shouldEnforceUsageLimits) {
           int totalVolumeSize=0;
           VolumeInfo volInfo=new VolumeInfo();
           volInfo.setStatus(StorageProperties.Status.available.toString());
-          List<VolumeInfo> volInfos=db.query(volInfo);
+          List<VolumeInfo> volInfos=Entities.query(volInfo);
           for (          VolumeInfo vInfo : volInfos) {
             totalVolumeSize+=vInfo.getSize();
           }
           if ((totalVolumeSize + size) > StorageInfo.getStorageInfo().getMaxTotalVolumeSizeInGb() || (size > StorageInfo.getStorageInfo().getMaxVolumeSizeInGB())) {
             LOG.error("Max Total Volume size limit exceeded creating " + volumeId + ". Removing volume and cancelling operation");
-            db.commit();
+            tran4.commit();
             checker.cleanFailedVolume(volumeId);
             return;
           }
@@ -183,10 +181,12 @@
  else {
       throw new EucalyptusCloudException();
     }
-    db.commit();
+    tran4.commit();
   }
- catch (  EucalyptusCloudException ex) {
-    db.rollback();
+ catch (  NoSuchElementException ne) {
+    LOG.error("VolumeInfo entity for volume id " + volumeId + " was not found in the database");
+  }
+catch (  TransactionException|EucalyptusCloudException ex) {
     LOG.error(ex);
   }
 }

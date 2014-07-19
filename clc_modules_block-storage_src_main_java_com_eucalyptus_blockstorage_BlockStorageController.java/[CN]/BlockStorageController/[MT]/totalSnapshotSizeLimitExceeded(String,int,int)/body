@@ -1,13 +1,13 @@
 {
   int totalSnapshotSize=0;
-  EntityTransaction dbTrans=Entities.get(SnapshotInfo.class);
-  try {
+  try (TransactionResource tran=Entities.transactionFor(SnapshotInfo.class)){
     Criteria query=Entities.createCriteria(SnapshotInfo.class);
     query.setReadOnly(true);
     ImmutableSet<String> excludedStates=ImmutableSet.of(StorageProperties.Status.failed.toString(),StorageProperties.Status.error.toString(),StorageProperties.Status.deleted.toString());
     query.add(Restrictions.not(Restrictions.in("status",excludedStates)));
     HashSet<String> idSet=new HashSet<String>();
     List<SnapshotInfo> snapshots=(List<SnapshotInfo>)query.list();
+    tran.commit();
     for (    SnapshotInfo snap : snapshots) {
       totalSnapshotSize+=(snap.getSizeGb() != null && idSet.add(snap.getSnapshotId()) ? snap.getSizeGb() : 0);
     }
@@ -17,10 +17,5 @@
  catch (  final Throwable e) {
     LOG.error("Error finding total snapshot used size " + e.getMessage());
     throw new EucalyptusCloudException("Failed to check snapshot total size limit",e);
-  }
- finally {
-    if (dbTrans.isActive()) {
-      dbTrans.rollback();
-    }
   }
 }

@@ -1,0 +1,48 @@
+{
+  Hosts.awaitDatabases();
+  Locks.DISABLED.isLocked();
+  Locks.PARTITIONED.isLocked();
+  Groovyness.run("setup_dbpool.groovy");
+  OrderedShutdown.registerShutdownHook(Empyrean.class,new Runnable(){
+    @Override public void run(){
+      try {
+        for (        final String database : databases()) {
+          try {
+            DatabaseClusterMBean db=Databases.lookup(database,TimeUnit.SECONDS.toMillis(5));
+            for (            String host : db.getinactiveDatabases()) {
+              Databases.disable(host);
+            }
+            for (            String host : db.getactiveDatabases()) {
+              Databases.disable(host);
+            }
+          }
+ catch (          Exception ex) {
+            LOG.error(ex);
+          }
+        }
+      }
+ catch (      NoSuchElementException ex) {
+        LOG.error(ex);
+      }
+    }
+  }
+);
+  TimeUnit.SECONDS.sleep(INITIAL_DB_SYNC_RETRY_WAIT);
+  if (!Hosts.isCoordinator() && Hosts.localHost().hasDatabase()) {
+    while (!Databases.enable(Hosts.localHost())) {
+      LOG.warn(LogUtil.subheader("Synchronization of the database failed: " + Hosts.localHost()));
+      if (counter.decrementAndGet() == 0) {
+        LOG.fatal("Restarting process to force re-synchronization.");
+        System.exit(123);
+      }
+ else {
+        LOG.warn("Sleeping for " + INITIAL_DB_SYNC_RETRY_WAIT + " seconds before trying again.");
+        TimeUnit.SECONDS.sleep(INITIAL_DB_SYNC_RETRY_WAIT);
+      }
+    }
+    Locks.DISABLED.create();
+    Hosts.UpdateEntry.INSTANCE.apply(Hosts.localHost());
+    LOG.info(LogUtil.subheader("Database synchronization complete: " + Hosts.localHost()));
+  }
+  return true;
+}

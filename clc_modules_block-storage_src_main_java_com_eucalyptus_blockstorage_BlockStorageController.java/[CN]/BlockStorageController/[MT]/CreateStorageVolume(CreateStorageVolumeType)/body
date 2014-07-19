@@ -18,15 +18,16 @@
     if (size != null) {
       int totalVolumeSize=0;
       VolumeInfo volInfo=new VolumeInfo();
-      EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
-      List<VolumeInfo> volInfos=db.query(volInfo);
-      for (      VolumeInfo vInfo : volInfos) {
-        if (!vInfo.getStatus().equals(StorageProperties.Status.failed.toString()) && !vInfo.getStatus().equals(StorageProperties.Status.error.toString()) && !vInfo.getStatus().equals(StorageProperties.Status.deleted.toString())) {
-          totalVolumeSize+=vInfo.getSize();
+      try (TransactionResource tran=Entities.transactionFor(VolumeInfo.class)){
+        List<VolumeInfo> volInfos=Entities.query(volInfo);
+        for (        VolumeInfo vInfo : volInfos) {
+          if (!vInfo.getStatus().equals(StorageProperties.Status.failed.toString()) && !vInfo.getStatus().equals(StorageProperties.Status.error.toString()) && !vInfo.getStatus().equals(StorageProperties.Status.deleted.toString())) {
+            totalVolumeSize+=vInfo.getSize();
+          }
         }
+        tran.commit();
       }
-      db.rollback();
-      if (((totalVolumeSize + sizeAsInt) > StorageInfo.getStorageInfo().getMaxTotalVolumeSizeInGb())) {
+       if (((totalVolumeSize + sizeAsInt) > StorageInfo.getStorageInfo().getMaxTotalVolumeSizeInGb())) {
         throw new VolumeSizeExceededException(volumeId,"Total Volume Size Limit Exceeded");
       }
       if (sizeAsInt > StorageInfo.getStorageInfo().getMaxVolumeSizeInGB()) {
@@ -34,38 +35,36 @@
       }
     }
   }
-  EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
-  VolumeInfo volumeInfo=new VolumeInfo(volumeId);
-  List<VolumeInfo> volumeInfos=db.query(volumeInfo);
-  if (volumeInfos.size() > 0) {
-    db.rollback();
-    throw new VolumeAlreadyExistsException(volumeId);
-  }
-  if (snapshotId != null) {
-    SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
-    snapInfo.setScName(null);
-    snapInfo.setStatus(StorageProperties.Status.available.toString());
-    EntityWrapper<SnapshotInfo> dbSnap=db.recast(SnapshotInfo.class);
-    List<SnapshotInfo> snapInfos=dbSnap.query(snapInfo);
-    if (snapInfos.size() == 0) {
-      db.rollback();
-      throw new SnapshotNotFoundException("Snapshot " + snapshotId + " does not exist or is unavailable");
+  try (TransactionResource tran=Entities.transactionFor(VolumeInfo.class)){
+    VolumeInfo volumeInfo=new VolumeInfo(volumeId);
+    List<VolumeInfo> volumeInfos=Entities.query(volumeInfo);
+    if (volumeInfos.size() > 0) {
+      throw new VolumeAlreadyExistsException(volumeId);
     }
-    volumeInfo.setSnapshotId(snapshotId);
-    reply.setSnapshotId(snapshotId);
+    if (snapshotId != null) {
+      SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
+      snapInfo.setScName(null);
+      snapInfo.setStatus(StorageProperties.Status.available.toString());
+      List<SnapshotInfo> snapInfos=Entities.query(snapInfo);
+      if (snapInfos.size() == 0) {
+        throw new SnapshotNotFoundException("Snapshot " + snapshotId + " does not exist or is unavailable");
+      }
+      volumeInfo.setSnapshotId(snapshotId);
+      reply.setSnapshotId(snapshotId);
+    }
+    volumeInfo.setUserName(userId);
+    volumeInfo.setSize(sizeAsInt);
+    volumeInfo.setStatus(StorageProperties.Status.creating.toString());
+    Date creationDate=new Date();
+    volumeInfo.setCreateTime(creationDate);
+    Entities.persist(volumeInfo);
+    reply.setVolumeId(volumeId);
+    reply.setCreateTime(DateUtils.format(creationDate.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
+    reply.setSize(size);
+    reply.setStatus(volumeInfo.getStatus());
+    tran.commit();
   }
-  volumeInfo.setUserName(userId);
-  volumeInfo.setSize(sizeAsInt);
-  volumeInfo.setStatus(StorageProperties.Status.creating.toString());
-  Date creationDate=new Date();
-  volumeInfo.setCreateTime(creationDate);
-  db.add(volumeInfo);
-  reply.setVolumeId(volumeId);
-  reply.setCreateTime(DateUtils.format(creationDate.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
-  reply.setSize(size);
-  reply.setStatus(volumeInfo.getStatus());
-  db.commit();
-  VolumeCreator volumeCreator=new VolumeCreator(volumeId,"snapset",snapshotId,parentVolumeId,sizeAsInt);
+   VolumeCreator volumeCreator=new VolumeCreator(volumeId,"snapset",snapshotId,parentVolumeId,sizeAsInt);
   volumeService.add(volumeCreator);
   return reply;
 }

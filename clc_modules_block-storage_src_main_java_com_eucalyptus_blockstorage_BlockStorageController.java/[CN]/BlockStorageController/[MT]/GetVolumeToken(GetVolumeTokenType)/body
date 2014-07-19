@@ -6,14 +6,13 @@
     LOG.error("Cannot get token for a null-valued volumeId");
     throw new EucalyptusCloudException("No volumeId specified in token request");
   }
-  EntityTransaction db=Entities.get(VolumeInfo.class);
-  try {
+  try (TransactionResource tran=Entities.transactionFor(VolumeInfo.class)){
     VolumeInfo vol=Entities.uniqueResult(new VolumeInfo(volumeId));
     VolumeToken token=vol.getOrCreateAttachmentToken();
     String encryptedToken=BlockStorageUtil.encryptForNode(token.getToken(),BlockStorageUtil.getPartitionForLocalService(Storage.class));
     reply.setToken(encryptedToken);
     reply.setVolumeId(volumeId);
-    db.commit();
+    tran.commit();
     return reply;
   }
  catch (  NoSuchElementException e) {
@@ -22,10 +21,5 @@
 catch (  Exception e) {
     LOG.error("Failed to get volume token: " + e.getMessage());
     throw new EucalyptusCloudException("Could not get volume token for volume " + request.getVolumeId(),e);
-  }
- finally {
-    if (db.isActive()) {
-      db.rollback();
-    }
   }
 }
