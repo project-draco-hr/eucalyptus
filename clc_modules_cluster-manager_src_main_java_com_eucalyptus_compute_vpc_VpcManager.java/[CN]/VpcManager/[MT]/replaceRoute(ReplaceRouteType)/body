@@ -1,4 +1,35 @@
 {
-  ReplaceRouteResponseType reply=request.getReply();
+  final ReplaceRouteResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final String gatewayId=Identifier.igw.normalize(request.getGatewayId());
+  final String routeTableId=Identifier.rtb.normalize(request.getRouteTableId());
+  final String destinationCidr=request.getDestinationCidrBlock();
+  final Optional<Cidr> destinationCidrOption=Cidr.parse().apply(destinationCidr);
+  if (!destinationCidrOption.isPresent()) {
+    throw new ClientComputeException("InvalidParameterValue","Cidr invalid: " + destinationCidr);
+  }
+  try {
+    routeTables.updateByExample(RouteTable.exampleWithName(accountFullName,routeTableId),accountFullName,request.getRouteTableId(),new Callback<RouteTable>(){
+      @Override public void fire(      final RouteTable routeTable){
+        if (RestrictedTypes.filterPrivileged().apply(routeTable))         try {
+          final InternetGateway internetGateway=internetGateways.lookupByName(accountFullName,gatewayId,Functions.<InternetGateway>identity());
+          final List<Route> routes=routeTable.getRoutes();
+          final Optional<Route> oldRoute=Iterables.tryFind(routes,CollectionUtils.propertyPredicate(destinationCidr,RouteTables.RouteFilterStringFunctions.DESTINATION_CIDR));
+          if (!oldRoute.isPresent()) {
+            throw new ClientComputeException("InvalidRoute.NotFound","Route not found for cidr: " + destinationCidr);
+          }
+          routes.set(routes.indexOf(oldRoute.get()),Route.create(routeTable,Route.RouteOrigin.CreateRoute,destinationCidr,internetGateway));
+        }
+ catch (        Exception e) {
+          throw Exceptions.toUndeclared(e);
+        }
+      }
+    }
+);
+  }
+ catch (  Exception e) {
+    throw handleException(e);
+  }
   return reply;
 }

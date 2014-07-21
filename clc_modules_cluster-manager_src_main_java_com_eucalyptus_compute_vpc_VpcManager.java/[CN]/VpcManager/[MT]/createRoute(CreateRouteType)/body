@@ -15,7 +15,18 @@
         final InternetGateway internetGateway=internetGateways.lookupByName(accountFullName,gatewayId,Functions.<InternetGateway>identity());
         routeTables.updateByExample(RouteTable.exampleWithName(accountFullName,routeTableId),accountFullName,request.getRouteTableId(),new Callback<RouteTable>(){
           @Override public void fire(          final RouteTable routeTable){
-            if (RestrictedTypes.filterPrivileged().apply(routeTable))             routeTable.getRoutes().add(Route.create(routeTable,Route.RouteOrigin.CreateRoute,destinationCidr,internetGateway));
+            try {
+              if (RestrictedTypes.filterPrivileged().apply(routeTable)) {
+                final Optional<Route> existingRoute=Iterables.tryFind(routeTable.getRoutes(),CollectionUtils.propertyPredicate(destinationCidr,RouteTables.RouteFilterStringFunctions.DESTINATION_CIDR));
+                if (existingRoute.isPresent()) {
+                  throw new ClientComputeException("RouteAlreadyExists","Route exists for cidr: " + destinationCidr);
+                }
+                routeTable.getRoutes().add(Route.create(routeTable,Route.RouteOrigin.CreateRoute,destinationCidr,internetGateway));
+              }
+            }
+ catch (            Exception e) {
+              throw Exceptions.toUndeclared(e);
+            }
           }
         }
 );
