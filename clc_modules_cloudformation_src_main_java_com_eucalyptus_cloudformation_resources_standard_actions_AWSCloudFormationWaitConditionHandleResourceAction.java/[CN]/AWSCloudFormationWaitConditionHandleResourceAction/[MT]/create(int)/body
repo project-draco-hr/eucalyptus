@@ -1,3 +1,37 @@
 {
-  throw new UnsupportedOperationException();
+  URI serviceURI=ServiceUris.remotePublicify(ObjectStorage.class);
+  User user=Accounts.lookupUserById(getResourceInfo().getEffectiveUserId());
+  final EucaS3Client s3c=EucaS3ClientFactory.getEucaS3Client(user);
+  String bucketName=null;
+  ObjectNode objectNode=null;
+switch (stepNum) {
+case 0:
+    for (int i=0; i < NUM_ATTEMPTS; i++) {
+      bucketName="cf-waitcondition-" + user.getUserId() + "-"+ Crypto.generateAlphanumericId(13,"");
+      bucketName=bucketName.toLowerCase();
+      if (!s3c.doesBucketExist(bucketName)) {
+        break;
+      }
+    }
+  s3c.createBucket(bucketName);
+String keyName=getStackEntity().getStackId() + "/" + info.getLogicalResourceId()+ "/WaitHandle";
+ObjectMapper mapper=new ObjectMapper();
+objectNode=mapper.createObjectNode();
+objectNode.put("version","1.0");
+objectNode.put("bucket",bucketName);
+objectNode.put("key",keyName);
+info.setEucaParts(JsonHelper.getStringFromJsonNode(objectNode));
+String url=s3c.generatePresignedUrl(bucketName,keyName,in12Hours(),HttpMethod.PUT).toString();
+info.setPhysicalResourceId(url);
+break;
+case 1:
+objectNode=(ObjectNode)JsonHelper.getJsonNodeFromString(info.getEucaParts());
+if (!"1.0".equals(objectNode.get("version").textValue())) throw new Exception("Invalid version for eucaParts");
+bucketName=objectNode.get("bucket").textValue();
+s3c.setBucketVersioningConfiguration(new SetBucketVersioningConfigurationRequest(bucketName,new BucketVersioningConfiguration(BucketVersioningConfiguration.ENABLED)));
+info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(info.getPhysicalResourceId())));
+break;
+default :
+throw new IllegalStateException("Invalid step " + stepNum);
+}
 }

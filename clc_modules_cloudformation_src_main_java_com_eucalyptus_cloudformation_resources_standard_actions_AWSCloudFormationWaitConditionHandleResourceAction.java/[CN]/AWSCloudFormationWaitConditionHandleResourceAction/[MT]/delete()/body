@@ -1,2 +1,18 @@
 {
+  if (info.getPhysicalResourceId() == null)   return;
+  URI serviceURI=ServiceUris.remotePublicify(ObjectStorage.class);
+  User user=Accounts.lookupUserById(getResourceInfo().getEffectiveUserId());
+  final EucaS3Client s3c=EucaS3ClientFactory.getEucaS3Client(user);
+  ObjectNode objectNode=(ObjectNode)JsonHelper.getJsonNodeFromString(info.getEucaParts());
+  if (!"1.0".equals(objectNode.get("version").textValue()))   throw new Exception("Invalid version for eucaParts");
+  String bucketName=objectNode.get("bucket").textValue();
+  if (!s3c.doesBucketExist(bucketName)) {
+    return;
+  }
+  VersionListing versionListing=s3c.listVersions(bucketName,"");
+  for (  S3VersionSummary versionSummary : versionListing.getVersionSummaries()) {
+    System.out.println(versionSummary.getBucketName() + " " + versionSummary.getKey()+ " "+ versionSummary.getVersionId());
+    s3c.deleteVersion(versionSummary.getBucketName(),versionSummary.getKey(),versionSummary.getVersionId());
+  }
+  s3c.deleteBucket(bucketName);
 }
