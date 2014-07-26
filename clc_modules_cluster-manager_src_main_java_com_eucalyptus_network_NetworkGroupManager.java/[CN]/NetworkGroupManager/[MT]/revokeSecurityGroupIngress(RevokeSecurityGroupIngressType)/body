@@ -1,9 +1,7 @@
 {
+  final RevokeSecurityGroupIngressResponseType reply=request.getReply().markFailed();
   final Context ctx=Contexts.lookup();
-  final RevokeSecurityGroupIngressResponseType reply=request.getReply();
-  reply.markFailed();
-  final EntityTransaction db=Entities.get(NetworkGroup.class);
-  try {
+  try (final TransactionResource tx=Entities.transactionFor(NetworkGroup.class)){
     final NetworkGroup ruleGroup=lookupGroup(request.getGroupId(),request.getGroupName());
     final List<IpPermissionType> ipPermissions=handleOldAndNewIpPermissions(ruleGroup.getVpcId() != null,request.getCidrIp(),request.getIpProtocol(),request.getFromPort(),request.getToPort(),request.getSourceSecurityGroupName(),request.getSourceSecurityGroupOwnerId(),request.getIpPermissions());
     if (RestrictedTypes.filterPrivileged().apply(ruleGroup)) {
@@ -22,7 +20,7 @@ catch (      NoSuchMetadataException e) {
       throw new EucalyptusCloudException("Not authorized to revoke network group " + request.getGroupName() + " for "+ ctx.getUser());
     }
     reply.set_return(true);
-    db.commit();
+    tx.commit();
     NetworkGroups.flushRules();
   }
  catch (  EucalyptusCloudException ex) {
@@ -31,9 +29,6 @@ catch (      NoSuchMetadataException e) {
 catch (  Exception ex) {
     Logs.exhaust().error(ex,ex);
     throw new EucalyptusCloudException("RevokeSecurityGroupIngress failed because: " + ex.getMessage(),ex);
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
   return reply;
 }

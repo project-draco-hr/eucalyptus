@@ -1,8 +1,7 @@
 {
-  final Context ctx=Contexts.lookup();
   final AuthorizeSecurityGroupIngressResponseType reply=request.getReply();
-  final EntityTransaction db=Entities.get(NetworkGroup.class);
-  try {
+  final Context ctx=Contexts.lookup();
+  try (final TransactionResource tx=Entities.transactionFor(NetworkGroup.class)){
     final NetworkGroup ruleGroup=lookupGroup(request.getGroupId(),request.getGroupName());
     if (!RestrictedTypes.filterPrivileged().apply(ruleGroup)) {
       throw new EucalyptusCloudException("Not authorized to authorize network group " + ruleGroup.getDisplayName() + " for "+ ctx.getUser());
@@ -43,15 +42,12 @@
       ruleGroup.getNetworkRules().addAll(ruleList);
       reply.set_return(true);
     }
-    db.commit();
+    tx.commit();
     NetworkGroups.flushRules();
     return reply;
   }
  catch (  Exception ex) {
     Logs.exhaust().error(ex,ex);
     throw ex;
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
 }
