@@ -1,0 +1,100 @@
+{
+  final AssociateAddressResponseType reply=request.getReply().markFailed();
+  final String instanceId=request.getInstanceId() == null ? null : normalizeInstanceIdentifier(request.getInstanceId());
+  final String networkInterfaceId=request.getNetworkInterfaceId() == null ? null : normalizeNetworkInterfaceIdentifier(request.getNetworkInterfaceId());
+  final Address address=RestrictedTypes.doPrivileged(Objects.firstNonNull(request.getPublicIp(),ResourceIdentifiers.tryNormalize().apply(request.getAllocationId())),Address.class);
+  if (!address.isAllocated()) {
+    throw new EucalyptusCloudException("Cannot associate an address which is not allocated: " + request.getPublicIp());
+  }
+ else   if (!Contexts.lookup().isAdministrator() && !Contexts.lookup().getUserFullName().asAccountFullName().getAccountNumber().equals(address.getOwner().getAccountNumber())) {
+    throw new EucalyptusCloudException("Cannot associate an address which is not allocated to your account: " + request.getPublicIp());
+  }
+  final VmInstance vm=instanceId == null ? null : RestrictedTypes.doPrivileged(instanceId,VmInstance.class);
+  if (address.getDomain() != Address.Domain.vpc) {
+    if (vm == null) {
+      throw new ClientComputeException(" InvalidParameterCombination","InstanceId must be specified when using PublicIp");
+    }
+    final VmInstance oldVm=findCurrentAssignedVm(address);
+    final Address oldAddr=findVmExistingAddress(vm);
+    reply.set_return(true);
+    if (oldAddr != null && address.equals(oldAddr)) {
+      return reply;
+    }
+    final UnconditionalCallback<BaseMessage> assignTarget=new UnconditionalCallback<BaseMessage>(){
+      public void fire(){
+        AddressingDispatcher.dispatch(AsyncRequests.newRequest(address.assign(vm).getCallback()).then(new Callback.Success<BaseMessage>(){
+          @Override public void fire(          BaseMessage response){
+            Addresses.updatePublicIpByInstanceId(vm.getInstanceId(),address.getName());
+          }
+        }
+),vm.getPartition());
+        if (oldVm != null) {
+          Addresses.system(oldVm);
+        }
+      }
+    }
+;
+    final UnconditionalCallback<BaseMessage> unassignBystander=new UnconditionalCallback<BaseMessage>(){
+      public void fire(){
+        if (oldAddr != null) {
+          AddressingDispatcher.dispatch(AsyncRequests.newRequest(oldAddr.unassign().getCallback()).then(assignTarget),vm.getPartition());
+        }
+ else {
+          assignTarget.fire();
+        }
+      }
+    }
+;
+    if (address.isAssigned()) {
+      AddressingDispatcher.dispatch(AsyncRequests.newRequest(address.unassign().getCallback()).then(unassignBystander),oldVm.getPartition());
+    }
+ else {
+      unassignBystander.fire();
+    }
+  }
+ else {
+    final NetworkInterface networkInterface;
+    try (final TransactionResource tx=Entities.transactionFor(VmInstance.class)){
+      networkInterface=vm != null ? Iterables.getOnlyElement(Entities.merge(vm).getNetworkInterfaces()) : RestrictedTypes.doPrivileged(networkInterfaceId,NetworkInterface.class);
+    }
+     if (!address.isAssigned() || !networkInterface.getDisplayName().equals(address.getNetworkInterfaceId())) {
+      if (address.isAssigned() && !request.getAllowReassociation()) {
+        throw new ClientComputeException("Resource.AlreadyAssociated","Address already associated");
+      }
+      if (address.isAssigned()) {
+        final NetworkInterface oldNetworkInterface=RestrictedTypes.doPrivileged(address.getNetworkInterfaceId(),NetworkInterface.class);
+        try (final TransactionResource tx=Entities.transactionFor(NetworkInterface.class)){
+          final NetworkInterface eni=Entities.merge(oldNetworkInterface);
+          address.unassign(eni);
+          eni.disassociate();
+          if (eni.isAttached()) {
+            eni.getAttachment().getInstance().updatePublicAddress(VmNetworkConfig.DEFAULT_IP);
+          }
+          tx.commit();
+        }
+       }
+      try (final TransactionResource tx=Entities.transactionFor(NetworkInterface.class)){
+        final NetworkInterface eni=Entities.merge(networkInterface);
+        internetGateways.lookupByVpc(AccountFullName.getInstance(address.getOwnerAccountNumber()),eni.getVpc().getDisplayName(),CloudMetadatas.toDisplayName());
+        if (eni.isAssociated()) {
+          NetworkInterfaceHelper.releasePublic(eni);
+          eni.disassociate();
+          if (eni.isAttached()) {
+            eni.getAttachment().getInstance().updatePublicAddress(VmNetworkConfig.DEFAULT_IP);
+          }
+        }
+        address.assign(eni,eni.isAttached() ? eni.getAttachment().getInstance() : null);
+        eni.associate(NetworkInterfaceAssociation.create(address.getAssociationId(),address.getAllocationId(),address.getOwnerAccountNumber(),address.getName(),null));
+        if (eni.isAttached()) {
+          eni.getAttachment().getInstance().updatePublicAddress(address.getName());
+        }
+        tx.commit();
+      }
+ catch (      final VpcMetadataNotFoundException e) {
+        throw new ClientComputeException("Gateway.NotAttached","Internet gateway not found for VPC");
+      }
+    }
+    reply.setAssociationId(address.getAssociationId());
+  }
+  return reply;
+}

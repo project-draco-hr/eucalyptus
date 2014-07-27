@@ -1,0 +1,16 @@
+{
+  final DescribeAddressesResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final boolean isAdmin=ctx.isAdministrator();
+  final boolean verbose=isAdmin && request.getPublicIpsSet().remove("verbose");
+  final Predicate<? super Address> filter=CloudMetadatas.filteringFor(Address.class).byId(request.getPublicIpsSet()).byProperty(request.getAllocationIds(),Addresses.allocation()).byPredicate(Filters.generate(request.getFilterSet(),Address.class).asPredicate()).byOwningAccount(verbose ? Collections.<String>emptyList() : Collections.singleton(ctx.getAccount().getAccountNumber())).byPrivileges().buildPredicate();
+  for (  final Address address : Iterables.filter(Addresses.getInstance().listValues(),filter)) {
+    reply.getAddressesSet().add(verbose ? address.getAdminDescription() : TypeMappers.transform(address,AddressInfoType.class));
+  }
+  if (verbose) {
+    for (    Address address : Iterables.filter(Addresses.getInstance().listDisabledValues(),filter)) {
+      reply.getAddressesSet().add(new AddressInfoType(address.getName(),Address.Domain.standard.toString(),Principals.nobodyFullName().getUserName()));
+    }
+  }
+  return reply;
+}
