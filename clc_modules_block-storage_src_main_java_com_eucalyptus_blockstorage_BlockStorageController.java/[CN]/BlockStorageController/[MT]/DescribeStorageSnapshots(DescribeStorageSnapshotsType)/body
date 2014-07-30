@@ -3,28 +3,29 @@
   checker.transferPendingSnapshots();
   List<String> snapshotSet=request.getSnapshotSet();
   ArrayList<SnapshotInfo> snapshotInfos=new ArrayList<SnapshotInfo>();
-  EntityWrapper<SnapshotInfo> db=StorageProperties.getEntityWrapper();
-  if ((snapshotSet != null) && !snapshotSet.isEmpty()) {
-    for (    String snapshotSetEntry : snapshotSet) {
-      SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotSetEntry);
-      List<SnapshotInfo> foundSnapshotInfos=db.query(snapshotInfo);
-      if (foundSnapshotInfos.size() > 0) {
-        snapshotInfos.add(foundSnapshotInfos.get(0));
+  try (TransactionResource tran=Entities.transactionFor(SnapshotInfo.class)){
+    if ((snapshotSet != null) && !snapshotSet.isEmpty()) {
+      for (      String snapshotSetEntry : snapshotSet) {
+        SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotSetEntry);
+        List<SnapshotInfo> foundSnapshotInfos=Entities.query(snapshotInfo);
+        if (foundSnapshotInfos.size() > 0) {
+          snapshotInfos.add(foundSnapshotInfos.get(0));
+        }
       }
     }
-  }
  else {
-    SnapshotInfo snapshotInfo=new SnapshotInfo();
-    List<SnapshotInfo> foundSnapshotInfos=db.query(snapshotInfo);
-    for (    SnapshotInfo snapInfo : foundSnapshotInfos) {
-      snapshotInfos.add(snapInfo);
+      SnapshotInfo snapshotInfo=new SnapshotInfo();
+      List<SnapshotInfo> foundSnapshotInfos=Entities.query(snapshotInfo);
+      for (      SnapshotInfo snapInfo : foundSnapshotInfos) {
+        snapshotInfos.add(snapInfo);
+      }
     }
+    ArrayList<StorageSnapshot> snapshots=reply.getSnapshotSet();
+    for (    SnapshotInfo snapshotInfo : snapshotInfos) {
+      snapshots.add(convertSnapshotInfo(snapshotInfo));
+      if (snapshotInfo.getStatus().equals(StorageProperties.Status.failed.toString()))       checker.cleanFailedSnapshot(snapshotInfo.getSnapshotId());
+    }
+    tran.commit();
   }
-  ArrayList<StorageSnapshot> snapshots=reply.getSnapshotSet();
-  for (  SnapshotInfo snapshotInfo : snapshotInfos) {
-    snapshots.add(convertSnapshotInfo(snapshotInfo));
-    if (snapshotInfo.getStatus().equals(StorageProperties.Status.failed.toString()))     checker.cleanFailedSnapshot(snapshotInfo.getSnapshotId());
-  }
-  db.commit();
-  return reply;
+   return reply;
 }

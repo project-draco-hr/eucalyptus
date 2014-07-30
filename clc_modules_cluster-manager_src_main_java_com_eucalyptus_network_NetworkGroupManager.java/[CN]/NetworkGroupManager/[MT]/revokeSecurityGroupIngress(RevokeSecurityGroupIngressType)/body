@@ -1,0 +1,34 @@
+{
+  final RevokeSecurityGroupIngressResponseType reply=request.getReply().markFailed();
+  final Context ctx=Contexts.lookup();
+  try (final TransactionResource tx=Entities.transactionFor(NetworkGroup.class)){
+    final NetworkGroup ruleGroup=lookupGroup(request.getGroupId(),request.getGroupName());
+    final List<IpPermissionType> ipPermissions=handleOldAndNewIpPermissions(ruleGroup.getVpcId() != null,request.getCidrIp(),request.getIpProtocol(),request.getFromPort(),request.getToPort(),request.getSourceSecurityGroupName(),request.getSourceSecurityGroupOwnerId(),request.getIpPermissions());
+    if (RestrictedTypes.filterPrivileged().apply(ruleGroup)) {
+      try {
+        NetworkGroups.resolvePermissions(ipPermissions,ctx.getUser().getAccountNumber(),ruleGroup.getVpcId(),true);
+        Iterators.removeAll(ruleGroup.getNetworkRules().iterator(),NetworkGroups.ipPermissionsAsNetworkRules(ipPermissions,ruleGroup.getVpcId() != null));
+      }
+ catch (      IllegalArgumentException e) {
+        throw new ClientComputeException("InvalidPermission.Malformed",e.getMessage());
+      }
+catch (      NoSuchMetadataException e) {
+        throw new ClientComputeException("InvalidGroup.NotFound",e.getMessage());
+      }
+    }
+ else {
+      throw new EucalyptusCloudException("Not authorized to revoke network group " + request.getGroupName() + " for "+ ctx.getUser());
+    }
+    reply.set_return(true);
+    tx.commit();
+    NetworkGroups.flushRules();
+  }
+ catch (  EucalyptusCloudException ex) {
+    throw ex;
+  }
+catch (  Exception ex) {
+    Logs.exhaust().error(ex,ex);
+    throw new EucalyptusCloudException("RevokeSecurityGroupIngress failed because: " + ex.getMessage(),ex);
+  }
+  return reply;
+}

@@ -1,9 +1,9 @@
 {
-  EntityWrapper<SnapshotInfo> db=StorageProperties.getEntityWrapper();
+  TransactionResource tran=Entities.transactionFor(SnapshotInfo.class);
   SnapshotInfo searchSnap=new SnapshotInfo();
   searchSnap.setStatus(StorageProperties.Status.deleting.toString());
-  List<SnapshotInfo> snapshots=db.query(searchSnap);
-  db.commit();
+  List<SnapshotInfo> snapshots=Entities.query(searchSnap);
+  tran.commit();
   S3SnapshotTransfer snapshotTransfer=null;
   for (  SnapshotInfo snap : snapshots) {
     String snapshotId=snap.getSnapshotId();
@@ -16,22 +16,25 @@
       continue;
     }
     SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
-    db=StorageProperties.getEntityWrapper();
     SnapshotInfo foundSnapshotInfo;
-    try {
-      foundSnapshotInfo=db.getUnique(snapInfo);
+    try (TransactionResource tran2=Entities.transactionFor(SnapshotInfo.class)){
+      foundSnapshotInfo=Entities.uniqueResult(snapInfo);
       foundSnapshotInfo.setStatus(StorageProperties.Status.deleted.toString());
-      db.commit();
+      tran2.commit();
     }
- catch (    EucalyptusCloudException e) {
-      db.rollback();
+ catch (    TransactionException|NoSuchElementException e) {
       LOG.error(e);
       continue;
     }
     try {
       String[] names=SnapshotInfo.getSnapshotBucketKeyNames(foundSnapshotInfo.getSnapshotLocation());
       if (snapshotTransfer == null) {
-        snapshotTransfer=new S3SnapshotTransfer();
+        if (mock == null) {
+          snapshotTransfer=new S3SnapshotTransfer();
+        }
+ else {
+          snapshotTransfer=mock;
+        }
       }
       snapshotTransfer.setSnapshotId(snapshotId);
       snapshotTransfer.setBucketName(names[0]);

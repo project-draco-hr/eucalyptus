@@ -6,19 +6,21 @@
       LOG.info("Volume already associated with a tid: " + iscsiVolumeInfo.getTid());
       return;
     }
-    EntityWrapper<ISCSIMetaInfo> db=StorageProperties.getEntityWrapper();
-    List<ISCSIMetaInfo> metaInfoList=db.query(new ISCSIMetaInfo(StorageProperties.NAME));
     int tid=-1, storeNumber=-1;
-    if (metaInfoList.size() > 0) {
-      ISCSIMetaInfo foundMetaInfo=metaInfoList.get(0);
-      storeNumber=foundMetaInfo.getStoreNumber();
-      tid=foundMetaInfo.getTid();
+    List<ISCSIMetaInfo> metaInfoList;
+    try (TransactionResource tran=Entities.transactionFor(ISCSIMetaInfo.class)){
+      metaInfoList=Entities.query(new ISCSIMetaInfo(StorageProperties.NAME));
+      if (metaInfoList.size() > 0) {
+        ISCSIMetaInfo foundMetaInfo=metaInfoList.get(0);
+        storeNumber=foundMetaInfo.getStoreNumber();
+        tid=foundMetaInfo.getTid();
+      }
+      tran.commit();
     }
-    db.commit();
-    int i=tid;
+     int i=tid;
     Long timeout=DirectStorageInfo.getStorageInfo().getTimeoutInMillis();
     do {
-      if (!TGTWrapper.targetExists(volumeInfo.getVolumeId(),i,null,timeout)) {
+      if (!tgtService.targetExists(volumeInfo.getVolumeId(),i,null,timeout)) {
         tid=i;
         break;
       }
@@ -27,19 +29,20 @@
  while (i != tid);
     LOG.debug("Volume " + iscsiVolumeInfo.getVolumeId() + " Target allocation found tid: "+ tid);
     if (tid > 0) {
-      db=StorageProperties.getEntityWrapper();
-      metaInfoList=db.query(new ISCSIMetaInfo(StorageProperties.NAME));
-      if (metaInfoList.size() > 0) {
-        ISCSIMetaInfo foundMetaInfo=metaInfoList.get(0);
-        foundMetaInfo.setStoreNumber(++storeNumber);
-        foundMetaInfo.setTid(tid + 1);
-        iscsiVolumeInfo.setStoreName(foundMetaInfo.getStorePrefix() + StorageProperties.NAME + ":store"+ storeNumber);
-        iscsiVolumeInfo.setStoreUser(foundMetaInfo.getStoreUser());
-        iscsiVolumeInfo.setTid(tid);
-        iscsiVolumeInfo.setLun(1);
+      try (TransactionResource tran=Entities.transactionFor(ISCSIMetaInfo.class)){
+        metaInfoList=Entities.query(new ISCSIMetaInfo(StorageProperties.NAME));
+        if (metaInfoList.size() > 0) {
+          ISCSIMetaInfo foundMetaInfo=metaInfoList.get(0);
+          foundMetaInfo.setStoreNumber(++storeNumber);
+          foundMetaInfo.setTid(tid + 1);
+          iscsiVolumeInfo.setStoreName(foundMetaInfo.getStorePrefix() + StorageProperties.NAME + ":store"+ storeNumber);
+          iscsiVolumeInfo.setStoreUser(foundMetaInfo.getStoreUser());
+          iscsiVolumeInfo.setTid(tid);
+          iscsiVolumeInfo.setLun(1);
+        }
+        tran.commit();
       }
-      db.commit();
-    }
+     }
  else {
       iscsiVolumeInfo.setTid(-1);
       LOG.fatal("Unable to allocate ISCSI target id for volume " + iscsiVolumeInfo.getVolumeId());

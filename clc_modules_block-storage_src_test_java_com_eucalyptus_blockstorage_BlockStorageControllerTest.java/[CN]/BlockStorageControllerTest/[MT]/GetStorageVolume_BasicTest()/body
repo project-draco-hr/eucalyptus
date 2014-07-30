@@ -1,0 +1,32 @@
+{
+  VolumeInfo volOne=new VolumeInfo();
+  volOne.setStatus(StorageProperties.Status.available.toString());
+  volOne.setSize(new Integer(1));
+  volOne.setUserName("unittestuser0");
+  volOne.setVolumeId("vol-0000");
+  volOne.setSnapshotId("snap-0000");
+  volOne.setCreateTime(new Date());
+  volOne.setZone("eucalyptus");
+  try (TransactionResource tran=Entities.transactionFor(VolumeInfo.class)){
+    Entities.persist(volOne);
+    tran.commit();
+  }
+   final LogicalStorageManager storageManager=context.mock(LogicalStorageManager.class);
+  context.checking(new Expectations(){
+{
+      oneOf(storageManager).getVolumeConnectionString("vol-0000");
+      will(returnValue("foo"));
+    }
+  }
+);
+  StorageProperties.enableStorage=true;
+  BlockStorageController bsc=new BlockStorageController(storageManager);
+  GetStorageVolumeType request=new GetStorageVolumeType();
+  request.setVolumeId("vol-0000");
+  GetStorageVolumeResponseType response=bsc.GetStorageVolume(request);
+  assertTrue("expected to receive proper volumeId in response","vol-0000".equals(response.getVolumeId()));
+  assertTrue("expected to receive correct size in response","1".equals(response.getSize()));
+  assertTrue("expected to receive correct status in response",StorageProperties.Status.available.toString().equals(response.getStatus()));
+  assertTrue("expected to receive correct snapshotId in response","snap-0000".equals(response.getSnapshotId()));
+  assertTrue("expected to receive correct device name in response","foo".equals(response.getActualDeviceName()));
+}

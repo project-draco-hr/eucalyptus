@@ -3,7 +3,7 @@
   try {
     Long timeout=DirectStorageInfo.getStorageInfo().getTimeoutInMillis();
     LOG.debug("Unexport target: tid=" + tid + ",lun="+ lun+ " for "+ volumeId);
-    if (TGTWrapper.targetExists(volumeId,tid,path,timeout)) {
+    if (tgtService.targetExists(volumeId,tid,path,timeout)) {
       LOG.info("Attempting to unexport target: " + tid);
     }
  else {
@@ -11,15 +11,15 @@
       return;
     }
     LOG.debug("Unbinding target " + tid + " for "+ volumeId);
-    TGTWrapper.unbindTarget(volumeId,tid,timeout);
+    tgtService.unbindTarget(volumeId,tid,timeout);
     int retryCount=0;
     do {
       try {
         LOG.debug("Deleting lun " + lun + " on target "+ tid+ " for "+ volumeId);
-        TGTWrapper.deleteLun(volumeId,tid,lun,timeout);
+        tgtService.deleteLun(volumeId,tid,lun,timeout);
         break;
       }
- catch (      ResourceNotFoundException e) {
+ catch (      TGTWrapper.ResourceNotFoundException e) {
         LOG.warn("Resource not found when deleting lun for " + volumeId + ". Continuing unexport",e);
         break;
       }
@@ -37,9 +37,9 @@ catch (      EucalyptusCloudException e) {
     do {
       try {
         LOG.debug("Deleting target " + tid + " for "+ volumeId);
-        TGTWrapper.deleteTarget(volumeId,tid,timeout,false);
+        tgtService.deleteTarget(volumeId,tid,timeout,false);
       }
- catch (      ResourceNotFoundException e) {
+ catch (      TGTWrapper.ResourceNotFoundException e) {
         LOG.warn("Resource not found when deleting target for volume " + volumeId + " Continuing.",e);
       }
 catch (      EucalyptusCloudException e) {
@@ -47,7 +47,7 @@ catch (      EucalyptusCloudException e) {
         Thread.sleep(1000);
         continue;
       }
-      if (TGTWrapper.targetExists(volumeId,tid,null,timeout)) {
+      if (tgtService.targetExists(volumeId,tid,null,timeout)) {
         LOG.warn("Volume: " + volumeId + " Target: "+ tid+ " still exists...");
         Thread.sleep(1000);
       }
@@ -56,10 +56,10 @@ catch (      EucalyptusCloudException e) {
       }
     }
  while (retryCount++ < opMaxRetry);
-    if (retryCount >= opMaxRetry && !TGTWrapper.targetHasLun(volumeId,tid,lun,timeout)) {
+    if (retryCount >= opMaxRetry && !tgtService.targetHasLun(volumeId,tid,lun,timeout)) {
       LOG.info("Forcibly deleting volume " + volumeId + " iscsi target "+ tid);
-      TGTWrapper.deleteTarget(volumeId,tid,timeout,true);
-      if (TGTWrapper.targetExists(volumeId,tid,null,timeout)) {
+      tgtService.deleteTarget(volumeId,tid,timeout,true);
+      if (tgtService.targetExists(volumeId,tid,null,timeout)) {
         LOG.error("Volume: " + volumeId + " Target: "+ tid+ " still exists after forcible deletion");
         throw new Exception("Failed to delete iscsi target " + tid + " for volume "+ volumeId);
       }

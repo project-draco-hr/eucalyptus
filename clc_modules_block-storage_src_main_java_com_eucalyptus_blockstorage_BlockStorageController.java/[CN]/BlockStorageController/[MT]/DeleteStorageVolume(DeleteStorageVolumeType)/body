@@ -6,11 +6,10 @@
   }
   String volumeId=request.getVolumeId();
   LOG.info("Processing DeleteStorageVolume request for volume " + volumeId);
-  EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
   VolumeInfo volumeInfo=new VolumeInfo();
   volumeInfo.setVolumeId(volumeId);
-  try {
-    VolumeInfo foundVolume=db.getUnique(volumeInfo);
+  try (TransactionResource tran=Entities.transactionFor(VolumeInfo.class)){
+    VolumeInfo foundVolume=Entities.uniqueResult(volumeInfo);
     String status=foundVolume.getStatus();
     if (status == null) {
       throw new EucalyptusCloudException("Invalid volume status: null");
@@ -26,7 +25,7 @@
       throw new EucalyptusCloudException("Cannot delete volume in state: " + status + ". Please retry later");
     }
     reply.set_return(Boolean.TRUE);
-    db.commit();
+    tran.commit();
   }
  catch (  NoSuchElementException e) {
     LOG.error("Unable to find volume in SC database: " + volumeId);
@@ -39,9 +38,6 @@ catch (  EucalyptusCloudException e) {
 catch (  final Throwable e) {
     LOG.error("Exception looking up volume: " + volumeId,e);
     throw new EucalyptusCloudException(e);
-  }
- finally {
-    db.rollback();
   }
   return reply;
 }
