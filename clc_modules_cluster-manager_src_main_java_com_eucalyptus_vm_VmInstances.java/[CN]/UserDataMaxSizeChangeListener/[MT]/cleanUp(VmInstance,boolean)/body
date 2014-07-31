@@ -1,11 +1,18 @@
 {
+  BaseMessage originReq=null;
+  try {
+    originReq=MessageContexts.lookupLast(vm.getInstanceId(),Sets.<Class>newHashSet(edu.ucsb.eucalyptus.msgs.TerminateInstancesType.class,edu.ucsb.eucalyptus.msgs.StopInstancesType.class));
+  }
+ catch (  final Exception ex) {
+    ;
+  }
   final VmState vmLastState=vm.getLastState();
   final VmState vmState=vm.getState();
   RuntimeException logEx=new RuntimeException("Cleaning up instance: " + vm.getInstanceId() + " "+ vmLastState+ " -> "+ vmState);
   LOG.debug(logEx.getMessage());
   Logs.extreme().info(logEx,logEx);
   try {
-    if (Networking.getInstance().supports(ElasticIPs)) {
+    if (Networking.getInstance().supports(ElasticIPs) && vm.getVpcId() == null) {
       try {
         Address address=Addresses.getInstance().lookup(vm.getPublicAddress());
         if ((address.isAssigned() && vm.getInstanceId().equals(address.getInstanceId())) || (!address.isReallyAssigned() && address.isAssigned() && VmState.PENDING.equals(vmLastState))) {
@@ -68,7 +75,9 @@ catch (      final Exception e1) {
     }
   }
   try {
-    AsyncRequests.newRequest(new TerminateCallback(vm.getInstanceId())).dispatch(vm.getPartition());
+    final TerminateCallback cb=new TerminateCallback(vm.getInstanceId());
+    if (originReq != null)     cb.getRequest().regardingRequest(originReq);
+    AsyncRequests.newRequest(cb).dispatch(vm.getPartition());
   }
  catch (  Exception ex) {
     LOG.error(ex);

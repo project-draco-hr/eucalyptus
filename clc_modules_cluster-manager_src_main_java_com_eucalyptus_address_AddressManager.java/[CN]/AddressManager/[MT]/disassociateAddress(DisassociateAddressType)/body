@@ -1,0 +1,60 @@
+{
+  final DisassociateAddressResponseType reply=request.getReply().markFailed();
+  final Context ctx=Contexts.lookup();
+  final Address address;
+  try {
+    address=RestrictedTypes.doPrivileged(Objects.firstNonNull(request.getPublicIp(),ResourceIdentifiers.tryNormalize().apply(request.getAssociationId())),Address.class);
+  }
+ catch (  final NoSuchElementException e) {
+    if (request.getAssociationId() != null) {
+      throw new ClientComputeException("InvalidAssociationID.NotFound","Association identifier (" + request.getAssociationId() + ") not found.");
+    }
+ else {
+      throw e;
+    }
+  }
+  reply.set_return(true);
+  if (address.isSystemOwned() && !ctx.isAdministrator()) {
+    throw new EucalyptusCloudException("Only administrators can unassign system owned addresses: " + address.toString());
+  }
+ else   if (address.getDomain() != Address.Domain.vpc) {
+    final String vmId=address.getInstanceId();
+    try {
+      final VmInstance vm=VmInstances.lookup(vmId);
+      final UnconditionalCallback<BaseMessage> systemAddressAssignmentCallback=new UnconditionalCallback<BaseMessage>(){
+        @Override public void fire(){
+          try {
+            Addresses.system(VmInstances.lookup(vmId));
+          }
+ catch (          NoSuchElementException e) {
+            LOG.debug(e,e);
+          }
+catch (          Exception e) {
+            LOG.error("Error assigning system address for instance " + vm.getInstanceId(),e);
+          }
+        }
+      }
+;
+      AddressingDispatcher.dispatch(AsyncRequests.newRequest(address.unassign().getCallback()).then(systemAddressAssignmentCallback),vm.getPartition());
+    }
+ catch (    Exception e) {
+      LOG.debug(e);
+      Logs.extreme().debug(e,e);
+      address.unassign().clearPending();
+    }
+  }
+ else {
+    final NetworkInterface networkInterface=RestrictedTypes.doPrivileged(address.getNetworkInterfaceId(),NetworkInterface.class);
+    try (final TransactionResource tx=Entities.transactionFor(NetworkInterface.class)){
+      final NetworkInterface eni=Entities.merge(networkInterface);
+      address.unassign(eni);
+      eni.disassociate();
+      if (eni.isAttached()) {
+        eni.getAttachment().getInstance().updatePublicAddress(VmNetworkConfig.DEFAULT_IP);
+      }
+      tx.commit();
+    }
+   }
+  LOG.debug(reply.toSimpleString());
+  return reply;
+}
