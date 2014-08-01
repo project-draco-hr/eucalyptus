@@ -1,3 +1,30 @@
 {
-  return null;
+  LOG.debug("Fetching snapshot metadata from objectstorage: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName);
+  validateInput();
+  ObjectMetadata metadata=null;
+  Map<String,String> userMetadata=null;
+  try {
+    metadata=retryAfterRefresh(new Function<GetObjectMetadataRequest,ObjectMetadata>(){
+      @Override @Nullable public ObjectMetadata apply(      @Nullable GetObjectMetadataRequest arg0){
+        eucaS3Client.refreshEndpoint();
+        return eucaS3Client.getObjectMetadata(arg0);
+      }
+    }
+,new GetObjectMetadataRequest(bucketName,keyName),REFRESH_TOKEN_RETRIES);
+  }
+ catch (  Exception e) {
+    LOG.warn("Failed to get snapshot metadata from objectstorage: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName);
+    throw new SnapshotTransferException("Failed to get snapshot metadata from objectstorage: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName,e);
+  }
+  if (metadata != null && (userMetadata=metadata.getUserMetadata()) != null && userMetadata.containsKey(UNCOMPRESSED_SIZE_KEY)) {
+    try {
+      return Long.parseLong(userMetadata.get(UNCOMPRESSED_SIZE_KEY));
+    }
+ catch (    Exception e) {
+      throw new SnapshotTransferException("Unable to parse size from snapshot metadata: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName+ ", metadata key:value pair="+ UNCOMPRESSED_SIZE_KEY+ ":"+ userMetadata.get(UNCOMPRESSED_SIZE_KEY),e);
+    }
+  }
+ else {
+    throw new SnapshotTransferException("Snapshot metadata from objectstorage does not contain uncompressed size: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName);
+  }
 }

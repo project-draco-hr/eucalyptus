@@ -1,11 +1,12 @@
 {
-  LOG.debug("Downloading snapshot from objectstorage: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName+ ", destinationFile="+ destinationFileName);
+  LOG.debug("Downloading snapshot from objectstorage: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName);
   validateInput();
+  S3Object snapshotObj=null;
   try {
-    retryAfterRefresh(new Function<GetObjectRequest,ObjectMetadata>(){
-      @Override @Nullable public ObjectMetadata apply(      @Nullable GetObjectRequest arg0){
+    snapshotObj=retryAfterRefresh(new Function<GetObjectRequest,S3Object>(){
+      @Override @Nullable public S3Object apply(      @Nullable GetObjectRequest arg0){
         eucaS3Client.refreshEndpoint();
-        return eucaS3Client.getObject(arg0,new File(destinationFileName));
+        return eucaS3Client.getObject(arg0);
       }
     }
 ,new GetObjectRequest(bucketName,keyName),REFRESH_TOKEN_RETRIES);
@@ -13,5 +14,60 @@
  catch (  Exception e) {
     LOG.warn("Failed to download snapshot from objectstorage: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName);
     throw new SnapshotTransferException("Failed to download snapshot from objectstorage: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName,e);
+  }
+  if (snapshotObj != null && snapshotObj.getObjectContent() != null) {
+    LOG.debug("Unzipping downloaded snapshot snapshotId=" + snapshotId + ", destination="+ destinationFileName);
+    GZIPInputStream gzipStream=null;
+    FileOutputStream unzipStream=null;
+    try {
+      gzipStream=new GZIPInputStream(snapshotObj.getObjectContent());
+      int failedAttempts=0;
+      do {
+        try {
+          unzipStream=new FileOutputStream(new File(destinationFileName));
+          break;
+        }
+ catch (        FileNotFoundException e) {
+          if ((++failedAttempts) < TX_RETRIES) {
+            LOG.debug("Failed to open FileOutputStream to " + destinationFileName + ". Will retry");
+          }
+ else {
+            LOG.warn("Failed to open FileOutputStream to " + destinationFileName + " after "+ failedAttempts+ " attempts");
+            throw e;
+          }
+        }
+      }
+ while (failedAttempts < TX_RETRIES);
+      byte[] buffer=new byte[READ_BUFFER_SIZE];
+      int len;
+      while ((len=gzipStream.read(buffer)) > 0) {
+        unzipStream.write(buffer,0,len);
+      }
+    }
+ catch (    Exception e) {
+      LOG.warn("Failed to unzip downloaded snapshot: snapshotId=" + snapshotId + ", destination="+ destinationFileName+ " due to "+ e.getMessage());
+      throw new SnapshotTransferException("Failed to unzip downloaded snapshot: snapshotId=" + snapshotId + ", destination="+ destinationFileName,e);
+    }
+ finally {
+      try {
+        if (unzipStream != null)         unzipStream.close();
+      }
+ catch (      Exception e) {
+      }
+      try {
+        if (gzipStream != null)         gzipStream.close();
+      }
+ catch (      Exception e) {
+      }
+      try {
+        snapshotObj.getObjectContent().close();
+      }
+ catch (      Exception e) {
+      }
+    }
+  }
+ else {
+    LOG.warn("No snapshot content available: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName);
+    throw new SnapshotTransferException("No snapshot content available: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName);
   }
 }
