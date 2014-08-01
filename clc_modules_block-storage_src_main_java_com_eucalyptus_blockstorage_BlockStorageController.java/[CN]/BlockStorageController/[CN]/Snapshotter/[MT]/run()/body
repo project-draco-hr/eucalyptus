@@ -2,7 +2,7 @@
   EucaSemaphore semaphore=EucaSemaphoreDirectory.getSolitarySemaphore(volumeId);
   try {
     Boolean shouldTransferSnapshots=true;
-    List<String> returnValues=null;
+    StorageResource snapshotResource=null;
     SnapshotTransfer snapshotTransfer=null;
     String bucket=null;
     shouldTransferSnapshots=StorageInfo.getStorageInfo().getShouldTransferSnapshots();
@@ -21,7 +21,7 @@
         throw new EucalyptusCloudException("Failed to create snapshot " + snapshotId + " as the semaphore could not be acquired");
       }
       if (!isSnapshotMarkedFailed(snapshotId)) {
-        returnValues=blockManager.createSnapshot(this.volumeId,this.snapshotId,this.snapPointId,shouldTransferSnapshots);
+        snapshotResource=blockManager.createSnapshot(this.volumeId,this.snapshotId,this.snapPointId,shouldTransferSnapshots);
       }
  else {
         throw new EucalyptusCloudException("Snapshot " + this.snapshotId + " marked as failed by another thread");
@@ -31,12 +31,9 @@
       semaphore.release();
     }
     if (shouldTransferSnapshots) {
-      if (returnValues.size() < 2) {
+      if (snapshotResource == null) {
         throw new EucalyptusCloudException("Snapshot file unknown. Cannot transfer snapshot");
       }
-      snapshotFileName=returnValues.get(0);
-      String snapshotSize=returnValues.get(1);
-      verifySnapshotFileIsReadable();
       String snapshotLocation=SnapshotInfo.generateSnapshotLocationURI(SnapshotTransferConfiguration.OSG,bucket,snapshotId);
       SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
       SnapshotInfo snapshotInfo=null;
@@ -50,7 +47,7 @@
       }
       if (!isSnapshotMarkedFailed(snapshotId)) {
         try {
-          snapshotTransfer.upload(snapshotFileName);
+          snapshotTransfer.upload(snapshotResource);
         }
  catch (        Exception e) {
           throw new EucalyptusCloudException("Failed to upload snapshot " + snapshotId + " to objectstorage",e);
