@@ -1,0 +1,33 @@
+{
+  if (!Topology.isEnabled(SimpleWorkflow.class)) {
+    throw new Exception("SimpleWorkflow must be enabled/registered to use Eucalyptus SWF");
+  }
+  creds=new CloudFormationAWSCredentialsProvider().getCredentials();
+  if (creds == null) {
+    throw new Exception("Unable to get credentials for cloudformation user");
+  }
+  simpleWorkflowClient=new AmazonSimpleWorkflowClient(creds);
+  simpleWorkflowClient.setEndpoint(ServiceUris.remote(Topology.lookup(SimpleWorkflow.class)).toString());
+  try {
+    RegisterDomainRequest registerDomainRequest=new RegisterDomainRequest();
+    registerDomainRequest.setName(SWF_DOMAIN);
+    registerDomainRequest.setWorkflowExecutionRetentionPeriodInDays("1");
+    simpleWorkflowClient.registerDomain(registerDomainRequest);
+  }
+ catch (  DomainAlreadyExistsException ex) {
+    LOG.debug("SWF domain " + SWF_DOMAIN + " already exists");
+  }
+  if (!"true".equalsIgnoreCase(System.getProperty("cloudformation.suppress_swf_create"))) {
+    createStackWorkflowWorker=new WorkflowWorker(simpleWorkflowClient,SWF_DOMAIN,SWF_TASKLIST);
+    createStackWorkflowWorker.addWorkflowImplementationType(CreateStackWorkflowImpl.class);
+    createStackWorkflowWorker.start();
+  }
+  if (!"true".equalsIgnoreCase(System.getProperty("cloudformation.suppress_swf_delete"))) {
+    deleteStackWorkflowWorker=new WorkflowWorker(simpleWorkflowClient,SWF_DOMAIN,SWF_TASKLIST);
+    deleteStackWorkflowWorker.addWorkflowImplementationType(DeleteStackWorkflowImpl.class);
+    deleteStackWorkflowWorker.start();
+  }
+  stackActivityWorker=new ActivityWorker(simpleWorkflowClient,SWF_DOMAIN,SWF_TASKLIST);
+  stackActivityWorker.addActivitiesImplementation(new StackActivityImpl());
+  stackActivityWorker.start();
+}
