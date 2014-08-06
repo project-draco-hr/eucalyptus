@@ -1,9 +1,33 @@
 {
-  String instanceType=allocInfo.getRequest().getInstanceType();
-  VmType vmType=VmTypes.lookup(instanceType);
-  if (!RestrictedTypes.filterPrivileged().apply(vmType)) {
-    throw new IllegalMetadataAccessException("Not authorized to allocate vm type " + instanceType + " for "+ allocInfo.getOwnerFullName());
+  RunInstancesType msg=allocInfo.getRequest();
+  String imageId=msg.getImageId();
+  VmType vmType=allocInfo.getVmType();
+  try {
+    BootableSet bootSet=Emis.newBootableSet(imageId);
+    allocInfo.setBootableSet(bootSet);
+    if (!bootSet.isBlockStorage()) {
+      if (Platform.windows.equals(bootSet.getMachine().getPlatform()) && bootSet.getMachine().getImageSizeBytes() > ((1024L * 1024L * 1024L* vmType.getDisk()) + (1024L * 1024L * 10))) {
+        throw new ImageInstanceTypeVerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
+      }
+ else       if (bootSet.getMachine().getImageSizeBytes() >= ((1024L * 1024L * 1024L* vmType.getDisk()))) {
+        throw new ImageInstanceTypeVerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
+      }
+      final MachineImageInfo emi=LookupMachine.INSTANCE.apply(imageId);
+      if (ImageMetadata.State.pending_available.equals(emi.getState()) && !verifyImagerCapacity(emi)) {
+        throw new MetadataException("Partition image of this size cannot be deployed without an adequately provisioned Imaging Worker." + " Please contact your cloud administrator.");
+      }
+    }
   }
-  allocInfo.setVmType(vmType);
+ catch (  VerificationException e) {
+    throw e;
+  }
+catch (  MetadataException ex) {
+    LOG.error(ex);
+    throw ex;
+  }
+catch (  RuntimeException ex) {
+    LOG.error(ex);
+    throw new VerificationException("Failed to verify references for request: " + msg.toSimpleString() + " because of: "+ ex.getMessage(),ex);
+  }
   return true;
 }
