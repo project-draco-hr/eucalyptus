@@ -1,0 +1,24 @@
+{
+  final Context ctx=Contexts.lookup();
+  final UserFullName userFullName=ctx.getUserFullName();
+  final AccountFullName accountFullName=userFullName.asAccountFullName();
+  final Predicate<? super WorkflowExecution> accessible=SimpleWorkflowMetadatas.filteringFor(WorkflowExecution.class).byPrivileges().buildPredicate();
+  final History history;
+  try {
+    history=workflowExecutions.lookupByExample(WorkflowExecution.exampleWithName(accountFullName,request.getExecution().getRunId()),accountFullName,request.getExecution().getRunId(),accessible,new Function<WorkflowExecution,History>(){
+      @Override public History apply(      final WorkflowExecution workflowExecution){
+        final List<WorkflowHistoryEvent> events=workflowExecution.getWorkflowHistory();
+        final List<WorkflowHistoryEvent> reverseEvents=Lists.reverse(events);
+        return new History().withEvents(Collections2.transform(Objects.firstNonNull(request.isReverseOrder(),Boolean.FALSE) ? reverseEvents : events,TypeMappers.lookup(WorkflowHistoryEvent.class,HistoryEvent.class)));
+      }
+    }
+);
+  }
+ catch (  SwfMetadataNotFoundException e) {
+    throw new SimpleWorkflowClientException("UnknownResourceFault","Unknown execution, runId = " + request.getExecution().getRunId());
+  }
+catch (  Exception e) {
+    throw handleException(e);
+  }
+  return request.reply(history);
+}

@@ -16,32 +16,87 @@
             throw Exceptions.toUndeclared(new SimpleWorkflowClientException("ValidationError","Bad token"));
           }
           workflowExecution.setDecisionStatus(Idle);
+          workflowExecution.setDecisionTimestamp(new Date());
           workflowExecution.setLatestExecutionContext(request.getExecutionContext());
+          final Long completedId=workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskCompletedEventAttributes().withExecutionContext(request.getExecutionContext()).withScheduledEventId(token.getScheduledEventId()).withStartedEventId(token.getStartedEventId())));
+          boolean scheduleDecisionTask=false;
           if (request.getDecisions() != null)           for (          final Decision decision : request.getDecisions()) {
-            final Long completedId=workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskCompletedEventAttributes().withExecutionContext(request.getExecutionContext()).withScheduledEventId(token.getScheduledEventId()).withStartedEventId(token.getStartedEventId())));
 switch (decision.getDecisionType()) {
+case "CancelTimer":
+              final CancelTimerDecisionAttributes cancelTimer=decision.getCancelTimerDecisionAttributes();
+            workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new CancelTimerFailedEventAttributes().withCause(CancelTimerFailedCause.TIMER_ID_UNKNOWN).withDecisionTaskCompletedEventId(completedId).withTimerId(cancelTimer.getTimerId())));
+          scheduleDecisionTask=true;
+        break;
+case "CancelWorkflowExecution":
+      final CancelWorkflowExecutionDecisionAttributes cancelWorkflowExecution=decision.getCancelWorkflowExecutionDecisionAttributes();
+    workflowExecution.setState(WorkflowExecution.ExecutionStatus.Closed);
+  workflowExecution.setCloseStatus(WorkflowExecution.CloseStatus.Canceled);
+workflowExecution.setCloseTimestamp(new Date());
+workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionCanceledEventAttributes().withDecisionTaskCompletedEventId(completedId).withDetails(cancelWorkflowExecution.getDetails())));
+break;
 case "CompleteWorkflowExecution":
-              final CompleteWorkflowExecutionDecisionAttributes completed=decision.getCompleteWorkflowExecutionDecisionAttributes();
-            workflowExecution.setState(WorkflowExecution.ExecutionStatus.Closed);
-          workflowExecution.setCloseStatus(WorkflowExecution.CloseStatus.Completed);
-        workflowExecution.setCloseTimestamp(new Date());
-      workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionCompletedEventAttributes().withDecisionTaskCompletedEventId(completedId).withResult(completed.getResult())));
-    break;
+final CompleteWorkflowExecutionDecisionAttributes completed=decision.getCompleteWorkflowExecutionDecisionAttributes();
+workflowExecution.setState(WorkflowExecution.ExecutionStatus.Closed);
+workflowExecution.setCloseStatus(WorkflowExecution.CloseStatus.Completed);
+workflowExecution.setCloseTimestamp(new Date());
+workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionCompletedEventAttributes().withDecisionTaskCompletedEventId(completedId).withResult(completed.getResult())));
+break;
+case "ContinueAsNewWorkflowExecution":
+workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ContinueAsNewWorkflowExecutionFailedEventAttributes().withCause(ContinueAsNewWorkflowExecutionFailedCause.OPERATION_NOT_PERMITTED).withDecisionTaskCompletedEventId(completedId)));
+scheduleDecisionTask=true;
+break;
+case "FailWorkflowExecution":
+final FailWorkflowExecutionDecisionAttributes failed=decision.getFailWorkflowExecutionDecisionAttributes();
+workflowExecution.setState(WorkflowExecution.ExecutionStatus.Closed);
+workflowExecution.setCloseStatus(WorkflowExecution.CloseStatus.Failed);
+workflowExecution.setCloseTimestamp(new Date());
+workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionFailedEventAttributes().withDecisionTaskCompletedEventId(completedId).withDetails(failed.getDetails()).withReason(failed.getReason())));
+break;
+case "RecordMarker":
+final RecordMarkerDecisionAttributes mark=decision.getRecordMarkerDecisionAttributes();
+workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new MarkerRecordedEventAttributes().withDetails(mark.getDetails()).withDecisionTaskCompletedEventId(completedId).withMarkerName(mark.getMarkerName())));
+scheduleDecisionTask=true;
+break;
+case "RequestCancelExternalWorkflowExecution":
+final RequestCancelExternalWorkflowExecutionDecisionAttributes cancelExternalWorkflow=decision.getRequestCancelExternalWorkflowExecutionDecisionAttributes();
+workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new RequestCancelExternalWorkflowExecutionFailedEventAttributes().withCause(RequestCancelExternalWorkflowExecutionFailedCause.UNKNOWN_EXTERNAL_WORKFLOW_EXECUTION).withControl(cancelExternalWorkflow.getControl()).withDecisionTaskCompletedEventId(completedId).withRunId(cancelExternalWorkflow.getRunId()).withWorkflowId(cancelExternalWorkflow.getWorkflowId())));
+scheduleDecisionTask=true;
+break;
 case "ScheduleActivityTask":
-  workflowExecution.setLatestActivityTaskScheduled(new Date());
+workflowExecution.setLatestActivityTaskScheduled(new Date());
 final ScheduleActivityTaskDecisionAttributes scheduleActivity=decision.getScheduleActivityTaskDecisionAttributes();
 final Long scheduledId=workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ActivityTaskScheduledEventAttributes().withDecisionTaskCompletedEventId(completedId).withActivityId(scheduleActivity.getActivityId()).withActivityType(scheduleActivity.getActivityType()).withControl(scheduleActivity.getControl()).withHeartbeatTimeout(scheduleActivity.getHeartbeatTimeout()).withInput(scheduleActivity.getInput()).withScheduleToCloseTimeout(scheduleActivity.getScheduleToCloseTimeout()).withScheduleToStartTimeout(scheduleActivity.getScheduleToStartTimeout()).withStartToCloseTimeout(scheduleActivity.getStartToCloseTimeout()).withTaskList(scheduleActivity.getTaskList())));
 try {
 final ActivityType activityType=activityTypes.lookupByExample(ActivityType.exampleWithUniqueName(accountFullName,domain.getDisplayName(),scheduleActivity.getActivityType().getName(),scheduleActivity.getActivityType().getVersion()),accountFullName,scheduleActivity.getActivityType().getName(),Predicates.alwaysTrue(),Functions.<ActivityType>identity());
-activityTasks.save(com.eucalyptus.simpleworkflow.ActivityTask.create(userFullName,workflowExecution,domain.getDisplayName(),scheduleActivity.getActivityId(),scheduleActivity.getActivityType().getName(),scheduleActivity.getActivityType().getVersion(),scheduleActivity.getInput(),scheduledId,scheduleActivity.getTaskList() == null ? activityType.getDefaultTaskList() : scheduleActivity.getTaskList().getName()));
+activityTasks.save(com.eucalyptus.simpleworkflow.ActivityTask.create(userFullName,workflowExecution,domain.getDisplayName(),scheduleActivity.getActivityId(),scheduleActivity.getActivityType().getName(),scheduleActivity.getActivityType().getVersion(),scheduleActivity.getInput(),scheduledId,scheduleActivity.getTaskList() == null ? activityType.getDefaultTaskList() : scheduleActivity.getTaskList().getName(),parsePeriod(scheduleActivity.getScheduleToCloseTimeout(),activityType.getDefaultTaskScheduleToCloseTimeout()),parsePeriod(scheduleActivity.getScheduleToStartTimeout(),activityType.getDefaultTaskScheduleToStartTimeout()),parsePeriod(scheduleActivity.getStartToCloseTimeout(),activityType.getDefaultTaskStartToCloseTimeout()),parsePeriod(scheduleActivity.getHeartbeatTimeout(),activityType.getDefaultTaskHeartbeatTimeout())));
 }
  catch (Exception e) {
 throw Exceptions.toUndeclared(e);
 }
 break;
+case "SignalExternalWorkflowExecution":
+final SignalExternalWorkflowExecutionDecisionAttributes signalExternalWorkflow=decision.getSignalExternalWorkflowExecutionDecisionAttributes();
+workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new SignalExternalWorkflowExecutionFailedEventAttributes().withCause(SignalExternalWorkflowExecutionFailedCause.UNKNOWN_EXTERNAL_WORKFLOW_EXECUTION).withControl(signalExternalWorkflow.getControl()).withDecisionTaskCompletedEventId(completedId).withRunId(signalExternalWorkflow.getRunId()).withWorkflowId(signalExternalWorkflow.getWorkflowId())));
+scheduleDecisionTask=true;
+break;
+case "StartChildWorkflowExecution":
+final StartChildWorkflowExecutionDecisionAttributes startChildWorkflow=decision.getStartChildWorkflowExecutionDecisionAttributes();
+workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new StartChildWorkflowExecutionFailedEventAttributes().withCause(StartChildWorkflowExecutionFailedCause.OPERATION_NOT_PERMITTED).withControl(startChildWorkflow.getControl()).withDecisionTaskCompletedEventId(completedId).withWorkflowId(startChildWorkflow.getWorkflowId()).withWorkflowType(startChildWorkflow.getWorkflowType())));
+scheduleDecisionTask=true;
+break;
+case "StartTimer":
+final StartTimerDecisionAttributes startTimer=decision.getStartTimerDecisionAttributes();
+workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new StartTimerFailedEventAttributes().withCause(StartTimerFailedCause.OPERATION_NOT_PERMITTED).withDecisionTaskCompletedEventId(completedId).withTimerId(startTimer.getTimerId())));
+scheduleDecisionTask=true;
+break;
 default :
 throw Exceptions.toUndeclared(new SimpleWorkflowException("InternalFailure",Role.Receiver,"Unsupported decision type: " + decision.getDecisionType()));
 }
+}
+if (scheduleDecisionTask) {
+workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskScheduledEventAttributes().withTaskList(new TaskList().withName(workflowExecution.getTaskList())).withStartToCloseTimeout(String.valueOf(workflowExecution.getTaskStartToCloseTimeout()))));
+workflowExecution.setDecisionStatus(Pending);
+workflowExecution.setDecisionTimestamp(new Date());
 }
 }
 return workflowExecution;
