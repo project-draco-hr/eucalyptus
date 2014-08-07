@@ -1,3 +1,25 @@
 {
-  return request.reply(new WorkflowExecutionCount());
+  final Context ctx=Contexts.lookup();
+  final UserFullName userFullName=ctx.getUserFullName();
+  final AccountFullName accountFullName=userFullName.asAccountFullName();
+  final Predicate<? super Domain> accessible=SimpleWorkflowMetadatas.filteringFor(Domain.class).byPrivileges().buildPredicate();
+  final WorkflowExecutionCount workflowExecutionCount;
+  try {
+    workflowExecutionCount=domains.lookupByExample(Domain.exampleWithName(accountFullName,request.getDomain()),accountFullName,request.getDomain(),accessible,new Function<Domain,WorkflowExecutionCount>(){
+      @Override public WorkflowExecutionCount apply(      final Domain domain){
+        final Conjunction filter=Restrictions.conjunction();
+        final Map<String,String> aliases=Maps.newHashMap();
+        buildFilters(request,filter,aliases);
+        return new WorkflowExecutionCount().withCount((int)Entities.count(WorkflowExecution.exampleForOpenWorkflow(accountFullName,request.getDomain(),null),filter,aliases)).withTruncated(false);
+      }
+    }
+);
+  }
+ catch (  SwfMetadataNotFoundException e) {
+    throw new SimpleWorkflowClientException("UnknownResourceFault","Unknown domain, name = " + request.getDomain());
+  }
+catch (  Exception e) {
+    throw handleException(e);
+  }
+  return request.reply(workflowExecutionCount);
 }

@@ -1,3 +1,26 @@
 {
-  return request.reply(new WorkflowExecutionDetail());
+  final Context ctx=Contexts.lookup();
+  final UserFullName userFullName=ctx.getUserFullName();
+  final AccountFullName accountFullName=userFullName.asAccountFullName();
+  final Predicate<? super WorkflowExecution> accessible=SimpleWorkflowMetadatas.filteringFor(WorkflowExecution.class).byPrivileges().buildPredicate();
+  final WorkflowExecutionDetail workflowExecutionDetail;
+  try {
+    workflowExecutionDetail=workflowExecutions.lookupByExample(WorkflowExecution.exampleWithName(accountFullName,request.getExecution().getRunId()),accountFullName,request.getExecution().getRunId(),accessible,new Function<WorkflowExecution,WorkflowExecutionDetail>(){
+      @Override public WorkflowExecutionDetail apply(      final WorkflowExecution workflowExecution){
+        final WorkflowExecutionDetail detail=TypeMappers.transform(workflowExecution,WorkflowExecutionDetail.class);
+        final Iterable<WorkflowHistoryEvent> events=workflowExecution.getWorkflowHistory();
+        final int openActivities=CollectionUtils.reduce(events,0,CollectionUtils.count(CollectionUtils.propertyPredicate("ActivityTaskScheduled",EVENT_TYPE))) - CollectionUtils.reduce(events,0,CollectionUtils.count(CollectionUtils.propertyPredicate(WorkflowExecutions.ACTIVITY_CLOSE_EVENT_TYPES,EVENT_TYPE)));
+        detail.withOpenCounts(new WorkflowExecutionOpenCounts().withOpenActivityTasks(openActivities).withOpenChildWorkflowExecutions(0).withOpenDecisionTasks(workflowExecution.getDecisionStatus() != Idle ? 1 : 0).withOpenTimers(0));
+        return detail;
+      }
+    }
+);
+  }
+ catch (  SwfMetadataNotFoundException e) {
+    throw new SimpleWorkflowClientException("UnknownResourceFault","Unknown execution, runId = " + request.getExecution().getRunId());
+  }
+catch (  Exception e) {
+    throw handleException(e);
+  }
+  return request.reply(workflowExecutionDetail);
 }
