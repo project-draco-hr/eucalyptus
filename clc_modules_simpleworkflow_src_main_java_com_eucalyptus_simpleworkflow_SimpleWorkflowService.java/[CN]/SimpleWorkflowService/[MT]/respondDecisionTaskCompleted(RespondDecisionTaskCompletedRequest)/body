@@ -15,8 +15,15 @@
           if (!started.getEventId().equals(token.getStartedEventId())) {
             throw Exceptions.toUndeclared(new SimpleWorkflowClientException("ValidationError","Bad token"));
           }
-          workflowExecution.setDecisionStatus(Idle);
-          workflowExecution.setDecisionTimestamp(new Date());
+          final WorkflowHistoryEvent scheduled=Iterables.find(reverseEvents,CollectionUtils.propertyPredicate("DecisionTaskScheduled",WorkflowExecutions.WorkflowHistoryEventStringFunctions.EVENT_TYPE));
+          if (scheduled.getEventId() < started.getEventId()) {
+            workflowExecution.setDecisionStatus(Idle);
+            workflowExecution.setDecisionTimestamp(new Date());
+          }
+ else {
+            workflowExecution.setDecisionStatus(Pending);
+            workflowExecution.setDecisionTimestamp(new Date());
+          }
           workflowExecution.setLatestExecutionContext(request.getExecutionContext());
           final Long completedId=workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskCompletedEventAttributes().withExecutionContext(request.getExecutionContext()).withScheduledEventId(token.getScheduledEventId()).withStartedEventId(token.getStartedEventId())));
           boolean scheduleDecisionTask=false;
@@ -33,6 +40,7 @@ case "CancelWorkflowExecution":
   workflowExecution.setCloseStatus(WorkflowExecution.CloseStatus.Canceled);
 workflowExecution.setCloseTimestamp(new Date());
 workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionCanceledEventAttributes().withDecisionTaskCompletedEventId(completedId).withDetails(cancelWorkflowExecution.getDetails())));
+deleteActivities(activityTasks,accountFullName,workflowExecution);
 break;
 case "CompleteWorkflowExecution":
 final CompleteWorkflowExecutionDecisionAttributes completed=decision.getCompleteWorkflowExecutionDecisionAttributes();
@@ -51,10 +59,36 @@ workflowExecution.setState(WorkflowExecution.ExecutionStatus.Closed);
 workflowExecution.setCloseStatus(WorkflowExecution.CloseStatus.Failed);
 workflowExecution.setCloseTimestamp(new Date());
 workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionFailedEventAttributes().withDecisionTaskCompletedEventId(completedId).withDetails(failed.getDetails()).withReason(failed.getReason())));
+deleteActivities(activityTasks,accountFullName,workflowExecution);
 break;
 case "RecordMarker":
 final RecordMarkerDecisionAttributes mark=decision.getRecordMarkerDecisionAttributes();
 workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new MarkerRecordedEventAttributes().withDetails(mark.getDetails()).withDecisionTaskCompletedEventId(completedId).withMarkerName(mark.getMarkerName())));
+break;
+case "RequestCancelActivityTask":
+final RequestCancelActivityTaskDecisionAttributes cancelActivity=decision.getRequestCancelActivityTaskDecisionAttributes();
+try {
+activityTasks.updateByExample(ActivityTask.exampleWithActivityId(accountFullName,workflowExecution.getDomainName(),workflowExecution.getDisplayName(),cancelActivity.getActivityId()),accountFullName,cancelActivity.getActivityId(),new Function<ActivityTask,Void>(){
+@Override public Void apply(final ActivityTask activityTask){
+final Long cancelRequestedId=workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ActivityTaskCancelRequestedEventAttributes().withDecisionTaskCompletedEventId(completedId).withActivityId(cancelActivity.getActivityId())));
+if (activityTask.getState() == ActivityTask.State.Active) {
+activityTask.setCancelRequestedEventId(cancelRequestedId);
+}
+ else {
+workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ActivityTaskCanceledEventAttributes().withLatestCancelRequestedEventId(cancelRequestedId).withScheduledEventId(activityTask.getScheduledEventId()).withStartedEventId(activityTask.getStartedEventId())));
+Entities.delete(activityTask);
+}
+return null;
+}
+}
+);
+}
+ catch (SwfMetadataNotFoundException e) {
+workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new RequestCancelActivityTaskFailedEventAttributes().withCause(RequestCancelActivityTaskFailedCause.ACTIVITY_ID_UNKNOWN).withDecisionTaskCompletedEventId(completedId).withActivityId(cancelActivity.getActivityId())));
+}
+catch (SwfMetadataException e) {
+throw Exceptions.toUndeclared(e);
+}
 scheduleDecisionTask=true;
 break;
 case "RequestCancelExternalWorkflowExecution":
@@ -93,7 +127,7 @@ default :
 throw Exceptions.toUndeclared(new SimpleWorkflowException("InternalFailure",Role.Receiver,"Unsupported decision type: " + decision.getDecisionType()));
 }
 }
-if (scheduleDecisionTask) {
+if (scheduleDecisionTask && workflowExecution.getDecisionStatus() != Pending) {
 workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskScheduledEventAttributes().withTaskList(new TaskList().withName(workflowExecution.getTaskList())).withStartToCloseTimeout(String.valueOf(workflowExecution.getTaskStartToCloseTimeout()))));
 workflowExecution.setDecisionStatus(Pending);
 workflowExecution.setDecisionTimestamp(new Date());

@@ -1,0 +1,35 @@
+{
+  final Context ctx=Contexts.lookup();
+  final UserFullName userFullName=ctx.getUserFullName();
+  final AccountFullName accountFullName=userFullName.asAccountFullName();
+  final Predicate<? super ActivityTask> accessible=SimpleWorkflowMetadatas.filteringFor(ActivityTask.class).byPrivileges().buildPredicate();
+  final ActivityTaskStatus status=new ActivityTaskStatus();
+  status.setCancelRequested(false);
+  try {
+    final TaskToken token=taskTokenManager.decryptTaskToken(accountFullName.getAccountNumber(),request.getTaskToken());
+    activityTasks.updateByExample(ActivityTask.exampleWithUniqueName(accountFullName,token.getRunId(),token.getScheduledEventId()),accountFullName,token.getRunId() + "/" + token.getScheduledEventId(),new Function<ActivityTask,ActivityTask>(){
+      @Override public ActivityTask apply(      final ActivityTask activityTask){
+        if (accessible.apply(activityTask)) {
+          final WorkflowExecution workflowExecution=activityTask.getWorkflowExecution();
+          workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ActivityTaskCanceledEventAttributes().withDetails(request.getDetails()).withLatestCancelRequestedEventId(activityTask.getCancelRequestedEventId()).withScheduledEventId(activityTask.getScheduledEventId()).withStartedEventId(activityTask.getStartedEventId())));
+          if (workflowExecution.getDecisionStatus() != Pending) {
+            workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskScheduledEventAttributes().withTaskList(new TaskList().withName(workflowExecution.getTaskList())).withStartToCloseTimeout(String.valueOf(workflowExecution.getTaskStartToCloseTimeout()))));
+            workflowExecution.setDecisionStatus(Pending);
+            workflowExecution.setDecisionTimestamp(new Date());
+          }
+          Entities.delete(activityTask);
+        }
+        return activityTask;
+      }
+    }
+);
+  }
+ catch (  SwfMetadataNotFoundException e) {
+    throw new SimpleWorkflowClientException("UnknownResourceFault","Unknown activity task, token = " + request.getTaskToken());
+  }
+catch (  Exception e) {
+    throw handleException(e);
+  }
+  longPollExit();
+  return request.reply(new SimpleWorkflowMessage());
+}
