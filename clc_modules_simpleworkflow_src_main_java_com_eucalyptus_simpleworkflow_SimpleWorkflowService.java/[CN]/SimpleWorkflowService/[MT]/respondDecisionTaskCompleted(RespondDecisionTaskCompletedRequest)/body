@@ -6,6 +6,7 @@
   try {
     final TaskToken token=taskTokenManager.decryptTaskToken(accountFullName.getAccountNumber(),request.getTaskToken());
     final Domain domain=domains.lookupByExample(Domain.exampleWithUuid(accountFullName,token.getDomainUuid()),accountFullName,token.getDomainUuid(),Predicates.alwaysTrue(),Functions.<Domain>identity());
+    final Set<Pair<String,String>> notificationTypeListPairs=Sets.newHashSet();
     workflowExecutions.updateByExample(WorkflowExecution.exampleWithUniqueName(accountFullName,domain.getDisplayName(),token.getRunId()),accountFullName,token.getRunId(),new Function<WorkflowExecution,WorkflowExecution>(){
       @Nullable @Override public WorkflowExecution apply(      final WorkflowExecution workflowExecution){
         if (accessible.apply(workflowExecution)) {
@@ -23,6 +24,7 @@
  else {
             workflowExecution.setDecisionStatus(Pending);
             workflowExecution.setDecisionTimestamp(new Date());
+            notificationTypeListPairs.add(Pair.pair("decision",workflowExecution.getTaskList()));
           }
           workflowExecution.setLatestExecutionContext(request.getExecutionContext());
           final Long completedId=workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskCompletedEventAttributes().withExecutionContext(request.getExecutionContext()).withScheduledEventId(token.getScheduledEventId()).withStartedEventId(token.getStartedEventId())));
@@ -102,7 +104,9 @@ final ScheduleActivityTaskDecisionAttributes scheduleActivity=decision.getSchedu
 final Long scheduledId=workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ActivityTaskScheduledEventAttributes().withDecisionTaskCompletedEventId(completedId).withActivityId(scheduleActivity.getActivityId()).withActivityType(scheduleActivity.getActivityType()).withControl(scheduleActivity.getControl()).withHeartbeatTimeout(scheduleActivity.getHeartbeatTimeout()).withInput(scheduleActivity.getInput()).withScheduleToCloseTimeout(scheduleActivity.getScheduleToCloseTimeout()).withScheduleToStartTimeout(scheduleActivity.getScheduleToStartTimeout()).withStartToCloseTimeout(scheduleActivity.getStartToCloseTimeout()).withTaskList(scheduleActivity.getTaskList())));
 try {
 final ActivityType activityType=activityTypes.lookupByExample(ActivityType.exampleWithUniqueName(accountFullName,domain.getDisplayName(),scheduleActivity.getActivityType().getName(),scheduleActivity.getActivityType().getVersion()),accountFullName,scheduleActivity.getActivityType().getName(),Predicates.alwaysTrue(),Functions.<ActivityType>identity());
-activityTasks.save(com.eucalyptus.simpleworkflow.ActivityTask.create(userFullName,workflowExecution,domain.getDisplayName(),scheduleActivity.getActivityId(),scheduleActivity.getActivityType().getName(),scheduleActivity.getActivityType().getVersion(),scheduleActivity.getInput(),scheduledId,scheduleActivity.getTaskList() == null ? activityType.getDefaultTaskList() : scheduleActivity.getTaskList().getName(),parsePeriod(scheduleActivity.getScheduleToCloseTimeout(),activityType.getDefaultTaskScheduleToCloseTimeout()),parsePeriod(scheduleActivity.getScheduleToStartTimeout(),activityType.getDefaultTaskScheduleToStartTimeout()),parsePeriod(scheduleActivity.getStartToCloseTimeout(),activityType.getDefaultTaskStartToCloseTimeout()),parsePeriod(scheduleActivity.getHeartbeatTimeout(),activityType.getDefaultTaskHeartbeatTimeout())));
+final String list=scheduleActivity.getTaskList() == null ? activityType.getDefaultTaskList() : scheduleActivity.getTaskList().getName();
+activityTasks.save(com.eucalyptus.simpleworkflow.ActivityTask.create(userFullName,workflowExecution,domain.getDisplayName(),scheduleActivity.getActivityId(),scheduleActivity.getActivityType().getName(),scheduleActivity.getActivityType().getVersion(),scheduleActivity.getInput(),scheduledId,list,parsePeriod(scheduleActivity.getScheduleToCloseTimeout(),activityType.getDefaultTaskScheduleToCloseTimeout()),parsePeriod(scheduleActivity.getScheduleToStartTimeout(),activityType.getDefaultTaskScheduleToStartTimeout()),parsePeriod(scheduleActivity.getStartToCloseTimeout(),activityType.getDefaultTaskStartToCloseTimeout()),parsePeriod(scheduleActivity.getHeartbeatTimeout(),activityType.getDefaultTaskHeartbeatTimeout())));
+notificationTypeListPairs.add(Pair.pair("activity",list));
 }
  catch (Exception e) {
 throw Exceptions.toUndeclared(e);
@@ -131,16 +135,19 @@ if (scheduleDecisionTask && workflowExecution.getDecisionStatus() != Pending) {
 workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskScheduledEventAttributes().withTaskList(new TaskList().withName(workflowExecution.getTaskList())).withStartToCloseTimeout(String.valueOf(workflowExecution.getTaskStartToCloseTimeout()))));
 workflowExecution.setDecisionStatus(Pending);
 workflowExecution.setDecisionTimestamp(new Date());
+notificationTypeListPairs.add(Pair.pair("decision",workflowExecution.getTaskList()));
 }
 }
 return workflowExecution;
 }
 }
 );
+for (final Pair<String,String> notificationTypeListPair : notificationTypeListPairs) {
+notifyTaskList(accountFullName,domain.getDisplayName(),notificationTypeListPair.getLeft(),notificationTypeListPair.getRight());
+}
 }
  catch (Exception e) {
 throw handleException(e);
 }
-longPollExit();
 return request.reply(new SimpleWorkflowMessage());
 }
