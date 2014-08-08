@@ -1,3 +1,49 @@
 {
-  throw new UnsupportedOperationException();
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+switch (stepNum) {
+case 0:
+    CreateVpcType createVpcType=new CreateVpcType();
+  createVpcType.setCidrBlock(properties.getCidrBlock());
+createVpcType.setEffectiveUserId(info.getEffectiveUserId());
+if (properties.getInstanceTenancy() == null) {
+createVpcType.setInstanceTenancy("default");
+}
+ else if (!"default".equals(properties.getInstanceTenancy()) && !"dedicated".equals(properties.getInstanceTenancy())) {
+throw new ValidationErrorException("InstanceTenancy must be 'dedicated' or 'default");
+}
+ else {
+createVpcType.setInstanceTenancy(properties.getInstanceTenancy());
+}
+CreateVpcResponseType createVpcResponseType=AsyncRequests.<CreateVpcType,CreateVpcResponseType>sendSync(configuration,createVpcType);
+info.setPhysicalResourceId(createVpcResponseType.getVpc().getVpcId());
+info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(info.getPhysicalResourceId())));
+break;
+case 1:
+ModifyVpcAttributeType modifyVpcAttributeType=new ModifyVpcAttributeType();
+boolean enableDnsSupport=true;
+boolean enableDnsHostnames=false;
+if (properties.getEnableDnsSupport() != null) {
+enableDnsSupport=properties.getEnableDnsSupport();
+}
+if (properties.getEnableDnsHostnames() != null) {
+enableDnsHostnames=properties.getEnableDnsHostnames();
+}
+modifyVpcAttributeType.setVpcId(info.getPhysicalResourceId());
+modifyVpcAttributeType.setEnableDnsSupport(createAttributeBooleanValueType(enableDnsSupport));
+modifyVpcAttributeType.setEnableDnsHostnames(createAttributeBooleanValueType(enableDnsHostnames));
+modifyVpcAttributeType.setEffectiveUserId(info.getEffectiveUserId());
+AsyncRequests.<ModifyVpcAttributeType,ModifyVpcAttributeResponseType>sendSync(configuration,modifyVpcAttributeType);
+break;
+case 2:
+if (properties.getTags() != null) {
+CreateTagsType createTagsType=new CreateTagsType();
+createTagsType.setEffectiveUserId(info.getEffectiveUserId());
+createTagsType.setResourcesSet(Lists.newArrayList(info.getPhysicalResourceId()));
+createTagsType.setTagSet(createTagSet(properties.getTags()));
+AsyncRequests.<CreateTagsType,CreateTagsResponseType>sendSync(configuration,createTagsType);
+}
+break;
+default :
+throw new IllegalStateException("Invalid step " + stepNum);
+}
 }
