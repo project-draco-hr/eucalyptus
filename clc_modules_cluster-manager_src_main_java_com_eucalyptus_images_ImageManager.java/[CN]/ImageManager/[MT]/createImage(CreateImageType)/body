@@ -10,10 +10,8 @@
     if (!VmState.RUNNING.equals(vm.getState()) && !VmState.STOPPED.equals(vm.getState())) {
       throw new EucalyptusCloudException("Cannot create an image from an instance which is not in either the 'running' or 'stopped' state: " + vm.getInstanceId() + " is in state "+ vm.getState().getName());
     }
-    Cluster cluster=null;
     try {
-      ServiceConfiguration ccConfig=Topology.lookup(ClusterController.class,vm.lookupPartition());
-      cluster=Clusters.lookup(ccConfig);
+      Clusters.lookup(Topology.lookup(ClusterController.class,vm.lookupPartition()));
     }
  catch (    NoSuchElementException e) {
       LOG.debug(e);
@@ -48,24 +46,53 @@ catch (  PersistenceException ex) {
   }
   final ImageMetadata.Architecture imageArch=arch;
   final ImageMetadata.Platform imagePlatform=platform;
-  if (blockDevices == null || blockDevices.size() <= 0) {
-    try {
-      blockDevices=Lists.transform(VmInstances.lookupEphemeralDevices(instanceId),VmInstances.EphemeralAttachmentToDevice);
-    }
- catch (    final Exception ex) {
-      LOG.warn("Failed to retrieve ephemeral device information",ex);
-      blockDevices=Lists.newArrayList();
-    }
-  }
+  if (blockDevices == null)   blockDevices=new ArrayList<>();
+  List<String> suppressedDevice=new ArrayList<>();
+  List<BlockDeviceMappingItemType> creteImageDevices=new ArrayList<>();
+  List<String> existingNames=VmInstances.lookupPersistentDeviceNames(instanceId);
+  for (  final BlockDeviceMappingItemType device : blockDevices) {
+    if (rootDeviceName != null && rootDeviceName.equals(device.getDeviceName()))     throw new ClientComputeException("InvalidBlockDeviceMapping","The device names should not contain root device");
+    if (device.getNoDevice() != null && device.getNoDevice())     suppressedDevice.add(device.getDeviceName());
+    if (device.getEbs() != null) {
+      if (existingNames.contains(device.getDeviceName()))       throw new ClientComputeException("InvalidBlockDeviceMapping","Can't add new block device mapping with a device name that is already in use");
  else {
-    for (    final BlockDeviceMappingItemType device : blockDevices) {
-      if (rootDeviceName != null && rootDeviceName.equals(device.getDeviceName()))       throw new ClientComputeException("InvalidBlockDeviceMapping","The device names should not contain root device");
+        creteImageDevices.add(device);
+        existingNames.add(device.getDeviceName());
+      }
     }
-    if (!bdmCreateImageVerifier().apply(request)) {
-      throw new ClientComputeException("InvalidBlockDeviceMapping","A block device mapping parameter is not valid");
+    if (device.getVirtualName() != null) {
+      existingNames.add(device.getDeviceName());
+      creteImageDevices.add(device);
     }
   }
-  final List<BlockDeviceMappingItemType> blockDeviceMapping=blockDevices;
+  if (!bdmCreateImageVerifier().apply(request)) {
+    throw new ClientComputeException("InvalidBlockDeviceMapping","A block device mapping parameter is not valid");
+  }
+  try {
+    for (    BlockDeviceMappingItemType device : Lists.transform(VmInstances.lookupEphemeralDevices(instanceId),VmInstances.EphemeralAttachmentToDevice)) {
+      String dName=device.getDeviceName();
+      if (dName != null && existingNames.contains(dName))       throw new ClientComputeException("InvalidBlockDeviceMapping","Can't add new block device mapping with a device name that is already in use by an ephemeral device");
+      if (dName != null && !suppressedDevice.contains(dName)) {
+        creteImageDevices.add(device);
+      }
+ else {
+        blockDevices.add(device);
+      }
+    }
+  }
+ catch (  ClientComputeException e) {
+    throw e;
+  }
+catch (  final Exception ex) {
+    LOG.warn("Failed to retrieve ephemeral device information",ex);
+  }
+  try {
+    Images.validateBlockDeviceMappings(creteImageDevices,EnumSet.of(AllowEbsMapping));
+  }
+ catch (  MetadataException e) {
+    throw new ClientComputeException("InvalidBlockDeviceMapping",e.getMessage());
+  }
+  final List<BlockDeviceMappingItemType> blockDeviceMapping=creteImageDevices;
   Supplier<ImageInfo> allocator=new Supplier<ImageInfo>(){
     @Override public ImageInfo get(){
       try {

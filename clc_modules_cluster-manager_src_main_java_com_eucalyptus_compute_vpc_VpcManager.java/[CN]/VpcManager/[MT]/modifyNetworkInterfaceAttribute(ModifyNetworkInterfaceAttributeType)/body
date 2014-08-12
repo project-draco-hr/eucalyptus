@@ -14,7 +14,20 @@
  else           if (request.getDescription() != null) {
             networkInterface.setDescription(request.getDescription().getValue());
           }
- else           if (request.getGroupSet() != null) {
+ else           if (request.getGroupSet() != null && !request.getGroupSet().getItem().isEmpty()) {
+            try {
+              networkInterface.setNetworkGroups(Sets.newHashSet(Iterables.transform(request.getGroupSet().groupIds(),RestrictedTypes.resolver(NetworkGroup.class))));
+              if (networkInterface.getNetworkGroups().size() > VpcConfiguration.getSecurityGroupsPerNetworkInterface()) {
+                throw Exceptions.toUndeclared(new ClientComputeException("SecurityGroupsPerInterfaceLimitExceeded","Security group limit exceeded"));
+              }
+            }
+ catch (            RuntimeException e) {
+              final NoSuchMetadataException nsme=Exceptions.findCause(e,NoSuchMetadataException.class);
+              if (nsme != null) {
+                throw Exceptions.toUndeclared(new ClientComputeException("InvalidSecurityGroupID.NotFound",nsme.getMessage()));
+              }
+              throw e;
+            }
           }
  else           if (request.getSourceDestCheck() != null) {
             networkInterface.setSourceDestCheck(request.getSourceDestCheck().getValue());

@@ -1,0 +1,127 @@
+{
+  validateInput();
+  loadTransferConfig();
+  S3Object snapObj=download();
+  if (snapObj != null && snapObj.getObjectContent() != null) {
+    byte[] buffer=new byte[10 * readBufferSize];
+    int len;
+    GZIPInputStream gzipInputStream=null;
+    try {
+      gzipInputStream=new GZIPInputStream(new BufferedInputStream(snapObj.getObjectContent(),buffer.length * 3),buffer.length * 2);
+      if (storageResource.isDownloadSynchronous()) {
+        OutputStream outputStream=null;
+        try {
+          outputStream=storageResource.getOutputStream();
+          while ((len=gzipInputStream.read(buffer)) > 0) {
+            outputStream.write(buffer,0,len);
+          }
+          gzipInputStream.close();
+          outputStream.close();
+          buffer=null;
+        }
+  finally {
+          try {
+            if (outputStream != null)             outputStream.close();
+          }
+ catch (          Exception e) {
+          }
+        }
+      }
+ else {
+        ArrayBlockingQueue<SnapshotPart> partQueue=new ArrayBlockingQueue<SnapshotPart>(queueSize);
+        Future<String> storageWriterFuture=Threads.enqueue(serviceConfig,StorageWriterTask.class,poolSize,new StorageWriterTask(partQueue,storageResource));
+        FileOutputStream fileOutputStream=null;
+        long bytesWritten=0;
+        int partNumber=1;
+        try {
+          Path filePath=Files.createTempFile(snapshotId + '-','-' + String.valueOf(partNumber));
+          fileOutputStream=new FileOutputStream(filePath.toString());
+          SnapshotPart part=new SnapshotPart();
+          part.setFileName(filePath.toString());
+          part.setPartNumber(partNumber);
+          part.setIsLast(Boolean.FALSE);
+          while ((len=gzipInputStream.read(buffer)) > 0) {
+            if ((bytesWritten + len) < writeBufferSize) {
+              fileOutputStream.write(buffer,0,len);
+              bytesWritten+=len;
+            }
+ else {
+              fileOutputStream.write(buffer,0,len);
+              bytesWritten+=len;
+              fileOutputStream.close();
+              if (storageWriterFuture.isDone()) {
+                throw new SnapshotTransferException("Error writing snapshot to backend, check previous log messages for more details. Aborting download and unzip process");
+              }
+              part.setSize(bytesWritten);
+              partQueue.put(part);
+              bytesWritten=0;
+              filePath=Files.createTempFile(snapshotId + '-','-' + String.valueOf(++partNumber));
+              fileOutputStream=new FileOutputStream(filePath.toString());
+              part=new SnapshotPart();
+              part.setFileName(filePath.toString());
+              part.setPartNumber(partNumber);
+              part.setIsLast(Boolean.FALSE);
+            }
+          }
+          gzipInputStream.close();
+          fileOutputStream.close();
+          buffer=null;
+          part.setSize(bytesWritten);
+          part.setIsLast(Boolean.TRUE);
+          partQueue.put(part);
+          if (StringUtils.isNotBlank(storageWriterFuture.get(transferTimeout,TimeUnit.HOURS))) {
+            LOG.info("Downloaded snapshot " + snapshotId + " to storage backend");
+          }
+ else {
+            throw new SnapshotTransferException("Failed to download snapshot " + snapshotId + " to storage backend");
+          }
+        }
+ catch (        Exception e) {
+          try {
+            if (!storageWriterFuture.isDone()) {
+              storageWriterFuture.cancel(true);
+            }
+            List<SnapshotPart> remainingParts=new ArrayList<SnapshotPart>();
+            partQueue.drainTo(remainingParts);
+            for (            SnapshotPart part : remainingParts) {
+              deleteFile(part.getFileName());
+            }
+          }
+ catch (          Exception ex) {
+            LOG.warn("Unable to clean up artifacts left by a failed attempt to download " + snapshotId + " to storage backend",ex);
+          }
+          throw e;
+        }
+ finally {
+          try {
+            if (fileOutputStream != null)             fileOutputStream.close();
+          }
+ catch (          Exception e) {
+          }
+        }
+      }
+    }
+ catch (    SnapshotTransferException e) {
+      throw e;
+    }
+catch (    Exception e) {
+      throw new SnapshotTransferException("Failed to download snapshot " + snapshotId + " to storage backend",e);
+    }
+ finally {
+      try {
+        if (gzipInputStream != null)         gzipInputStream.close();
+      }
+ catch (      Exception e) {
+      }
+      try {
+        snapObj.getObjectContent().close();
+      }
+ catch (      Exception e) {
+      }
+    }
+  }
+ else {
+    LOG.warn("No snapshot content available from objectstorage gateway: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName);
+    throw new SnapshotTransferException("No snapshot content available: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName);
+  }
+}

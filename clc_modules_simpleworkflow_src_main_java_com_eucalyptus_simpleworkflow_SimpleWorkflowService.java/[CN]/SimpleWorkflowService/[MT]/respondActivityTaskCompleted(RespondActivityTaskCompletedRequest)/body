@@ -6,7 +6,7 @@
   try {
     final TaskToken token=taskTokenManager.decryptTaskToken(accountFullName.getAccountNumber(),request.getTaskToken());
     final Domain domain=domains.lookupByExample(Domain.exampleWithUuid(accountFullName,token.getDomainUuid()),accountFullName,token.getDomainUuid(),Predicates.alwaysTrue(),Functions.<Domain>identity());
-    workflowExecutions.updateByExample(WorkflowExecution.exampleWithUniqueName(accountFullName,domain.getDisplayName(),token.getRunId()),accountFullName,token.getRunId(),new Function<WorkflowExecution,WorkflowExecution>(){
+    final WorkflowExecution workflowExecution=workflowExecutions.updateByExample(WorkflowExecution.exampleWithUniqueName(accountFullName,domain.getDisplayName(),token.getRunId()),accountFullName,token.getRunId(),new Function<WorkflowExecution,WorkflowExecution>(){
       @Nullable @Override public WorkflowExecution apply(      final WorkflowExecution workflowExecution){
         if (accessible.apply(workflowExecution)) {
           try {
@@ -18,15 +18,16 @@
           workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ActivityTaskCompletedEventAttributes().withResult(request.getResult()).withScheduledEventId(token.getScheduledEventId()).withStartedEventId(token.getStartedEventId())));
           workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskScheduledEventAttributes().withTaskList(new TaskList().withName(workflowExecution.getTaskList())).withStartToCloseTimeout(String.valueOf(workflowExecution.getTaskStartToCloseTimeout()))));
           workflowExecution.setDecisionStatus(Pending);
+          workflowExecution.setDecisionTimestamp(new Date());
         }
         return workflowExecution;
       }
     }
 );
+    notifyTaskList(accountFullName,workflowExecution.getDomainName(),"decision",workflowExecution.getTaskList());
   }
  catch (  Exception e) {
     throw handleException(e);
   }
-  longPollExit();
   return request.reply(new SimpleWorkflowMessage());
 }

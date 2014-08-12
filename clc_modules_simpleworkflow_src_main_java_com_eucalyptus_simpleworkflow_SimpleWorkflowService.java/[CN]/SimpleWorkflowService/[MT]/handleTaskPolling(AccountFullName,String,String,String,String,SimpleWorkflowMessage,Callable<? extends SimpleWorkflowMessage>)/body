@@ -1,0 +1,36 @@
+{
+  final PollForNotificationType poll=new PollForNotificationType();
+  poll.setChannel(channelName(accountFullName,type,domain,taskList));
+  try {
+    final ListenableFuture<PollForNotificationResponseType> dispatchFuture=AsyncRequests.dispatch(Topology.lookup(PolledNotifications.class),poll);
+    dispatchFuture.addListener(Contexts.runnableWithCurrentContext(new Runnable(){
+      @Override public void run(){
+        try {
+          final PollForNotificationResponseType response=dispatchFuture.get();
+          if (Objects.firstNonNull(response.getNotified(),false)) {
+            final SimpleWorkflowMessage taskResponse=responseCallable.call();
+            if (taskResponse != null) {
+              taskResponse.setCorrelationId(correlationId);
+              Contexts.response(taskResponse);
+              return;
+            }
+          }
+        }
+ catch (        final InterruptedException e) {
+          logger.info("Interrupted while polling for task " + poll.getChannel(),e);
+        }
+catch (        final Exception e) {
+          logger.error("Error polling for task " + poll.getChannel(),e);
+        }
+        emptyResponse.setCorrelationId(correlationId);
+        Contexts.response(emptyResponse);
+      }
+    }
+));
+  }
+ catch (  Exception e) {
+    logger.error("Error polling for task " + poll.getChannel(),e);
+    emptyResponse.setCorrelationId(correlationId);
+    Contexts.response(emptyResponse);
+  }
+}

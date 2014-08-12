@@ -1,0 +1,156 @@
+{
+  validateInput();
+  loadTransferConfig();
+  SnapshotProgressCallback progressCallback=new SnapshotProgressCallback(snapshotId);
+  Boolean error=Boolean.FALSE;
+  ArrayBlockingQueue<SnapshotPart> partQueue=null;
+  SnapshotPart part=null;
+  SnapshotUploadInfo snapUploadInfo=null;
+  Future<List<PartETag>> uploadPartsFuture=null;
+  Future<String> completeUploadFuture=null;
+  byte[] buffer=new byte[readBufferSize];
+  Long readOffset=0L;
+  Long bytesRead=0L;
+  Long bytesWritten=0L;
+  int len;
+  int partNumber=1;
+  try {
+    Long uncompressedSize=storageResource.getSize();
+    snapUploadInfo=SnapshotUploadInfo.create(snapshotId,bucketName,keyName);
+    Path zipFilePath=Files.createTempFile(keyName + '-','-' + String.valueOf(partNumber));
+    part=SnapshotPart.createPart(snapUploadInfo,zipFilePath.toString(),partNumber,readOffset);
+    InputStream inputStream=storageResource.getInputStream();
+    ByteArrayOutputStream baos=new ByteArrayOutputStream();
+    GZIPOutputStream gzipStream=new GZIPOutputStream(baos);
+    FileOutputStream outputStream=new FileOutputStream(zipFilePath.toString());
+    try {
+      LOG.debug("Reading snapshot " + snapshotId + " and compressing it to disk in chunks of size "+ partSize+ " bytes or greater");
+      while ((len=inputStream.read(buffer)) > 0) {
+        bytesRead+=len;
+        gzipStream.write(buffer,0,len);
+        if ((bytesWritten + baos.size()) < partSize) {
+          baos.writeTo(outputStream);
+          bytesWritten+=baos.size();
+          baos.reset();
+        }
+ else {
+          gzipStream.close();
+          baos.writeTo(outputStream);
+          bytesWritten+=baos.size();
+          baos.reset();
+          outputStream.close();
+          if (partNumber > 1) {
+            part=part.updateStateCreated(bytesWritten,bytesRead,Boolean.FALSE);
+          }
+ else {
+            LOG.info("Uploading snapshot " + snapshotId + " to objectstorage using multipart upload");
+            progressCallback.setUploadSize(uncompressedSize);
+            uploadId=initiateMulitpartUpload(uncompressedSize);
+            snapUploadInfo=snapUploadInfo.updateUploadId(uploadId);
+            part=part.updateStateCreated(uploadId,bytesWritten,bytesRead,Boolean.FALSE);
+            partQueue=new ArrayBlockingQueue<SnapshotPart>(queueSize);
+            uploadPartsFuture=Threads.enqueue(serviceConfig,UploadPartTask.class,poolSize,new UploadPartTask(partQueue,progressCallback));
+          }
+          if (uploadPartsFuture != null && uploadPartsFuture.isDone()) {
+            throw new SnapshotUploadPartException("Error uploading parts, aborting part creation process. Check previous log messages for the exact error");
+          }
+          partQueue.put(part);
+          readOffset+=bytesRead;
+          bytesRead=0L;
+          bytesWritten=0L;
+          zipFilePath=Files.createTempFile(keyName + '-','-' + String.valueOf((++partNumber)));
+          part=SnapshotPart.createPart(snapUploadInfo,zipFilePath.toString(),partNumber,readOffset);
+          gzipStream=new GZIPOutputStream(baos);
+          outputStream=new FileOutputStream(zipFilePath.toString());
+        }
+      }
+      gzipStream.close();
+      baos.writeTo(outputStream);
+      bytesWritten+=baos.size();
+      baos.reset();
+      outputStream.close();
+      inputStream.close();
+      part=part.updateStateCreated(bytesWritten,bytesRead,Boolean.TRUE);
+      snapUploadInfo=snapUploadInfo.updateStateCreatedParts(partNumber);
+    }
+ catch (    Exception e) {
+      LOG.error("Failed to upload " + snapshotId + " due to: ",e);
+      error=Boolean.TRUE;
+      throw new SnapshotTransferException("Failed to upload " + snapshotId + " due to: ",e);
+    }
+ finally {
+      if (inputStream != null) {
+        try {
+          inputStream.close();
+        }
+ catch (        Exception e) {
+        }
+      }
+      if (gzipStream != null) {
+        try {
+          gzipStream.close();
+        }
+ catch (        Exception e) {
+        }
+      }
+      if (outputStream != null) {
+        try {
+          outputStream.close();
+        }
+ catch (        Exception e) {
+        }
+      }
+      baos.reset();
+    }
+    if (partNumber > 1) {
+      if (uploadPartsFuture != null && uploadPartsFuture.isDone()) {
+        throw new SnapshotUploadPartException("Error uploading parts, aborting part upload process. Check previous log messages for the exact error");
+      }
+      partQueue.put(part);
+      completeUploadFuture=Threads.enqueue(serviceConfig,CompleteMpuTask.class,poolSize,new CompleteMpuTask(uploadPartsFuture,snapUploadInfo,partNumber));
+    }
+ else {
+      try {
+        LOG.info("Uploading snapshot " + snapshotId + " to objectstorage as a single object. Compressed size of snapshot ("+ bytesWritten+ " bytes) is less than minimum part size ("+ partSize+ " bytes) for multipart upload");
+        PutObjectResult putResult=uploadSnapshotAsSingleObject(zipFilePath.toString(),bytesWritten,uncompressedSize,progressCallback);
+        markSnapshotAvailable();
+        try {
+          part=part.updateStateUploaded(putResult.getETag());
+          snapUploadInfo=snapUploadInfo.updateStateUploaded(putResult.getETag());
+        }
+ catch (        Exception e) {
+          LOG.debug("Failed to update status in DB for " + snapUploadInfo);
+        }
+        LOG.info("Uploaded snapshot " + snapshotId + " to objectstorage");
+      }
+ catch (      Exception e) {
+        error=Boolean.TRUE;
+        LOG.error("Failed to upload snapshot " + snapshotId + " due to: ",e);
+        throw new SnapshotTransferException("Failed to upload snapshot " + snapshotId + " due to: ",e);
+      }
+ finally {
+        deleteFile(zipFilePath);
+      }
+    }
+  }
+ catch (  SnapshotTransferException e) {
+    error=Boolean.TRUE;
+    throw e;
+  }
+catch (  Exception e) {
+    error=Boolean.TRUE;
+    LOG.error("Failed to upload snapshot " + snapshotId + " due to: ",e);
+    throw new SnapshotTransferException("Failed to upload snapshot " + snapshotId + " due to: ",e);
+  }
+ finally {
+    if (error) {
+      abortUpload(snapUploadInfo);
+      if (uploadPartsFuture != null && !uploadPartsFuture.isDone()) {
+        uploadPartsFuture.cancel(true);
+      }
+      if (completeUploadFuture != null && !completeUploadFuture.isDone()) {
+        completeUploadFuture.cancel(true);
+      }
+    }
+  }
+}

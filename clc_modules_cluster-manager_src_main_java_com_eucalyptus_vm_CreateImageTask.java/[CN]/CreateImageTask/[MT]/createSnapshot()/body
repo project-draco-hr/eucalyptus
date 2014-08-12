@@ -1,8 +1,12 @@
 {
   final List<Map.Entry<String,String>> volumesToSnapshot=Lists.newArrayList();
   volumesToSnapshot.add(this.getInstanceRootVolume());
-  if (this.blockDevices == null || this.blockDevices.size() <= 0) {
-    volumesToSnapshot.addAll(this.getInstanceNonRootVolumes());
+  List<String> suppressedDevice=new ArrayList<String>();
+  for (  BlockDeviceMappingItemType device : blockDevices) {
+    if (device.getNoDevice() != null && device.getNoDevice())     suppressedDevice.add(device.getDeviceName());
+  }
+  for (  Map.Entry<String,String> vol : getInstanceNonRootVolumes()) {
+    if (!suppressedDevice.contains(vol.getKey()))     volumesToSnapshot.add(vol);
   }
   Boolean isRootDevice=true;
   for (  final Map.Entry<String,String> volume : volumesToSnapshot) {
@@ -10,7 +14,7 @@
     final String volumeId=volume.getValue();
     String snapshotId=null;
     try {
-      final EucalyptusCreateSnapshotTask task=new EucalyptusCreateSnapshotTask(volumeId);
+      final EucalyptusCreateSnapshotTask task=new EucalyptusCreateSnapshotTask(volumeId,String.format("Created by CreateImage(%s) for %s from %s",instanceId,getImageId(),volumeId));
       final CheckedListenableFuture<Boolean> result=task.dispatch();
       if (result.get()) {
         snapshotId=task.getSnapshotId();
@@ -21,8 +25,7 @@
       throw Exceptions.toUndeclared(ex);
     }
     LOG.info(String.format("Created snapshot %s from volume %s for device %s",snapshotId,volumeId,deviceName));
-    final EntityTransaction db=Entities.get(VmInstance.class);
-    try {
+    try (TransactionResource db=Entities.transactionFor(VmInstance.class)){
       final VmInstance vm=Entities.uniqueResult(VmInstance.named(this.instanceId));
       vm.getRuntimeState().getVmCreateImageTask().addSnapshot(deviceName,snapshotId,isRootDevice,isDeleteOnTerminate(volumeId));
       isRootDevice=false;
@@ -32,9 +35,6 @@
  catch (    final Exception ex) {
       LOG.error("failed to add new snapshot",ex);
       throw Exceptions.toUndeclared(ex);
-    }
- finally {
-      if (db.isActive())       db.rollback();
     }
   }
 }

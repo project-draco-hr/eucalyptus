@@ -1,0 +1,33 @@
+{
+  final Context ctx=Contexts.lookup();
+  final UserFullName userFullName=ctx.getUserFullName();
+  final AccountFullName accountFullName=userFullName.asAccountFullName();
+  final Predicate<? super WorkflowExecution> accessible=SimpleWorkflowMetadatas.filteringFor(WorkflowExecution.class).byPrivileges().buildPredicate();
+  try {
+    final TaskToken token=taskTokenManager.decryptTaskToken(accountFullName.getAccountNumber(),request.getTaskToken());
+    final Domain domain=domains.lookupByExample(Domain.exampleWithUuid(accountFullName,token.getDomainUuid()),accountFullName,token.getDomainUuid(),Predicates.alwaysTrue(),Functions.<Domain>identity());
+    final WorkflowExecution workflowExecution=workflowExecutions.updateByExample(WorkflowExecution.exampleWithUniqueName(accountFullName,domain.getDisplayName(),token.getRunId()),accountFullName,token.getRunId(),new Function<WorkflowExecution,WorkflowExecution>(){
+      @Nullable @Override public WorkflowExecution apply(      final WorkflowExecution workflowExecution){
+        if (accessible.apply(workflowExecution)) {
+          try {
+            activityTasks.deleteByExample(ActivityTask.exampleWithUniqueName(accountFullName,token.getRunId(),token.getScheduledEventId()));
+          }
+ catch (          SwfMetadataException e) {
+            throw Exceptions.toUndeclared(e);
+          }
+          workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ActivityTaskFailedEventAttributes().withDetails(request.getDetails()).withReason(request.getReason()).withScheduledEventId(token.getScheduledEventId()).withStartedEventId(token.getStartedEventId())));
+          workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskScheduledEventAttributes().withTaskList(new TaskList().withName(workflowExecution.getTaskList())).withStartToCloseTimeout(String.valueOf(workflowExecution.getTaskStartToCloseTimeout()))));
+          workflowExecution.setDecisionStatus(Pending);
+          workflowExecution.setDecisionTimestamp(new Date());
+        }
+        return workflowExecution;
+      }
+    }
+);
+    notifyTaskList(accountFullName,workflowExecution.getDomainName(),"decision",workflowExecution.getTaskList());
+  }
+ catch (  Exception e) {
+    throw handleException(e);
+  }
+  return request.reply(new SimpleWorkflowMessage());
+}
