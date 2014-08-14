@@ -1,0 +1,29 @@
+{
+  try {
+    final Set<NotifyTaskList> taskLists=Sets.newHashSet();
+    for (    final ActivityTask task : activityTasks.listTimedOut(Functions.<ActivityTask>identity())) {
+      activityTasks.updateByExample(task,task.getOwner(),task.getDisplayName(),new Function<ActivityTask,Void>(){
+        @Override public Void apply(        final ActivityTask activityTask){
+          final Pair<String,Date> timeout=activityTask.calculateNextTimeout();
+          if (timeout != null) {
+            final WorkflowExecution workflowExecution=activityTask.getWorkflowExecution();
+            workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ActivityTaskTimedOutEventAttributes().withDetails(activityTask.getHeartbeatDetails()).withScheduledEventId(activityTask.getScheduledEventId()).withStartedEventId(activityTask.getStartedEventId()).withTimeoutType(timeout.getLeft())));
+            if (workflowExecution.getDecisionStatus() != Pending) {
+              workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskScheduledEventAttributes().withTaskList(new TaskList().withName(workflowExecution.getTaskList())).withStartToCloseTimeout(String.valueOf(workflowExecution.getTaskStartToCloseTimeout()))));
+              workflowExecution.setDecisionStatus(Pending);
+              workflowExecution.setDecisionTimestamp(new Date());
+              addToNotifyLists(taskLists,workflowExecution);
+            }
+            Entities.delete(activityTask);
+          }
+          return null;
+        }
+      }
+);
+    }
+    notifyLists(taskLists);
+  }
+ catch (  SwfMetadataException e) {
+    logger.error("Error processing activity task timeouts",e);
+  }
+}

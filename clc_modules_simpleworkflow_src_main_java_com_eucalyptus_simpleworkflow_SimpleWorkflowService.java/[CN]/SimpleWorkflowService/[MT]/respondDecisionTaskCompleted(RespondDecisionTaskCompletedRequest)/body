@@ -33,14 +33,27 @@
 switch (decision.getDecisionType()) {
 case "CancelTimer":
               final CancelTimerDecisionAttributes cancelTimer=decision.getCancelTimerDecisionAttributes();
-            workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new CancelTimerFailedEventAttributes().withCause(CancelTimerFailedCause.TIMER_ID_UNKNOWN).withDecisionTaskCompletedEventId(completedId).withTimerId(cancelTimer.getTimerId())));
-          scheduleDecisionTask=true;
-        break;
+            try {
+              final List<Timer> timerList=timers.listByExample(Timer.exampleWithTimerId(accountFullName,workflowExecution.getDomainName(),workflowExecution.getDisplayName(),cancelTimer.getTimerId()),Predicates.alwaysTrue(),Functions.<Timer>identity());
+              if (!timerList.isEmpty()) {
+                final Timer timer=Iterables.getOnlyElement(timerList);
+                timers.deleteByExample(timer);
+                workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new TimerCanceledEventAttributes().withDecisionTaskCompletedEventId(completedId).withStartedEventId(timer.getStartedEventId()).withTimerId(cancelTimer.getTimerId())));
+              }
+ else {
+                workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new CancelTimerFailedEventAttributes().withCause(CancelTimerFailedCause.TIMER_ID_UNKNOWN).withDecisionTaskCompletedEventId(completedId).withTimerId(cancelTimer.getTimerId())));
+                scheduleDecisionTask=true;
+              }
+            }
+ catch (            SwfMetadataException e) {
+              throw Exceptions.toUndeclared(e);
+            }
+          break;
 case "CancelWorkflowExecution":
-      final CancelWorkflowExecutionDecisionAttributes cancelWorkflowExecution=decision.getCancelWorkflowExecutionDecisionAttributes();
-    workflowExecution.closeWorkflow(WorkflowExecution.CloseStatus.Canceled,WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionCanceledEventAttributes().withDecisionTaskCompletedEventId(completedId).withDetails(cancelWorkflowExecution.getDetails())));
-  deleteActivities(activityTasks,accountFullName,workflowExecution);
-break;
+        final CancelWorkflowExecutionDecisionAttributes cancelWorkflowExecution=decision.getCancelWorkflowExecutionDecisionAttributes();
+      workflowExecution.closeWorkflow(WorkflowExecution.CloseStatus.Canceled,WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionCanceledEventAttributes().withDecisionTaskCompletedEventId(completedId).withDetails(cancelWorkflowExecution.getDetails())));
+    deleteActivities(activityTasks,accountFullName,workflowExecution);
+  break;
 case "CompleteWorkflowExecution":
 final CompleteWorkflowExecutionDecisionAttributes completed=decision.getCompleteWorkflowExecutionDecisionAttributes();
 workflowExecution.closeWorkflow(WorkflowExecution.CloseStatus.Completed,WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionCompletedEventAttributes().withDecisionTaskCompletedEventId(completedId).withResult(completed.getResult())));
@@ -115,8 +128,19 @@ scheduleDecisionTask=true;
 break;
 case "StartTimer":
 final StartTimerDecisionAttributes startTimer=decision.getStartTimerDecisionAttributes();
-workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new StartTimerFailedEventAttributes().withCause(StartTimerFailedCause.OPERATION_NOT_PERMITTED).withDecisionTaskCompletedEventId(completedId).withTimerId(startTimer.getTimerId())));
+try {
+if (timers.listByExample(Timer.exampleWithTimerId(accountFullName,workflowExecution.getDomainName(),workflowExecution.getDisplayName(),startTimer.getTimerId()),Predicates.alwaysTrue(),Functions.<Timer>identity()).isEmpty()) {
+final Long startedId=workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new TimerStartedEventAttributes().withControl(startTimer.getControl()).withDecisionTaskCompletedEventId(completedId).withStartToFireTimeout(startTimer.getStartToFireTimeout()).withTimerId(startTimer.getTimerId())));
+timers.save(Timer.create(userFullName,workflowExecution,workflowExecution.getDomainName(),startTimer.getTimerId(),startTimer.getControl(),parsePeriod(startTimer.getStartToFireTimeout()),completedId,startedId));
+}
+ else {
+workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new StartTimerFailedEventAttributes().withCause(StartTimerFailedCause.TIMER_ID_ALREADY_IN_USE).withDecisionTaskCompletedEventId(completedId).withTimerId(startTimer.getTimerId())));
 scheduleDecisionTask=true;
+}
+}
+ catch (SwfMetadataException e) {
+throw Exceptions.toUndeclared(e);
+}
 break;
 default :
 throw Exceptions.toUndeclared(new SimpleWorkflowException("InternalFailure",Role.Receiver,"Unsupported decision type: " + decision.getDecisionType()));

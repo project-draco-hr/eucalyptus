@@ -1,13 +1,10 @@
 {
-  final PollForNotificationType poll=new PollForNotificationType();
-  poll.setChannel(channelName(accountFullName,type,domain,taskList));
+  final String list=Joiner.on('/').join(type,domain,taskList);
   try {
-    final ListenableFuture<PollForNotificationResponseType> dispatchFuture=AsyncRequests.dispatch(Topology.lookup(PolledNotifications.class),poll);
-    dispatchFuture.addListener(Contexts.runnableWithCurrentContext(new Runnable(){
-      @Override public void run(){
+    NotifyClient.pollTaskList(accountFullName,domain,type,taskList,Contexts.consumerWithCurrentContext(new Consumer<Boolean>(){
+      @Override public void accept(      final Boolean notified){
         try {
-          final PollForNotificationResponseType response=dispatchFuture.get();
-          if (Objects.firstNonNull(response.getNotified(),false)) {
+          if (notified) {
             final SimpleWorkflowMessage taskResponse=responseCallable.call();
             if (taskResponse != null) {
               taskResponse.setCorrelationId(correlationId);
@@ -17,10 +14,10 @@
           }
         }
  catch (        final InterruptedException e) {
-          logger.info("Interrupted while polling for task " + poll.getChannel(),e);
+          logger.info("Interrupted while polling for task " + list,e);
         }
 catch (        final Exception e) {
-          logger.error("Error polling for task " + poll.getChannel(),e);
+          logger.error("Error polling for task " + list,e);
         }
         emptyResponse.setCorrelationId(correlationId);
         Contexts.response(emptyResponse);
@@ -29,7 +26,7 @@ catch (        final Exception e) {
 ));
   }
  catch (  Exception e) {
-    logger.error("Error polling for task " + poll.getChannel(),e);
+    logger.error("Error polling for task " + list,e);
     emptyResponse.setCorrelationId(correlationId);
     Contexts.response(emptyResponse);
   }
