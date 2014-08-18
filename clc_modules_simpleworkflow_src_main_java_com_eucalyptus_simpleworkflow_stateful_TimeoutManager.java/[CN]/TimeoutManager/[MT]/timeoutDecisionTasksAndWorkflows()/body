@@ -1,12 +1,13 @@
 {
+  final Set<NotifyTaskList> taskLists=Sets.newHashSet();
   try {
-    final Set<NotifyTaskList> taskLists=Sets.newHashSet();
-    for (    final WorkflowExecution workflowExecution : workflowExecutions.listTimedOut(Functions.<WorkflowExecution>identity())) {
+    final long now=System.currentTimeMillis();
+    for (    final WorkflowExecution workflowExecution : workflowExecutions.listTimedOut(now,Functions.<WorkflowExecution>identity()))     try {
       workflowExecutions.updateByExample(workflowExecution,workflowExecution.getOwner(),workflowExecution.getDisplayName(),new Function<WorkflowExecution,Void>(){
         @Override public Void apply(        final WorkflowExecution workflowExecution){
           final Date timeout=workflowExecution.calculateNextTimeout();
           if (timeout != null) {
-            if (workflowExecution.isWorkflowTimedOut()) {
+            if (workflowExecution.isWorkflowTimedOut(now,getWorkflowExecutionDurationMillis())) {
               workflowExecution.closeWorkflow(WorkflowExecution.CloseStatus.Timed_Out,WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionTimedOutEventAttributes().withTimeoutType("START_TO_CLOSE").withChildPolicy(workflowExecution.getChildPolicy())));
             }
  else {
@@ -26,9 +27,14 @@
       }
 );
     }
-    notifyLists(taskLists);
+ catch (    final SwfMetadataException e) {
+      if (!handleException(e)) {
+        logger.error("Error processing workflow execution/decision task timeout: " + workflowExecution.getDisplayName(),e);
+      }
+    }
   }
  catch (  final SwfMetadataException e) {
     logger.error("Error processing workflow execution/decision task timeouts",e);
   }
+  notifyLists(taskLists);
 }
