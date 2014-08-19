@@ -2,8 +2,10 @@
   final ModifyNetworkInterfaceAttributeResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
   final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final String eniId=Identifier.eni.normalize(request.getNetworkInterfaceId());
   try {
-    networkInterfaces.updateByExample(NetworkInterface.exampleWithName(accountFullName,Identifier.eni.normalize(request.getNetworkInterfaceId())),accountFullName,request.getNetworkInterfaceId(),new Callback<NetworkInterface>(){
+    final AtomicBoolean invalidate=new AtomicBoolean(false);
+    networkInterfaces.updateByExample(NetworkInterface.exampleWithName(accountFullName,eniId),accountFullName,request.getNetworkInterfaceId(),new Callback<NetworkInterface>(){
       @Override public void fire(      final NetworkInterface networkInterface){
         if (RestrictedTypes.filterPrivileged().apply(networkInterface)) {
           if (request.getAttachment() != null) {
@@ -20,6 +22,7 @@
               if (networkInterface.getNetworkGroups().size() > VpcConfiguration.getSecurityGroupsPerNetworkInterface()) {
                 throw Exceptions.toUndeclared(new ClientComputeException("SecurityGroupsPerInterfaceLimitExceeded","Security group limit exceeded"));
               }
+              invalidate.set(true);
             }
  catch (            RuntimeException e) {
               final NoSuchMetadataException nsme=Exceptions.findCause(e,NoSuchMetadataException.class);
@@ -31,6 +34,7 @@
           }
  else           if (request.getSourceDestCheck() != null) {
             networkInterface.setSourceDestCheck(request.getSourceDestCheck().getValue());
+            invalidate.set(true);
           }
  else {
             throw Exceptions.toUndeclared(new ClientComputeException("MissingParameter","Missing attribute value"));
@@ -39,6 +43,7 @@
       }
     }
 );
+    if (invalidate.get())     invalidate(eniId);
   }
  catch (  final Exception e) {
     throw handleException(e);
