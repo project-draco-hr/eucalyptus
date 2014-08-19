@@ -1,0 +1,81 @@
+{
+  return executeRbdOp(new Function<CephConnectionManager,String>(){
+    @Override public String apply(    @Nonnull CephConnectionManager arg0){
+      RbdImage source=null;
+      RbdImage clone=null;
+      String snapshot=null;
+      try {
+        source=arg0.getRbd().open(parentName);
+        if (StringUtils.isBlank(snapName)) {
+          snapshot="sp-" + cloneName;
+          LOG.debug("Creating snapshot " + snapshot + " on parent "+ parentName);
+          source.snapCreate(snapshot);
+        }
+ else {
+          snapshot=snapName;
+        }
+        try {
+          LOG.debug("Protecting snapshot " + snapshot);
+          source.snapProtect(snapshot);
+          if (source.snapIsProtected(snapshot)) {
+            int features=(1 << 0);
+            LOG.debug("Cloning snapshot " + snapshot + " to "+ cloneName);
+            arg0.getRbd().clone(parentName,snapshot,arg0.getIoContext(),cloneName,features,0);
+            LOG.debug("Flattening cloned image " + cloneName);
+            clone=arg0.getRbd().open(cloneName);
+            clone.flatten();
+            if (size != null) {
+              LOG.debug("Resizing image " + cloneName + " to "+ size+ " bytes");
+              clone.resize(size.longValue());
+            }
+ else {
+            }
+            return arg0.getPool() + CephInfo.POOL_IMAGE_DELIMITER + cloneName;
+          }
+ else {
+            throw new EucalyptusCephException("Failed to protect snapshot before creating a clone");
+          }
+        }
+  finally {
+          try {
+            LOG.debug("Unprotecting snapshot " + snapshot);
+            source.snapUnprotect(snapshot);
+          }
+ catch (          Exception e) {
+            LOG.debug("Caught exception unprotecting snapshot " + snapshot,e);
+          }
+          try {
+            LOG.debug("Removing snapshot " + snapshot);
+            source.snapRemove(snapshot);
+          }
+ catch (          Exception e) {
+            LOG.debug("Caught exception removing snapshot " + snapshot,e);
+          }
+        }
+      }
+ catch (      Exception e) {
+        LOG.warn("Caught error while cloning/resizing image " + cloneName + " from source image "+ parentName+ ": "+ e.getMessage());
+        throw new EucalyptusCephException("Failed to clone/resize image " + cloneName + " from source image "+ parentName,e);
+      }
+ finally {
+        if (source != null) {
+          try {
+            arg0.getRbd().close(source);
+          }
+ catch (          Exception e) {
+            LOG.debug("Caught exception closing image " + parentName,e);
+          }
+        }
+        if (clone != null) {
+          try {
+            arg0.getRbd().close(clone);
+          }
+ catch (          Exception e) {
+            LOG.debug("Caught exception closing image " + cloneName,e);
+          }
+        }
+      }
+    }
+  }
+);
+}
