@@ -1,0 +1,35 @@
+{
+  return executeRbdOp(new Function<CephConnectionManager,String>(){
+    @Override public String apply(    @Nonnull CephConnectionManager arg0){
+      RbdImage image=null;
+      try {
+        LOG.debug("Opening image " + parentName);
+        image=arg0.getRbd().open(parentName);
+        LOG.debug("Creating snapshot " + snapName + " on parent "+ parentName);
+        image.snapCreate(snapName);
+        for (        RbdSnapInfo snap : image.snapList()) {
+          if (snap.name.equals(snapName)) {
+            return arg0.getPool() + CephInfo.POOL_IMAGE_DELIMITER + parentName+ CephInfo.POOL_IMAGE_DELIMITER+ snapName;
+          }
+        }
+      }
+ catch (      Exception e) {
+        LOG.warn("Caught error while creating snapshot " + snapName + " on parent "+ parentName+ ": "+ e.getMessage());
+        throw new EucalyptusCephException("Failed to create snapshot " + snapName + " on parent "+ parentName,e);
+      }
+ finally {
+        if (image != null) {
+          try {
+            arg0.getRbd().close(image);
+          }
+ catch (          Exception e) {
+            LOG.debug("Caught exception closing image " + parentName,e);
+          }
+        }
+      }
+      LOG.warn("Unable to find snapshot " + snapName + " on parent "+ parentName);
+      throw new EucalyptusCephException("Failed to find snapshot " + snapName + " on parent "+ parentName);
+    }
+  }
+);
+}

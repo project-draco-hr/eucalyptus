@@ -9,10 +9,16 @@
   final boolean showAll=requestedNames.remove("verbose") && ctx.isAdministrator();
   final Function<Set<String>,Set<LoadBalancer>> lookupAccountLBs=new Function<Set<String>,Set<LoadBalancer>>(){
     @Override public Set<LoadBalancer> apply(    final Set<String> identifiers){
-      final Predicate<? super LoadBalancer> requestedAndAccessible=LoadBalancingMetadatas.filteringFor(LoadBalancer.class).byId(identifiers).byPrivileges().buildPredicate();
-      final LoadBalancer example=showAll ? LoadBalancer.named(null,null) : LoadBalancer.namedByAccountId(accountNumber,null);
-      final List<LoadBalancer> lbs=Entities.query(example,true);
-      return Sets.newHashSet(Iterables.filter(lbs,requestedAndAccessible));
+      try {
+        final Predicate<? super LoadBalancer> requestedAndAccessible=LoadBalancingMetadatas.filteringFor(LoadBalancer.class).byId(identifiers).byPrivileges().buildPredicate();
+        final LoadBalancer example=showAll ? LoadBalancer.named(null,null) : LoadBalancer.namedByAccountId(accountNumber,null);
+        final List<LoadBalancer> lbs=Entities.query(example,true);
+        return Sets.newHashSet(Iterables.filter(lbs,requestedAndAccessible));
+      }
+ catch (      EntityNotFoundException e) {
+        Entities.evictCache(LoadBalancer.class);
+        throw new OptimisticLockException("Error loading load balancers",e);
+      }
     }
   }
 ;

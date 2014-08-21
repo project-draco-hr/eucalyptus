@@ -15,10 +15,14 @@
     @Override public Subnet get(){
       try {
         final Vpc vpc=vpcs.lookupByName(accountFullName,vpcId,Functions.<Vpc>identity());
+        final Iterable<Subnet> subnetsInVpc=subnets.listByExample(Subnet.exampleWithOwner(accountFullName),CollectionUtils.propertyPredicate(vpc.getDisplayName(),Subnets.FilterStringFunctions.VPC_ID),Functions.<Subnet>identity());
+        if (Iterables.size(subnetsInVpc) >= VpcConfiguration.getSubnetsPerVpc()) {
+          throw new ClientComputeException("SubnetLimitExceeded","Subnet limit exceeded for " + vpc.getDisplayName());
+        }
         if (!Cidr.parse(vpc.getCidr()).contains(subnetCidr.get())) {
           throw new ClientComputeException("InvalidParameterValue","Cidr not valid for vpc " + request.getCidrBlock());
         }
-        final Iterable<Cidr> existingCidrs=Iterables.transform(subnets.listByExample(Subnet.exampleWithOwner(accountFullName),CollectionUtils.propertyPredicate(vpc.getDisplayName(),Subnets.FilterStringFunctions.VPC_ID),Subnets.FilterStringFunctions.CIDR),Cidr.parseUnsafe());
+        final Iterable<Cidr> existingCidrs=Iterables.transform(subnetsInVpc,Functions.compose(Cidr.parseUnsafe(),Subnets.FilterStringFunctions.CIDR));
         if (Iterables.any(existingCidrs,subnetCidr.get().contains()) || Iterables.any(existingCidrs,subnetCidr.get().containedBy())) {
           throw new ClientComputeException("InvalidSubnet.Conflict","Cidr conflict for " + request.getCidrBlock());
         }
@@ -36,5 +40,6 @@ catch (      Exception ex) {
   }
 ;
   reply.setSubnet(allocate(allocator,Subnet.class,SubnetType.class));
+  invalidate(reply.getSubnet().getSubnetId());
   return reply;
 }

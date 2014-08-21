@@ -1,67 +1,78 @@
 {
-  try (TransactionResource tran=Entities.transactionFor(VolumeInfo.class)){
-    VolumeInfo searchVolume=new VolumeInfo();
-    searchVolume.setStatus(StorageProperties.Status.deleted.toString());
-    List<VolumeInfo> deletedVolumes=Entities.query(searchVolume);
-    for (    VolumeInfo deletedVolume : deletedVolumes) {
-      if (deletedVolume.cleanupOnDeletion()) {
-        LOG.info("Volume deletion time expired for: " + deletedVolume.getVolumeId() + " ...cleaning up.");
-        Entities.delete(deletedVolume);
+  if (running.compareAndSet(false,true))   try {
+    EntityWrapper<VolumeInfo> db=StorageProperties.getEntityWrapper();
+    try {
+      VolumeInfo searchVolume=new VolumeInfo();
+      searchVolume.setStatus(StorageProperties.Status.deleted.toString());
+      List<VolumeInfo> deletedVolumes=db.query(searchVolume);
+      for (      VolumeInfo deletedVolume : deletedVolumes) {
+        if (deletedVolume.cleanupOnDeletion()) {
+          LOG.info("Volume deletion time expired for: " + deletedVolume.getVolumeId() + " ...cleaning up.");
+          db.delete(deletedVolume);
+        }
       }
-    }
-    tran.commit();
-    List<VolumeInfo> volumes;
-    try (TransactionResource tran2=Entities.transactionFor(VolumeInfo.class)){
+      db.commit();
+      db=StorageProperties.getEntityWrapper();
       searchVolume=new VolumeInfo();
       searchVolume.setStatus(StorageProperties.Status.deleting.toString());
-      volumes=Entities.query(searchVolume);
-      tran2.commit();
-    }
-     for (    VolumeInfo vol : volumes) {
-      try (TransactionResource tran3=Entities.transactionFor(VolumeInfo.class)){
-        vol=Entities.uniqueResult(vol);
-        final String volumeId=vol.getVolumeId();
-        LOG.info("Volume: " + volumeId + " marked for deletion. Checking export status");
-        if (Iterables.any(vol.getAttachmentTokens(),new Predicate<VolumeToken>(){
-          @Override public boolean apply(          VolumeToken token){
-            try {
-              return token.hasActiveExports();
-            }
- catch (            EucalyptusCloudException e) {
-              LOG.warn("Failure checking for active exports for volume " + volumeId);
-              return false;
-            }
-          }
-        }
-)) {
-          LOG.info("Volume: " + volumeId + " found to be exported. Detaching volume from all hosts");
-          try {
-            Entities.asTransaction(VolumeInfo.class,invalidateAndDetachAll()).apply(volumeId);
-          }
- catch (          Exception e) {
-            LOG.error("Failed to fully detach volume " + volumeId,e);
-          }
-        }
-        LOG.info("Volume: " + volumeId + " was marked for deletion. Cleaning up...");
+      List<VolumeInfo> volumes=db.query(searchVolume);
+      db.rollback();
+      for (      VolumeInfo vol : volumes) {
+        db=StorageProperties.getEntityWrapper();
         try {
-          blockManager.deleteVolume(volumeId);
+          vol=db.getUnique(vol);
+          final String volumeId=vol.getVolumeId();
+          LOG.info("Volume: " + volumeId + " marked for deletion. Checking export status");
+          if (Iterables.any(vol.getAttachmentTokens(),new Predicate<VolumeToken>(){
+            @Override public boolean apply(            VolumeToken token){
+              try {
+                return token.hasActiveExports();
+              }
+ catch (              EucalyptusCloudException e) {
+                LOG.warn("Failure checking for active exports for volume " + volumeId);
+                return false;
+              }
+            }
+          }
+)) {
+            LOG.info("Volume: " + volumeId + " found to be exported. Detaching volume from all hosts");
+            try {
+              Entities.asTransaction(VolumeInfo.class,invalidateAndDetachAll()).apply(volumeId);
+            }
+ catch (            Exception e) {
+              LOG.error("Failed to fully detach volume " + volumeId,e);
+            }
+          }
+          LOG.info("Volume: " + volumeId + " was marked for deletion. Cleaning up...");
+          try {
+            blockManager.deleteVolume(volumeId);
+          }
+ catch (          EucalyptusCloudException e) {
+            LOG.error(e,e);
+            continue;
+          }
+          vol.setStatus(StorageProperties.Status.deleted.toString());
+          vol.setDeletionTime(new Date());
+          EucaSemaphoreDirectory.removeSemaphore(volumeId);
+          db.commit();
         }
- catch (        EucalyptusCloudException e) {
-          LOG.error(e,e);
-          continue;
+ catch (        Exception e) {
+          LOG.error("Error deleting volume " + vol.getVolumeId() + ": "+ e.getMessage());
+          LOG.debug("Exception during deleting volume " + vol.getVolumeId() + ".",e);
         }
-        vol.setStatus(StorageProperties.Status.deleted.toString());
-        vol.setDeletionTime(new Date());
-        EucaSemaphoreDirectory.removeSemaphore(volumeId);
-        tran3.commit();
+ finally {
+          db.rollback();
+        }
       }
- catch (      Exception e) {
-        LOG.error("Error deleting volume " + vol.getVolumeId() + ": "+ e.getMessage());
-        LOG.debug("Exception during deleting volume " + vol.getVolumeId() + ".",e);
-      }
+    }
+ catch (    Exception e) {
+      LOG.error("Failed during delete task.",e);
     }
   }
- catch (  Exception e) {
-    LOG.error("Failed during delete task.",e);
+  finally {
+    running.set(false);
+  }
+ else {
+    LOG.warn("Skipping task (busy)");
   }
 }

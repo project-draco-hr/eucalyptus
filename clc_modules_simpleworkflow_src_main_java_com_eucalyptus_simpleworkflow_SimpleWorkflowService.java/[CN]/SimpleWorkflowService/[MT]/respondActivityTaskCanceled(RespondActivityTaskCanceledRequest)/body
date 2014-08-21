@@ -7,8 +7,8 @@
   status.setCancelRequested(false);
   try {
     final TaskToken token=taskTokenManager.decryptTaskToken(accountFullName.getAccountNumber(),request.getTaskToken());
-    activityTasks.updateByExample(ActivityTask.exampleWithUniqueName(accountFullName,token.getRunId(),token.getScheduledEventId()),accountFullName,token.getRunId() + "/" + token.getScheduledEventId(),new Function<ActivityTask,ActivityTask>(){
-      @Override public ActivityTask apply(      final ActivityTask activityTask){
+    final Pair<String,String> domainTaskListPair=activityTasks.updateByExample(ActivityTask.exampleWithUniqueName(accountFullName,token.getRunId(),token.getScheduledEventId()),accountFullName,token.getRunId() + "/" + token.getScheduledEventId(),new Function<ActivityTask,Pair<String,String>>(){
+      @Override public Pair<String,String> apply(      final ActivityTask activityTask){
         if (accessible.apply(activityTask)) {
           final WorkflowExecution workflowExecution=activityTask.getWorkflowExecution();
           workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ActivityTaskCanceledEventAttributes().withDetails(request.getDetails()).withLatestCancelRequestedEventId(activityTask.getCancelRequestedEventId()).withScheduledEventId(activityTask.getScheduledEventId()).withStartedEventId(activityTask.getStartedEventId())));
@@ -18,11 +18,15 @@
             workflowExecution.setDecisionTimestamp(new Date());
           }
           Entities.delete(activityTask);
+          return Pair.pair(workflowExecution.getDomainName(),workflowExecution.getTaskList());
         }
-        return activityTask;
+        return null;
       }
     }
 );
+    if (domainTaskListPair != null) {
+      notifyTaskList(accountFullName,domainTaskListPair.getLeft(),"decision",domainTaskListPair.getRight());
+    }
   }
  catch (  SwfMetadataNotFoundException e) {
     throw new SimpleWorkflowClientException("UnknownResourceFault","Unknown activity task, token = " + request.getTaskToken());
@@ -30,6 +34,5 @@
 catch (  Exception e) {
     throw handleException(e);
   }
-  longPollExit();
   return request.reply(new SimpleWorkflowMessage());
 }

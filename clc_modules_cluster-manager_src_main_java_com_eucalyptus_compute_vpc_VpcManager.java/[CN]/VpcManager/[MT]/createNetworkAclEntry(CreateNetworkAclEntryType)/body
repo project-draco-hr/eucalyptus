@@ -26,6 +26,9 @@
               if (existingEntry.isPresent()) {
                 throw new ClientComputeException("NetworkAclEntryAlreadyExists","Entry exists with rule number: " + request.getRuleNumber());
               }
+              if (CollectionUtils.reduce(entries,0,CollectionUtils.count(entryPredicate(request.getEgress(),null))) >= VpcConfiguration.getRulesPerNetworkAcl()) {
+                throw new ClientComputeException("NetworkAclEntryLimitExceeded","Network ACL entry limit exceeded for " + request.getNetworkAclId());
+              }
               final NetworkAclEntry entry;
 switch (protocolOptional.get()) {
 case 1:
@@ -39,6 +42,7 @@ default :
         entry=NetworkAclEntry.createEntry(networkAcl,request.getRuleNumber(),protocolOptional.get(),Enums.valueOfFunction(NetworkAclEntry.RuleAction.class).apply(request.getRuleAction()),request.getEgress(),cidr);
     }
     entries.add(entry);
+    networkAcl.updateTimeStamps();
   }
  catch (  Exception e) {
     throw Exceptions.toUndeclared(e);
@@ -56,6 +60,7 @@ throw new RuntimeException(ex);
 );
 try {
 allocator.get();
+invalidate(networkAclId);
 }
  catch (Exception e) {
 throw handleException(e);
