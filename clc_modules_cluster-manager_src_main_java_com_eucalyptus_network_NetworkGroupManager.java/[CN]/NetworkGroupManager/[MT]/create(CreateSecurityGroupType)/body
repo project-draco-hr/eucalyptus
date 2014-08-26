@@ -1,33 +1,34 @@
 {
   final Context ctx=Contexts.lookup();
+  final UserFullName userFullName=ctx.getUserFullName();
+  final AccountFullName accountFullName=userFullName.asAccountFullName();
   final String groupName=request.getGroupName();
   final String groupDescription=request.getGroupDescription();
   if (Strings.startsWith("sg-").apply(groupName)) {
     throw new ClientComputeException("InvalidParameterValue","Value (" + groupName + ") for parameter GroupName is invalid. Group names may not be in the format sg-*");
   }
-  if (request.getVpcId() == null && !CharMatcher.ASCII.matchesAllOf(groupName)) {
+  final String vpcId=Optional.fromNullable(ResourceIdentifiers.tryNormalize().apply(request.getVpcId())).or(Optional.fromNullable(getDefaultVpcId(accountFullName))).orNull();
+  if (vpcId == null && !CharMatcher.ASCII.matchesAllOf(groupName)) {
     throw new ClientComputeException("InvalidParameterValue","Value (" + groupName + ") for parameter GroupName is invalid. Character sets beyond ASCII are not supported.");
   }
- else   if (request.getVpcId() != null && !NetworkGroups.VPC_GROUP_NAME_PATTERN.matcher(groupName).matches()) {
+ else   if (vpcId != null && !NetworkGroups.VPC_GROUP_NAME_PATTERN.matcher(groupName).matches()) {
     throw new ClientComputeException("InvalidParameterValue","Invalid security group name. Valid names are non-empty strings less than 256 characters from the following set:  a-zA-Z0-9. _-:/()#,@[]+=&;{}!$*");
   }
-  if (request.getVpcId() == null && !CharMatcher.ASCII.matchesAllOf(groupDescription)) {
+  if (vpcId == null && !CharMatcher.ASCII.matchesAllOf(groupDescription)) {
     throw new ClientComputeException("InvalidParameterValue","Value (" + groupDescription + ") for parameter GroupDescription is invalid. Character sets beyond ASCII are not supported.");
   }
- else   if (request.getVpcId() != null && !NetworkGroups.VPC_GROUP_DESC_PATTERN.matcher(groupDescription).matches()) {
+ else   if (vpcId != null && !NetworkGroups.VPC_GROUP_DESC_PATTERN.matcher(groupDescription).matches()) {
     throw new ClientComputeException("InvalidParameterValue","Invalid security group description. Valid descriptions are strings less than 256 characters from the following set:  a-zA-Z0-9. _-:/()#,@[]+=&;{}!$*");
   }
-  final UserFullName userFullName=ctx.getUserFullName();
   final CreateSecurityGroupResponseType reply=request.getReply();
   try {
     Supplier<NetworkGroup> allocator=new Supplier<NetworkGroup>(){
       @Override public NetworkGroup get(){
-        final String vpcId=ResourceIdentifiers.tryNormalize().apply(request.getVpcId());
         try (final TransactionResource tx=Entities.transactionFor(NetworkGroup.class)){
           if (vpcId != null && Entities.count(NetworkGroup.namedForVpc(vpcId,null)) >= VpcConfiguration.getSecurityGroupsPerVpc()) {
-            throw Exceptions.toUndeclared(new ClientComputeException("SecurityGroupLimitExceeded","Security group limit exceeded for " + request.getVpcId()));
+            throw Exceptions.toUndeclared(new ClientComputeException("SecurityGroupLimitExceeded","Security group limit exceeded for " + vpcId));
           }
-          final Vpc vpc=request.getVpcId() == null ? null : Entities.uniqueResult(Vpc.exampleWithName(userFullName.asAccountFullName(),vpcId));
+          final Vpc vpc=vpcId == null ? null : Entities.uniqueResult(Vpc.exampleWithName(userFullName.asAccountFullName(),vpcId));
           final NetworkGroup group=NetworkGroups.create(ctx.getUserFullName(),vpc,groupName,groupDescription);
           if (vpc != null) {
             group.getNetworkRules().addAll(Lists.newArrayList(NetworkRule.createEgress(null,-1,null,null,null,Collections.singleton("0.0.0.0/0"))));
@@ -36,7 +37,7 @@
           return group;
         }
  catch (        NoSuchElementException e) {
-          throw Exceptions.toUndeclared(new ClientComputeException("InvalidVpcID.NotFound","The vpc ('" + request.getVpcId() + "') was not found"));
+          throw Exceptions.toUndeclared(new ClientComputeException("InvalidVpcID.NotFound","The vpc ('" + vpcId + "') was not found"));
         }
 catch (        TransactionException|MetadataException ex) {
           throw Exceptions.toUndeclared(ex);

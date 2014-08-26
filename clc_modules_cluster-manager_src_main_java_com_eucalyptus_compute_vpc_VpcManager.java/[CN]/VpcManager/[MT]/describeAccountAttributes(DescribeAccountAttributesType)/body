@@ -2,16 +2,23 @@
   final DescribeAccountAttributesResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
   final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+  final List<String> platforms=Lists.newArrayList("VPC");
   String vpcId="none";
   try {
     vpcId=vpcs.lookupDefault(accountFullName,CloudMetadatas.toDisplayName());
   }
  catch (  VpcMetadataNotFoundException e) {
+    platforms.add("EC2");
   }
 catch (  Exception e) {
     throw handleException(e);
   }
-  reply.getAccountAttributeSet().getItem().add(new AccountAttributeSetItemType("supported-platforms",Lists.newArrayList("EC2","VPC")));
-  reply.getAccountAttributeSet().getItem().add(new AccountAttributeSetItemType("default-vpc",Lists.newArrayList(vpcId)));
+  final Map<String,List<String>> attributes=ImmutableMap.of("supported-platforms",platforms,"default-vpc",Lists.newArrayList(vpcId));
+  final Set<String> requestedAttributes=Sets.newHashSet(request.attributeNames());
+  for (  final Map.Entry<String,List<String>> attributeEntry : attributes.entrySet()) {
+    if (requestedAttributes.isEmpty() || requestedAttributes.contains(attributeEntry.getKey())) {
+      reply.getAccountAttributeSet().getItem().add(new AccountAttributeSetItemType(attributeEntry.getKey(),attributeEntry.getValue()));
+    }
+  }
   return reply;
 }
