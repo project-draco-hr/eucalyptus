@@ -1,0 +1,49 @@
+{
+  final String volPath=File.createTempFile("blockstoragetest-",".tmp").getCanonicalPath();
+  final String devName=File.createTempFile("blockstoragetest-",".tmp").getCanonicalPath();
+  final String volId="foo";
+  final String sanVolId="fooprefix" + volId + "foosuffix";
+  final String volIqn="foo-iqn";
+  final Integer volSz=new Integer(5);
+  SANInfo sanInfo=new SANInfo(StorageProperties.NAME,"foohost","foouser","foopassword");
+  sanInfo.setResourcePrefix("fooprefix");
+  sanInfo.setResourceSuffix("foosuffix");
+  try (TransactionResource tran=Entities.transactionFor(SANInfo.class)){
+    Entities.persist(sanInfo);
+    tran.commit();
+  }
+   final SANProvider sanProvider=context.mock(SANProvider.class);
+  context.checking(new Expectations(){
+{
+      oneOf(sanProvider).createVolume(sanVolId,volSz);
+      will(returnValue(volIqn));
+      oneOf(sanProvider).connectTarget(volIqn);
+      will(returnValue(new StorageResource(volId,devName,StorageResource.Type.FILE){
+        @Override public Long getSize() throws Exception {
+          return null;
+        }
+        @Override public InputStream getInputStream() throws Exception {
+          return null;
+        }
+        @Override public OutputStream getOutputStream() throws Exception {
+          return null;
+        }
+      }
+));
+      oneOf(sanProvider).disconnectTarget(sanVolId,volIqn);
+    }
+  }
+);
+  SANManager test=new SANManager(sanProvider);
+  test.importVolume(volId,volPath,volSz);
+  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+    List<SANVolumeInfo> results=Entities.query(new SANVolumeInfo());
+    assertTrue("expected one SANVolumeInfo to exist",results != null || results.size() == 1);
+    SANVolumeInfo created=results.get(0);
+    assertTrue("expected volume id to be " + volId + ", but was "+ created.getVolumeId(),volId.equals(created.getVolumeId()));
+    assertTrue("expected SAN volume id to " + sanInfo.getResourcePrefix() + volId+ sanInfo.getResourceSuffix()+ ", but was "+ created.getSanVolumeId(),created.getSanVolumeId().equals(sanInfo.getResourcePrefix() + volId + sanInfo.getResourceSuffix()));
+    assertTrue("expected iqn to be foo-iqn, but was " + created.getIqn(),"foo-iqn".equals(created.getIqn()));
+  }
+   new File(volPath).delete();
+  new File(devName).delete();
+}

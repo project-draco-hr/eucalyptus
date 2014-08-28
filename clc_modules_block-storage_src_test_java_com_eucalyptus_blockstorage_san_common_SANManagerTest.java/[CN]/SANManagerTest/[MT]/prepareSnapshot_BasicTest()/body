@@ -1,0 +1,43 @@
+{
+  final String volId="testsnap";
+  final String rezPrefix="fooprefix";
+  final String rezSuffix="foosuffix";
+  final Integer snapSz=new Integer(5);
+  SANInfo sanInfo=new SANInfo(StorageProperties.NAME,"foohost","foouser","foopassword");
+  sanInfo.setResourcePrefix(rezPrefix);
+  sanInfo.setResourceSuffix(rezSuffix);
+  try (TransactionResource tran=Entities.transactionFor(SANInfo.class)){
+    Entities.persist(sanInfo);
+    tran.commit();
+  }
+   StorageProperties.SC_INITIATOR_IQN="sc-foo-iqn";
+  final SANProvider sanProvider=context.mock(SANProvider.class);
+  context.checking(new Expectations(){
+{
+      oneOf(sanProvider).createSnapshotHolder(rezPrefix + volId + rezSuffix,snapSz * 1024l);
+      will(returnValue("foo-iqn"));
+      oneOf(sanProvider).addInitiatorRule(rezPrefix + volId + rezSuffix,"sc-foo-iqn");
+      will(returnValue(new Integer(1)));
+      oneOf(sanProvider).connectTarget("foo-iqn,1");
+      will(returnValue(new StorageResource(volId,"foopath",StorageResource.Type.FILE){
+        @Override public Long getSize() throws Exception {
+          return null;
+        }
+        @Override public InputStream getInputStream() throws Exception {
+          return null;
+        }
+        @Override public OutputStream getOutputStream() throws Exception {
+          return null;
+        }
+      }
+));
+    }
+  }
+);
+  SANManager test=new SANManager(sanProvider);
+  test.prepareSnapshot(volId,snapSz.intValue(),snapSz.intValue() * 1024l);
+  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+    List<SANVolumeInfo> results=Entities.query(new SANVolumeInfo());
+    assertTrue("expected one SANVolumeInfo to exist",results != null || results.size() == 1);
+  }
+ }

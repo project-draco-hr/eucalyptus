@@ -1,33 +1,26 @@
 {
   String sanVolumeId=null;
-  EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
-  try {
-    SANVolumeInfo volumeInfo=db.getUnique(new SANVolumeInfo(volumeId));
+  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+    SANVolumeInfo volumeInfo=Entities.uniqueResult(new SANVolumeInfo(volumeId));
     if (volumeInfo == null || StringUtils.isBlank(volumeInfo.getSanVolumeId())) {
       throw new EucalyptusCloudException(volumeId + ": Backend ID not found");
     }
     sanVolumeId=volumeInfo.getSanVolumeId();
   }
- catch (  EucalyptusCloudException ex) {
+ catch (  NoSuchElementException|TransactionException|EucalyptusCloudException ex) {
     LOG.debug(volumeId + ": Volume not found",ex);
     return;
   }
- finally {
-    db.commit();
-  }
   LOG.info("Deleting backend volume " + sanVolumeId + " mapping to "+ volumeId);
   if (connectionManager.deleteVolume(sanVolumeId)) {
-    db=StorageProperties.getEntityWrapper();
-    try {
-      SANVolumeInfo volumeInfo=db.getUnique(new SANVolumeInfo(volumeId).withSanVolumeId(sanVolumeId));
-      db.delete(volumeInfo);
+    try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+      SANVolumeInfo volumeInfo=Entities.uniqueResult(new SANVolumeInfo(volumeId).withSanVolumeId(sanVolumeId));
+      Entities.delete(volumeInfo);
+      tran.commit();
     }
- catch (    EucalyptusCloudException ex) {
+ catch (    NoSuchElementException|TransactionException ex) {
       LOG.error("Unable to clean failed volume: " + volumeId);
       return;
-    }
- finally {
-      db.commit();
     }
   }
 }

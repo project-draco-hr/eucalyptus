@@ -1,0 +1,33 @@
+{
+  SANInfo sanInfo=new SANInfo(StorageProperties.NAME,"foohost","foouser","foopassword");
+  sanInfo.setResourcePrefix("fooprefix");
+  sanInfo.setResourceSuffix("foosuffix");
+  final String volId="foo";
+  final SANVolumeInfo existing=new SANVolumeInfo(volId).withSanVolumeId("fooprefix" + volId + "foosuffix");
+  try (TransactionResource tran=Entities.transactionFor(SANInfo.class)){
+    Entities.persist(sanInfo);
+    Entities.persist(existing);
+    tran.commit();
+  }
+   final int volSz=5;
+  final SANProvider sanProvider=context.mock(SANProvider.class);
+  context.checking(new Expectations(){
+{
+      oneOf(sanProvider).volumeExists(existing.getSanVolumeId());
+      will(returnValue(Boolean.FALSE));
+      oneOf(sanProvider).createVolume("fooprefix" + volId + "foosuffix",volSz);
+      will(returnValue("foo-iqn"));
+    }
+  }
+);
+  SANManager test=new SANManager(sanProvider);
+  test.createVolume(volId,volSz);
+  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+    List<SANVolumeInfo> results=Entities.query(new SANVolumeInfo());
+    assertTrue("expected one SANVolumeInfo to exist",results != null || results.size() == 1);
+    SANVolumeInfo created=results.get(0);
+    assertTrue("expected volume id to be " + volId + ", but was "+ created.getVolumeId(),volId.equals(created.getVolumeId()));
+    assertTrue("expected SAN volume id to " + sanInfo.getResourcePrefix() + volId+ sanInfo.getResourceSuffix()+ ", but was "+ created.getSanVolumeId(),created.getSanVolumeId().equals(sanInfo.getResourcePrefix() + volId + sanInfo.getResourceSuffix()));
+    assertTrue("expected iqn to be foo-iqn, but was " + created.getIqn(),"foo-iqn".equals(created.getIqn()));
+  }
+ }

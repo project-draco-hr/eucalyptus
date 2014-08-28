@@ -1,15 +1,17 @@
 {
   String sanSnapshotId=null;
-  EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
-  try {
-    SANVolumeInfo volumeInfo=db.getUnique(new SANVolumeInfo(snapshotId));
+  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+    SANVolumeInfo volumeInfo=Entities.uniqueResult(new SANVolumeInfo(snapshotId));
     if (volumeInfo == null || StringUtils.isBlank(volumeInfo.getSanVolumeId())) {
       throw new EucalyptusCloudException(snapshotId + ": Backend ID not found");
     }
     sanSnapshotId=volumeInfo.getSanVolumeId();
   }
-  finally {
-    db.commit();
+ catch (  NoSuchElementException ex) {
+    throw new EucalyptusCloudException(snapshotId + ": Backend ID not found");
+  }
+catch (  Exception ex) {
+    throw new EucalyptusCloudException("caught exception while querying the database for snapshot " + snapshotId,ex);
   }
   LOG.info("Deleting backend snapshot " + sanSnapshotId + " mapping to "+ snapshotId);
   boolean deleteEntity=false;
@@ -27,16 +29,13 @@
     }
   }
   if (deleteEntity) {
-    db=StorageProperties.getEntityWrapper();
-    try {
-      SANVolumeInfo snapInfo=db.getUnique(new SANVolumeInfo(snapshotId).withSanVolumeId(sanSnapshotId));
-      db.delete(snapInfo);
+    try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+      SANVolumeInfo snapInfo=Entities.uniqueResult(new SANVolumeInfo(snapshotId).withSanVolumeId(sanSnapshotId));
+      Entities.delete(snapInfo);
+      tran.commit();
     }
- catch (    EucalyptusCloudException ex) {
+ catch (    TransactionException|NoSuchElementException ex) {
       LOG.error(snapshotId + ": Failed to delete database entity post snapshot deletion",ex);
-    }
- finally {
-      db.commit();
     }
   }
 }
