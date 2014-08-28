@@ -12,7 +12,9 @@
       DecisionTask decisionTask=null;
       for (      final WorkflowExecution execution : pending) {
         if (decisionTask != null)         break;
-        try {
+        boolean retry=true;
+        while (retry)         try {
+          retry=false;
           decisionTask=workflowExecutions.updateByExample(WorkflowExecution.exampleWithUniqueName(accountFullName,execution.getDomainName(),execution.getDisplayName()),accountFullName,execution.getDisplayName(),new Function<WorkflowExecution,DecisionTask>(){
             @Nullable @Override public DecisionTask apply(            final WorkflowExecution workflowExecution){
               if (workflowExecution.getDecisionStatus() == Pending) {
@@ -34,6 +36,11 @@
  catch (        Exception e) {
           if (PersistenceExceptions.isStaleUpdate(e)) {
             logger.info("Decision task for workflow " + execution.getDisplayName() + " already taken.");
+          }
+ else           if (PersistenceExceptions.isLockError(e)) {
+            logger.info("Decision task for workflow " + execution.getDisplayName() + " locking error, will retry.");
+            Thread.sleep(10);
+            retry=true;
           }
  else {
             logger.error("Error taking decision task for workflow " + execution.getDisplayName(),e);
