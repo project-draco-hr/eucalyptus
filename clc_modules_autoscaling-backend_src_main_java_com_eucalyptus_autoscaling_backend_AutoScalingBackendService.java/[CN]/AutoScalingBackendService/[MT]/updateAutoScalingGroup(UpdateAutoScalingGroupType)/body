@@ -6,7 +6,6 @@
     final Callback<AutoScalingGroup> groupCallback=new Callback<AutoScalingGroup>(){
       @Override public void fire(      final AutoScalingGroup autoScalingGroup){
         if (RestrictedTypes.filterPrivileged().apply(autoScalingGroup)) {
-          if (request.availabilityZones() != null && !request.availabilityZones().isEmpty())           autoScalingGroup.updateAvailabilityZones(Lists.newArrayList(Sets.newLinkedHashSet(request.availabilityZones())));
           if (request.getDefaultCooldown() != null)           autoScalingGroup.setDefaultCooldown(Numbers.intValue(request.getDefaultCooldown()));
           if (request.getHealthCheckGracePeriod() != null)           autoScalingGroup.setHealthCheckGracePeriod(Numbers.intValue(request.getHealthCheckGracePeriod()));
           if (request.getHealthCheckType() != null)           autoScalingGroup.setHealthCheckType(Enums.valueOfFunction(HealthCheckType.class).apply(request.getHealthCheckType()));
@@ -32,10 +31,19 @@ catch (          AutoScalingMetadataException e) {
           if (autoScalingGroup.getDesiredCapacity() > autoScalingGroup.getMaxSize()) {
             throw Exceptions.toUndeclared(new ValidationErrorException("DesiredCapacity must not be greater than MaxSize"));
           }
-          final List<String> referenceErrors=activityManager.validateReferences(autoScalingGroup.getOwner(),autoScalingGroup.getAvailabilityZones(),Collections.<String>emptyList());
-          verifyUnsupportedReferences(referenceErrors,request.getPlacementGroup(),request.getVpcZoneIdentifier());
+          final Iterable<String> subnetIds=Splitter.on(',').trimResults().omitEmptyStrings().split(nullToEmpty(request.getVpcZoneIdentifier()));
+          final AtomicReference<Map<String,String>> subnetsByZone=new AtomicReference<>();
+          final List<String> referenceErrors=activityManager.validateReferences(autoScalingGroup.getOwner(),Consumers.atomic(subnetsByZone),autoScalingGroup.getAvailabilityZones(),Collections.<String>emptyList(),subnetIds);
+          verifyUnsupportedReferences(referenceErrors,request.getPlacementGroup());
           if (!referenceErrors.isEmpty()) {
             throw Exceptions.toUndeclared(new ValidationErrorException("Invalid parameters " + referenceErrors));
+          }
+          if (request.getVpcZoneIdentifier() != null) {
+            autoScalingGroup.setSubnetIdByZone(subnetsByZone.get());
+            autoScalingGroup.updateAvailabilityZones(Lists.newArrayList(Sets.newLinkedHashSet(request.availabilityZones() != null && !request.availabilityZones().isEmpty() ? request.availabilityZones() : subnetsByZone.get().keySet())));
+          }
+ else           if (request.availabilityZones() != null && !request.availabilityZones().isEmpty()) {
+            autoScalingGroup.updateAvailabilityZones(Lists.newArrayList(Sets.newLinkedHashSet(request.availabilityZones())));
           }
         }
       }
