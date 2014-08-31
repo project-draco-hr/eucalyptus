@@ -2,65 +2,54 @@
   String sanVolumeId=resourceIdOnSan(volumeId);
   String sanParentVolumeId=null;
   SANVolumeInfo volInfo=new SANVolumeInfo(volumeId);
-  EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
   int size=-1;
   try {
-    try {
-      SANVolumeInfo parentVolumeInfo=db.getUnique(new SANVolumeInfo(parentVolumeId));
-      if (parentVolumeInfo == null || StringUtils.isBlank(parentVolumeInfo.getSanVolumeId())) {
-        throw new EucalyptusCloudException("Backend ID not found for " + parentVolumeId);
-      }
-      sanParentVolumeId=parentVolumeInfo.getSanVolumeId();
-      size=parentVolumeInfo.getSize();
+    SANVolumeInfo parentVolumeInfo=Transactions.find(new SANVolumeInfo(parentVolumeId));
+    if (parentVolumeInfo == null || StringUtils.isBlank(parentVolumeInfo.getSanVolumeId())) {
+      throw new EucalyptusCloudException("Backend ID not found for " + parentVolumeId);
     }
- catch (    EucalyptusCloudException ex) {
-      LOG.error(volumeId + ": Failed to lookup source volume entity",ex);
-      throw new EucalyptusCloudException("Failed to lookup source volume entity for " + parentVolumeId,ex);
+    sanParentVolumeId=parentVolumeInfo.getSanVolumeId();
+    size=parentVolumeInfo.getSize();
+  }
+ catch (  TransactionException|NoSuchElementException ex) {
+    LOG.error(volumeId + ": Failed to lookup source volume entity",ex);
+    throw new EucalyptusCloudException("Failed to lookup source volume entity for " + parentVolumeId,ex);
+  }
+  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+    SANVolumeInfo existingVol=Entities.uniqueResult(volInfo);
+    if (connectionManager.snapshotExists(existingVol.getSanVolumeId())) {
+      throw new VolumeAlreadyExistsException("Volume already exists on storage backend for " + volumeId);
     }
-    try {
-      SANVolumeInfo existingVol=db.getUnique(volInfo);
-      if (connectionManager.snapshotExists(existingVol.getSanVolumeId())) {
-        throw new VolumeAlreadyExistsException("Volume already exists on storage backend for " + volumeId);
-      }
  else {
-        LOG.debug(volumeId + ": Found the database entity but the volume does not exist on SAN. Deleting the database entity");
-        db.delete(existingVol);
-      }
-    }
- catch (    Exception ex) {
-      if (ex instanceof VolumeAlreadyExistsException) {
-        throw ex;
-      }
+      LOG.debug(volumeId + ": Found the database entity but the volume does not exist on SAN. Deleting the database entity");
+      Entities.delete(existingVol);
+      tran.commit();
     }
   }
-  finally {
-    db.commit();
+ catch (  VolumeAlreadyExistsException ex) {
+    throw ex;
+  }
+catch (  Exception ex) {
   }
   try {
-    db=StorageProperties.getEntityWrapper();
-    db.add(volInfo.withSanVolumeId(sanVolumeId).withSize(size));
+    Transactions.save(volInfo.withSanVolumeId(sanVolumeId).withSize(size));
   }
  catch (  Exception ex) {
     LOG.error(volumeId + ": Failed to add database entity" + volumeId,ex);
     throw new EucalyptusCloudException("Failed to add database entity for " + volumeId,ex);
   }
- finally {
-    db.commit();
-  }
   LOG.info("Cloning backend volume " + sanVolumeId + " mapping to "+ volumeId+ " from backend volume "+ sanParentVolumeId+ " mapping to "+ parentVolumeId);
   String iqn=connectionManager.cloneVolume(sanVolumeId,sanParentVolumeId);
   if (iqn != null) {
-    try {
-      db=StorageProperties.getEntityWrapper();
-      SANVolumeInfo existingVol=db.getUnique(volInfo);
+    try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+      SANVolumeInfo existingVol=Entities.uniqueResult(volInfo);
       existingVol.setIqn(iqn);
+      Entities.merge(existingVol);
+      tran.commit();
     }
  catch (    Exception ex) {
       LOG.error(volumeId + ": Failed to update database entity with IQN post volume creation");
       throw new EucalyptusCloudException("Failed to update database entity with IQN post volume creation for " + volumeId,ex);
-    }
- finally {
-      db.commit();
     }
   }
  else {

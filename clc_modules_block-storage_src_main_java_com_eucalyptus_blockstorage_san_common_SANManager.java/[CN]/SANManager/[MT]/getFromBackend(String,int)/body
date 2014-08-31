@@ -1,8 +1,7 @@
 {
   SANVolumeInfo snapInfo=new SANVolumeInfo(snapshotId);
-  EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
-  try {
-    SANVolumeInfo foundSnapInfo=db.getUnique(snapInfo);
+  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+    SANVolumeInfo foundSnapInfo=Entities.uniqueResult(snapInfo);
     if (foundSnapInfo == null || StringUtils.isBlank(foundSnapInfo.getSanVolumeId())) {
       throw new EucalyptusCloudException("Backend ID not found for " + snapshotId);
     }
@@ -11,34 +10,26 @@
       return true;
     }
  else {
-      db.delete(foundSnapInfo);
+      Entities.delete(foundSnapInfo);
     }
+    tran.commit();
   }
  catch (  Exception ex) {
   }
- finally {
-    db.commit();
-  }
   snapInfo.setScName(null);
-  try {
-    db=StorageProperties.getEntityWrapper();
-    List<SANVolumeInfo> foundSnapInfos=db.query(snapInfo);
+  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+    List<SANVolumeInfo> foundSnapInfos=Entities.query(snapInfo);
     for (    SANVolumeInfo foundSnapInfo : foundSnapInfos) {
       LOG.info("Checking for backend snapshot " + foundSnapInfo.getSanVolumeId() + " mapping to "+ snapshotId);
       if (connectionManager.snapshotExists(foundSnapInfo.getSanVolumeId())) {
         SANVolumeInfo newSnapInfo=new SANVolumeInfo(snapshotId,foundSnapInfo.getIqn(),foundSnapInfo.getSize()).withSanVolumeId(foundSnapInfo.getSanVolumeId()).withSnapshotOf(foundSnapInfo.getSnapshotOf());
-        db.add(newSnapInfo);
-        db.commit();
+        Entities.persist(newSnapInfo);
+        tran.commit();
         return true;
       }
     }
   }
  catch (  Exception ex) {
-  }
- finally {
-    if (db.isActive()) {
-      db.commit();
-    }
   }
   return false;
 }

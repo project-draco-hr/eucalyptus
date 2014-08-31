@@ -1,0 +1,34 @@
+{
+  final String volId="foo";
+  final String sanVolId="fooprefix" + volId + "foosuffix";
+  final String volIqn="foo-iqn";
+  final SANVolumeInfo existing=new SANVolumeInfo(volId);
+  existing.setSanVolumeId(sanVolId);
+  existing.setIqn(volIqn);
+  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+    Entities.persist(existing);
+    tran.commit();
+  }
+   final SANProvider sanProvider=context.mock(SANProvider.class);
+  context.checking(new Expectations(){
+{
+      oneOf(sanProvider).connectTarget(volIqn);
+      will(returnValue(new StorageResource(volId,"foopath",StorageResource.Type.FILE){
+        @Override public Long getSize() throws Exception {
+          return null;
+        }
+        @Override public InputStream getInputStream() throws Exception {
+          return null;
+        }
+        @Override public OutputStream getOutputStream() throws Exception {
+          return null;
+        }
+      }
+));
+    }
+  }
+);
+  SANManager test=new SANManager(sanProvider);
+  String path=test.getVolumePath(volId);
+  assertTrue("expected the returned value to be 'foopath', but it was '" + path + "'","foopath".equals(path));
+}

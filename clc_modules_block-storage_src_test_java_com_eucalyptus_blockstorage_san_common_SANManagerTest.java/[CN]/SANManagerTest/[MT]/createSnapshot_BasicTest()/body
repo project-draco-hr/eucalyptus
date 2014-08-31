@@ -1,0 +1,31 @@
+{
+  final String volId="testparentvol";
+  final String rezPrefix="fooprefix";
+  final String rezSuffix="foosuffix";
+  final SANVolumeInfo existing=new SANVolumeInfo(volId).withSanVolumeId(rezPrefix + volId + rezSuffix);
+  existing.setIqn("foo-parent-iqn");
+  existing.setSize(new Integer(5));
+  existing.setSnapshotOf("foo-vol");
+  SANInfo sanInfo=new SANInfo(StorageProperties.NAME,"foohost","foouser","foopassword");
+  sanInfo.setResourcePrefix(rezPrefix);
+  sanInfo.setResourceSuffix(rezSuffix);
+  try (TransactionResource tran=Entities.transactionFor(SANInfo.class)){
+    Entities.persist(existing);
+    Entities.persist(sanInfo);
+    tran.commit();
+  }
+   final SANProvider sanProvider=context.mock(SANProvider.class);
+  context.checking(new Expectations(){
+{
+      oneOf(sanProvider).createSnapshot(existing.getSanVolumeId(),rezPrefix + "foo" + rezSuffix,"bar");
+      will(returnValue("foo-iqn"));
+    }
+  }
+);
+  SANManager test=new SANManager(sanProvider);
+  StorageResource result=test.createSnapshot(volId,"foo","bar",false);
+  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+    List<SANVolumeInfo> results=Entities.query(new SANVolumeInfo());
+    assertTrue("expected two SANVolumeInfo to exist",results != null || results.size() == 2);
+  }
+ }

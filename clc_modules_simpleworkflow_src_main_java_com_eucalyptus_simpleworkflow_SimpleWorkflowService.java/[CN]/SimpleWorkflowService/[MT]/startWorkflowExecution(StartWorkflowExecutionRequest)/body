@@ -10,11 +10,14 @@
           throw new SimpleWorkflowClientException("WorkflowExecutionAlreadyStartedFault","Workflow open with ID " + request.getWorkflowId());
         }
         final Domain domain=domains.lookupByName(accountFullName,request.getDomain(),Functions.<Domain>identity());
+        if (workflowExecutions.countOpenByDomain(accountFullName,domain.getDisplayName()) >= SimpleWorkflowConfiguration.getOpenWorkflowExecutionsPerDomain()) {
+          throw Exceptions.toUndeclared(new SimpleWorkflowClientException("LimitExceededFault","Request would exceed limit for open workflow executions"));
+        }
         final WorkflowType workflowType=workflowTypes.lookupByExample(WorkflowType.exampleWithUniqueName(accountFullName,request.getDomain(),request.getWorkflowType().getName(),request.getWorkflowType().getVersion()),accountFullName,request.getWorkflowType().getName(),accessible,Functions.<WorkflowType>identity());
         final String childPolicy=Objects.firstNonNull(request.getChildPolicy(),workflowType.getDefaultChildPolicy());
         final String taskList=request.getTaskList() == null ? workflowType.getDefaultTaskList() : request.getTaskList().getName();
-        final Integer executionStartToCloseTimeout=Objects.firstNonNull(parsePeriod(request.getExecutionStartToCloseTimeout()),workflowType.getDefaultExecutionStartToCloseTimeout());
-        final Integer taskStartToCloseTimeout=Objects.firstNonNull(parsePeriod(request.getTaskStartToCloseTimeout()),workflowType.getDefaultTaskStartToCloseTimeout());
+        final Integer executionStartToCloseTimeout=requireDefault(parsePeriod(request.getExecutionStartToCloseTimeout()),workflowType.getDefaultExecutionStartToCloseTimeout(),"ExecutionStartToCloseTimeout");
+        final Integer taskStartToCloseTimeout=requireDefault(parsePeriod(request.getTaskStartToCloseTimeout()),workflowType.getDefaultTaskStartToCloseTimeout(),"TaskStartToCloseTimeout");
         final WorkflowExecution workflowExecution=WorkflowExecution.create(userFullName,UUID.randomUUID().toString(),domain,workflowType,request.getWorkflowId(),childPolicy,taskList,executionStartToCloseTimeout,taskStartToCloseTimeout,request.getTagList(),Lists.newArrayList(new WorkflowExecutionStartedEventAttributes().withChildPolicy(childPolicy).withExecutionStartToCloseTimeout(String.valueOf(executionStartToCloseTimeout)).withInput(request.getInput()).withParentInitiatedEventId(0L).withTaskList(new TaskList().withName(taskList)).withTagList(request.getTagList()).withTaskStartToCloseTimeout(String.valueOf(taskStartToCloseTimeout)).withWorkflowType(request.getWorkflowType()),new DecisionTaskScheduledEventAttributes().withStartToCloseTimeout(String.valueOf(taskStartToCloseTimeout)).withTaskList(request.getTaskList())));
         return workflowExecutions.save(workflowExecution);
       }

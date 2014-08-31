@@ -1,0 +1,30 @@
+{
+  final String volId="foo";
+  final String sanVolId="fooprefix" + volId + "foosuffix";
+  final String volIqn="foo-iqn";
+  final SANVolumeInfo existing=new SANVolumeInfo(volId);
+  existing.setSanVolumeId(sanVolId);
+  existing.setIqn(volIqn);
+  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+    Entities.persist(existing);
+    tran.commit();
+  }
+   final SANProvider sanProvider=context.mock(SANProvider.class);
+  context.checking(new Expectations(){
+{
+      oneOf(sanProvider).addInitiatorRule(sanVolId,volIqn);
+      will(returnValue(new Integer(1)));
+      oneOf(sanProvider).getVolumeConnectionString(volId);
+      will(returnValue("fooconnectionstring"));
+      oneOf(sanProvider).getAuthType();
+      will(returnValue("fooauthtype"));
+      oneOf(sanProvider).getOptionalChapUser();
+      will(returnValue("foooptchapuser"));
+    }
+  }
+);
+  String expected="foooptchapuser,fooauthtype,1,fooconnectionstring";
+  SANManager test=new SANManager(sanProvider);
+  String result=test.exportVolume(volId,volIqn);
+  assertTrue("expected result to be '" + expected + "' but was '"+ result+ "'",expected.equals(result));
+}

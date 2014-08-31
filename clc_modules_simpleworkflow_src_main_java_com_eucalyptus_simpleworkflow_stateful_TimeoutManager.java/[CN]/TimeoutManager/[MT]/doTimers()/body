@@ -1,0 +1,31 @@
+{
+  final Set<NotifyTaskList> taskLists=Sets.newHashSet();
+  try {
+    for (    final Timer timer : timers.listFired(Functions.<Timer>identity()))     try {
+      timers.updateByExample(timer,timer.getOwner(),timer.getDisplayName(),new Function<Timer,Void>(){
+        @Override public Void apply(        final Timer timer){
+          final WorkflowExecution workflowExecution=timer.getWorkflowExecution();
+          workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new TimerFiredEventAttributes().withStartedEventId(timer.getStartedEventId()).withTimerId(timer.getDisplayName())));
+          if (workflowExecution.getDecisionStatus() != Pending) {
+            workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskScheduledEventAttributes().withTaskList(new TaskList().withName(workflowExecution.getTaskList())).withStartToCloseTimeout(String.valueOf(workflowExecution.getTaskStartToCloseTimeout()))));
+            workflowExecution.setDecisionStatus(Pending);
+            workflowExecution.setDecisionTimestamp(new Date());
+            addToNotifyLists(taskLists,workflowExecution);
+          }
+          Entities.delete(timer);
+          return null;
+        }
+      }
+);
+    }
+ catch (    SwfMetadataException e) {
+      if (!handleException(e)) {
+        logger.error("Error processing fired timer: " + timer.getWorkflowRunId() + "/"+ timer.getStartedEventId(),e);
+      }
+    }
+  }
+ catch (  SwfMetadataException e) {
+    logger.error("Error processing fired timers",e);
+  }
+  notifyLists(taskLists);
+}

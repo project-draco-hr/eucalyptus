@@ -1,0 +1,28 @@
+{
+  final String volId="testparentvol";
+  final String rezPrefix="fooprefix";
+  final String rezSuffix="foosuffix";
+  final SANVolumeInfo existing=new SANVolumeInfo(volId).withSanVolumeId(rezPrefix + volId + rezSuffix);
+  existing.setIqn("foo-iqn");
+  existing.setSize(new Integer(5));
+  existing.setSnapshotOf("foo-vol");
+  SANInfo sanInfo=new SANInfo(StorageProperties.NAME,"foohost","foouser","foopassword");
+  sanInfo.setResourcePrefix(rezPrefix);
+  sanInfo.setResourceSuffix(rezSuffix);
+  try (TransactionResource tran=Entities.transactionFor(SANInfo.class)){
+    Entities.persist(existing);
+    Entities.persist(sanInfo);
+    tran.commit();
+  }
+   final SANProvider sanProvider=context.mock(SANProvider.class);
+  context.checking(new Expectations(){
+{
+      oneOf(sanProvider).createSnapshotPoint(existing.getSanVolumeId(),rezPrefix + "foo" + rezSuffix);
+      will(returnValue("result"));
+    }
+  }
+);
+  SANManager test=new SANManager(sanProvider);
+  String result=test.createSnapshotPoint(volId,"foo");
+  assertTrue("expected result to be 'result', but was '" + result + "'","result".equals(result));
+}

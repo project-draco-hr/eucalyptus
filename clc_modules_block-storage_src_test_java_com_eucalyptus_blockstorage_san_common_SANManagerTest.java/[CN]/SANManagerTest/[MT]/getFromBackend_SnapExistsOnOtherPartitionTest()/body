@@ -1,0 +1,27 @@
+{
+  final String volId="foo";
+  final SANVolumeInfo existing=new SANVolumeInfo(volId).withSanVolumeId("fooprefix" + volId + "foosuffix");
+  existing.setScName("other");
+  existing.setIqn("foo-iqn");
+  existing.setSize(new Integer(5));
+  existing.setSnapshotOf("foo-vol");
+  try (TransactionResource tran=Entities.transactionFor(SANInfo.class)){
+    Entities.persist(existing);
+    tran.commit();
+  }
+   final SANProvider sanProvider=context.mock(SANProvider.class);
+  context.checking(new Expectations(){
+{
+      oneOf(sanProvider).snapshotExists(existing.getSanVolumeId());
+      will(returnValue(Boolean.TRUE));
+    }
+  }
+);
+  SANManager test=new SANManager(sanProvider);
+  boolean result=test.getFromBackend(volId,new Integer(5));
+  assertTrue("expected result to be true",result);
+  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+    List<SANVolumeInfo> results=Entities.query(new SANVolumeInfo());
+    assertTrue("expected two SANVolumeInfo to exist",results != null || results.size() == 2);
+  }
+ }

@@ -1,13 +1,12 @@
 {
-  EntityWrapper<SANVolumeInfo> db=StorageProperties.getEntityWrapper();
-  try {
-    db.getUnique(new SANVolumeInfo(snapshotId));
+  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+    Entities.uniqueResult(new SANVolumeInfo(snapshotId));
     throw new EucalyptusCloudException("Snapshot " + snapshotId + " already exists. Import failed.");
   }
- catch (  EucalyptusCloudException ex) {
+ catch (  NoSuchElementException ex) {
   }
- finally {
-    db.commit();
+catch (  TransactionException ex) {
+    throw new EucalyptusCloudException(ex);
   }
   String sanSnapshotId=resourceIdOnSan(snapshotId);
   String iqn=connectionManager.createVolume(sanSnapshotId,size);
@@ -20,8 +19,9 @@
       connectionManager.disconnectTarget(sanSnapshotId,iqn);
     }
     SANVolumeInfo volumeInfo=new SANVolumeInfo(snapshotId,iqn,size).withSanVolumeId(sanSnapshotId).withSnapshotOf(volumeId);
-    db=StorageProperties.getEntityWrapper();
-    db.add(volumeInfo);
-    db.commit();
-  }
+    try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+      Entities.persist(volumeInfo);
+      tran.commit();
+    }
+   }
 }
