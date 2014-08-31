@@ -24,13 +24,15 @@
         if (desiredCapacity != null && desiredCapacity > maxSize) {
           throw Exceptions.toUndeclared(new ValidationErrorException("DesiredCapacity must not be greater than MaxSize"));
         }
-        final List<String> referenceErrors=activityManager.validateReferences(ctx.getUserFullName(),request.availabilityZones(),request.loadBalancerNames());
-        verifyUnsupportedReferences(referenceErrors,request.getPlacementGroup(),request.getVpcZoneIdentifier());
+        final Iterable<String> subnetIds=Splitter.on(',').trimResults().omitEmptyStrings().split(nullToEmpty(request.getVpcZoneIdentifier()));
+        final AtomicReference<Map<String,String>> subnetsByZone=new AtomicReference<>();
+        final List<String> referenceErrors=activityManager.validateReferences(ctx.getUserFullName(),Consumers.atomic(subnetsByZone),request.availabilityZones(),request.loadBalancerNames(),subnetIds);
+        verifyUnsupportedReferences(referenceErrors,request.getPlacementGroup());
         if (!referenceErrors.isEmpty()) {
           throw Exceptions.toUndeclared(new ValidationErrorException("Invalid parameters " + referenceErrors));
         }
         final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
-        final AutoScalingGroups.PersistingBuilder builder=autoScalingGroups.create(ctx.getUserFullName(),request.getAutoScalingGroupName(),verifyOwnership(accountFullName,launchConfigurations.lookup(accountFullName,request.getLaunchConfigurationName(),Functions.<LaunchConfiguration>identity())),minSize,maxSize).withAvailabilityZones(request.availabilityZones()).withDefaultCooldown(Numbers.intValue(request.getDefaultCooldown())).withDesiredCapacity(desiredCapacity).withHealthCheckGracePeriod(Numbers.intValue(request.getHealthCheckGracePeriod())).withHealthCheckType(request.getHealthCheckType() == null ? null : HealthCheckType.valueOf(request.getHealthCheckType())).withLoadBalancerNames(request.loadBalancerNames()).withTerminationPolicyTypes(request.terminationPolicies() == null ? null : Collections2.filter(Collections2.transform(request.terminationPolicies(),Enums.valueOfFunction(TerminationPolicyType.class)),Predicates.not(Predicates.isNull()))).withTags(request.getTags() == null ? null : Iterables.transform(request.getTags().getMember(),TypeMappers.lookup(TagType.class,AutoScalingGroupTag.class)));
+        final AutoScalingGroups.PersistingBuilder builder=autoScalingGroups.create(ctx.getUserFullName(),request.getAutoScalingGroupName(),verifyOwnership(accountFullName,launchConfigurations.lookup(accountFullName,request.getLaunchConfigurationName(),Functions.<LaunchConfiguration>identity())),minSize,maxSize).withAvailabilityZones(request.availabilityZones() != null && !request.availabilityZones().isEmpty() ? request.availabilityZones() : subnetsByZone.get() == null ? null : subnetsByZone.get().keySet()).withSubnetsByZone(subnetsByZone.get()).withDefaultCooldown(Numbers.intValue(request.getDefaultCooldown())).withDesiredCapacity(desiredCapacity).withHealthCheckGracePeriod(Numbers.intValue(request.getHealthCheckGracePeriod())).withHealthCheckType(request.getHealthCheckType() == null ? null : HealthCheckType.valueOf(request.getHealthCheckType())).withLoadBalancerNames(request.loadBalancerNames()).withTerminationPolicyTypes(request.terminationPolicies() == null ? null : Collections2.filter(Collections2.transform(request.terminationPolicies(),Enums.valueOfFunction(TerminationPolicyType.class)),Predicates.not(Predicates.isNull()))).withTags(request.getTags() == null ? null : Iterables.transform(request.getTags().getMember(),TypeMappers.lookup(TagType.class,AutoScalingGroupTag.class)));
         return builder.persist();
       }
  catch (      AutoScalingMetadataNotFoundException e) {
