@@ -1,3 +1,51 @@
 {
-  throw new UnsupportedOperationException();
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+switch (stepNum) {
+case 0:
+    validateProperties();
+  DescribeSecurityGroupsType describeSecurityGroupsType=new DescribeSecurityGroupsType();
+describeSecurityGroupsType.setEffectiveUserId(info.getEffectiveUserId());
+describeSecurityGroupsType.setSecurityGroupIdSet(Lists.newArrayList(properties.getGroupId()));
+DescribeSecurityGroupsResponseType describeSecurityGroupsResponseType=AsyncRequests.<DescribeSecurityGroupsType,DescribeSecurityGroupsResponseType>sendSync(configuration,describeSecurityGroupsType);
+ArrayList<SecurityGroupItemType> securityGroupItemTypeArrayList=describeSecurityGroupsResponseType.getSecurityGroupInfo();
+boolean hasDefaultEgressRule=false;
+if (securityGroupItemTypeArrayList == null || securityGroupItemTypeArrayList.isEmpty()) {
+throw new ValidationErrorException("No such group with id '" + properties.getGroupId() + "'");
+}
+ else {
+SecurityGroupItemType securityGroupItemType=securityGroupItemTypeArrayList.get(0);
+if (securityGroupItemType.getIpPermissionsEgress() != null) {
+for (IpPermissionType ipPermissionType : securityGroupItemType.getIpPermissionsEgress()) {
+if (isDefaultEgressRule(ipPermissionType)) {
+hasDefaultEgressRule=true;
+break;
+}
+}
+}
+}
+AuthorizeSecurityGroupEgressType authorizeSecurityGroupEgressType=new AuthorizeSecurityGroupEgressType();
+authorizeSecurityGroupEgressType.setEffectiveUserId(getResourceInfo().getEffectiveUserId());
+authorizeSecurityGroupEgressType.setGroupId(properties.getGroupId());
+IpPermissionType ipPermissionType=new IpPermissionType(properties.getIpProtocol(),properties.getFromPort(),properties.getToPort());
+if (!Strings.isNullOrEmpty(properties.getCidrIp())) {
+ipPermissionType.setCidrIpRanges(Lists.newArrayList(properties.getCidrIp()));
+}
+if (!Strings.isNullOrEmpty(properties.getDestinationSecurityGroupId())) {
+ipPermissionType.setGroups(Lists.newArrayList(new UserIdGroupPairType(null,null,properties.getDestinationSecurityGroupId())));
+}
+authorizeSecurityGroupEgressType.setIpPermissions(Lists.newArrayList(ipPermissionType));
+AuthorizeSecurityGroupEgressResponseType authorizeSecurityGroupIngressResponseType=AsyncRequests.<AuthorizeSecurityGroupEgressType,AuthorizeSecurityGroupEgressResponseType>sendSync(configuration,authorizeSecurityGroupEgressType);
+if (hasDefaultEgressRule) {
+RevokeSecurityGroupEgressType revokeSecurityGroupEgressType=new RevokeSecurityGroupEgressType();
+revokeSecurityGroupEgressType.setEffectiveUserId(getResourceInfo().getEffectiveUserId());
+revokeSecurityGroupEgressType.setGroupId(properties.getGroupId());
+revokeSecurityGroupEgressType.setIpPermissions(Lists.newArrayList(DEFAULT_EGRESS_RULE()));
+RevokeSecurityGroupEgressResponseType revokeSecurityGroupEgressResponseType=AsyncRequests.<RevokeSecurityGroupEgressType,RevokeSecurityGroupEgressResponseType>sendSync(configuration,revokeSecurityGroupEgressType);
+}
+info.setPhysicalResourceId(getDefaultPhysicalResourceId());
+info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(info.getPhysicalResourceId())));
+break;
+default :
+throw new IllegalStateException("Invalid step " + stepNum);
+}
 }
