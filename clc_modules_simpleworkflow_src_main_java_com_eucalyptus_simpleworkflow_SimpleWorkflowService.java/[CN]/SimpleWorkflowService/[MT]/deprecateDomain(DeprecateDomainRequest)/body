@@ -3,13 +3,18 @@
   final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
   final Predicate<? super Domain> accessible=SimpleWorkflowMetadatas.filteringFor(Domain.class).byPrivileges().buildPredicate();
   try {
-    domains.updateByExample(Domain.exampleWithName(accountFullName,request.getName()),accountFullName,request.getName(),new Callback<Domain>(){
+    domains.withRetries().updateByExample(Domain.exampleWithName(accountFullName,request.getName()),accountFullName,request.getName(),new Callback<Domain>(){
       @Override public void fire(      final Domain domain){
-        if (accessible.apply(domain)) {
+        if (accessible.apply(domain))         try {
           if (domain.getState() == Domain.Status.Deprecated) {
-            throw Exceptions.toUndeclared(new SimpleWorkflowClientException("DomainDeprecatedFault","Domain already deprecated: " + request.getName()));
+            throw upClient("DomainDeprecatedFault","Domain already deprecated: " + request.getName());
           }
           domain.setState(Domain.Status.Deprecated);
+          activityTypes.list(accountFullName,CollectionUtils.propertyPredicate(domain.getDisplayName(),ActivityTypes.StringFunctions.DOMAIN),ActivityType.Status.Deprecated.set());
+          workflowTypes.list(accountFullName,CollectionUtils.propertyPredicate(domain.getDisplayName(),WorkflowTypes.StringFunctions.DOMAIN),WorkflowType.Status.Deprecated.set());
+        }
+ catch (        final Exception e) {
+          throw up(e);
         }
       }
     }
