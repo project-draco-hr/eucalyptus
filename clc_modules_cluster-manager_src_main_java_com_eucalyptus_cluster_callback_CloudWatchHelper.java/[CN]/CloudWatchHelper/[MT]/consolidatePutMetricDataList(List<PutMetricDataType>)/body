@@ -1,23 +1,22 @@
 {
-  int MAX_PUT_METRIC_DATA_ITEMS=20;
-  LinkedHashMap<UserIdAndNamespace,List<MetricDatum>> metricDataMap=new LinkedHashMap<UserIdAndNamespace,List<MetricDatum>>();
-  for (  PutMetricDataType putMetricData : putMetricDataList) {
-    UserIdAndNamespace userIdAndNamespace=new UserIdAndNamespace(putMetricData.getEffectiveUserId(),putMetricData.getNamespace());
-    if (!metricDataMap.containsKey(userIdAndNamespace)) {
-      metricDataMap.put(userIdAndNamespace,new ArrayList<MetricDatum>());
+  final int MAX_PUT_METRIC_DATA_ITEMS=20;
+  final LinkedHashMap<Pair<String,String>,List<MetricDatum>> metricDataMap=new LinkedHashMap<>();
+  for (  final PutMetricDataType putMetricData : putMetricDataList) {
+    final Pair<String,String> userIdAndNamespacePair=Pair.pair(putMetricData.getUserId(),putMetricData.getNamespace());
+    if (!metricDataMap.containsKey(userIdAndNamespacePair)) {
+      metricDataMap.put(userIdAndNamespacePair,new ArrayList<MetricDatum>());
     }
-    metricDataMap.get(userIdAndNamespace).addAll(putMetricData.getMetricData().getMember());
+    metricDataMap.get(userIdAndNamespacePair).addAll(putMetricData.getMetricData().getMember());
   }
-  ArrayList<PutMetricDataType> retVal=new ArrayList<PutMetricDataType>();
-  for (  Map.Entry<UserIdAndNamespace,List<MetricDatum>> metricDataEntry : metricDataMap.entrySet()) {
-    for (int i=0; i < metricDataEntry.getValue().size(); i+=MAX_PUT_METRIC_DATA_ITEMS) {
-      PutMetricDataType putMetricData=new PutMetricDataType();
-      putMetricData.setEffectiveUserId(metricDataEntry.getKey().getUserId());
-      putMetricData.setNamespace(metricDataEntry.getKey().getNamespace());
-      MetricData metricData=new MetricData();
-      ArrayList<MetricDatum> metricDatumList=new ArrayList();
-      metricDatumList.addAll(metricDataEntry.getValue().subList(i,Math.min(i + MAX_PUT_METRIC_DATA_ITEMS,metricDataEntry.getValue().size())));
-      metricData.setMember(metricDatumList);
+  final ArrayList<PutMetricDataType> retVal=new ArrayList<>();
+  for (  final Map.Entry<Pair<String,String>,List<MetricDatum>> metricDataEntry : metricDataMap.entrySet()) {
+    for (    final List<MetricDatum> datums : Iterables.partition(metricDataEntry.getValue(),MAX_PUT_METRIC_DATA_ITEMS)) {
+      final MetricData metricData=new MetricData();
+      metricData.setMember(Lists.newArrayList(datums));
+      final PutMetricDataType putMetricData=new PutMetricDataType();
+      putMetricData.setUserId(metricDataEntry.getKey().getLeft());
+      putMetricData.markPrivileged();
+      putMetricData.setNamespace(metricDataEntry.getKey().getRight());
       putMetricData.setMetricData(metricData);
       retVal.add(putMetricData);
     }
