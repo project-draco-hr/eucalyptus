@@ -1,0 +1,29 @@
+{
+  final VmState inputState=VmState.Mapper.get(input.getStateName());
+  if (!VmStateSet.RUN.contains(inputState)) {
+    return false;
+  }
+ else   if (!ValidateVmInfo.INSTANCE.apply(input)) {
+    return false;
+  }
+ else {
+    final UserFullName userFullName=UserFullName.getInstance(input.getOwnerId());
+    Allocation allocation=null;
+    try {
+      final String imageId=RestoreHandler.restoreImage(input);
+      final String kernelId=RestoreHandler.restoreKernel(input);
+      final String ramdiskId=RestoreHandler.restoreRamdisk(input);
+      allocation=Allocations.restore(input,RestoreHandler.restoreLaunchIndex(input),RestoreHandler.restoreVmType(input),RestoreHandler.restoreBootSet(input,imageId,kernelId,ramdiskId),RestoreHandler.restorePartition(input),RestoreHandler.restoreSshKeyPair(input,userFullName),RestoreHandler.restoreUserData(input),userFullName);
+      final ResourceToken token=Iterables.getOnlyElement(allocation.getAllocationTokens());
+      token.setZombie(true);
+      allocation.commit();
+      return true;
+    }
+ catch (    final Exception ex) {
+      if (allocation != null)       allocation.abort();
+      LOG.error("Failed to restore instance " + input.getInstanceId() + " because of: "+ ex.getMessage(),ex);
+      Logs.extreme().error(ex,ex);
+      return false;
+    }
+  }
+}
