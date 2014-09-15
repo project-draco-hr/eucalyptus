@@ -1,0 +1,43 @@
+{
+  Map<String,String> pseudoParameterMap=template.getPseudoParameterMap();
+  Map<String,StackEntity.Parameter> parameterMap=template.getParameterMap();
+  Map<String,ResourceInfo> resourceInfoMap=template.getResourceInfoMap();
+  if (jsonNode == null) {
+    return;
+  }
+  if (jsonNode.isArray()) {
+    for (int i=0; i < jsonNode.size(); i++) {
+      validateValidResourcesInOutputs(outputKey,jsonNode.get(i),template,unresolvedResourceDependencies);
+    }
+  }
+  IntrinsicFunction.MatchResult fnIfMatcher=IntrinsicFunctions.IF.evaluateMatch(jsonNode);
+  IntrinsicFunction.MatchResult refMatcher=IntrinsicFunctions.REF.evaluateMatch(jsonNode);
+  if (refMatcher.isMatch()) {
+    IntrinsicFunctions.REF.validateArgTypesWherePossible(refMatcher);
+    String refName=jsonNode.get(FunctionEvaluation.REF_STR).textValue();
+    if (!parameterMap.containsKey(refName) && !pseudoParameterMap.containsKey(refName) && !resourceInfoMap.containsKey(refName)) {
+      unresolvedResourceDependencies.add(refName);
+    }
+    return;
+  }
+  IntrinsicFunction.MatchResult fnAttMatcher=IntrinsicFunctions.GET_ATT.evaluateMatch(jsonNode);
+  if (fnAttMatcher.isMatch()) {
+    IntrinsicFunctions.GET_ATT.validateArgTypesWherePossible(fnAttMatcher);
+    String refName=jsonNode.get(FunctionEvaluation.FN_GET_ATT).get(0).textValue();
+    String attName=jsonNode.get(FunctionEvaluation.FN_GET_ATT).get(1).textValue();
+    if (resourceInfoMap.containsKey(refName)) {
+      ResourceInfo resourceInfo=resourceInfoMap.get(refName);
+      if (resourceInfo.canCheckAttributes() && !ResourceAttributeResolver.resourceHasAttribute(resourceInfo,attName)) {
+        throw new ValidationErrorException("Template error: resource " + refName + " does not support attribute type "+ attName+ " in Fn::GetAtt");
+      }
+    }
+ else {
+      throw new ValidationErrorException("Template error: instance of Fn::GetAtt references undefined resource " + refName);
+    }
+    return;
+  }
+  List<String> fieldNames=Lists.newArrayList(jsonNode.fieldNames());
+  for (  String fieldName : fieldNames) {
+    validateValidResourcesInOutputs(outputKey,jsonNode.get(fieldName),template,unresolvedResourceDependencies);
+  }
+}
