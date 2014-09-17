@@ -1,11 +1,13 @@
 {
-  Map<String,Boolean> conditionMap=StackEntityHelper.jsonToConditionMap(template.getStackEntity().getConditionMapJson());
-  ArrayList<StackEntity.Output> outputs=StackEntityHelper.jsonToOutputs(template.getStackEntity().getOutputsJson());
+  Map<String,Boolean> conditionMap=template.getConditionMap();
+  ArrayList<StackEntity.Output> outputs=template.getOutputs();
   JsonNode outputsJsonNode=JsonHelper.checkObject(templateJsonNode,TemplateSection.Outputs.toString());
   if (outputsJsonNode != null) {
+    List<String> unresolvedResourceDependencies=Lists.newArrayList();
     List<String> outputKeys=Lists.newArrayList(outputsJsonNode.fieldNames());
     for (    String outputKey : outputKeys) {
       JsonNode outputJsonNode=outputsJsonNode.get(outputKey);
+      validateValidResourcesInOutputs(outputKey,outputJsonNode,template,unresolvedResourceDependencies);
       Set<String> tempOutputKeys=Sets.newHashSet(outputJsonNode.fieldNames());
       for (      OutputKey validOutputKey : OutputKey.values()) {
         tempOutputKeys.remove(validOutputKey.toString());
@@ -35,10 +37,7 @@
         IntrinsicFunction.MatchResult matchResult=intrinsicFunction.evaluateMatch(outputValueNode);
         if (matchResult.isMatch()) {
           match=true;
-          intrinsicFunction.validateArgTypesWherePossible(matchResult);
-          if (intrinsicFunction == IntrinsicFunctions.IF) {
-            throw new ValidationErrorException("The Value field of every Outputs member must evaluate to a String and not a Map.");
-          }
+          break;
         }
       }
       if (!match) {
@@ -54,6 +53,9 @@
       output.setAllowedByCondition(conditionMap.get(conditionKey) != Boolean.FALSE);
       outputs.add(output);
     }
-    template.getStackEntity().setOutputsJson(StackEntityHelper.outputsToJson(outputs));
+    if (!unresolvedResourceDependencies.isEmpty()) {
+      throw new ValidationErrorException("Template format error: Unresolved resource dependencies " + unresolvedResourceDependencies + " in the Outputs block of the template");
+    }
+    template.setOutputs(outputs);
   }
 }

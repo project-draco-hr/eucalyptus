@@ -9,11 +9,29 @@
         if (!workflowExecutions.listByExample(WorkflowExecution.exampleForOpenWorkflow(accountFullName,request.getDomain(),request.getWorkflowId()),Predicates.alwaysTrue(),Functions.identity()).isEmpty()) {
           throw new SimpleWorkflowClientException("WorkflowExecutionAlreadyStartedFault","Workflow open with ID " + request.getWorkflowId());
         }
-        final Domain domain=domains.lookupByName(accountFullName,request.getDomain(),Functions.<Domain>identity());
-        if (workflowExecutions.countOpenByDomain(accountFullName,domain.getDisplayName()) >= SimpleWorkflowConfiguration.getOpenWorkflowExecutionsPerDomain()) {
-          throw Exceptions.toUndeclared(new SimpleWorkflowClientException("LimitExceededFault","Request would exceed limit for open workflow executions"));
+        final Domain domain;
+        try {
+          domain=domains.lookupByName(accountFullName,request.getDomain(),Registered,Functions.<Domain>identity());
         }
-        final WorkflowType workflowType=workflowTypes.lookupByExample(WorkflowType.exampleWithUniqueName(accountFullName,request.getDomain(),request.getWorkflowType().getName(),request.getWorkflowType().getVersion()),accountFullName,request.getWorkflowType().getName(),accessible,Functions.<WorkflowType>identity());
+ catch (        SwfMetadataNotFoundException e) {
+          throw upClient("UnknownResourceFault","Unknown domain: " + request.getDomain());
+        }
+        if (workflowExecutions.countOpenByDomain(accountFullName,domain.getDisplayName()) >= SimpleWorkflowConfiguration.getOpenWorkflowExecutionsPerDomain()) {
+          throw upClient("LimitExceededFault","Request would exceed limit for open workflow executions");
+        }
+        final WorkflowType workflowType;
+        try {
+          workflowType=workflowTypes.lookupByExample(WorkflowType.exampleWithUniqueName(accountFullName,request.getDomain(),request.getWorkflowType().getName(),request.getWorkflowType().getVersion()),accountFullName,request.getWorkflowType().getName(),Predicates.and(accessible,WorkflowType.Status.Registered),Functions.<WorkflowType>identity());
+        }
+ catch (        SwfMetadataNotFoundException e) {
+          throw upClient("UnknownResourceFault","Unknown workflow type: " + request.getWorkflowType().getName());
+        }
+        if (request.getChildPolicy() == null && workflowType.getDefaultChildPolicy() == null) {
+          throw upClient("DefaultUndefinedFault","Default child policy undefined");
+        }
+        if (request.getTaskList() == null && workflowType.getDefaultTaskList() == null) {
+          throw upClient("DefaultUndefinedFault","Default task list undefined");
+        }
         final String childPolicy=Objects.firstNonNull(request.getChildPolicy(),workflowType.getDefaultChildPolicy());
         final String taskList=request.getTaskList() == null ? workflowType.getDefaultTaskList() : request.getTaskList().getName();
         final Integer executionStartToCloseTimeout=requireDefault(parsePeriod(request.getExecutionStartToCloseTimeout()),workflowType.getDefaultExecutionStartToCloseTimeout(),"ExecutionStartToCloseTimeout");

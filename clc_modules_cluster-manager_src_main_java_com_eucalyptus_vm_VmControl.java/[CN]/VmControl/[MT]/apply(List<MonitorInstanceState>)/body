@@ -1,24 +1,19 @@
 {
-  ArrayList<MonitorInstanceState> monitorInstanceSet=Lists.newArrayList();
+  final ArrayList<MonitorInstanceState> monitorInstanceSet=Lists.newArrayList();
   for (  final MonitorInstanceState monitorInst : monitorList) {
-    final EntityTransaction db=Entities.get(VmInstance.class);
-    try {
-      VmInstance vmInst=VmInstances.lookup(monitorInst.getInstanceId());
+    try (final TransactionResource db=Entities.transactionFor(VmInstance.class)){
+      final VmInstance vmInst=VmInstances.lookup(monitorInst.getInstanceId());
       if (RestrictedTypes.filterPrivileged().apply(vmInst)) {
-        vmInst.getBootRecord().setMonitoring(monitorInst.getMonitoringState().equals("enabled") ? Boolean.TRUE : Boolean.FALSE);
-        Entities.merge(vmInst);
+        vmInst.getBootRecord().setMonitoring("enabled".equals(monitorInst.getMonitoringState()));
         monitorInstanceSet.add(monitorInst);
         db.commit();
       }
     }
- catch (    NoSuchElementException nse) {
+ catch (    final NoSuchElementException nse) {
       LOG.debug("Unable to find instance : " + monitorInst.getInstanceId());
     }
-catch (    Exception ex) {
-      LOG.debug("Unable to set monitoring state for instance : " + monitorInst.getInstanceId());
-    }
- finally {
-      if (db.isActive())       db.rollback();
+catch (    final Exception ex) {
+      LOG.debug("Unable to set monitoring state for instance : " + monitorInst.getInstanceId(),ex);
     }
   }
   return monitorInstanceSet;

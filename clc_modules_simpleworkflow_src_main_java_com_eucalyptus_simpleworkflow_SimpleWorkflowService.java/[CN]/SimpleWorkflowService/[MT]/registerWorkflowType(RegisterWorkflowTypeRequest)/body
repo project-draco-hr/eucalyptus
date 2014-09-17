@@ -5,14 +5,17 @@
   allocate(new Supplier<WorkflowType>(){
     @Override public WorkflowType get(){
       try {
-        final Domain domain=domains.lookupByName(accountFullName,request.getDomain(),Functions.<Domain>identity());
+        final Domain domain=domains.lookupByName(accountFullName,request.getDomain(),Registered,Functions.<Domain>identity());
         if (workflowTypes.countByDomain(accountFullName,domain.getDisplayName()) >= SimpleWorkflowConfiguration.getWorkflowTypesPerDomain()) {
-          throw Exceptions.toUndeclared(new SimpleWorkflowClientException("LimitExceededFault","Request would exceed limit for type: workflow-type"));
+          throw upClient("LimitExceededFault","Request would exceed limit for type: workflow-type");
         }
         final WorkflowType workflowType=WorkflowType.create(userFullName,request.getName(),request.getVersion(),domain,request.getDescription(),request.getDefaultTaskList() == null ? null : request.getDefaultTaskList().getName(),request.getDefaultChildPolicy(),parsePeriod(request.getDefaultExecutionStartToCloseTimeout()),parsePeriod(request.getDefaultTaskStartToCloseTimeout()));
         return workflowTypes.save(workflowType);
       }
- catch (      Exception ex) {
+ catch (      SwfMetadataNotFoundException e) {
+        throw upClient("UnknownResourceFault","Unknown domain: " + request.getDomain());
+      }
+catch (      Exception ex) {
         throw new RuntimeException(ex);
       }
     }

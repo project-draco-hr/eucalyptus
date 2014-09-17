@@ -1,0 +1,40 @@
+{
+  JsonNode parametersJsonNode=JsonHelper.checkObject(templateJsonNode,TemplateParser.TemplateSection.Parameters.toString());
+  if (parametersJsonNode != null) {
+    Map<String,String> userParameterMap=Maps.newHashMap();
+    if (userParameters != null) {
+      for (      com.eucalyptus.cloudformation.Parameter userParameter : userParameters) {
+        userParameterMap.put(userParameter.getParameterKey(),userParameter.getParameterValue());
+      }
+    }
+    List<Parameter> parameterList=Lists.newArrayList();
+    for (    String parameterKey : Lists.newArrayList(parametersJsonNode.fieldNames())) {
+      JsonNode parameterJsonNode=JsonHelper.checkObject(parametersJsonNode,parameterKey,"Any " + TemplateParser.TemplateSection.Parameters + " member must be a JSON object.");
+      Parameter parameter=parseParameter(parameterKey,parameterJsonNode,userParameterMap);
+      parameterList.add(parameter);
+    }
+    List<String> noValueParameters=Lists.newArrayList();
+    for (    Parameter parameter : parameterList) {
+      template.getParameters().add(parameter.getParameter());
+      template.getTemplateParameters().add(parameter.getTemplateParameter());
+      if (parameter.getParameter().getStringValue() == null) {
+        noValueParameters.add(parameter.getParameter().getKey());
+      }
+    }
+    if (!noValueParameters.isEmpty() && !onlyEvaluateTemplate) {
+      throw new ValidationErrorException("Parameters: " + noValueParameters + " must have values");
+    }
+    Set<String> userParamKeys=Sets.newHashSet();
+    Set<String> templateParamKeys=Sets.newHashSet();
+    if (userParameterMap != null) {
+      userParamKeys.addAll(userParameterMap.keySet());
+    }
+    if (parametersJsonNode != null) {
+      templateParamKeys.addAll(Sets.newHashSet(parametersJsonNode.fieldNames()));
+    }
+    userParamKeys.removeAll(templateParamKeys);
+    if (!userParamKeys.isEmpty()) {
+      throw new ValidationErrorException("Parameters: " + userParamKeys + " do not exist in the template");
+    }
+  }
+}
