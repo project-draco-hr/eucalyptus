@@ -6,7 +6,7 @@
   String content_type=httpRequest.getHeader(HttpHeaders.Names.CONTENT_TYPE);
   content_type=content_type == null ? "" : content_type;
   String addrString=getS3AddressString(httpRequest,true);
-  String accesskeyid=parameters.remove(SecurityParameter.AWSAccessKeyId.toString());
+  String accessKeyId=parameters.remove(SecurityParameter.AWSAccessKeyId.toString());
   try {
     String signature=parameters.remove(SecurityParameter.Signature.toString());
     if (signature == null) {
@@ -16,19 +16,19 @@
     if (expires == null) {
       throw new InvalidSecurityException("Expiration parameter must be specified.");
     }
-    String securityToken=parameters.get(SecurityParameter.SecurityToken.toString());
+    String securityToken=parameters.get(ObjectStorageProperties.X_AMZ_SECURITY_TOKEN);
     if (checkExpires(expires)) {
-      String canonicalizedAmzHeaders=getCanonicalizedAmzHeaders(httpRequest);
+      String canonicalizedAmzHeaders=getCanonicalizedAmzHeaders(httpRequest,true);
       String stringToSign=verb + "\n" + content_md5+ "\n"+ content_type+ "\n"+ Long.parseLong(expires)+ "\n"+ canonicalizedAmzHeaders+ addrString;
       try {
-        SecurityContext.getLoginContext(new ObjectStorageWrappedCredentials(httpRequest.getCorrelationId(),stringToSign,accesskeyid,signature,securityToken)).login();
+        SecurityContext.getLoginContext(new ObjectStorageWrappedCredentials(httpRequest.getCorrelationId(),stringToSign,accessKeyId,signature,securityToken)).login();
       }
  catch (      Exception ex) {
         if (httpRequest.getUri().startsWith(ComponentIds.lookup(ObjectStorage.class).getServicePath()) || httpRequest.getUri().startsWith(ObjectStorageProperties.LEGACY_WALRUS_SERVICE_PATH)) {
           try {
             String modifiedAddrString=getS3AddressString(httpRequest,false);
             stringToSign=verb + "\n" + content_md5+ "\n"+ content_type+ "\n"+ Long.parseLong(expires)+ "\n"+ canonicalizedAmzHeaders+ modifiedAddrString;
-            SecurityContext.getLoginContext(new ObjectStorageWrappedCredentials(httpRequest.getCorrelationId(),stringToSign,accesskeyid,signature,securityToken)).login();
+            SecurityContext.getLoginContext(new ObjectStorageWrappedCredentials(httpRequest.getCorrelationId(),stringToSign,accessKeyId,signature,securityToken)).login();
           }
  catch (          Exception ex2) {
             LOG.error("CorrelationId: " + httpRequest.getCorrelationId() + " authentication failed due to signature mismatch:",ex2);
