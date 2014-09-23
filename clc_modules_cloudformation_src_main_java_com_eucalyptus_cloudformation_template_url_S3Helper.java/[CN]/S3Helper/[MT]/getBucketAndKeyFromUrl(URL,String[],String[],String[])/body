@@ -1,0 +1,33 @@
+{
+  if (url.getHost() == null || url.getPath() == null) {
+    throw new ValidationErrorException("Invalid S3 " + url);
+  }
+  if (InetAddresses.isInetAddress(url.getHost())) {
+    for (    String validServicePath : validServicePaths) {
+      if (url.getPath().startsWith(validServicePath)) {
+        return getBucketAndKeyFromPath(url.getPath().substring(validServicePath.length()),url);
+      }
+    }
+    throw new ValidationErrorException("Invalid S3 url" + url + ", contains IP address but no OSG service path");
+  }
+  for (  String validDomain : validDomains) {
+    String hostLower=url.getHost().toLowerCase();
+    String validDomainLower=validDomain.toLowerCase();
+    if (hostLower.endsWith(validDomainLower)) {
+      for (      String validHostBucketSuffix : validHostBucketSuffixes) {
+        String validHostNameBucketNameSuffixLower=validHostBucketSuffix.toLowerCase();
+        if (hostLower.contains("." + validHostNameBucketNameSuffixLower)) {
+          String bucket=hostLower.substring(0,hostLower.indexOf("." + validHostNameBucketNameSuffixLower));
+          return getBucketAndKeyFromPath(bucket + "/" + url.getPath(),url);
+        }
+      }
+      for (      String validHostBucketSuffix : validHostBucketSuffixes) {
+        String validHostNameBucketNameSuffixLower=validHostBucketSuffix.toLowerCase();
+        if (hostLower.startsWith(validHostNameBucketNameSuffixLower + ".")) {
+          return getBucketAndKeyFromPath(url.getPath(),url);
+        }
+      }
+    }
+  }
+  throw new ValidationErrorException("Invalid S3 url " + url + ", does not match any known S3 domains");
+}
