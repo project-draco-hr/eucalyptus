@@ -1,0 +1,38 @@
+{
+  URL url=null;
+  try {
+    url=new URL(templateUrl);
+  }
+ catch (  MalformedURLException e) {
+    throw new ValidationErrorException("Invalid template url " + templateUrl);
+  }
+  boolean inWhitelist=WhiteListURLMatcher.urlIsAllowed(url,URL_DOMAIN_WHITELIST);
+  if (inWhitelist) {
+    try {
+      return copyStreamToString(url.openStream());
+    }
+ catch (    UnknownHostException ex) {
+      throw new ValidationErrorException("Invalid template url " + templateUrl);
+    }
+catch (    javax.net.ssl.SSLHandshakeException ex) {
+      throw new ValidationErrorException(ex.getMessage());
+    }
+catch (    IOException ex) {
+      LOG.info("Unable to connect to whitelisted URL, trying S3 instead");
+      LOG.debug(ex,ex);
+    }
+  }
+  String[] validHostBucketSuffixes=new String[]{"walrus","objectstorage"};
+  String[] validServicePaths=new String[]{ObjectStorageProperties.LEGACY_WALRUS_SERVICE_PATH,ComponentIds.lookup(ObjectStorage.class).getServicePath()};
+  String[] validDomains=new String[]{removeLastDot(DomainNames.externalSubdomain().toString())};
+  S3Helper.BucketAndKey bucketAndKey=S3Helper.getBucketAndKeyFromUrl(url,validServicePaths,validHostBucketSuffixes,validDomains);
+  EucaS3Client eucaS3Client=EucaS3ClientFactory.getEucaS3Client(user);
+  try {
+    return eucaS3Client.getObjectContent(bucketAndKey.getBucket(),bucketAndKey.getKey());
+  }
+ catch (  Exception ex) {
+    LOG.debug("Error getting s3 object content: " + bucketAndKey.getBucket() + "/"+ bucketAndKey.getKey());
+    LOG.debug(ex,ex);
+    throw new ValidationErrorException("Template url is an S3 URL to a non-existent or unauthorized bucket/key.  (bucket=" + bucketAndKey.getBucket() + ", key="+ bucketAndKey.getKey());
+  }
+}
