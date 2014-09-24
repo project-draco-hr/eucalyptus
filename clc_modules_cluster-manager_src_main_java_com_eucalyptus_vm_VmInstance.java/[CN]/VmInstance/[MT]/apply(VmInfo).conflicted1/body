@@ -1,33 +1,26 @@
 {
-  final VmState inputState=VmState.Mapper.get(input.getStateName());
-  if (!VmStateSet.RUN.contains(inputState)) {
+  if (arg0.getGroupNames().isEmpty()) {
+    LOG.warn("Instance " + arg0.getInstanceId() + " reported no groups: "+ arg0.getGroupNames());
+  }
+  if (arg0.getInstanceType().getName() == null) {
+    LOG.warn("Instance " + arg0.getInstanceId() + " reported no instance type: "+ arg0.getInstanceType());
+  }
+  if (arg0.getInstanceType().getVirtualBootRecord().isEmpty()) {
+    LOG.warn("Instance " + arg0.getInstanceId() + " reported no vbr entries: "+ arg0.getInstanceType().getVirtualBootRecord());
     return false;
   }
- else   if (!ValidateVmInfo.INSTANCE.apply(input)) {
+  try {
+    VirtualBootRecord vbr=arg0.getInstanceType().lookupRoot();
+  }
+ catch (  NoSuchElementException ex) {
+    LOG.warn("Instance " + arg0.getInstanceId() + " reported no root vbr entry: "+ arg0.getInstanceType().getVirtualBootRecord());
     return false;
   }
- else {
-    final UserFullName userFullName=UserFullName.getInstance(input.getOwnerId());
-    Allocation allocation=null;
-    try {
-      final String imageId=RestoreHandler.restoreImage(input);
-      final String kernelId=RestoreHandler.restoreKernel(input);
-      final String ramdiskId=RestoreHandler.restoreRamdisk(input);
-      allocation=Allocations.restore(input,RestoreHandler.restoreLaunchIndex(input),RestoreHandler.restoreVmType(input),RestoreHandler.restoreBootSet(input,imageId,kernelId,ramdiskId),RestoreHandler.restorePartition(input),RestoreHandler.restoreSshKeyPair(input,userFullName),RestoreHandler.restoreUserData(input),userFullName);
-      final List<NetworkGroup> networks=RestoreHandler.restoreNetworks(input,userFullName);
-      allocation.setNetworkRules(CollectionUtils.putAll(networks,Maps.<String,NetworkGroup>newLinkedHashMap(),RestrictedTypes.toDisplayName(),Functions.<NetworkGroup>identity()));
-      VmInstanceLifecycleHelpers.get().prepareAllocation(input,allocation);
-      AdmissionControl.restore().apply(allocation);
-      allocation.commit();
-      final ResourceToken token=Iterables.getOnlyElement(allocation.getAllocationTokens());
-      VmInstanceLifecycleHelpers.get().restoreInstanceResources(token,input);
-      return true;
-    }
- catch (    final Exception ex) {
-      if (allocation != null)       allocation.abort();
-      LOG.error("Failed to restore instance " + input.getInstanceId() + " because of: "+ ex.getMessage(),ex);
-      Logs.extreme().error(ex,ex);
-      return false;
-    }
+  try {
+    Topology.lookup(ClusterController.class,Clusters.getInstance().lookup(arg0.getPlacement()).lookupPartition());
   }
+ catch (  NoSuchElementException ex) {
+    return false;
+  }
+  return true;
 }
