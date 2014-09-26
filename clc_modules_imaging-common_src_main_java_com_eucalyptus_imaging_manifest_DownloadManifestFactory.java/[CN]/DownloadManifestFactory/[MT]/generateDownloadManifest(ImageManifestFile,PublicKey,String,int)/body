@@ -1,6 +1,6 @@
 {
   try {
-    EucaS3Client s3Client=EucaS3ClientFactory.getEucaS3Client(getDownloadManifestS3User());
+    EucaS3Client s3Client=EucaS3ClientFactory.getEucaS3Client(Accounts.lookupAwsExecReadAdmin(true));
     Date expiration=new Date();
     long msec=expiration.getTime() + 1000 * 60 * 60* expirationHours;
     expiration.setTime(msec);
@@ -8,6 +8,9 @@
       LOG.debug("Manifest '" + (DOWNLOAD_MANIFEST_PREFIX + manifestName) + "' is alredy created and has not expired. Skipping creation");
       URL s=s3Client.generatePresignedUrl(DOWNLOAD_MANIFEST_BUCKET_NAME,DOWNLOAD_MANIFEST_PREFIX + manifestName,expiration,HttpMethod.GET);
       return String.format("%s://imaging@%s%s?%s",s.getProtocol(),s.getAuthority(),s.getPath(),s.getQuery());
+    }
+ else {
+      LOG.debug("Manifest '" + (DOWNLOAD_MANIFEST_PREFIX + manifestName) + "' does not exist");
     }
     UrlValidator urlValidator=new UrlValidator();
     final String manifest=baseManifest.getManifest();
@@ -108,7 +111,7 @@
     signature.appendChild(manifestDoc.createTextNode(Signatures.SHA256withRSA.trySign(Eucalyptus.class,signatureData.getBytes())));
     root.appendChild(signature);
     String downloadManifest=nodeToString(manifestDoc,true);
-    createManifestsBucket(s3Client);
+    createManifestsBucketIfNeeded(s3Client);
     putManifestData(s3Client,DOWNLOAD_MANIFEST_BUCKET_NAME,DOWNLOAD_MANIFEST_PREFIX + manifestName,downloadManifest,expiration);
     URL s=s3Client.generatePresignedUrl(DOWNLOAD_MANIFEST_BUCKET_NAME,DOWNLOAD_MANIFEST_PREFIX + manifestName,expiration,HttpMethod.GET);
     return String.format("%s://imaging@%s%s?%s",s.getProtocol(),s.getAuthority(),s.getPath(),s.getQuery());
