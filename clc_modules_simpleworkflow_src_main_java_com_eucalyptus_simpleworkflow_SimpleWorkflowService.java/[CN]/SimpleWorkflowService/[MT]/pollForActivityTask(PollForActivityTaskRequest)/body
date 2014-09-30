@@ -12,7 +12,9 @@
       Collections.sort(pending,Ordering.natural().onResultOf(AbstractPersistentSupport.creation()));
       for (      final ActivityTask pendingTask : pending) {
         if (activityTask != null)         break;
-        try {
+        boolean retry=true;
+        while (retry)         try {
+          retry=false;
           activityTask=activityTasks.updateByExample(pendingTask,accountFullName,pendingTask.getDisplayName(),new Function<ActivityTask,com.eucalyptus.simpleworkflow.common.model.ActivityTask>(){
             @Nullable @Override public com.eucalyptus.simpleworkflow.common.model.ActivityTask apply(            final ActivityTask activityTask){
               if (activityTask.getState() == ActivityTask.State.Pending) {
@@ -29,7 +31,12 @@
         }
  catch (        Exception e) {
           if (PersistenceExceptions.isStaleUpdate(e)) {
-            logger.error("Activity task for domain " + domain + ", list "+ taskList+ " already taken",e);
+            logger.info("Activity task for domain " + domain + ", list "+ taskList+ " already taken",e);
+          }
+ else           if (PersistenceExceptions.isLockError(e)) {
+            logger.info("Activity task for domain " + domain + ", list "+ taskList+ " locking error, will retry.");
+            Thread.sleep(10);
+            retry=true;
           }
  else {
             logger.error("Error taking activity task for domain " + domain + ", list "+ taskList,e);
