@@ -10,6 +10,7 @@
     workflowExecutions.withRetries().updateByExample(WorkflowExecution.exampleWithUniqueName(accountFullName,domain.getDisplayName(),token.getRunId()),accountFullName,token.getRunId(),new Function<WorkflowExecution,WorkflowExecution>(){
       @Nullable @Override public WorkflowExecution apply(      final WorkflowExecution workflowExecution){
         if (accessible.apply(workflowExecution)) {
+          notificationTypeListPairs.clear();
           final List<WorkflowHistoryEvent> events=workflowExecution.getWorkflowHistory();
           final List<WorkflowHistoryEvent> reverseEvents=Lists.reverse(events);
           final WorkflowHistoryEvent started=Iterables.find(reverseEvents,CollectionUtils.propertyPredicate("DecisionTaskStarted",EVENT_TYPE));
@@ -26,6 +27,18 @@
             workflowExecution.setDecisionTimestamp(new Date());
             notificationTypeListPairs.add(Pair.pair("decision",workflowExecution.getTaskList()));
           }
+          int activityTaskScheduledCount=0;
+          final Supplier<Long> activityTaskCounter=Suppliers.memoize(new Supplier<Long>(){
+            @Override public Long get(){
+              try {
+                return activityTasks.countByWorkflowExecution(accountFullName,domain.getDisplayName(),workflowExecution.getDisplayName());
+              }
+ catch (              SwfMetadataException e) {
+                throw up(e);
+              }
+            }
+          }
+);
           workflowExecution.setLatestExecutionContext(request.getExecutionContext());
           final Long completedId=workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskCompletedEventAttributes().withExecutionContext(request.getExecutionContext()).withScheduledEventId(token.getScheduledEventId()).withStartedEventId(token.getStartedEventId())));
           boolean scheduleDecisionTask=false;
@@ -121,10 +134,11 @@ final String list=scheduleActivity.getTaskList() == null ? activityType.getDefau
 if (list == null) {
 throw new ScheduleActivityTaskException(DEFAULT_TASK_LIST_UNDEFINED);
 }
-if (activityTasks.countByWorkflowExecution(accountFullName,domain.getDisplayName(),workflowExecution.getDisplayName()) >= SimpleWorkflowConfiguration.getOpenActivityTasksPerWorkflowExecution()) {
+if (activityTaskCounter.get() + activityTaskScheduledCount >= SimpleWorkflowConfiguration.getOpenActivityTasksPerWorkflowExecution()) {
 throw new ScheduleActivityTaskException(OPEN_ACTIVITIES_LIMIT_EXCEEDED);
 }
 activityTasks.save(com.eucalyptus.simpleworkflow.ActivityTask.create(userFullName,workflowExecution,domain.getDisplayName(),scheduleActivity.getActivityId(),scheduleActivity.getActivityType().getName(),scheduleActivity.getActivityType().getVersion(),scheduleActivity.getInput(),scheduledId,list,parseActivityPeriod(scheduleActivity.getScheduleToCloseTimeout(),activityType.getDefaultTaskScheduleToCloseTimeout(),DEFAULT_SCHEDULE_TO_CLOSE_TIMEOUT_UNDEFINED),parseActivityPeriod(scheduleActivity.getScheduleToStartTimeout(),activityType.getDefaultTaskScheduleToStartTimeout(),DEFAULT_SCHEDULE_TO_START_TIMEOUT_UNDEFINED),parseActivityPeriod(scheduleActivity.getStartToCloseTimeout(),activityType.getDefaultTaskStartToCloseTimeout(),DEFAULT_START_TO_CLOSE_TIMEOUT_UNDEFINED),parseActivityPeriod(scheduleActivity.getHeartbeatTimeout(),activityType.getDefaultTaskHeartbeatTimeout(),DEFAULT_HEARTBEAT_TIMEOUT_UNDEFINED)));
+activityTaskScheduledCount++;
 notificationTypeListPairs.add(Pair.pair("activity",list));
 }
  catch (final ScheduleActivityTaskException e) {
