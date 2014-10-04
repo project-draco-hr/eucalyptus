@@ -1,0 +1,43 @@
+{
+  T output=null;
+  CephRbdConnectionManager conn=null;
+  try {
+    String[] allPools=null;
+    if (imageName.contains("vol-")) {
+      allPools=CephRbdConnectionManager.getAllVolumePools(config);
+    }
+ else {
+      allPools=CephRbdConnectionManager.getAllSnapshotPools(config);
+    }
+    for (int i=0; i < allPools.length; i++) {
+      conn=CephRbdConnectionManager.getConnection(config,allPools[i]);
+      try {
+        LOG.debug("Searching for image " + imageName + " in pool "+ allPools[i]);
+        RbdImage image=conn.getRbd().openReadOnly(imageName);
+        conn.getRbd().close(image);
+        break;
+      }
+ catch (      Exception e) {
+        LOG.trace("Image " + imageName + " not found in pool "+ allPools[i]+ ". Reason: "+ e.getMessage());
+        conn.disconnect();
+        conn=null;
+      }
+    }
+    if (conn == null) {
+      throw new EucalyptusCephException("Unable to find image " + imageName + " in configured pools: "+ allPools);
+    }
+    output=function.apply(conn);
+  }
+ catch (  EucalyptusCephException e) {
+    throw e;
+  }
+catch (  Exception e) {
+    throw new EucalyptusCephException("Caught error during ceph operation" + e);
+  }
+ finally {
+    if (conn != null) {
+      conn.disconnect();
+    }
+  }
+  return output;
+}
