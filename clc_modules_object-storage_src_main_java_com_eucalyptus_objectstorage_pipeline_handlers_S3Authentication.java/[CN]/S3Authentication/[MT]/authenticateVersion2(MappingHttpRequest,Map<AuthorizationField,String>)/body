@@ -1,0 +1,45 @@
+{
+  String verb=httpRequest.getMethod().getName();
+  String date=getDate(httpRequest);
+  String addrString=getS3AddressString(httpRequest,true);
+  String content_md5=httpRequest.getHeader("Content-MD5");
+  content_md5=content_md5 == null ? "" : content_md5;
+  String content_type=httpRequest.getHeader(HttpHeaders.Names.CONTENT_TYPE);
+  content_type=content_type == null ? "" : content_type;
+  String securityToken=httpRequest.getHeader(ObjectStorageProperties.X_AMZ_SECURITY_TOKEN);
+  String canonicalizedAmzHeaders=getCanonicalizedAmzHeaders(httpRequest,false);
+  String data=verb + "\n" + content_md5+ "\n"+ content_type+ "\n"+ date+ "\n"+ canonicalizedAmzHeaders+ addrString;
+  String accessKeyId=authMap.get(AuthorizationField.AccessKeyId);
+  String signature=authMap.get(AuthorizationField.Signature);
+  try {
+    SecurityContext.getLoginContext(new ObjectStorageWrappedCredentials(httpRequest.getCorrelationId(),data,accessKeyId,signature,securityToken)).login();
+  }
+ catch (  LoginException ex) {
+    if (ex.getMessage().contains("The AWS Access Key Id you provided does not exist in our records")) {
+      throw new InvalidAccessKeyIdException(accessKeyId);
+    }
+    if (httpRequest.getUri().startsWith(ComponentIds.lookup(ObjectStorage.class).getServicePath()) || httpRequest.getUri().startsWith(ObjectStorageProperties.LEGACY_WALRUS_SERVICE_PATH)) {
+      try {
+        String modifiedAddrString=getS3AddressString(httpRequest,false);
+        data=verb + "\n" + content_md5+ "\n"+ content_type+ "\n"+ date+ "\n"+ canonicalizedAmzHeaders+ modifiedAddrString;
+        SecurityContext.getLoginContext(new ObjectStorageWrappedCredentials(httpRequest.getCorrelationId(),data,accessKeyId,signature,securityToken)).login();
+      }
+ catch (      S3Exception ex2) {
+        LOG.debug("CorrelationId: " + httpRequest.getCorrelationId() + " Authentication failed due to signature match issue:",ex2);
+        throw ex2;
+      }
+catch (      Exception ex2) {
+        LOG.debug("CorrelationId: " + httpRequest.getCorrelationId() + " Authentication failed due to signature match issue:",ex2);
+        throw new SignatureDoesNotMatchException(data);
+      }
+    }
+ else {
+      LOG.debug("CorrelationId: " + httpRequest.getCorrelationId() + " Authentication failed due to signature mismatch:",ex);
+      throw new SignatureDoesNotMatchException(data);
+    }
+  }
+catch (  Exception e) {
+    LOG.warn("CorrelationId: " + httpRequest.getCorrelationId() + " Unexpected failure trying to authenticateVersion2 request",e);
+    throw new InternalErrorException(e);
+  }
+}

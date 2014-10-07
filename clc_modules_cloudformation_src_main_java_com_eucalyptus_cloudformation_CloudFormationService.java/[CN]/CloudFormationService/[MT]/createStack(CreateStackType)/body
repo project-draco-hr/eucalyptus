@@ -8,8 +8,10 @@
     final String accountId=user.getAccount().getAccountNumber();
     final String stackName=request.getStackName();
     final String templateBody=request.getTemplateBody();
+    final String templateUrl=request.getTemplateURL();
     if (stackName == null)     throw new ValidationErrorException("Stack name is null");
-    if (templateBody == null)     throw new ValidationErrorException("template body is null");
+    if (templateBody == null && templateUrl == null)     throw new ValidationErrorException("Either TemplateBody or TemplateURL must be set.");
+    if (templateBody != null && templateUrl != null)     throw new ValidationErrorException("Exactly one of TemplateBody or TemplateURL must be set.");
     List<Parameter> parameters=null;
     if (request.getParameters() != null && request.getParameters().getMember() != null) {
       parameters=request.getParameters().getMember();
@@ -37,7 +39,8 @@
     if (request.getCapabilities() != null && request.getCapabilities().getMember() != null) {
       capabilities=request.getCapabilities().getMember();
     }
-    final Template template=new TemplateParser().parse(templateBody,parameters,capabilities,pseudoParameterValues);
+    String templateText=(templateBody != null) ? templateBody : extractTemplateTextFromURL(templateUrl,user);
+    final Template template=new TemplateParser().parse(templateText,parameters,capabilities,pseudoParameterValues);
     StackEntity stackEntity=new StackEntity();
     StackEntityHelper.populateStackEntityWithTemplate(stackEntity,template);
     stackEntity.setStackName(stackName);
@@ -54,6 +57,17 @@
       stackEntity.setNotificationARNsJson(StackEntityHelper.notificationARNsToJson(request.getNotificationARNs().getMember()));
     }
     if (request.getTags() != null && request.getTags().getMember() != null) {
+      for (      Tag tag : request.getTags().getMember()) {
+        if (Strings.isNullOrEmpty(tag.getKey()) || Strings.isNullOrEmpty(tag.getValue())) {
+          throw new ValidationErrorException("Tags can not be null or empty");
+        }
+ else         if (tag.getKey().startsWith("aws:")) {
+          throw new ValidationErrorException("Invalid tag key.  \"aws:\" is a reserved prefix.");
+        }
+ else         if (tag.getKey().startsWith("euca:")) {
+          throw new ValidationErrorException("Invalid tag key.  \"euca:\" is a reserved prefix.");
+        }
+      }
       stackEntity.setTagsJson(StackEntityHelper.tagsToJson(request.getTags().getMember()));
     }
     if (request.getDisableRollback() != null && request.getOnFailure() != null && !request.getOnFailure().isEmpty()) {

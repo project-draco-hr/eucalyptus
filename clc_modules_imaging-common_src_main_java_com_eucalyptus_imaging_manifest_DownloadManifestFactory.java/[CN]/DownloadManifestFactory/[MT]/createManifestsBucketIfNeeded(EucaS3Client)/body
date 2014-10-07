@@ -1,0 +1,32 @@
+{
+  Bucket manifestBucket=null;
+  try {
+    s3Client.getBucketAcl(DOWNLOAD_MANIFEST_BUCKET_NAME);
+  }
+ catch (  AmazonServiceException e1) {
+    try {
+      manifestBucket=s3Client.createBucket(DOWNLOAD_MANIFEST_BUCKET_NAME);
+    }
+ catch (    Exception e) {
+      LOG.error("Error creating manifest bucket " + DOWNLOAD_MANIFEST_BUCKET_NAME,e);
+      throw new EucalyptusCloudException("Failed to create bucket " + DOWNLOAD_MANIFEST_BUCKET_NAME,e);
+    }
+  }
+  BucketLifecycleConfiguration config=s3Client.getBucketLifecycleConfiguration(DOWNLOAD_MANIFEST_BUCKET_NAME);
+  if (config.getRules() == null || config.getRules().size() != 1 || config.getRules().get(0).getExpirationInDays() != 1 || !"enabled".equalsIgnoreCase(config.getRules().get(0).getStatus()) || !DOWNLOAD_MANIFEST_PREFIX.equals(config.getRules().get(0).getPrefix())) {
+    try {
+      BucketLifecycleConfiguration lc=new BucketLifecycleConfiguration();
+      BucketLifecycleConfiguration.Rule expireRule=new BucketLifecycleConfiguration.Rule();
+      expireRule.setId("Manifest Expiration Rule");
+      expireRule.setPrefix(DOWNLOAD_MANIFEST_PREFIX);
+      expireRule.setStatus("Enabled");
+      expireRule.setExpirationInDays(1);
+      lc=lc.withRules(expireRule);
+      s3Client.setBucketLifecycleConfiguration(manifestBucket.getName(),lc);
+    }
+ catch (    Exception e) {
+      throw new EucalyptusCloudException("Failed to set bucket lifecycle on bucket " + DOWNLOAD_MANIFEST_BUCKET_NAME,e);
+    }
+  }
+  LOG.debug("Created bucket for download-manifests " + DOWNLOAD_MANIFEST_BUCKET_NAME);
+}
