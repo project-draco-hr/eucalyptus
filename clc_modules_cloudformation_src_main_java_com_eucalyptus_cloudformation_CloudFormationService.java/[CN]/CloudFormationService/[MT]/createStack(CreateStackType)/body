@@ -97,7 +97,19 @@
       stackResourceEntity.setRecordDeleted(Boolean.FALSE);
       StackResourceEntityManager.addStackResource(stackResourceEntity);
     }
-    new StackCreator(stackEntity,userId,onFailure).start();
+    Long timeoutInSeconds=(request.getTimeoutInMinutes() != null && request.getTimeoutInMinutes() > 0 ? 60L * request.getTimeoutInMinutes() : null);
+    StartTimeoutPassableWorkflowClientFactory createStackWorkflowClientFactory=new StartTimeoutPassableWorkflowClientFactory(CloudFormationBootstrapper.getSimpleWorkflowClient(),CloudFormationBootstrapper.SWF_DOMAIN,CloudFormationBootstrapper.SWF_TASKLIST);
+    WorkflowDescriptionTemplate createStackWorkflowDescriptionTemplate=new CreateStackWorkflowDescriptionTemplate();
+    InterfaceBasedWorkflowClient<CreateStackWorkflow> createStackWorkflowClient=createStackWorkflowClientFactory.getNewWorkflowClient(CreateStackWorkflow.class,createStackWorkflowDescriptionTemplate,new WorkflowTags(),timeoutInSeconds,null);
+    CreateStackWorkflow createStackWorkflow=new CreateStackWorkflowClient(createStackWorkflowClient);
+    createStackWorkflow.createStack(stackEntity.getStackId(),stackEntity.getAccountId(),stackEntity.getResourceDependencyManagerJson(),userId,onFailure);
+    StackWorkflowEntityManager.addOrUpdateStackWorkflowEntity(stackId,StackWorkflowEntity.WorkflowType.CREATE_STACK_WORKFLOW,CloudFormationBootstrapper.SWF_DOMAIN,createStackWorkflowClient.getWorkflowExecution().getWorkflowId(),createStackWorkflowClient.getWorkflowExecution().getRunId());
+    WorkflowClientFactory monitorCreateStackWorkflowClientFactory=new WorkflowClientFactory(CloudFormationBootstrapper.getSimpleWorkflowClient(),CloudFormationBootstrapper.SWF_DOMAIN,CloudFormationBootstrapper.SWF_TASKLIST);
+    WorkflowDescriptionTemplate monitorCreateStackWorkflowDescriptionTemplate=new MonitorCreateStackWorkflowDescriptionTemplate();
+    InterfaceBasedWorkflowClient<MonitorCreateStackWorkflow> monitorCreateStackWorkflowClient=monitorCreateStackWorkflowClientFactory.getNewWorkflowClient(MonitorCreateStackWorkflow.class,monitorCreateStackWorkflowDescriptionTemplate,new WorkflowTags());
+    MonitorCreateStackWorkflow monitorCreateStackWorkflow=new MonitorCreateStackWorkflowClient(monitorCreateStackWorkflowClient);
+    monitorCreateStackWorkflow.monitorCreateStack(stackEntity.getStackId(),stackEntity.getAccountId(),stackEntity.getResourceDependencyManagerJson(),userId,onFailure);
+    StackWorkflowEntityManager.addOrUpdateStackWorkflowEntity(stackId,StackWorkflowEntity.WorkflowType.MONITOR_CREATE_STACK_WORKFLOW,CloudFormationBootstrapper.SWF_DOMAIN,monitorCreateStackWorkflowClient.getWorkflowExecution().getWorkflowId(),monitorCreateStackWorkflowClient.getWorkflowExecution().getRunId());
     CreateStackResult createStackResult=new CreateStackResult();
     createStackResult.setStackId(stackId);
     reply.setCreateStackResult(createStackResult);

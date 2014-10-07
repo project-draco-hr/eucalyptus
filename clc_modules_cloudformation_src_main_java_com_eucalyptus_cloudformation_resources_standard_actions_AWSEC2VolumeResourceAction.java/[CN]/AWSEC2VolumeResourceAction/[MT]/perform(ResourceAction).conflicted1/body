@@ -1,14 +1,25 @@
 {
   AWSEC2VolumeResourceAction action=(AWSEC2VolumeResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,action.info.getEffectiveUserId());
-  describeVolumesType.setVolumeSet(Lists.newArrayList(action.info.getPhysicalResourceId()));
-  DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.<DescribeVolumesType,DescribeVolumesResponseType>sendSync(configuration,describeVolumesType);
-  if (describeVolumesResponseType.getVolumeSet().size() == 0) {
-    throw new ValidationFailedException("Volume " + action.info.getPhysicalResourceId() + " not yet available");
+  CreateVolumeType createVolumeType=MessageHelper.createMessage(CreateVolumeType.class,action.info.getEffectiveUserId());
+  createVolumeType.setAvailabilityZone(action.properties.getAvailabilityZone());
+  if (action.properties.getIops() != null) {
+    createVolumeType.setIops(action.properties.getIops());
   }
-  if (!"available".equals(describeVolumesResponseType.getVolumeSet().get(0).getStatus())) {
-    throw new ValidationFailedException("Volume " + action.info.getPhysicalResourceId() + " not yet available");
+  if (action.properties.getSize() != null) {
+    createVolumeType.setSize(action.properties.getSize());
   }
+  if (action.properties.getSnapshotId() != null) {
+    createVolumeType.setSnapshotId(action.properties.getSnapshotId());
+  }
+  if (action.properties.getVolumeType() != null) {
+    createVolumeType.setVolumeType(action.properties.getVolumeType());
+  }
+ else {
+    createVolumeType.setVolumeType("standard");
+  }
+  CreateVolumeResponseType createVolumeResponseType=AsyncRequests.<CreateVolumeType,CreateVolumeResponseType>sendSync(configuration,createVolumeType);
+  action.info.setPhysicalResourceId(createVolumeResponseType.getVolume().getVolumeId());
+  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
   return action;
 }
