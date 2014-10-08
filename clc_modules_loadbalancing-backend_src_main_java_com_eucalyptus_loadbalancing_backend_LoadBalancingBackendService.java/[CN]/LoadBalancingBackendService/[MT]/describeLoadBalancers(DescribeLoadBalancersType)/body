@@ -3,7 +3,7 @@
   final Context ctx=Contexts.lookup();
   final String accountNumber=ctx.getAccount().getAccountNumber();
   final Set<String> requestedNames=Sets.newHashSet();
-  if (!request.getLoadBalancerNames().getMember().isEmpty()) {
+  if (request.getLoadBalancerNames() != null) {
     requestedNames.addAll(request.getLoadBalancerNames().getMember());
   }
   final boolean showAll=requestedNames.remove("verbose") && ctx.isAdministrator();
@@ -33,36 +33,32 @@
         desc.setLoadBalancerName(lbName);
         desc.setCreatedTime(lb.getCreationTimestamp());
         final LoadBalancerDnsRecordCoreView dns=lb.getDns();
-        desc.setDnsName(dns.getDnsName());
+        if (dns != null) {
+          desc.setDnsName(dns.getDnsName());
+        }
         if (lb.getBackendInstances().size() > 0) {
           desc.setInstances(new Instances());
-          desc.getInstances().setMember(new ArrayList<Instance>(Collections2.transform(lb.getBackendInstances(),new Function<LoadBalancerBackendInstanceCoreView,Instance>(){
-            @Override public Instance apply(            final LoadBalancerBackendInstanceCoreView be){
-              Instance instance=new Instance();
-              instance.setInstanceId(be.getInstanceId());
-              return instance;
-            }
-          }
-)));
+          Iterables.addAll(desc.getInstances().getMember(),Iterables.transform(lb.getBackendInstances(),Functions.compose(Instance.instance(),LoadBalancerBackendInstanceCoreView.instanceId())));
         }
-        if (lb.getZones().size() > 0) {
+        final List<String> subnetIds=Lists.newArrayList();
+        if (!lb.getZones().isEmpty()) {
           desc.setAvailabilityZones(new AvailabilityZones());
-          final List<LoadBalancerZoneCoreView> currentZones=Lists.newArrayList(Collections2.filter(lb.getZones(),new Predicate<LoadBalancerZoneCoreView>(){
-            @Override public boolean apply(            @Nullable LoadBalancerZoneCoreView arg0){
+          final List<LoadBalancerZoneCoreView> currentZones=Lists.newArrayList(Iterables.filter(lb.getZones(),new Predicate<LoadBalancerZoneCoreView>(){
+            @Override public boolean apply(            LoadBalancerZoneCoreView arg0){
               return arg0.getState().equals(LoadBalancerZone.STATE.InService);
             }
           }
 ));
-          desc.getAvailabilityZones().setMember(new ArrayList<String>(Lists.transform(currentZones,new Function<LoadBalancerZoneCoreView,String>(){
-            @Override public String apply(            final LoadBalancerZoneCoreView zone){
-              return zone.getName();
-            }
-          }
-)));
+          Iterables.addAll(desc.getAvailabilityZones().getMember(),Iterables.transform(currentZones,LoadBalancerZoneCoreView.name()));
+          Iterables.addAll(subnetIds,Iterables.filter(Iterables.transform(currentZones,LoadBalancerZoneCoreView.subnetId()),Predicates.notNull()));
         }
+        if (!subnetIds.isEmpty()) {
+          desc.setSubnets(new Subnets(subnetIds));
+        }
+        desc.setVpcId(lb.getVpcId());
         if (lb.getListeners().size() > 0) {
           desc.setListenerDescriptions(new ListenerDescriptions());
-          desc.getListenerDescriptions().setMember(new ArrayList<ListenerDescription>(Collections2.transform(lb.getListeners(),new Function<LoadBalancerListenerCoreView,ListenerDescription>(){
+          desc.getListenerDescriptions().setMember(new ArrayList<>(Collections2.transform(lb.getListeners(),new Function<LoadBalancerListenerCoreView,ListenerDescription>(){
             @Override public ListenerDescription apply(            final LoadBalancerListenerCoreView input){
               ListenerDescription desc=new ListenerDescription();
               Listener listener=new Listener();
@@ -74,7 +70,7 @@
               desc.setListener(listener);
               final LoadBalancerListener lbListener=LoadBalancerListenerEntityTransform.INSTANCE.apply(input);
               final PolicyNames pnames=new PolicyNames();
-              pnames.setMember(new ArrayList<String>(Lists.transform(lbListener.getPolicies(),new Function<LoadBalancerPolicyDescriptionCoreView,String>(){
+              pnames.setMember(new ArrayList<>(Lists.transform(lbListener.getPolicies(),new Function<LoadBalancerPolicyDescriptionCoreView,String>(){
                 @Override public String apply(                LoadBalancerPolicyDescriptionCoreView arg0){
                   return arg0.getPolicyName();
                 }
@@ -100,22 +96,21 @@
           hc.setUnhealthyThreshold(unhealthyThresholds);
           desc.setHealthCheck(hc);
         }
- catch (        IllegalStateException ex) {
-          ;
-        }
-catch (        Exception ex) {
-          ;
+ catch (        Exception ex) {
         }
         try {
-          desc.setSourceSecurityGroup(new SourceSecurityGroup());
           LoadBalancerSecurityGroupCoreView group=lb.getGroup();
           if (group != null) {
-            desc.getSourceSecurityGroup().setOwnerAlias(group.getGroupOwnerAccountId());
-            desc.getSourceSecurityGroup().setGroupName(group.getName());
+            desc.setSourceSecurityGroup(new SourceSecurityGroup(group.getGroupOwnerAccountId(),group.getName()));
           }
         }
  catch (        Exception ex) {
-          ;
+        }
+        if (!lb.getCoreView().getSecurityGroupIdsToNames().isEmpty()) {
+          desc.setSecurityGroups(new SecurityGroups(lb.getCoreView().getSecurityGroupIdsToNames().keySet()));
+          if (desc.getSourceSecurityGroup() == null) {
+            desc.setSourceSecurityGroup(new SourceSecurityGroup(lb.getOwnerAccountNumber(),Iterables.get(lb.getCoreView().getSecurityGroupIdsToNames().values(),0)));
+          }
         }
         try {
           final List<LoadBalancerPolicyDescription> lbPolicies=LoadBalancerPolicies.getLoadBalancerPolicyDescription(lb);
@@ -148,6 +143,7 @@ catch (        Exception ex) {
           p.setLbCookieStickinessPolicies(lbp);
           p.setOtherPolicies(other);
           desc.setPolicies(p);
+          desc.setScheme(Objects.toString(lb.getScheme(),"internet-facing"));
         }
  catch (        final Exception ex) {
           LOG.error("Failed to retrieve policies",ex);
@@ -161,7 +157,7 @@ catch (        Exception ex) {
   Set<LoadBalancerDescription> descs=lookupLBDescriptions.apply(allowedLBs);
   DescribeLoadBalancersResult descResult=new DescribeLoadBalancersResult();
   LoadBalancerDescriptions lbDescs=new LoadBalancerDescriptions();
-  lbDescs.setMember(new ArrayList<LoadBalancerDescription>(descs));
+  lbDescs.setMember(new ArrayList<>(descs));
   descResult.setLoadBalancerDescriptions(lbDescs);
   reply.setDescribeLoadBalancersResult(descResult);
   reply.set_return(true);

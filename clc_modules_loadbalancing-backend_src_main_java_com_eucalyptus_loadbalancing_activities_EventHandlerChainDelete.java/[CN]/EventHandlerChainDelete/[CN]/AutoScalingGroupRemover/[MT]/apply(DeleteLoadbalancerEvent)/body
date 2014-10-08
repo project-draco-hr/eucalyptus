@@ -1,5 +1,5 @@
 {
-  LoadBalancer lb=null;
+  LoadBalancer lb;
   try {
     lb=LoadBalancers.getLoadbalancer(evt.getContext(),evt.getLoadBalancer());
   }
@@ -31,7 +31,7 @@ catch (  Exception ex) {
  catch (  final Exception ex) {
     LOG.warn(String.format("Unable to set desired capacity for %s",groupName),ex);
   }
-  boolean error=false;
+  boolean error;
   final int NUM_DELETE_ASG_RETRY=4;
   for (int i=0; i < NUM_DELETE_ASG_RETRY; i++) {
     try {
@@ -46,7 +46,6 @@ catch (  Exception ex) {
         Thread.sleep(sleepMs);
       }
  catch (      final Exception ex2) {
-        ;
       }
     }
     if (!error)     break;
@@ -57,7 +56,6 @@ catch (  Exception ex) {
     }
  catch (    Exception ex) {
       LOG.warn("Failed to delete launch configuration " + launchConfigName,ex);
-      error=true;
     }
   }
   LoadBalancerAutoScalingGroup scaleGroup=null;
@@ -69,10 +67,9 @@ catch (  Exception ex) {
     LOG.error("falied to update servo instance record",ex);
   }
   if (scaleGroup == null)   return;
-  final EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
-  try {
+  try (TransactionResource db=Entities.transactionFor(LoadBalancerServoInstance.class)){
     for (    final LoadBalancerServoInstanceCoreView instanceView : scaleGroup.getServos()) {
-      LoadBalancerServoInstance instance=null;
+      LoadBalancerServoInstance instance;
       try {
         instance=LoadBalancerServoInstanceEntityTransform.INSTANCE.apply(instanceView);
       }
@@ -89,10 +86,6 @@ catch (  Exception ex) {
     db.commit();
   }
  catch (  final Exception ex) {
-    db.rollback();
     LOG.error("Failed to update servo instance record",ex);
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
 }

@@ -1,5 +1,5 @@
 {
-  LoadBalancer lb=null;
+  LoadBalancer lb;
   try {
     lb=LoadBalancers.getLoadbalancer(ctx,lbName);
   }
@@ -7,22 +7,16 @@
     throw new AccessPointNotFoundException();
   }
   for (  String zone : zones) {
-    final EntityTransaction db=Entities.get(LoadBalancerZone.class);
-    try {
+    try (final TransactionResource db=Entities.transactionFor(LoadBalancerZone.class)){
       final LoadBalancerZone exist=Entities.uniqueResult(LoadBalancerZone.named(lb,zone));
       Entities.delete(exist);
       db.commit();
     }
  catch (    NoSuchElementException ex) {
-      db.rollback();
       LOG.debug(String.format("zone %s not found for %s",zone,lbName));
     }
 catch (    Exception ex) {
-      db.rollback();
       LOG.error("failed to delete the zone " + zone,ex);
-    }
- finally {
-      if (db.isActive())       db.rollback();
     }
   }
 }

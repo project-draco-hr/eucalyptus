@@ -1,5 +1,5 @@
 {
-  LoadBalancer lb=null;
+  LoadBalancer lb;
   try {
     lb=LoadBalancers.getLoadbalancer(evt.getContext(),evt.getLoadBalancer());
   }
@@ -15,24 +15,17 @@ catch (  Exception ex) {
     for (    final String enabledZone : evt.getZones()) {
       final LoadBalancerZone zone=LoadBalancers.findZone(lb,enabledZone);
       for (      final LoadBalancerBackendInstanceCoreView instance : zone.getBackendInstances()) {
-        final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
-        try {
+        try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
           final LoadBalancerBackendInstance update=Entities.uniqueResult(LoadBalancerBackendInstance.named(lb,instance.getInstanceId()));
           update.setReasonCode("");
           update.setDescription("");
-          Entities.persist(update);
           db.commit();
         }
  catch (        final NoSuchElementException ex) {
-          db.rollback();
           LOG.warn("failed to find the backend instance");
         }
 catch (        final Exception ex) {
-          db.rollback();
           LOG.warn("failed to query the backend instance",ex);
-        }
- finally {
-          if (db.isActive())           db.rollback();
         }
       }
     }

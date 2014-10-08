@@ -1,0 +1,139 @@
+{
+  if (LOADBALANCER_EMI == null)   throw new EventHandlerException("Loadbalancer's EMI is not configured");
+  Collection<String> eventZones=Collections.emptySet();
+  Collection<String> eventSecurityGroupIds=Collections.emptySet();
+  Map<String,String> zoneToSubnetIdMap=null;
+  if (evt instanceof NewLoadbalancerEvent) {
+    eventZones=Objects.firstNonNull(((NewLoadbalancerEvent)evt).getZones(),eventZones);
+    zoneToSubnetIdMap=((NewLoadbalancerEvent)evt).getZoneToSubnetIdMap();
+  }
+ else   if (evt instanceof ApplySecurityGroupsEvent) {
+    final Map<String,String> groupIdToNameMap=((ApplySecurityGroupsEvent)evt).getSecurityGroupIdsToNames();
+    eventSecurityGroupIds=groupIdToNameMap == null ? eventSecurityGroupIds : groupIdToNameMap.keySet();
+  }
+  if (eventZones.isEmpty() && eventSecurityGroupIds.isEmpty())   return;
+  final LoadBalancer lbEntity;
+  final LoadBalancer.LoadBalancerCoreView lb;
+  try {
+    lbEntity=LoadBalancers.getLoadbalancer(evt.getContext(),evt.getLoadBalancer());
+    lb=lbEntity.getCoreView();
+    if (zoneToSubnetIdMap == null) {
+      zoneToSubnetIdMap=CollectionUtils.putAll(Iterables.filter(lbEntity.getZones(),Predicates.compose(Predicates.notNull(),subnetId())),Maps.<String,String>newHashMap(),name(),subnetId());
+    }
+  }
+ catch (  NoSuchElementException ex) {
+    throw new EventHandlerException("Failed to find the loadbalancer " + evt.getLoadBalancer(),ex);
+  }
+catch (  Exception ex) {
+    throw new EventHandlerException("Failed due to query exception",ex);
+  }
+  InstanceUserDataBuilder userDataBuilder;
+  try {
+    userDataBuilder=new DefaultInstanceUserDataBuilder();
+  }
+ catch (  Exception ex) {
+    throw new EventHandlerException("failed to create service parameters",ex);
+  }
+  String newlaunchConfigName=String.format("lc-euca-internal-elb-%s-%s-%s",lb.getOwnerAccountNumber(),lb.getDisplayName(),UUID.randomUUID().toString().substring(0,8));
+  if (newlaunchConfigName.length() > 255)   newlaunchConfigName=newlaunchConfigName.substring(0,255);
+  String launchConfigName=newlaunchConfigName;
+  String launchConfigToDelete=null;
+  String groupName=getAutoScalingGroupName(lb.getOwnerAccountNumber(),lb.getDisplayName());
+  String instanceProfileName=null;
+  try {
+    List<String> result=this.chain.findHandler(InstanceProfileSetup.class).getResult();
+    instanceProfileName=result.get(0);
+  }
+ catch (  Exception ex) {
+  }
+  boolean asgFound=false;
+  boolean updateLaunchConfig=false;
+  try {
+    final DescribeAutoScalingGroupsResponseType response=EucalyptusActivityTasks.getInstance().describeAutoScalingGroups(Lists.newArrayList(groupName));
+    final List<AutoScalingGroupType> groups=response.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember();
+    if (groups.size() > 0 && groups.get(0).getAutoScalingGroupName().equals(groupName)) {
+      asgFound=true;
+      launchConfigName=groups.get(0).getLaunchConfigurationName();
+      if (!eventSecurityGroupIds.isEmpty()) {
+        final LaunchConfigurationType lc=EucalyptusActivityTasks.getInstance().describeLaunchConfiguration(launchConfigName);
+        updateLaunchConfig=lc == null || lc.getSecurityGroups() == null || !Sets.newHashSet(lc.getSecurityGroups().getMember()).equals(Sets.newHashSet(eventSecurityGroupIds));
+        if (updateLaunchConfig) {
+          launchConfigToDelete=launchConfigName;
+          launchConfigName=newlaunchConfigName;
+        }
+      }
+    }
+  }
+ catch (  final Exception ex) {
+    asgFound=false;
+  }
+  if (!asgFound || updateLaunchConfig) {
+    try {
+      final Set<String> securityGroupNamesOrIds=Sets.newHashSet(eventSecurityGroupIds);
+      if (securityGroupNamesOrIds.isEmpty()) {
+        if (!lb.getSecurityGroupIdsToNames().isEmpty()) {
+          securityGroupNamesOrIds.addAll(lb.getSecurityGroupIdsToNames().keySet());
+        }
+ else {
+          final StoredResult<String> sgroupSetup=this.getChain().findHandler(SecurityGroupSetup.class);
+          final List<String> group=sgroupSetup.getResult();
+          if (!group.isEmpty()) {
+            securityGroupNamesOrIds.add(group.get(0));
+          }
+        }
+      }
+      final String keyName=LOADBALANCER_VM_KEYNAME != null && LOADBALANCER_VM_KEYNAME.length() > 0 ? LOADBALANCER_VM_KEYNAME : null;
+      final String userData=B64.standard.encString(String.format("%s\n%s","euca-" + B64.standard.encString("setup-credential"),userDataBuilder.build()));
+      EucalyptusActivityTasks.getInstance().createLaunchConfiguration(LOADBALANCER_EMI,LOADBALANCER_INSTANCE_TYPE,instanceProfileName,launchConfigName,securityGroupNamesOrIds,keyName,userData,!zoneToSubnetIdMap.isEmpty());
+      this.launchConfigName=launchConfigName;
+    }
+ catch (    Exception ex) {
+      throw new EventHandlerException("Failed to create launch configuration",ex);
+    }
+  }
+  int capacity;
+  if (!asgFound) {
+    try {
+      final List<String> availabilityZones=Lists.newArrayList(eventZones);
+      final String vpcZoneIdentifier=zoneToSubnetIdMap.isEmpty() ? null : Strings.emptyToNull(Joiner.on(',').skipNulls().join(Iterables.transform(availabilityZones,Functions.forMap(zoneToSubnetIdMap))));
+      capacity=availabilityZones.size() * this.capacityPerZone;
+      EucalyptusActivityTasks.getInstance().createAutoScalingGroup(groupName,availabilityZones,vpcZoneIdentifier,capacity,launchConfigName,TagCreator.TAG_KEY,TagCreator.TAG_VALUE);
+      this.asgName=groupName;
+    }
+ catch (    Exception ex) {
+      throw new EventHandlerException("Failed to create autoscaling group",ex);
+    }
+  }
+ else {
+    try {
+      final List<String> availabilityZones=Lists.newArrayList(eventZones);
+      capacity=availabilityZones.size() * this.capacityPerZone;
+      EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(groupName,availabilityZones,capacity,launchConfigName);
+    }
+ catch (    Exception ex) {
+      throw new EventHandlerException("Failed to update the autoscaling group",ex);
+    }
+    if (launchConfigToDelete != null)     try {
+      EucalyptusActivityTasks.getInstance().deleteLaunchConfiguration(launchConfigToDelete);
+    }
+ catch (    final Exception ex) {
+      LOG.warn("unable to delete launch configuration (" + launchConfigToDelete + ")",ex);
+    }
+    this.asgName=groupName;
+    this.launchConfigName=launchConfigName;
+  }
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancerAutoScalingGroup.class)){
+    try {
+      Entities.uniqueResult(LoadBalancerAutoScalingGroup.named(lbEntity));
+    }
+ catch (    NoSuchElementException ex) {
+      final LoadBalancerAutoScalingGroup group=LoadBalancerAutoScalingGroup.newInstance(lbEntity,groupName,this.launchConfigName);
+      group.setCapacity(capacity);
+      Entities.persist(group);
+    }
+    db.commit();
+  }
+ catch (  Exception ex) {
+    throw new EventHandlerException("Failed to commit the database",ex);
+  }
+}

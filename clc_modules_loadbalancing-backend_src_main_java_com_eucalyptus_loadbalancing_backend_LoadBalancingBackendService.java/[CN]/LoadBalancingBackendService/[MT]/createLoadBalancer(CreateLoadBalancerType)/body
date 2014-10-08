@@ -3,23 +3,26 @@
   final Context ctx=Contexts.lookup();
   final UserFullName ownerFullName=ctx.getUserFullName();
   final String lbName=request.getLoadBalancerName();
-  final Predicate<String> nameChecker=new Predicate<String>(){
-    @Override public boolean apply(    @Nullable String arg0){
-      if (arg0 == null)       return false;
-      if (!HostSpecifier.isValid(String.format("%s.com",arg0)))       return false;
-      if (!arg0.matches("[a-zA-Z0-9-]{1,255}"))       return false;
-      return true;
-    }
-  }
-;
-  if (!nameChecker.apply(lbName)) {
+  if (lbName == null || !HostSpecifier.isValid(String.format("%s.com",lbName)) || !lbName.matches("[a-zA-Z0-9-]{1,32}")) {
     throw new InvalidConfigurationRequestException("Invalid character found in the loadbalancer name");
   }
-  if (lbName.length() > 32) {
-    throw new InvalidConfigurationRequestException("Loadbalancer name must not exceed 32 characters");
+  final Map<String,String> tags=Maps.newHashMap();
+  if (request.getTags() != null) {
+    for (    final Tag tag : request.getTags().getMember()) {
+      if (tags.put(tag.getKey(),Strings.nullToEmpty(tag.getValue())) != null) {
+        throw new LoadBalancingBackendClientException("DuplicateTagKeys","Duplicate tag key (" + tag.getKey() + ")");
+      }
+    }
+    final int userTags=Iterables.size(Iterables.filter(tags.keySet(),Predicates.not(isReservedTagPrefix())));
+    if (tags.size() - userTags > 0 && !Contexts.lookup().isPrivileged()) {
+      throw new InvalidConfigurationRequestException("Invalid tag key (reserved prefix)");
+    }
+    if (userTags > MAX_TAGS) {
+      throw Exceptions.toUndeclared(new LoadBalancingBackendClientException("TooManyTags","Tag limit exceeded"));
+    }
   }
-  if (request.getListeners() != null && request.getListeners().getMember() != null)   LoadBalancers.validateListener(request.getListeners().getMember());
-  Collection<Listener> listeners=request.getListeners().getMember();
+  final List<Listener> listeners=request.getListeners() != null ? request.getListeners().getMember() : Collections.<Listener>emptyList();
+  LoadBalancers.validateListener(listeners);
   try {
     for (    final Listener l : listeners) {
       if ("HTTPS".equals(l.getProtocol().toUpperCase()) || "SSL".equals(l.getProtocol().toUpperCase())) {
@@ -36,10 +39,109 @@
     }
     throw (LoadBalancingException)ex;
   }
+  if (request.getAvailabilityZones() != null && !request.getAvailabilityZones().getMember().isEmpty()) {
+    final Set<String> validZones=Sets.newHashSet();
+    try {
+      Iterables.addAll(validZones,Iterables.transform(EucalyptusActivityTasks.getInstance().describeAvailabilityZones(false),ClusterInfoType.zoneName()));
+    }
+ catch (    Exception ex) {
+      throw new InternalFailure400Exception("Unable to verify the requested zones");
+    }
+    for (    final String zone : request.getAvailabilityZones().getMember()) {
+      if (!validZones.contains(zone)) {
+        throw new InvalidConfigurationRequestException("No cluster named " + zone + " is available");
+      }
+    }
+  }
+  String subnetVpcId=null;
+  final Map<String,String> zoneToSubnetIdMap=Maps.newHashMap();
+  if (request.getSubnets() != null) {
+    final List<SubnetType> subnets=EucalyptusActivityTasks.getInstance().describeSubnets(request.getSubnets().getMember());
+    if (subnets.size() != request.getSubnets().getMember().size()) {
+      throw new LoadBalancingBackendClientException("SubnetNotFound","Invalid subnet(s)");
+    }
+    for (    final SubnetType subnetType : subnets) {
+      if (subnetVpcId == null) {
+        subnetVpcId=subnetType.getVpcId();
+      }
+ else       if (!subnetVpcId.equals(subnetType.getVpcId())) {
+        throw new InvalidConfigurationRequestException("Subnets must belong to the same VPC");
+      }
+      if (zoneToSubnetIdMap.put(subnetType.getAvailabilityZone(),subnetType.getSubnetId()) != null) {
+        throw new InvalidConfigurationRequestException("Multiple subnets for zone (" + subnetType.getAvailabilityZone() + ")");
+      }
+    }
+  }
+  boolean defaultVpc=false;
+  if (subnetVpcId == null) {
+    final Optional<VpcType> vpcOptional=EucalyptusActivityTasks.getInstance().defaultVpc();
+    subnetVpcId=vpcOptional.transform(VpcType.id()).orNull();
+    defaultVpc=subnetVpcId != null;
+  }
+  final String vpcId=subnetVpcId;
+  if (defaultVpc && zoneToSubnetIdMap.isEmpty() && request.getAvailabilityZones() != null) {
+    final List<SubnetType> subnets=EucalyptusActivityTasks.getInstance().describeSubnetsByZone(vpcId,true,request.getAvailabilityZones().getMember());
+    CollectionUtils.putAll(subnets,zoneToSubnetIdMap,SubnetType.zone(),SubnetType.id());
+    if (request.getAvailabilityZones().getMember().size() != zoneToSubnetIdMap.size()) {
+      throw new InvalidConfigurationRequestException("Default subnet not found for zone(s)");
+    }
+  }
+  final LoadBalancer.Scheme scheme=LoadBalancer.Scheme.fromString(request.getScheme()).orNull();
+  if (scheme == null && !Strings.isNullOrEmpty(request.getScheme())) {
+    throw new InvalidConfigurationRequestException("Invalid scheme (" + request.getScheme() + ")");
+  }
+  if (scheme != null && vpcId == null) {
+    throw new InvalidConfigurationRequestException("Scheme (" + request.getScheme() + ") should not be specified for EC2-Classic platform");
+  }
+  if (vpcId != null && scheme != LoadBalancer.Scheme.Internal)   try {
+    final List<InternetGatewayType> internetGateways=EucalyptusActivityTasks.getInstance().describeInternetGateways(Collections.singleton(vpcId));
+    if (internetGateways.isEmpty()) {
+      throw new LoadBalancingBackendClientException("InvalidSubnet","VPC " + vpcId + " has no internet gateway");
+    }
+  }
+ catch (  final LoadBalancingException e) {
+    throw e;
+  }
+catch (  final Exception e) {
+    LOG.error("Error checking internet gateway",e);
+    throw new InternalFailureException("Unable to verify VPC configuration");
+  }
+  final String adminUserId;
+  try {
+    adminUserId=ctx.getAccount().lookupAdmin().getUserId();
+  }
+ catch (  final AuthException e) {
+    throw new LoadBalancingException("Error accessing default security group");
+  }
+  final Set<String> securityGroupIds=Sets.newHashSet();
+  if (request.getSecurityGroups() != null) {
+    securityGroupIds.addAll(request.getSecurityGroups().getMember());
+  }
+ else   if (vpcId != null && !defaultVpc) {
+    final List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsByName(adminUserId,vpcId,"default");
+    if (groups.isEmpty()) {
+      throw new InvalidConfigurationRequestException("Default security group not found for VPC " + vpcId);
+    }
+    securityGroupIds.add(groups.get(0).getGroupId());
+  }
+  if (!securityGroupIds.isEmpty() && vpcId == null) {
+    throw new InvalidConfigurationRequestException("Security groups should not be specified for EC2-Classic platform");
+  }
+  final List<SecurityGroupItemType> groups=securityGroupIds.isEmpty() ? Collections.<SecurityGroupItemType>emptyList() : EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsById(adminUserId,vpcId,securityGroupIds);
+  if (groups.size() != securityGroupIds.size()) {
+    throw new LoadBalancingBackendClientException("InvalidSecurityGroup","Invalid security group(s)");
+  }
+  final Collection<String> zones=Lists.newArrayList();
+  if (request.getAvailabilityZones() != null)   zones.addAll(request.getAvailabilityZones().getMember());
+  if (zones.isEmpty())   zones.addAll(zoneToSubnetIdMap.keySet());
+  if (!zoneToSubnetIdMap.isEmpty() && !zoneToSubnetIdMap.keySet().equals(Sets.newHashSet(zones))) {
+    throw new InvalidConfigurationRequestException("Availability zones and subnets are inconsistent");
+  }
   final Supplier<LoadBalancer> allocator=new Supplier<LoadBalancer>(){
     @Override public LoadBalancer get(){
       try {
-        return LoadBalancers.addLoadbalancer(ownerFullName,lbName);
+        final Map<String,String> securityGroupIdsToNames=CollectionUtils.putAll(groups,Maps.<String,String>newHashMap(),SecurityGroupItemType.groupId(),SecurityGroupItemType.groupName());
+        return LoadBalancers.addLoadbalancer(ownerFullName,lbName,vpcId,scheme,securityGroupIdsToNames,tags);
       }
  catch (      LoadBalancingException e) {
         throw Exceptions.toUndeclared(e);
@@ -47,14 +149,13 @@
     }
   }
 ;
-  LoadBalancer lb=null;
+  final LoadBalancer lb;
   try {
     lb=LoadBalancingMetadatas.allocateUnitlessResource(allocator);
   }
  catch (  Exception e) {
-    handleException(e);
+    throw handleException(e);
   }
-  final Collection<String> zones=request.getAvailabilityZones().getMember();
   Function<String,Boolean> rollback=new Function<String,Boolean>(){
     @Override public Boolean apply(    String lbName){
       try {
@@ -87,7 +188,7 @@
   }
   if (zones != null && zones.size() > 0) {
     try {
-      LoadBalancers.addZone(lbName,ctx,zones);
+      LoadBalancers.addZone(lbName,ctx,zones,zoneToSubnetIdMap);
     }
  catch (    LoadBalancingException ex) {
       rollback.apply(lbName);
@@ -111,7 +212,7 @@ catch (    Exception ex) {
     final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
     throw new InternalFailure400Exception(String.format("Failed to create the loadbalancer: %s",reason),e);
   }
-  if (listeners != null && listeners.size() > 0) {
+  if (!listeners.isEmpty()) {
     LoadBalancers.createLoadbalancerListener(lbName,ctx,Lists.newArrayList(listeners));
     try {
       CreateListenerEvent evt=new CreateListenerEvent();
@@ -123,13 +224,10 @@ catch (    Exception ex) {
  catch (    EventFailedException e) {
       LOG.error("failed to handle createListener event",e);
       final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
-      throw new InternalFailure400Exception(String.format("Faild to setup the listener: %s",reason),e);
+      throw new InternalFailure400Exception(String.format("Failed to setup the listener: %s",reason),e);
     }
   }
   final CreateLoadBalancerResult result=new CreateLoadBalancerResult();
-  if (dns == null || dns.getDnsName() == null) {
-    LOG.warn("No DNS name is assigned to the loadbalancer: " + lbName);
-  }
   result.setDnsName(dns.getDnsName());
   reply.setCreateLoadBalancerResult(result);
   reply.set_return(true);

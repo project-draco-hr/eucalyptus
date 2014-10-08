@@ -47,8 +47,7 @@ catch (    Exception ex) {
         }
       }
       if (found != null) {
-        final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
-        try {
+        try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
           final LoadBalancerBackendInstance update=Entities.uniqueResult(LoadBalancerBackendInstance.named(lb,found.getInstanceId()));
           update.setState(Enum.valueOf(LoadBalancerBackendInstance.STATE.class,state));
           if (state.equals(LoadBalancerBackendInstance.STATE.OutOfService.name())) {
@@ -64,41 +63,30 @@ catch (    Exception ex) {
           db.commit();
         }
  catch (        final NoSuchElementException ex) {
-          db.rollback();
           LOG.error("unable to find the loadbancer backend instance",ex);
         }
 catch (        final Exception ex) {
-          db.rollback();
           LOG.error("unable to update the state of loadbalancer backend instance",ex);
-        }
- finally {
-          if (db.isActive())           db.rollback();
         }
       }
     }
   }
   for (  final LoadBalancerBackendInstanceCoreView sample : lb.getBackendInstances()) {
-    final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
-    try {
+    try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
       final LoadBalancerBackendInstance found=Entities.uniqueResult(LoadBalancerBackendInstance.named(lb,sample.getInstanceId()));
       final String zoneName=found.getAvailabilityZone().getName();
       if (found.getState().equals(LoadBalancerBackendInstance.STATE.InService)) {
-        LoadBalancerCwatchMetrics.getInstance().updateHealthy(LoadBalancerCoreViewTransform.INSTANCE.apply(lb),zoneName,found.getInstanceId());
+        LoadBalancerCwatchMetrics.getInstance().updateHealthy(lb.getCoreView(),zoneName,found.getInstanceId());
       }
  else       if (found.getState().equals(LoadBalancerBackendInstance.STATE.OutOfService)) {
-        LoadBalancerCwatchMetrics.getInstance().updateUnHealthy(LoadBalancerCoreViewTransform.INSTANCE.apply(lb),zoneName,found.getInstanceId());
+        LoadBalancerCwatchMetrics.getInstance().updateUnHealthy(lb.getCoreView(),zoneName,found.getInstanceId());
       }
       db.commit();
     }
  catch (    NoSuchElementException ex) {
-      db.rollback();
     }
 catch (    Exception ex) {
-      db.rollback();
       LOG.warn("Failed to query loadbalancer backend instance",ex);
-    }
- finally {
-      if (db.isActive())       db.rollback();
     }
   }
   if (metric != null && metric.getMember() != null && metric.getMember().size() > 0) {

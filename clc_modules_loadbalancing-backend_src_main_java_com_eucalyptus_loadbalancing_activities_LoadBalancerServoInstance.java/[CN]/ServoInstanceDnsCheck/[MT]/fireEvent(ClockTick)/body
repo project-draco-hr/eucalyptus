@@ -2,16 +2,10 @@
   if (!(Bootstrap.isFinished() && Topology.isEnabledLocally(LoadBalancingBackend.class) && Topology.isEnabled(Eucalyptus.class)))   return;
   final List<LoadBalancerServoInstance> allInstances=Lists.newArrayList();
   final List<LoadBalancerServoInstance> stateOutdated=Lists.newArrayList();
-  EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
-  try {
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancerServoInstance.class)){
     allInstances.addAll(Entities.query(LoadBalancerServoInstance.named()));
-    db.commit();
   }
  catch (  final Exception ex) {
-    db.rollback();
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
   final Date current=new Date(System.currentTimeMillis());
   for (  final LoadBalancerServoInstance se : allInstances) {
@@ -21,20 +15,14 @@
       stateOutdated.add(se);
     }
   }
-  db=Entities.get(LoadBalancerServoInstance.class);
-  try {
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancerServoInstance.class)){
     for (    final LoadBalancerServoInstance se : stateOutdated) {
       final LoadBalancerServoInstance update=Entities.uniqueResult(se);
       update.setLastUpdateTimestamp(current);
-      Entities.persist(update);
     }
     db.commit();
   }
  catch (  final Exception ex) {
-    db.rollback();
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
   for (  final LoadBalancerServoInstance instance : stateOutdated) {
     if (LoadBalancerServoInstance.STATE.InService.equals(instance.getState())) {
@@ -71,25 +59,18 @@
           LOG.warn("failed to register new ipaddress with dns A record",ex);
           continue;
         }
-        db=Entities.get(LoadBalancerServoInstance.class);
-        try {
+        try (final TransactionResource db=Entities.transactionFor(LoadBalancerServoInstance.class)){
           final LoadBalancerServoInstance update=Entities.uniqueResult(instance);
           update.setAddress(ipAddr);
           if (privateIpAddr != null)           update.setPrivateIp(privateIpAddr);
           update.setDnsState(LoadBalancerServoInstance.DNS_STATE.Registered);
-          Entities.persist(update);
           db.commit();
         }
  catch (        NoSuchElementException ex) {
-          db.rollback();
           LOG.warn("failed to find the servo instance named " + instance.getInstanceId(),ex);
         }
 catch (        Exception ex) {
-          db.rollback();
           LOG.warn("failed to update servo instance's ip address",ex);
-        }
- finally {
-          if (db.isActive())           db.rollback();
         }
       }
     }
@@ -106,23 +87,16 @@ catch (        Exception ex) {
           LOG.warn("failed to remove IP address from the dns A record",ex);
           continue;
         }
-        db=Entities.get(LoadBalancerServoInstance.class);
-        try {
+        try (final TransactionResource db=Entities.transactionFor(LoadBalancerServoInstance.class)){
           final LoadBalancerServoInstance update=Entities.uniqueResult(instance);
           update.setDnsState(LoadBalancerServoInstance.DNS_STATE.Deregistered);
-          Entities.persist(update);
           db.commit();
         }
  catch (        NoSuchElementException ex) {
-          db.rollback();
           LOG.warn("failed to find the servo instance named " + instance.getInstanceId(),ex);
         }
 catch (        Exception ex) {
-          db.rollback();
           LOG.warn("failed to update servo instance's ip address",ex);
-        }
- finally {
-          if (db.isActive())           db.rollback();
         }
       }
     }
