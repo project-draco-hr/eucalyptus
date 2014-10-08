@@ -13,7 +13,7 @@
       for (      final ActivityTask pendingTask : pending) {
         if (activityTask != null)         break;
         boolean retry=true;
-        while (retry)         try {
+        while (retry)         try (final WorkflowLock lock=WorkflowLock.lock(accountFullName,pendingTask.getDomainUuid(),pendingTask.getWorkflowRunId())){
           retry=false;
           activityTask=activityTasks.updateByExample(pendingTask,accountFullName,pendingTask.getDisplayName(),new Function<ActivityTask,com.eucalyptus.simpleworkflow.common.model.ActivityTask>(){
             @Nullable @Override public com.eucalyptus.simpleworkflow.common.model.ActivityTask apply(            final ActivityTask activityTask){
@@ -30,6 +30,12 @@
 );
         }
  catch (        Exception e) {
+          final StaleObjectStateException stale=Exceptions.findCause(e,StaleObjectStateException.class);
+          if (stale != null)           try {
+            Entities.evictCache(Class.forName(stale.getEntityName()));
+          }
+ catch (          ClassNotFoundException ce) {
+          }
           if (PersistenceExceptions.isStaleUpdate(e)) {
             logger.info("Activity task for domain " + domain + ", list "+ taskList+ " already taken");
           }
