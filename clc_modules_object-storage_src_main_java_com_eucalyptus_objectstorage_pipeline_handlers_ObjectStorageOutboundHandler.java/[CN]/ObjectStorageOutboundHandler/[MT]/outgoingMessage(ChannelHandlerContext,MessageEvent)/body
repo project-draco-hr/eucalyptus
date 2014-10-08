@@ -2,17 +2,7 @@
   if (event.getMessage() instanceof MappingHttpResponse) {
     MappingHttpResponse httpResponse=(MappingHttpResponse)event.getMessage();
     BaseMessage msg=(BaseMessage)httpResponse.getMessage();
-    if (msg instanceof PutObjectResponseType) {
-      PutObjectResponseType putObjectResponse=(PutObjectResponseType)msg;
-      httpResponse.setHeader(HttpHeaders.Names.ETAG,'\"' + putObjectResponse.getEtag() + '\"');
-      if (putObjectResponse.getLastModified() != null) {
-        httpResponse.setHeader(HttpHeaders.Names.LAST_MODIFIED,DateFormatter.dateToHeaderFormattedString(putObjectResponse.getLastModified()));
-      }
-      if (putObjectResponse.getVersionId() != null) {
-        httpResponse.setHeader(ObjectStorageProperties.X_AMZ_VERSION_ID,putObjectResponse.getVersionId());
-      }
-    }
- else     if (msg instanceof PostObjectResponseType) {
+    if (msg instanceof PostObjectResponseType) {
       PostObjectResponseType postObjectResponse=(PostObjectResponseType)msg;
       String redirectUrl=postObjectResponse.getRedirectUrl();
       if (redirectUrl != null) {
@@ -34,18 +24,6 @@
       }
       event.getFuture().addListener(ChannelFutureListener.CLOSE);
     }
- else     if (msg instanceof ObjectStorageDataResponseType) {
-      ObjectStorageDataResponseType response=(ObjectStorageDataResponseType)msg;
-      if (response.getEtag() != null) {
-        httpResponse.addHeader(HttpHeaders.Names.ETAG,'\"' + response.getEtag() + '\"');
-      }
-      if (response.getLastModified() != null) {
-        httpResponse.addHeader(HttpHeaders.Names.LAST_MODIFIED,DateFormatter.dateToHeaderFormattedString(response.getLastModified()));
-      }
-      if (response.getVersionId() != null) {
-        httpResponse.addHeader(ObjectStorageProperties.X_AMZ_VERSION_ID,response.getVersionId());
-      }
-    }
  else     if (msg instanceof CopyObjectResponseType) {
       CopyObjectResponseType copyResponse=(CopyObjectResponseType)msg;
       if (copyResponse.getVersionId() != null)       httpResponse.addHeader("x-amz-version-id",copyResponse.getVersionId());
@@ -53,8 +31,31 @@
     }
  else     if (msg instanceof CreateBucketResponseType) {
       httpResponse.setStatus(HttpResponseStatus.OK);
-      httpResponse.setMessage(null);
+      removeResponseBody(msg,httpResponse);
       event.getFuture().addListener(ChannelFutureListener.CLOSE);
+    }
+ else     if (msg instanceof ObjectStorageDataResponseType) {
+      ObjectStorageDataResponseType response=(ObjectStorageDataResponseType)msg;
+      if (response.getEtag() != null) {
+        httpResponse.setHeader(HttpHeaders.Names.ETAG,'\"' + response.getEtag() + '\"');
+      }
+      if (response.getVersionId() != null) {
+        httpResponse.setHeader(ObjectStorageProperties.X_AMZ_VERSION_ID,response.getVersionId());
+      }
+      if (msg instanceof ObjectStorageDataGetResponseType && response.getLastModified() != null) {
+        httpResponse.setHeader(HttpHeaders.Names.LAST_MODIFIED,DateFormatter.dateToHeaderFormattedString(response.getLastModified()));
+      }
+      if (msg instanceof PutObjectResponseType || msg instanceof UploadPartResponseType) {
+        removeResponseBody(msg,httpResponse);
+      }
+    }
+ else     if (msg instanceof ObjectStorageResponseType) {
+      if (msg instanceof SetBucketAccessControlPolicyResponseType || msg instanceof SetBucketLifecycleResponseType || msg instanceof SetBucketLoggingStatusResponseType|| msg instanceof SetBucketVersioningStatusResponseType|| msg instanceof SetObjectAccessControlPolicyResponseType) {
+        if (msg instanceof SetObjectAccessControlPolicyResponseType && ((SetObjectAccessControlPolicyResponseType)msg).getVersionId() != null) {
+          httpResponse.setHeader(ObjectStorageProperties.X_AMZ_VERSION_ID,((SetObjectAccessControlPolicyResponseType)msg).getVersionId());
+        }
+        removeResponseBody(msg,httpResponse);
+      }
     }
   }
 }
