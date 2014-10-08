@@ -7,24 +7,29 @@
   status.setCancelRequested(false);
   try {
     final TaskToken token=taskTokenManager.decryptTaskToken(accountFullName.getAccountNumber(),request.getTaskToken());
-    final Pair<String,String> domainTaskListPair=activityTasks.withRetries().updateByExample(ActivityTask.exampleWithUniqueName(accountFullName,token.getRunId(),token.getScheduledEventId()),accountFullName,token.getRunId() + "/" + token.getScheduledEventId(),new Function<ActivityTask,Pair<String,String>>(){
-      @Override public Pair<String,String> apply(      final ActivityTask activityTask){
-        if (accessible.apply(activityTask)) {
-          final WorkflowExecution workflowExecution=activityTask.getWorkflowExecution();
-          workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ActivityTaskCanceledEventAttributes().withDetails(request.getDetails()).withLatestCancelRequestedEventId(activityTask.getCancelRequestedEventId()).withScheduledEventId(activityTask.getScheduledEventId()).withStartedEventId(activityTask.getStartedEventId())));
-          if (workflowExecution.getDecisionStatus() != Pending) {
-            workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskScheduledEventAttributes().withTaskList(new TaskList().withName(workflowExecution.getTaskList())).withStartToCloseTimeout(String.valueOf(workflowExecution.getTaskStartToCloseTimeout()))));
-            workflowExecution.setDecisionStatus(Pending);
-            workflowExecution.setDecisionTimestamp(new Date());
+    final Pair<String,String> domainTaskListPair;
+    try (final WorkflowLock lock=WorkflowLock.lock(accountFullName,token.getDomainUuid(),token.getRunId())){
+      domainTaskListPair=activityTasks.withRetries().updateByExample(ActivityTask.exampleWithUniqueName(accountFullName,token.getRunId(),token.getScheduledEventId()),accountFullName,token.getRunId() + "/" + token.getScheduledEventId(),new Function<ActivityTask,Pair<String,String>>(){
+        @Override public Pair<String,String> apply(        final ActivityTask activityTask){
+          if (accessible.apply(activityTask)) {
+            final WorkflowExecution workflowExecution=activityTask.getWorkflowExecution();
+            workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ActivityTaskCanceledEventAttributes().withDetails(request.getDetails()).withLatestCancelRequestedEventId(activityTask.getCancelRequestedEventId()).withScheduledEventId(activityTask.getScheduledEventId()).withStartedEventId(activityTask.getStartedEventId())));
+            if (workflowExecution.getDecisionStatus() != Pending) {
+              workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskScheduledEventAttributes().withTaskList(new TaskList().withName(workflowExecution.getTaskList())).withStartToCloseTimeout(String.valueOf(workflowExecution.getTaskStartToCloseTimeout()))));
+              if (workflowExecution.getDecisionStatus() == Idle) {
+                workflowExecution.setDecisionStatus(Pending);
+                workflowExecution.setDecisionTimestamp(new Date());
+              }
+            }
+            Entities.delete(activityTask);
+            return workflowExecution.getDecisionStatus() == Pending ? Pair.pair(workflowExecution.getDomainName(),workflowExecution.getTaskList()) : null;
           }
-          Entities.delete(activityTask);
-          return Pair.pair(workflowExecution.getDomainName(),workflowExecution.getTaskList());
+          return null;
         }
-        return null;
       }
-    }
 );
-    if (domainTaskListPair != null) {
+    }
+     if (domainTaskListPair != null) {
       notifyTaskList(accountFullName,domainTaskListPair.getLeft(),"decision",domainTaskListPair.getRight());
     }
   }

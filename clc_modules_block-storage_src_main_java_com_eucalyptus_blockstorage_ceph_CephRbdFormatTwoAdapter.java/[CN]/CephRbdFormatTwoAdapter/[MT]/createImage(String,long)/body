@@ -1,0 +1,30 @@
+{
+  return executeRbdOpInRandomPool(new Function<CephRbdConnectionManager,String>(){
+    @Override public String apply(    @Nonnull CephRbdConnectionManager arg0){
+      RbdImage image=null;
+      try {
+        LOG.debug("Creating image " + imageName + " of size "+ imageSize+ " bytes in pool "+ arg0.getPool());
+        int features=(1 << 0);
+        arg0.getRbd().create(imageName,imageSize,features,0);
+        LOG.debug("Opening image " + imageName + " in read-only mode");
+        image=arg0.getRbd().openReadOnly(imageName);
+        return arg0.getPool() + CephRbdInfo.POOL_IMAGE_DELIMITER + imageName;
+      }
+ catch (      RbdException e) {
+        LOG.warn("Caught error while creating image " + imageName + ": "+ e.getMessage());
+        throw new EucalyptusCephException("Failed to create image " + imageName,e);
+      }
+ finally {
+        if (image != null) {
+          try {
+            arg0.getRbd().close(image);
+          }
+ catch (          Exception e) {
+            LOG.debug("Caught exception closing image " + imageName,e);
+          }
+        }
+      }
+    }
+  }
+,imageName);
+}
