@@ -1,0 +1,44 @@
+{
+  AWSEC2SecurityGroupEgressResourceAction action=(AWSEC2SecurityGroupEgressResourceAction)resourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  action.validateProperties();
+  DescribeSecurityGroupsType describeSecurityGroupsType=MessageHelper.createMessage(DescribeSecurityGroupsType.class,action.info.getEffectiveUserId());
+  describeSecurityGroupsType.setSecurityGroupIdSet(Lists.newArrayList(action.properties.getGroupId()));
+  DescribeSecurityGroupsResponseType describeSecurityGroupsResponseType=AsyncRequests.<DescribeSecurityGroupsType,DescribeSecurityGroupsResponseType>sendSync(configuration,describeSecurityGroupsType);
+  ArrayList<SecurityGroupItemType> securityGroupItemTypeArrayList=describeSecurityGroupsResponseType.getSecurityGroupInfo();
+  boolean hasDefaultEgressRule=false;
+  if (securityGroupItemTypeArrayList == null || securityGroupItemTypeArrayList.isEmpty()) {
+    throw new ValidationErrorException("No such group with id '" + action.properties.getGroupId() + "'");
+  }
+ else {
+    SecurityGroupItemType securityGroupItemType=securityGroupItemTypeArrayList.get(0);
+    if (securityGroupItemType.getIpPermissionsEgress() != null) {
+      for (      IpPermissionType ipPermissionType : securityGroupItemType.getIpPermissionsEgress()) {
+        if (action.isDefaultEgressRule(ipPermissionType)) {
+          hasDefaultEgressRule=true;
+          break;
+        }
+      }
+    }
+  }
+  AuthorizeSecurityGroupEgressType authorizeSecurityGroupEgressType=MessageHelper.createMessage(AuthorizeSecurityGroupEgressType.class,action.info.getEffectiveUserId());
+  authorizeSecurityGroupEgressType.setGroupId(action.properties.getGroupId());
+  IpPermissionType ipPermissionType=new IpPermissionType(action.properties.getIpProtocol(),action.properties.getFromPort(),action.properties.getToPort());
+  if (!Strings.isNullOrEmpty(action.properties.getCidrIp())) {
+    ipPermissionType.setCidrIpRanges(Lists.newArrayList(action.properties.getCidrIp()));
+  }
+  if (!Strings.isNullOrEmpty(action.properties.getDestinationSecurityGroupId())) {
+    ipPermissionType.setGroups(Lists.newArrayList(new UserIdGroupPairType(null,null,action.properties.getDestinationSecurityGroupId())));
+  }
+  authorizeSecurityGroupEgressType.setIpPermissions(Lists.newArrayList(ipPermissionType));
+  AuthorizeSecurityGroupEgressResponseType authorizeSecurityGroupIngressResponseType=AsyncRequests.<AuthorizeSecurityGroupEgressType,AuthorizeSecurityGroupEgressResponseType>sendSync(configuration,authorizeSecurityGroupEgressType);
+  if (hasDefaultEgressRule) {
+    RevokeSecurityGroupEgressType revokeSecurityGroupEgressType=MessageHelper.createMessage(RevokeSecurityGroupEgressType.class,action.info.getEffectiveUserId());
+    revokeSecurityGroupEgressType.setGroupId(action.properties.getGroupId());
+    revokeSecurityGroupEgressType.setIpPermissions(Lists.newArrayList(DEFAULT_EGRESS_RULE()));
+    RevokeSecurityGroupEgressResponseType revokeSecurityGroupEgressResponseType=AsyncRequests.<RevokeSecurityGroupEgressType,RevokeSecurityGroupEgressResponseType>sendSync(configuration,revokeSecurityGroupEgressType);
+  }
+  action.info.setPhysicalResourceId(action.getDefaultPhysicalResourceId());
+  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
+  return action;
+}

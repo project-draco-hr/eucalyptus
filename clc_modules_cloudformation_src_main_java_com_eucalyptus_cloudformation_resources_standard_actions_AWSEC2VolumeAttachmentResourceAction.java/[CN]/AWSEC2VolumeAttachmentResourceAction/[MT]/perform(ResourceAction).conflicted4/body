@@ -1,0 +1,23 @@
+{
+  AWSEC2VolumeAttachmentResourceAction action=(AWSEC2VolumeAttachmentResourceAction)resourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  if (notCreatedOrNoInstanceOrNoVolume(action,configuration))   return action;
+  boolean detached=false;
+  DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,action.info.getEffectiveUserId());
+  describeVolumesType.setVolumeSet(Lists.newArrayList(action.properties.getVolumeId()));
+  DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.<DescribeVolumesType,DescribeVolumesResponseType>sendSync(configuration,describeVolumesType);
+  if (describeVolumesResponseType.getVolumeSet().size() == 0) {
+    return action;
+  }
+  if (describeVolumesResponseType.getVolumeSet().get(0).getAttachmentSet() == null || describeVolumesResponseType.getVolumeSet().get(0).getAttachmentSet().isEmpty()) {
+    return action;
+  }
+  for (  AttachedVolume attachedVolume : describeVolumesResponseType.getVolumeSet().get(0).getAttachmentSet()) {
+    if (attachedVolume.getInstanceId().equals(action.properties.getInstanceId()) && attachedVolume.getDevice().equals(action.properties.getDevice()) && attachedVolume.getStatus().equals("detached")) {
+      detached=true;
+      break;
+    }
+  }
+  if (detached == true)   return action;
+  throw new ValidationFailedException("Volume " + action.properties.getVolumeId() + " is not yet detached from instance "+ action.properties.getInstanceId());
+}

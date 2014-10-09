@@ -1,0 +1,62 @@
+{
+  AWSIAMUserToGroupAdditionResourceAction action=(AWSIAMUserToGroupAdditionResourceAction)resourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Euare.class);
+  if (action.info.getPhysicalResourceId() == null)   return action;
+  boolean seenAllGroups=false;
+  boolean foundGroup=false;
+  String groupMarker=null;
+  while (!seenAllGroups && !foundGroup) {
+    ListGroupsType listGroupsType=MessageHelper.createMessage(ListGroupsType.class,action.info.getEffectiveUserId());
+    if (groupMarker != null) {
+      listGroupsType.setMarker(groupMarker);
+    }
+    ListGroupsResponseType listGroupsResponseType=AsyncRequests.<ListGroupsType,ListGroupsResponseType>sendSync(configuration,listGroupsType);
+    if (listGroupsResponseType.getListGroupsResult().getIsTruncated() == Boolean.TRUE) {
+      groupMarker=listGroupsResponseType.getListGroupsResult().getMarker();
+    }
+ else {
+      seenAllGroups=true;
+    }
+    if (listGroupsResponseType.getListGroupsResult().getGroups() != null && listGroupsResponseType.getListGroupsResult().getGroups().getMemberList() != null) {
+      for (      GroupType groupType : listGroupsResponseType.getListGroupsResult().getGroups().getMemberList()) {
+        if (groupType.getGroupName().equals(action.properties.getGroupName())) {
+          foundGroup=true;
+          break;
+        }
+      }
+    }
+  }
+  if (!foundGroup)   return action;
+  List<String> realUsersToRemoveFromGroup=Lists.newArrayList();
+  Set<String> passedInUsers=action.properties.getUsers() == null ? new HashSet<String>() : Sets.newHashSet(action.properties.getUsers());
+  boolean seenAllUsers=false;
+  String userMarker=null;
+  while (!seenAllUsers) {
+    GetGroupType getGroupType=MessageHelper.createMessage(GetGroupType.class,action.info.getEffectiveUserId());
+    getGroupType.setGroupName(action.properties.getGroupName());
+    if (userMarker != null) {
+      getGroupType.setMarker(userMarker);
+    }
+    GetGroupResponseType getGroupResponseType=AsyncRequests.<GetGroupType,GetGroupResponseType>sendSync(configuration,getGroupType);
+    if (getGroupResponseType.getGetGroupResult().getIsTruncated() == Boolean.TRUE) {
+      userMarker=getGroupResponseType.getGetGroupResult().getMarker();
+    }
+ else {
+      seenAllUsers=true;
+    }
+    if (getGroupResponseType.getGetGroupResult().getUsers() != null && getGroupResponseType.getGetGroupResult().getUsers().getMemberList() != null) {
+      for (      UserType userType : getGroupResponseType.getGetGroupResult().getUsers().getMemberList()) {
+        if (passedInUsers.contains(userType.getUserName())) {
+          realUsersToRemoveFromGroup.add(userType.getUserName());
+        }
+      }
+    }
+  }
+  for (  String user : realUsersToRemoveFromGroup) {
+    RemoveUserFromGroupType removeUserFromGroupType=MessageHelper.createMessage(RemoveUserFromGroupType.class,action.info.getEffectiveUserId());
+    removeUserFromGroupType.setGroupName(action.properties.getGroupName());
+    removeUserFromGroupType.setUserName(user);
+    AsyncRequests.<RemoveUserFromGroupType,RemoveUserFromGroupResponseType>sendSync(configuration,removeUserFromGroupType);
+  }
+  return action;
+}
