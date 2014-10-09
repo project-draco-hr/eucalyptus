@@ -1,0 +1,63 @@
+{
+  final String userId=evt.getUserId();
+  final String systemUserId=getSystemUserId();
+  String acctNumber=null;
+  try {
+    acctNumber=Accounts.lookupUserById(userId).getAccountNumber();
+  }
+ catch (  final AuthException ex) {
+    throw new EventHandlerException("Failed to lookup account number",ex);
+  }
+  final String profilePath=DEFAULT_INSTANCE_PROFILE_PATH_PREFIX;
+  final String profileName=String.format("%s-%s-%s",DEFAULT_INSTANCE_PROFILE_NAME_PREFIX,acctNumber,evt.getDbInstanceIdentifier());
+  String roleName=null;
+  try {
+    roleName=this.getChain().findHandler(IamRoleSetup.class).getResult().get(0);
+  }
+ catch (  final Exception ex) {
+    throw new EventHandlerException("Failed to lookup the created role name");
+  }
+  try {
+    List<InstanceProfileType> instanceProfiles=EuareClient.getInstance().listInstanceProfiles(systemUserId,profilePath);
+    for (    InstanceProfileType ip : instanceProfiles) {
+      if (profileName.equals(ip.getInstanceProfileName())) {
+        instanceProfile=ip;
+        break;
+      }
+    }
+  }
+ catch (  Exception ex) {
+    throw new EventHandlerException("Failed to list instance profiles",ex);
+  }
+  if (instanceProfile == null) {
+    try {
+      instanceProfile=EuareClient.getInstance().createInstanceProfile(systemUserId,profileName,profilePath);
+    }
+ catch (    Exception ex) {
+      throw new EventHandlerException("Failed to create instance profile",ex);
+    }
+  }
+  if (instanceProfile == null)   throw new EventHandlerException("No instance profile for db server VM is found");
+  try {
+    List<RoleType> roles=instanceProfile.getRoles().getMember();
+    boolean roleFound=false;
+    for (    RoleType role : roles) {
+      if (role.getRoleName().equals(roleName)) {
+        roleFound=true;
+        this.attachedRole=role.getRoleName();
+        break;
+      }
+    }
+    if (!roleFound)     throw new NoSuchElementException();
+  }
+ catch (  Exception ex) {
+    if (roleName == null)     throw new EventHandlerException("No role name is found for db service VMs");
+    try {
+      EuareClient.getInstance().addRoleToInstanceProfile(systemUserId,this.instanceProfile.getInstanceProfileName(),roleName);
+      this.attachedRole=roleName;
+    }
+ catch (    Exception ex2) {
+      throw new EventHandlerException("Failed to add role to the instance profile",ex2);
+    }
+  }
+}

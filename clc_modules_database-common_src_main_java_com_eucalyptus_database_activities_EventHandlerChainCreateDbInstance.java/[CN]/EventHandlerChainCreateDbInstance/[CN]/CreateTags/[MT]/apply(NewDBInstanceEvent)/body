@@ -1,0 +1,74 @@
+{
+  String asgName=null;
+  try {
+    asgName=this.getChain().findHandler(CreateAutoScalingGroup.class).getResult().get(0);
+  }
+ catch (  final Exception ex) {
+    throw new EventHandlerException("failed to get autoscaling group name",ex);
+  }
+  final String systemUserId=getSystemUserId();
+  try {
+    final DescribeAutoScalingGroupsResponseType resp=AutoScalingClient.getInstance().describeAutoScalingGroups(systemUserId,Lists.newArrayList(asgName));
+    for (    AutoScalingGroupType asg : resp.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember()) {
+      if (asg.getTags() != null) {
+        for (        final TagDescription tag : asg.getTags().getMember()) {
+          if (this.tagValue.equals(tag.getValue())) {
+            this.taggedAsgName=asgName;
+            break;
+          }
+        }
+      }
+    }
+  }
+ catch (  final Exception ex) {
+    ;
+  }
+  if (this.taggedAsgName == null) {
+    try {
+      AutoScalingClient.getInstance().createOrUpdateAutoscalingTags(systemUserId,tagKey,this.tagValue,asgName);
+      this.taggedAsgName=asgName;
+    }
+ catch (    final Exception ex) {
+      throw new EventHandlerException("failed to tag autoscaling group",ex);
+    }
+  }
+  String sgroupName=null;
+  String sgroupId=null;
+  try {
+    sgroupName=this.getChain().findHandler(SecurityGroupSetup.class).getResult().get(0);
+    List<SecurityGroupItemType> groups=Ec2Client.getInstance().describeSecurityGroups(systemUserId,Lists.newArrayList(sgroupName));
+    if (groups != null && groups.size() > 0) {
+      final SecurityGroupItemType current=groups.get(0);
+      if (sgroupName.equals(current.getGroupName())) {
+        sgroupId=current.getGroupId();
+      }
+    }
+    if (sgroupId == null)     throw new Exception(String.format("No security group named %s is found",sgroupName));
+  }
+ catch (  final Exception ex) {
+    throw new EventHandlerException("failed to get security group name",ex);
+  }
+  try {
+    final List<TagInfo> tags=Ec2Client.getInstance().describeTags(systemUserId,Lists.newArrayList("value"),Lists.newArrayList(this.tagValue));
+    if (tags != null) {
+      for (      final TagInfo tag : tags) {
+        if (sgroupId.equals(tag.getResourceId())) {
+          this.taggedSgroupId=sgroupId;
+          break;
+        }
+      }
+    }
+  }
+ catch (  final Exception ex) {
+    ;
+  }
+  if (this.taggedSgroupId == null) {
+    try {
+      Ec2Client.getInstance().createTags(systemUserId,tagKey,tagValue,Lists.newArrayList(sgroupId));
+      taggedSgroupId=sgroupId;
+    }
+ catch (    final Exception ex) {
+      throw new EventHandlerException("failed to tag security group",ex);
+    }
+  }
+}
