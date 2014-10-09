@@ -1,0 +1,50 @@
+{
+  this.event=evt;
+  final String userId=evt.getUserId();
+  final String systemUserId=getSystemUserId();
+  String acctNumber=null;
+  try {
+    acctNumber=Accounts.lookupUserById(userId).getAccountNumber();
+  }
+ catch (  final AuthException ex) {
+    throw new EventHandlerException("Failed to lookup system user",ex);
+  }
+  String groupName=String.format("euca-internal-db-%s-%s",acctNumber,evt.getDbInstanceIdentifier());
+  String groupDesc=String.format("group for db server %s",evt.getDbInstanceIdentifier());
+  boolean groupFound=false;
+  try {
+    List<SecurityGroupItemType> groups=Ec2Client.getInstance().describeSecurityGroups(systemUserId,Lists.newArrayList(groupName));
+    if (groups != null && groups.size() > 0) {
+      final SecurityGroupItemType current=groups.get(0);
+      if (groupName.equals(current.getGroupName())) {
+        groupFound=true;
+        this.createdGroupId=current.getGroupId();
+        this.groupOwnerAccountId=current.getAccountId();
+      }
+    }
+  }
+ catch (  Exception ex) {
+    groupFound=false;
+  }
+  if (!groupFound) {
+    try {
+      Ec2Client.getInstance().createSecurityGroup(systemUserId,groupName,groupDesc);
+      createdGroup=groupName;
+      List<SecurityGroupItemType> groups=Ec2Client.getInstance().describeSecurityGroups(systemUserId,Lists.newArrayList(groupName));
+      if (groups != null && groups.size() > 0) {
+        final SecurityGroupItemType current=groups.get(0);
+        if (groupName.equals(current.getGroupName())) {
+          this.groupOwnerAccountId=current.getAccountId();
+          this.createdGroupId=current.getGroupId();
+        }
+      }
+    }
+ catch (    Exception ex) {
+      throw new EventHandlerException("Failed to create the security group for db server",ex);
+    }
+  }
+ else {
+    createdGroup=groupName;
+  }
+  if (this.createdGroup == null || this.groupOwnerAccountId == null)   throw new EventHandlerException("Failed to create the security group for db server");
+}

@@ -1,0 +1,26 @@
+{
+  AWSCloudFormationWaitConditionHandleResourceAction action=(AWSCloudFormationWaitConditionHandleResourceAction)resourceAction;
+  final EucaS3Client s3c=EucaS3ClientFactory.getEucaS3Client(new CloudFormationAWSCredentialsProvider().getCredentials());
+  String bucketName=null;
+  ObjectNode objectNode=null;
+  List<Bucket> buckets=s3c.listBuckets();
+  for (  Bucket bucket : buckets) {
+    if (bucket.getName().toLowerCase().startsWith(WAIT_CONDITION_BUCKET_PREFIX.toLowerCase())) {
+      bucketName=bucket.getName();
+    }
+  }
+  if (bucketName == null) {
+    bucketName=(WAIT_CONDITION_BUCKET_PREFIX + "-" + Crypto.generateAlphanumericId(13,"")).toLowerCase();
+  }
+  s3c.createBucket(bucketName);
+  String keyName=action.getStackEntity().getStackId() + "/" + action.info.getLogicalResourceId()+ "/WaitHandle";
+  ObjectMapper mapper=new ObjectMapper();
+  objectNode=mapper.createObjectNode();
+  objectNode.put("version","1.0");
+  objectNode.put("bucket",bucketName);
+  objectNode.put("key",keyName);
+  action.info.setEucaParts(JsonHelper.getStringFromJsonNode(objectNode));
+  String url=s3c.generatePresignedUrl(bucketName,keyName,action.in12Hours(),HttpMethod.PUT).toString();
+  action.info.setPhysicalResourceId(url);
+  return action;
+}

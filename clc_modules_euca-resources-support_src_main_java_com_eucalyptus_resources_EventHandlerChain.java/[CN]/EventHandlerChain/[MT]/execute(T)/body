@@ -1,0 +1,29 @@
+{
+  LinkedList<EventHandler<T>> reverseHandler=Lists.newLinkedList();
+  for (  EventHandler<T> handler : this.handlers) {
+    try {
+      reverseHandler.addFirst(handler);
+      handler.apply(evt);
+      if (handler.skipRemaining()) {
+        LOG.info("skipping the remaining handlers");
+        break;
+      }
+    }
+ catch (    Exception e) {
+      LOG.warn("starting to rollback");
+      final String msg=e.getMessage() != null ? e.getMessage() : String.format("failed handling %s at %s",evt,handler);
+      final EventHandlerChainException toThrow=new EventHandlerChainException(msg,e,true);
+      for (      EventHandler<T> h : reverseHandler) {
+        try {
+          h.rollback();
+        }
+ catch (        Exception ex) {
+          LOG.warn("rollback failed at " + h.toString(),ex);
+          toThrow.setRollback(false);
+        }
+      }
+      LOG.info("finished rollback");
+      throw toThrow;
+    }
+  }
+}

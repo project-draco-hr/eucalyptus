@@ -1,0 +1,49 @@
+{
+  final String userId=evt.getUserId();
+  final String systemUserId=getSystemUserId();
+  String acctNumber=null;
+  try {
+    acctNumber=Accounts.lookupUserById(userId).getAccountNumber();
+  }
+ catch (  final AuthException ex) {
+    throw new EventHandlerException("Failed to lookup account number",ex);
+  }
+  final String asgName=getAutoscalingGroupName(acctNumber,evt.getDbInstanceIdentifier());
+  boolean asgFound=false;
+  try {
+    final DescribeAutoScalingGroupsResponseType response=AutoScalingClient.getInstance().describeAutoScalingGroups(systemUserId,Lists.newArrayList(asgName));
+    final List<AutoScalingGroupType> groups=response.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember();
+    if (groups.size() > 0 && groups.get(0).getAutoScalingGroupName().equals(asgName)) {
+      asgFound=true;
+    }
+  }
+ catch (  final Exception ex) {
+    asgFound=false;
+  }
+  if (asgFound) {
+    createdAutoScalingGroup=asgName;
+    return;
+  }
+  String launchConfigName=null;
+  try {
+    launchConfigName=this.getChain().findHandler(CreateLaunchConfiguration.class).getResult().get(0);
+  }
+ catch (  final Exception ex) {
+    throw new EventHandlerException("failed to find the launch configuration name",ex);
+  }
+  List<String> availabilityZones=null;
+  try {
+    availabilityZones=DatabaseServerProperties.listConfiguredZones();
+  }
+ catch (  final Exception ex) {
+    throw new EventHandlerException("Failed to lookup configured availability zones for db servers",ex);
+  }
+  if (availabilityZones.size() <= 0)   throw new EventHandlerException("No availability zone is found for deploying db servers");
+  try {
+    AutoScalingClient.getInstance().createAutoScalingGroup(systemUserId,asgName,availabilityZones,1,launchConfigName,null,null);
+    this.createdAutoScalingGroup=asgName;
+  }
+ catch (  Exception ex) {
+    throw new EventHandlerException("Failed to create autoscaling group",ex);
+  }
+}

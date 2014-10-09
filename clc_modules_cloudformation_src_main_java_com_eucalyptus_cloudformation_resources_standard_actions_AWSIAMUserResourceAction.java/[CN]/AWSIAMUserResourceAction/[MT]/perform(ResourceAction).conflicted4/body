@@ -1,0 +1,74 @@
+{
+  AWSIAMUserResourceAction action=(AWSIAMUserResourceAction)resourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Euare.class);
+  if (action.info.getPhysicalResourceId() == null)   return action;
+  boolean seenAllUsers=false;
+  boolean foundUser=false;
+  String userMarker=null;
+  while (!seenAllUsers && !foundUser) {
+    ListUsersType listUsersType=MessageHelper.createMessage(ListUsersType.class,action.info.getEffectiveUserId());
+    if (userMarker != null) {
+      listUsersType.setMarker(userMarker);
+    }
+    ListUsersResponseType listUsersResponseType=AsyncRequests.<ListUsersType,ListUsersResponseType>sendSync(configuration,listUsersType);
+    if (listUsersResponseType.getListUsersResult().getIsTruncated() == Boolean.TRUE) {
+      userMarker=listUsersResponseType.getListUsersResult().getMarker();
+    }
+ else {
+      seenAllUsers=true;
+    }
+    if (listUsersResponseType.getListUsersResult().getUsers() != null && listUsersResponseType.getListUsersResult().getUsers().getMemberList() != null) {
+      for (      UserType UserType : listUsersResponseType.getListUsersResult().getUsers().getMemberList()) {
+        if (UserType.getUserName().equals(action.info.getPhysicalResourceId())) {
+          foundUser=true;
+          break;
+        }
+      }
+    }
+  }
+  if (!foundUser)   return action;
+  if (action.properties.getGroups() != null) {
+    boolean seenAllGroups=false;
+    List<String> currentGroups=Lists.newArrayList();
+    String groupMarker=null;
+    while (!seenAllGroups) {
+      ListGroupsForUserType listGroupsForUserType=MessageHelper.createMessage(ListGroupsForUserType.class,action.info.getEffectiveUserId());
+      listGroupsForUserType.setUserName(action.info.getPhysicalResourceId());
+      if (groupMarker != null) {
+        listGroupsForUserType.setMarker(groupMarker);
+      }
+      ListGroupsForUserResponseType listGroupsForUserResponseType=AsyncRequests.<ListGroupsForUserType,ListGroupsForUserResponseType>sendSync(configuration,listGroupsForUserType);
+      if (listGroupsForUserResponseType.getListGroupsForUserResult().getIsTruncated() == Boolean.TRUE) {
+        groupMarker=listGroupsForUserResponseType.getListGroupsForUserResult().getMarker();
+      }
+ else {
+        seenAllGroups=true;
+      }
+      if (listGroupsForUserResponseType.getListGroupsForUserResult().getGroups() != null && listGroupsForUserResponseType.getListGroupsForUserResult().getGroups().getMemberList() != null) {
+        for (        GroupType groupType : listGroupsForUserResponseType.getListGroupsForUserResult().getGroups().getMemberList()) {
+          currentGroups.add(groupType.getGroupName());
+        }
+      }
+    }
+    for (    String groupName : action.properties.getGroups()) {
+      if (currentGroups.contains(groupName)) {
+        RemoveUserFromGroupType removeUserFromGroupType=MessageHelper.createMessage(RemoveUserFromGroupType.class,action.info.getEffectiveUserId());
+        removeUserFromGroupType.setGroupName(groupName);
+        removeUserFromGroupType.setUserName(action.info.getPhysicalResourceId());
+        AsyncRequests.<RemoveUserFromGroupType,RemoveUserFromGroupResponseType>sendSync(configuration,removeUserFromGroupType);
+      }
+    }
+  }
+  if (action.properties.getPolicies() != null) {
+    for (    EmbeddedIAMPolicy policy : action.properties.getPolicies()) {
+      DeleteUserPolicyType deleteUserPolicyType=MessageHelper.createMessage(DeleteUserPolicyType.class,action.info.getEffectiveUserId());
+      deleteUserPolicyType.setUserName(action.info.getPhysicalResourceId());
+      deleteUserPolicyType.setPolicyName(policy.getPolicyName());
+      AsyncRequests.<DeleteUserPolicyType,DeleteUserPolicyResponseType>sendSync(configuration,deleteUserPolicyType);
+    }
+  }
+  DeleteUserType deleteUserType=MessageHelper.createMessage(DeleteUserType.class,action.info.getEffectiveUserId());
+  deleteUserType.setUserName(action.info.getPhysicalResourceId());
+  AsyncRequests.<DeleteUserType,DeleteUserResponseType>sendSync(configuration,deleteUserType);
+  return action;
+}

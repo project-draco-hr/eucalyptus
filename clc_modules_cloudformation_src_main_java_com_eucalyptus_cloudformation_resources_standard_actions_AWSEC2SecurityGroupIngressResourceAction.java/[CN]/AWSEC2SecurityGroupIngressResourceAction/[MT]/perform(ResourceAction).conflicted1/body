@@ -1,0 +1,58 @@
+{
+  AWSEC2SecurityGroupIngressResourceAction action=(AWSEC2SecurityGroupIngressResourceAction)resourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  if (action.info.getPhysicalResourceId() == null)   return action;
+  action.validateProperties();
+  if (!Strings.isNullOrEmpty(action.properties.getGroupId())) {
+    DescribeSecurityGroupsType describeSecurityGroupsType=MessageHelper.createMessage(DescribeSecurityGroupsType.class,action.info.getEffectiveUserId());
+    describeSecurityGroupsType.setSecurityGroupIdSet(Lists.newArrayList(action.properties.getGroupId()));
+    DescribeSecurityGroupsResponseType describeSecurityGroupsResponseType=AsyncRequests.<DescribeSecurityGroupsType,DescribeSecurityGroupsResponseType>sendSync(configuration,describeSecurityGroupsType);
+    ArrayList<SecurityGroupItemType> securityGroupItemTypeArrayList=describeSecurityGroupsResponseType.getSecurityGroupInfo();
+    if (securityGroupItemTypeArrayList == null || securityGroupItemTypeArrayList.isEmpty()) {
+      return action;
+    }
+  }
+  if (!Strings.isNullOrEmpty(action.properties.getGroupName())) {
+    DescribeSecurityGroupsType describeSecurityGroupsType=MessageHelper.createMessage(DescribeSecurityGroupsType.class,action.info.getEffectiveUserId());
+    describeSecurityGroupsType.setSecurityGroupSet(Lists.newArrayList(action.properties.getGroupName()));
+    DescribeSecurityGroupsResponseType describeSecurityGroupsResponseType=AsyncRequests.<DescribeSecurityGroupsType,DescribeSecurityGroupsResponseType>sendSync(configuration,describeSecurityGroupsType);
+    ArrayList<SecurityGroupItemType> securityGroupItemTypeArrayList=describeSecurityGroupsResponseType.getSecurityGroupInfo();
+    if (securityGroupItemTypeArrayList == null || securityGroupItemTypeArrayList.isEmpty()) {
+      return action;
+    }
+    boolean foundNonVpc=false;
+    for (    SecurityGroupItemType securityGroupItemType : securityGroupItemTypeArrayList) {
+      if (Strings.isNullOrEmpty(securityGroupItemType.getVpcId())) {
+        foundNonVpc=true;
+        break;
+      }
+    }
+    if (!foundNonVpc) {
+      return action;
+    }
+  }
+  RevokeSecurityGroupIngressType revokeSecurityGroupIngressType=MessageHelper.createMessage(RevokeSecurityGroupIngressType.class,action.info.getEffectiveUserId());
+  if (!Strings.isNullOrEmpty(action.properties.getGroupId())) {
+    revokeSecurityGroupIngressType.setGroupId(action.properties.getGroupId());
+  }
+  if (!Strings.isNullOrEmpty(action.properties.getGroupName())) {
+    revokeSecurityGroupIngressType.setGroupName(action.properties.getGroupName());
+  }
+  IpPermissionType ipPermissionType=new IpPermissionType(action.properties.getIpProtocol(),action.properties.getFromPort(),action.properties.getToPort());
+  if (!Strings.isNullOrEmpty(action.properties.getCidrIp())) {
+    ipPermissionType.setCidrIpRanges(Lists.newArrayList(action.properties.getCidrIp()));
+  }
+  if (!Strings.isNullOrEmpty(action.properties.getSourceSecurityGroupId())) {
+    ipPermissionType.setGroups(Lists.newArrayList(new UserIdGroupPairType(action.properties.getSourceSecurityGroupOwnerId(),null,action.properties.getSourceSecurityGroupId())));
+  }
+  if (!Strings.isNullOrEmpty(action.properties.getSourceSecurityGroupName())) {
+    String sourceSecurityGroupOwnerId=action.properties.getSourceSecurityGroupOwnerId();
+    if (Strings.isNullOrEmpty(sourceSecurityGroupOwnerId)) {
+      sourceSecurityGroupOwnerId=action.stackEntity.getAccountId();
+    }
+    ipPermissionType.setGroups(Lists.newArrayList(new UserIdGroupPairType(sourceSecurityGroupOwnerId,action.properties.getSourceSecurityGroupName(),null)));
+  }
+  revokeSecurityGroupIngressType.setIpPermissions(Lists.newArrayList(ipPermissionType));
+  RevokeSecurityGroupIngressResponseType revokeSecurityGroupIngressResponseType=AsyncRequests.<RevokeSecurityGroupIngressType,RevokeSecurityGroupIngressResponseType>sendSync(configuration,revokeSecurityGroupIngressType);
+  return action;
+}

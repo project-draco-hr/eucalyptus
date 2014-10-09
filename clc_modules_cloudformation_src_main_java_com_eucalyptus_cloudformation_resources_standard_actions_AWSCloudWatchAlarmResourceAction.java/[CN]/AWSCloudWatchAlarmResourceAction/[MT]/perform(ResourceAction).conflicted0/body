@@ -1,0 +1,61 @@
+{
+  AWSCloudWatchAlarmResourceAction action=(AWSCloudWatchAlarmResourceAction)resourceAction;
+  ServiceConfiguration configuration=Topology.lookup(CloudWatch.class);
+  if (action.properties.getAlarmName() == null) {
+    action.properties.setAlarmName(action.getDefaultPhysicalResourceId());
+  }
+  DescribeAlarmsType describeAlarmsType=MessageHelper.createMessage(DescribeAlarmsType.class,action.info.getEffectiveUserId());
+  AlarmNames alarmNames=new AlarmNames();
+  alarmNames.setMember(Lists.newArrayList(action.properties.getAlarmName()));
+  describeAlarmsType.setAlarmNames(alarmNames);
+  DescribeAlarmsResponseType describeAlarmsResponseType=AsyncRequests.<DescribeAlarmsType,DescribeAlarmsResponseType>sendSync(configuration,describeAlarmsType);
+  if (describeAlarmsResponseType.getDescribeAlarmsResult() != null && describeAlarmsResponseType.getDescribeAlarmsResult().getMetricAlarms() != null && describeAlarmsResponseType.getDescribeAlarmsResult().getMetricAlarms().getMember() != null && describeAlarmsResponseType.getDescribeAlarmsResult().getMetricAlarms().getMember().size() > 0) {
+    throw new ValidationErrorException("Alarm " + action.properties.getAlarmName() + " already exists");
+  }
+  PutMetricAlarmType putMetricAlarmType=MessageHelper.createMessage(PutMetricAlarmType.class,action.info.getEffectiveUserId());
+  putMetricAlarmType.setActionsEnabled(action.properties.getActionsEnabled() == null ? Boolean.TRUE : action.properties.getActionsEnabled());
+  if (action.properties.getAlarmActions() != null) {
+    ResourceList alarmActions=new ResourceList();
+    ArrayList<String> alarmActionsMember=Lists.newArrayList(action.properties.getAlarmActions());
+    alarmActions.setMember(alarmActionsMember);
+    putMetricAlarmType.setAlarmActions(alarmActions);
+  }
+  putMetricAlarmType.setAlarmDescription(action.properties.getAlarmDescription());
+  putMetricAlarmType.setAlarmName(action.properties.getAlarmName());
+  putMetricAlarmType.setComparisonOperator(action.properties.getComparisonOperator());
+  if (action.properties.getDimensions() != null) {
+    Dimensions dimensions=new Dimensions();
+    ArrayList<Dimension> dimensionsMember=Lists.newArrayList();
+    for (    CloudWatchMetricDimension cloudWatchMetricDimension : action.properties.getDimensions()) {
+      Dimension dimension=new Dimension();
+      dimension.setName(cloudWatchMetricDimension.getName());
+      dimension.setValue(cloudWatchMetricDimension.getValue());
+      dimensionsMember.add(dimension);
+    }
+    dimensions.setMember(dimensionsMember);
+    putMetricAlarmType.setDimensions(dimensions);
+  }
+  putMetricAlarmType.setEvaluationPeriods(action.properties.getEvaluationPeriods());
+  if (action.properties.getInsufficientDataActions() != null) {
+    ResourceList insufficientDataActions=new ResourceList();
+    ArrayList<String> insufficientDataActionsMember=Lists.newArrayList(action.properties.getInsufficientDataActions());
+    insufficientDataActions.setMember(insufficientDataActionsMember);
+    putMetricAlarmType.setInsufficientDataActions(insufficientDataActions);
+  }
+  putMetricAlarmType.setMetricName(action.properties.getMetricName());
+  putMetricAlarmType.setNamespace(action.properties.getNamespace());
+  if (action.properties.getOkActions() != null) {
+    ResourceList okActions=new ResourceList();
+    ArrayList<String> okActionsMember=Lists.newArrayList(action.properties.getOkActions());
+    okActions.setMember(okActionsMember);
+    putMetricAlarmType.setOkActions(okActions);
+  }
+  putMetricAlarmType.setPeriod(action.properties.getPeriod());
+  putMetricAlarmType.setStatistic(action.properties.getStatistic());
+  putMetricAlarmType.setThreshold(action.properties.getThreshold());
+  putMetricAlarmType.setUnit(action.properties.getUnit());
+  AsyncRequests.<PutMetricAlarmType,PutMetricAlarmResponseType>sendSync(configuration,putMetricAlarmType);
+  action.info.setPhysicalResourceId(action.properties.getAlarmName());
+  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
+  return action;
+}

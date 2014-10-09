@@ -1,0 +1,24 @@
+{
+  AWSAutoScalingScalingPolicyResourceAction action=(AWSAutoScalingScalingPolicyResourceAction)resourceAction;
+  ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
+  DescribeAutoScalingGroupsType describeAutoScalingGroupsType=MessageHelper.createMessage(DescribeAutoScalingGroupsType.class,action.info.getEffectiveUserId());
+  AutoScalingGroupNames autoScalingGroupNames=new AutoScalingGroupNames();
+  ArrayList<String> member=Lists.newArrayList(action.properties.getAutoScalingGroupName());
+  autoScalingGroupNames.setMember(member);
+  describeAutoScalingGroupsType.setAutoScalingGroupNames(autoScalingGroupNames);
+  DescribeAutoScalingGroupsResponseType describeAutoScalingGroupsResponseType=AsyncRequests.<DescribeAutoScalingGroupsType,DescribeAutoScalingGroupsResponseType>sendSync(configuration,describeAutoScalingGroupsType);
+  if (action.doesGroupNotExist(describeAutoScalingGroupsResponseType)) {
+    throw new Exception("Autoscaling group " + action.properties.getAutoScalingGroupName() + " does not exist");
+  }
+  String scalingPolicyName=action.getDefaultPhysicalResourceId();
+  PutScalingPolicyType putScalingPolicyType=MessageHelper.createMessage(PutScalingPolicyType.class,action.info.getEffectiveUserId());
+  putScalingPolicyType.setAutoScalingGroupName(action.properties.getAutoScalingGroupName());
+  putScalingPolicyType.setAdjustmentType(action.properties.getAdjustmentType());
+  putScalingPolicyType.setCooldown(action.properties.getCooldown());
+  putScalingPolicyType.setPolicyName(scalingPolicyName);
+  putScalingPolicyType.setScalingAdjustment(action.properties.getScalingAdjustment());
+  PutScalingPolicyResponseType putScalingPolicyResponseType=AsyncRequests.<PutScalingPolicyType,PutScalingPolicyResponseType>sendSync(configuration,putScalingPolicyType);
+  action.info.setPhysicalResourceId(putScalingPolicyResponseType.getPutScalingPolicyResult().getPolicyARN());
+  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
+  return action;
+}
