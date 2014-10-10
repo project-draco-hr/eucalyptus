@@ -1,5 +1,5 @@
 {
-  LoadBalancer lb=null;
+  LoadBalancer lb;
   try {
     lb=LoadBalancers.getLoadbalancer(evt.getContext(),evt.getLoadBalancer());
   }
@@ -13,7 +13,7 @@ catch (  Exception ex) {
   final List<LoadBalancerZoneCoreView> currentZones=Lists.newArrayList(lb.getZones());
   for (  final LoadBalancerZoneCoreView zoneView : currentZones) {
     if (evt.getZones().contains(zoneView.getName())) {
-      LoadBalancerZone zone=null;
+      LoadBalancerZone zone;
       try {
         zone=LoadBalancerZoneEntityTransform.INSTANCE.apply(zoneView);
       }
@@ -22,7 +22,7 @@ catch (  Exception ex) {
         continue;
       }
       for (      final LoadBalancerServoInstanceCoreView instanceView : zone.getServoInstances()) {
-        LoadBalancerServoInstance instance=null;
+        LoadBalancerServoInstance instance;
         try {
           instance=LoadBalancerServoInstanceEntityTransform.INSTANCE.apply(instanceView);
         }
@@ -30,8 +30,7 @@ catch (  Exception ex) {
           LOG.error("unable to transfrom servo-instance from the view",ex);
           continue;
         }
-        final EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
-        try {
+        try (final TransactionResource db=Entities.transactionFor(LoadBalancerServoInstance.class)){
           final LoadBalancerServoInstance update=Entities.uniqueResult(instance);
           update.setState(LoadBalancerServoInstance.STATE.Retired);
           Entities.persist(update);
@@ -39,15 +38,10 @@ catch (  Exception ex) {
           retiredInstances.add(update);
         }
  catch (        final NoSuchElementException ex) {
-          db.rollback();
           LOG.warn("Failed to update the servo instance's state: no such instance found");
         }
 catch (        final Exception ex) {
-          db.rollback();
           LOG.warn("Failed to update the servo instance's state",ex);
-        }
- finally {
-          if (db.isActive())           db.rollback();
         }
       }
     }

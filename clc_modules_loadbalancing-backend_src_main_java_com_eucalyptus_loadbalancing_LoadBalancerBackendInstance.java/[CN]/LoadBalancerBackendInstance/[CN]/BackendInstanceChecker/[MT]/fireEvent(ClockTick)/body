@@ -2,16 +2,11 @@
   if (!(Bootstrap.isFinished() && Topology.isEnabledLocally(LoadBalancingBackend.class) && Topology.isEnabled(Eucalyptus.class)))   return;
   final List<LoadBalancerBackendInstance> allInstances=Lists.newArrayList();
   final List<LoadBalancerBackendInstance> stateOutdated=Lists.newArrayList();
-  EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
-  try {
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
     allInstances.addAll(Entities.query(LoadBalancerBackendInstance.named()));
     db.commit();
   }
  catch (  final Exception ex) {
-    db.rollback();
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
   final Date current=new Date(System.currentTimeMillis());
   for (  final LoadBalancerBackendInstance be : allInstances) {
@@ -22,20 +17,14 @@
       stateOutdated.add(be);
     }
   }
-  db=Entities.get(LoadBalancerBackendInstance.class);
-  try {
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
     for (    final LoadBalancerBackendInstance be : stateOutdated) {
       final LoadBalancerBackendInstance update=Entities.uniqueResult(be);
       update.setLastUpdateTimestamp(current);
-      Entities.persist(update);
     }
     db.commit();
   }
  catch (  final Exception ex) {
-    db.rollback();
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
   final List<String> instancesToCheck=Lists.transform(stateOutdated,new Function<LoadBalancerBackendInstance,String>(){
     @Override @Nullable public String apply(    @Nullable LoadBalancerBackendInstance arg0){
@@ -65,8 +54,7 @@
  else     if ("stopping".equals(state))     stateMap.put(instance.getInstanceId(),STATE.Error);
  else     if ("stopped".equals(state))     stateMap.put(instance.getInstanceId(),STATE.Error);
   }
-  db=Entities.get(LoadBalancerBackendInstance.class);
-  try {
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
     for (    final LoadBalancerBackendInstance be : stateOutdated) {
       if (stateMap.containsKey(be.getInstanceId())) {
         final STATE trueState=stateMap.get(be.getInstanceId());
@@ -83,9 +71,5 @@
     db.commit();
   }
  catch (  final Exception ex) {
-    db.rollback();
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
 }

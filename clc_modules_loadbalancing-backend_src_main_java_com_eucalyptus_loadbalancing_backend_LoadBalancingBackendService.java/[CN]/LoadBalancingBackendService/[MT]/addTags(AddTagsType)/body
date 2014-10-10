@@ -1,0 +1,57 @@
+{
+  final AddTagsResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String accountNumber=ctx.getAccount().getAccountNumber();
+  final Set<String> requestedNames=Sets.newHashSet();
+  if (request.getLoadBalancerNames() != null) {
+    requestedNames.addAll(request.getLoadBalancerNames().getMember());
+  }
+  if (requestedNames.size() > 1) {
+    throw new LoadBalancingBackendClientException("InvalidParameterValue","Too many load balancers");
+  }
+  final Map<String,String> tags=Maps.newHashMap();
+  if (request.getTags() != null) {
+    for (    final Tag tag : request.getTags().getMember()) {
+      if (tags.put(tag.getKey(),Strings.nullToEmpty(tag.getValue())) != null) {
+        throw new LoadBalancingBackendClientException("DuplicateTagKeys","Duplicate tag key (" + tag.getKey() + ")");
+      }
+    }
+    final int reservedTags=Iterables.size(Iterables.filter(tags.keySet(),isReservedTagPrefix()));
+    if (reservedTags > 0 && !Contexts.lookup().isPrivileged()) {
+      throw new InvalidConfigurationRequestException("Invalid tag key (reserved prefix)");
+    }
+  }
+  final Function<String,Void> updateTags=new Function<String,Void>(){
+    @Override public Void apply(    final String identifier){
+      try {
+        final LoadBalancer example=LoadBalancer.namedByAccountId(accountNumber,identifier);
+        final LoadBalancer loadBalancer=Entities.uniqueResult(example);
+        if (RestrictedTypes.filterPrivileged().apply(loadBalancer)) {
+          final Map<String,String> lbTags=loadBalancer.getTags();
+          lbTags.putAll(tags);
+          if (Iterables.size(Iterables.filter(lbTags.keySet(),Predicates.not(isReservedTagPrefix()))) > MAX_TAGS) {
+            throw Exceptions.toUndeclared(new LoadBalancingBackendClientException("TooManyTags","Tag limit exceeded"));
+          }
+          return null;
+        }
+ else {
+          throw new NoSuchElementException();
+        }
+      }
+ catch (      NoSuchElementException e) {
+        throw Exceptions.toUndeclared(new AccessPointNotFoundException());
+      }
+catch (      TransactionException e) {
+        throw Exceptions.toUndeclared(e);
+      }
+    }
+  }
+;
+  try {
+    Entities.asTransaction(LoadBalancer.class,updateTags).apply(Iterables.getOnlyElement(requestedNames));
+  }
+ catch (  Exception e) {
+    throw handleException(e);
+  }
+  return reply;
+}

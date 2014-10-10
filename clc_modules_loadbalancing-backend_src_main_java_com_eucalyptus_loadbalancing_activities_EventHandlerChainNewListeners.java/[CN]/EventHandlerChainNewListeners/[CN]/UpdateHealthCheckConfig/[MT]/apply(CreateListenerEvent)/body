@@ -1,5 +1,5 @@
 {
-  LoadBalancer lb=null;
+  LoadBalancer lb;
   try {
     lb=LoadBalancers.getLoadbalancer(evt.getContext(),evt.getLoadBalancer());
   }
@@ -17,28 +17,21 @@ catch (  Exception ex) {
     lb.getHealthyThreshold();
   }
  catch (  final IllegalStateException ex) {
-    Listener firstListener=null;
+    Listener firstListener;
     if (evt.getListeners() == null || evt.getListeners().size() <= 0)     throw new EventHandlerException("No listener requested");
     final List<Listener> listeners=Lists.newArrayList(evt.getListeners());
     firstListener=listeners.get(0);
     final String target=String.format("TCP:%d",firstListener.getInstancePort());
-    final EntityTransaction db=Entities.get(LoadBalancer.class);
-    try {
+    try (final TransactionResource db=Entities.transactionFor(LoadBalancer.class)){
       final LoadBalancer update=Entities.uniqueResult(lb);
       update.setHealthCheck(DEFAULT_HEALTHY_THRESHOLD,DEFAULT_INTERVAL,target,DEFAULT_TIMEOUT,DEFAULT_UNHEALTHY_THRESHOLD);
-      Entities.persist(update);
       db.commit();
     }
  catch (    final NoSuchElementException exx) {
-      db.rollback();
       LOG.warn("Loadbalancer not found in the database");
     }
 catch (    final Exception exx) {
-      db.rollback();
       LOG.warn("Unable to query the loadbalancer",ex);
-    }
- finally {
-      if (db.isActive())       db.rollback();
     }
   }
 }

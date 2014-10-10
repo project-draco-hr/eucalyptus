@@ -1,19 +1,11 @@
 {
   if (!(Bootstrap.isFinished() && Topology.isEnabledLocally(LoadBalancingBackend.class) && Topology.isEnabled(Eucalyptus.class)))   return;
-  final EntityTransaction db=Entities.get(LoadBalancerSecurityGroup.class);
   List<LoadBalancerSecurityGroup> allGroups=null;
-  try {
+  try (TransactionResource db=Entities.transactionFor(LoadBalancerSecurityGroup.class)){
     allGroups=Entities.query(LoadBalancerSecurityGroup.withState(LoadBalancerSecurityGroup.STATE.OutOfService));
     db.commit();
   }
- catch (  NoSuchElementException ex) {
-    db.rollback();
-  }
-catch (  Exception ex) {
-    db.rollback();
-  }
- finally {
-    if (db.isActive())     db.rollback();
+ catch (  Exception ex) {
   }
   if (allGroups == null || allGroups.size() <= 0)   return;
   final List<LoadBalancerSecurityGroup> toDelete=Lists.newArrayList();
@@ -23,15 +15,14 @@ catch (  Exception ex) {
   }
   for (  LoadBalancerSecurityGroup group : toDelete) {
     try {
-      EucalyptusActivityTasks.getInstance().deleteSecurityGroup(group.getName());
+      EucalyptusActivityTasks.getInstance().deleteSystemSecurityGroup(group.getName());
       LOG.info("deleted security group: " + group.getName());
     }
  catch (    Exception ex) {
       LOG.warn("failed to delete the security group from eucalyptus",ex);
     }
   }
-  final EntityTransaction db2=Entities.get(LoadBalancerSecurityGroup.class);
-  try {
+  try (final TransactionResource db2=Entities.transactionFor(LoadBalancerSecurityGroup.class)){
     for (    LoadBalancerSecurityGroup group : toDelete) {
       LoadBalancerSecurityGroup g=Entities.uniqueResult(group);
       Entities.delete(g);
@@ -39,13 +30,8 @@ catch (  Exception ex) {
     db2.commit();
   }
  catch (  NoSuchElementException ex) {
-    db2.rollback();
   }
 catch (  Exception ex) {
     LOG.warn("failed to delete the securty group from entity",ex);
-    db2.rollback();
-  }
- finally {
-    if (db2.isActive())     db2.rollback();
   }
 }

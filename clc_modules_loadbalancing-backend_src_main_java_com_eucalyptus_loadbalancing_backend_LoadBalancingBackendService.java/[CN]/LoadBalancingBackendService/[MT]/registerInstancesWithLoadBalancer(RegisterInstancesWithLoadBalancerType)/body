@@ -1,10 +1,10 @@
 {
-  RegisterInstancesWithLoadBalancerResponseType reply=request.getReply();
+  final RegisterInstancesWithLoadBalancerResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
   final UserFullName ownerFullName=ctx.getUserFullName();
   final String lbName=request.getLoadBalancerName();
   final Collection<Instance> instances=request.getInstances().getMember();
-  LoadBalancer lb=null;
+  final LoadBalancer lb;
   try {
     lb=LoadBalancers.getLoadbalancer(ctx,lbName);
   }
@@ -14,12 +14,15 @@
   if (!LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
     throw new AccessPointNotFoundException();
   }
-  Set<String> backends=Sets.newHashSet(Collections2.transform(lb.getBackendInstances(),new Function<LoadBalancerBackendInstanceCoreView,String>(){
-    @Override @Nullable public String apply(    @Nullable LoadBalancerBackendInstanceCoreView arg0){
-      return arg0.getInstanceId();
+  final Set<String> backends=Sets.newHashSet(Iterables.transform(lb.getBackendInstances(),LoadBalancerBackendInstanceCoreView.instanceId()));
+  if (lb.getVpcId() != null) {
+    final List<RunningInstancesItemType> instanceItems=EucalyptusActivityTasks.getInstance().describeSystemInstances(Lists.newArrayList(Iterables.transform(instances,Instance.instanceId())));
+    for (    final RunningInstancesItemType instanceItem : instanceItems) {
+      if (!lb.getVpcId().equals(instanceItem.getVpcId())) {
+        throw new InvalidConfigurationRequestException("Invalid instance(s) for load balancer.");
+      }
     }
   }
-));
   final Predicate<LoadBalancer> creator=new Predicate<LoadBalancer>(){
     @Override public boolean apply(    LoadBalancer lb){
       for (      Instance vm : instances) {
@@ -38,7 +41,7 @@
   }
 ;
   try {
-    RegisterInstancesEvent evt=new RegisterInstancesEvent();
+    final RegisterInstancesEvent evt=new RegisterInstancesEvent();
     evt.setLoadBalancer(lbName);
     evt.setContext(ctx);
     evt.setInstances(instances);
@@ -49,31 +52,15 @@
     final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
     throw new InternalFailure400Exception(String.format("Failed to register instances: %s",reason),e);
   }
-  if (instances != null) {
-    try {
-      reply.set_return(Entities.asTransaction(LoadBalancerBackendInstance.class,creator).apply(lb));
-      backends.addAll(Collections2.transform(instances,new Function<Instance,String>(){
-        @Override @Nullable public String apply(        @Nullable Instance arg0){
-          return arg0.getInstanceId();
-        }
-      }
-));
-    }
- catch (    Exception ex) {
-      handleException(ex);
-    }
+  try {
+    Entities.asTransaction(LoadBalancerBackendInstance.class,creator).apply(lb);
+    Iterables.addAll(backends,Iterables.transform(instances,Instance.instanceId()));
   }
-  RegisterInstancesWithLoadBalancerResult result=new RegisterInstancesWithLoadBalancerResult();
-  Instances returnInstances=new Instances();
-  returnInstances.setMember(Lists.newArrayList(Collections2.transform(backends,new Function<String,Instance>(){
-    @Override @Nullable public Instance apply(    @Nullable String arg0){
-      Instance instance=new Instance();
-      instance.setInstanceId(arg0);
-      return instance;
-    }
+ catch (  Exception ex) {
+    throw handleException(ex);
   }
-)));
-  result.setInstances(returnInstances);
-  reply.setRegisterInstancesWithLoadBalancerResult(result);
+  final Instances returnInstances=new Instances();
+  Iterables.addAll(returnInstances.getMember(),Iterables.transform(backends,Instance.instance()));
+  reply.getRegisterInstancesWithLoadBalancerResult().setInstances(returnInstances);
   return reply;
 }

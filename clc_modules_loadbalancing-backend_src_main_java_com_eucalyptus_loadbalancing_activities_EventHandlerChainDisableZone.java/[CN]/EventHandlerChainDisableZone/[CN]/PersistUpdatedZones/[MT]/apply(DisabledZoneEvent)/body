@@ -1,5 +1,5 @@
 {
-  LoadBalancer lb=null;
+  LoadBalancer lb;
   try {
     lb=LoadBalancers.getLoadbalancer(evt.getContext(),evt.getLoadBalancer());
   }
@@ -12,21 +12,13 @@ catch (  Exception ex) {
   final StoredResult<String> updated=this.getChain().findHandler(UpdateAutoScalingGroup.class);
   if (updated != null && updated.getResult() != null) {
     for (    final String removedZone : updated.getResult()) {
-      final EntityTransaction db=Entities.get(LoadBalancerZone.class);
-      try {
+      try (final TransactionResource db=Entities.transactionFor(LoadBalancerZone.class)){
         final LoadBalancerZone update=Entities.uniqueResult(LoadBalancerZone.named(lb,removedZone));
         update.setState(LoadBalancerZone.STATE.OutOfService);
-        Entities.persist(update);
         db.commit();
       }
- catch (      final NoSuchElementException ex) {
-        db.rollback();
-      }
-catch (      final Exception ex) {
-        db.rollback();
-      }
- finally {
-        if (db.isActive())         db.rollback();
+ catch (      final Exception ex) {
+        LOG.debug("Error updating state for load balancer zone",ex);
       }
     }
   }

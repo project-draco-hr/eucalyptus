@@ -1,4 +1,60 @@
 {
-  ApplySecurityGroupsToLoadBalancerResponseType reply=request.getReply();
+  final ApplySecurityGroupsToLoadBalancerResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String accountNumber=ctx.getAccount().getAccountNumber();
+  final String adminUserId;
+  try {
+    adminUserId=ctx.getAccount().lookupAdmin().getUserId();
+  }
+ catch (  final AuthException e) {
+    throw new LoadBalancingException("Error accessing default security group");
+  }
+  final Set<String> securityGroupIds=Sets.newHashSet(request.getSecurityGroups().getMember());
+  final List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsById(adminUserId,null,securityGroupIds);
+  if (groups.size() != securityGroupIds.size()) {
+    throw new LoadBalancingBackendClientException("InvalidSecurityGroup","Invalid security group(s)");
+  }
+  final Function<String,ApplySecurityGroupsEvent> updateSecurityGroups=new Function<String,ApplySecurityGroupsEvent>(){
+    @Override public ApplySecurityGroupsEvent apply(    final String identifier){
+      try {
+        final LoadBalancer example=LoadBalancer.namedByAccountId(accountNumber,identifier);
+        final LoadBalancer loadBalancer=Entities.uniqueResult(example);
+        if (RestrictedTypes.filterPrivileged().apply(loadBalancer)) {
+          final List<SecurityGroupItemType> sortedGroups=Ordering.natural().onResultOf(SecurityGroupItemType.groupId()).sortedCopy(groups);
+          loadBalancer.setSecurityGroupRefs(Lists.newArrayList(Iterables.transform(sortedGroups,TypeMappers.lookup(SecurityGroupItemType.class,LoadBalancerSecurityGroupRef.class))));
+          final ApplySecurityGroupsEvent evt=new ApplySecurityGroupsEvent();
+          evt.setContext(ctx);
+          evt.setLoadBalancer(loadBalancer.getDisplayName());
+          evt.setSecurityGroupIdsToNames(CollectionUtils.putAll(sortedGroups,Maps.<String,String>newLinkedHashMap(),SecurityGroupItemType.groupId(),SecurityGroupItemType.groupName()));
+          return evt;
+        }
+ else {
+          throw new NoSuchElementException();
+        }
+      }
+ catch (      NoSuchElementException e) {
+        throw Exceptions.toUndeclared(new AccessPointNotFoundException());
+      }
+catch (      TransactionException e) {
+        throw Exceptions.toUndeclared(e);
+      }
+    }
+  }
+;
+  final ApplySecurityGroupsEvent event;
+  try {
+    event=Entities.asTransaction(LoadBalancer.class,updateSecurityGroups).apply(request.getLoadBalancerName());
+  }
+ catch (  Exception e) {
+    throw handleException(e);
+  }
+  try {
+    ActivityManager.getInstance().fire(event);
+  }
+ catch (  final EventFailedException e) {
+    LOG.error("Failed to handle new apply security groups event",e);
+    final String reason=Optional.fromNullable(e.getCause()).transform(Exceptions.message()).or("internal error");
+    throw new InternalFailure400Exception(String.format("Failed to apply security groups to loadbalancer: %s",reason),e);
+  }
   return reply;
 }

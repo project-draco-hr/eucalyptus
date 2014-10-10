@@ -22,7 +22,7 @@
   if (unhealthyThreshold < MIN_HEALTHCHECK_THRESHOLDS) {
     throw new InvalidConfigurationRequestException(String.format("Unhealthy thresholds must be larger than %d",MIN_HEALTHCHECK_THRESHOLDS));
   }
-  LoadBalancer lb=null;
+  LoadBalancer lb;
   try {
     lb=LoadBalancers.getLoadbalancer(ctx,lbName);
   }
@@ -35,24 +35,18 @@ catch (  Exception ex) {
   if (lb != null && !LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
     throw new AccessPointNotFoundException();
   }
-  final EntityTransaction db=Entities.get(LoadBalancer.class);
-  try {
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancer.class)){
     final LoadBalancer update=Entities.uniqueResult(lb);
     update.setHealthCheck(healthyThreshold,interval,target,timeout,unhealthyThreshold);
     Entities.persist(update);
     db.commit();
   }
  catch (  final IllegalArgumentException ex) {
-    db.rollback();
     throw new InvalidConfigurationRequestException(ex.getMessage());
   }
 catch (  final Exception ex) {
-    db.rollback();
     LOG.error("failed to persist health check config",ex);
     throw new InternalFailure400Exception("Failed to persist the health check config",ex);
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
   ConfigureHealthCheckResult result=new ConfigureHealthCheckResult();
   result.setHealthCheck(hc);

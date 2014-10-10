@@ -1,0 +1,30 @@
+{
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancer.class)){
+    try {
+      if (Entities.uniqueResult(LoadBalancer.namedByAccountId(user.getAccountNumber(),lbName)) != null)       throw new DuplicateAccessPointName();
+    }
+ catch (    final NoSuchElementException e) {
+      final List<LoadBalancerSecurityGroupRef> refs=Lists.newArrayList();
+      for (      final Map.Entry<String,String> groupIdToNameEntry : securityGroupIdsToNames.entrySet()) {
+        refs.add(new LoadBalancerSecurityGroupRef(groupIdToNameEntry.getKey(),groupIdToNameEntry.getValue()));
+      }
+      Collections.sort(refs,Ordering.natural().onResultOf(LoadBalancerSecurityGroupRef.groupId()));
+      final LoadBalancer lb=LoadBalancer.newInstance(user,lbName);
+      lb.setVpcId(vpcId);
+      lb.setScheme(scheme);
+      lb.setSecurityGroupRefs(refs);
+      lb.setTags(tags);
+      Entities.persist(lb);
+      db.commit();
+      return lb;
+    }
+  }
+ catch (  LoadBalancingException ex) {
+    throw ex;
+  }
+catch (  Exception ex) {
+    LOG.error("failed to persist a new loadbalancer",ex);
+    throw new LoadBalancingException("Failed to persist a new load-balancer because of: " + ex.getMessage(),ex);
+  }
+  throw new LoadBalancingException("Failed to create a new load-balancer instance");
+}

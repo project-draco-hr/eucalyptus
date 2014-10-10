@@ -1,8 +1,8 @@
 {
   final DescribeLoadBalancersByServoResponseType reply=request.getReply();
   final String instanceId=request.getInstanceId();
-  LoadBalancerZoneCoreView zoneView=null;
-  LoadBalancerZone zone=null;
+  LoadBalancerZoneCoreView zoneView;
+  LoadBalancerZone zone;
   try {
     isValidServoRequest(instanceId,request.getSourceIp());
     final LoadBalancerServoInstance instance=LoadBalancers.lookupServoInstance(instanceId);
@@ -12,45 +12,44 @@
  catch (  final Exception ex) {
     throw new InternalFailureException("Failed to verify request sender");
   }
-  final Function<LoadBalancerZone,Set<LoadBalancerDescription>> lookupLBDescriptions=new Function<LoadBalancerZone,Set<LoadBalancerDescription>>(){
-    @Override public Set<LoadBalancerDescription> apply(    LoadBalancerZone zone){
-      final Set<LoadBalancerDescription> descs=Sets.newHashSet();
+  final Function<LoadBalancerZone,Optional<LoadBalancerServoDescription>> lookupLBDescriptions=new Function<LoadBalancerZone,Optional<LoadBalancerServoDescription>>(){
+    @Override public Optional<LoadBalancerServoDescription> apply(    final LoadBalancerZone zone){
       final LoadBalancerCoreView lbView=zone.getLoadbalancer();
       final String lbName=lbView.getDisplayName();
-      LoadBalancerDescription desc=new LoadBalancerDescription();
+      final LoadBalancerServoDescription desc=new LoadBalancerServoDescription();
       desc.setLoadBalancerName(lbName);
       desc.setCreatedTime(lbView.getCreationTimestamp());
-      LoadBalancer lb=null;
+      final LoadBalancer lb;
       try {
         lb=LoadBalancerEntityTransform.INSTANCE.apply(lbView);
       }
  catch (      final Exception ex) {
-        Sets.<LoadBalancerDescription>newHashSet();
+        return Optional.<LoadBalancerServoDescription>absent();
       }
       final LoadBalancerDnsRecordCoreView dnsView=lb.getDns();
       desc.setDnsName(dnsView.getDnsName());
       Collection<LoadBalancerBackendInstanceCoreView> notInError=Collections2.filter(zone.getBackendInstances(),new Predicate<LoadBalancerBackendInstanceCoreView>(){
-        @Override public boolean apply(        @Nullable LoadBalancerBackendInstanceCoreView arg0){
+        @Override public boolean apply(        LoadBalancerBackendInstanceCoreView arg0){
           return !LoadBalancerBackendInstance.STATE.Error.equals(arg0.getBackendState());
         }
       }
 );
-      if (notInError.size() > 0) {
+      if (!notInError.isEmpty()) {
         desc.setInstances(new Instances());
-        desc.getInstances().setMember(new ArrayList<Instance>(Collections2.transform(notInError,new Function<LoadBalancerBackendInstanceCoreView,Instance>(){
+        desc.getInstances().getMember().addAll(Collections2.transform(notInError,new Function<LoadBalancerBackendInstanceCoreView,Instance>(){
           @Override public Instance apply(          final LoadBalancerBackendInstanceCoreView be){
             Instance instance=new Instance();
             instance.setInstanceId(be.getInstanceId() + ":" + be.getIpAddress());
             return instance;
           }
         }
-)));
+));
       }
       desc.setAvailabilityZones(new AvailabilityZones());
-      desc.getAvailabilityZones().setMember(Lists.newArrayList(zone.getName()));
+      desc.getAvailabilityZones().getMember().add(zone.getName());
       if (lb.getListeners().size() > 0) {
         desc.setListenerDescriptions(new ListenerDescriptions());
-        desc.getListenerDescriptions().setMember(new ArrayList<ListenerDescription>(Collections2.transform(lb.getListeners(),new Function<LoadBalancerListenerCoreView,ListenerDescription>(){
+        desc.getListenerDescriptions().setMember(new ArrayList<>(Collections2.transform(lb.getListeners(),new Function<LoadBalancerListenerCoreView,ListenerDescription>(){
           @Override public ListenerDescription apply(          final LoadBalancerListenerCoreView input){
             ListenerDescription desc=new ListenerDescription();
             Listener listener=new Listener();
@@ -62,7 +61,7 @@
             desc.setListener(listener);
             final LoadBalancerListener lbListener=LoadBalancerListenerEntityTransform.INSTANCE.apply(input);
             final PolicyNames pnames=new PolicyNames();
-            pnames.setMember(new ArrayList<String>(Lists.transform(lbListener.getPolicies(),new Function<LoadBalancerPolicyDescriptionCoreView,String>(){
+            pnames.setMember(new ArrayList<>(Lists.transform(lbListener.getPolicies(),new Function<LoadBalancerPolicyDescriptionCoreView,String>(){
               @Override public String apply(              LoadBalancerPolicyDescriptionCoreView arg0){
                 try {
                   final LoadBalancerPolicyDescription policy=LoadBalancerPolicyDescriptionEntityTransform.INSTANCE.apply(arg0);
@@ -104,34 +103,25 @@
         hc.setUnhealthyThreshold(unhealthyThresholds);
         desc.setHealthCheck(hc);
       }
- catch (      IllegalStateException ex) {
-        ;
+ catch (      Exception ex) {
       }
-catch (      Exception ex) {
-        ;
-      }
-      descs.add(desc);
-      return descs;
+      desc.setLoadBalancerAttributes(TypeMappers.transform(lb,LoadBalancerAttributes.class));
+      return Optional.of(desc);
     }
   }
 ;
-  Set<LoadBalancerDescription> descs=null;
-  LoadBalancer lb=null;
+  Optional<LoadBalancerServoDescription> descs=Optional.<LoadBalancerServoDescription>absent();
   try {
-    lb=LoadBalancerEntityTransform.INSTANCE.apply(zone.getLoadbalancer());
+    final LoadBalancer lb=LoadBalancerEntityTransform.INSTANCE.apply(zone.getLoadbalancer());
     if (zone != null && LoadBalancingMetadatas.filterPrivilegedWithoutOwner().apply(lb) && zone.getState().equals(LoadBalancerZone.STATE.InService)) {
       descs=lookupLBDescriptions.apply(zone);
     }
- else     descs=Sets.<LoadBalancerDescription>newHashSet();
   }
  catch (  final Exception ex) {
-    descs=Sets.<LoadBalancerDescription>newHashSet();
   }
-  DescribeLoadBalancersResult descResult=new DescribeLoadBalancersResult();
-  LoadBalancerDescriptions lbDescs=new LoadBalancerDescriptions();
-  lbDescs.setMember(new ArrayList<LoadBalancerDescription>(descs));
-  descResult.setLoadBalancerDescriptions(lbDescs);
-  reply.setDescribeLoadBalancersResult(descResult);
+  final LoadBalancerServoDescriptions lbDescs=new LoadBalancerServoDescriptions();
+  lbDescs.getMember().addAll(descs.asSet());
+  reply.getDescribeLoadBalancersResult().setLoadBalancerDescriptions(lbDescs);
   reply.set_return(true);
   return reply;
 }
