@@ -1,5 +1,5 @@
 {
-  LoadBalancer lb=null;
+  LoadBalancer lb;
   LoadBalancerSecurityGroupCoreView groupView=null;
   try {
     lb=LoadBalancers.getLoadbalancer(evt.getContext(),evt.getLoadBalancer());
@@ -14,17 +14,16 @@ catch (  Exception ex) {
     LOG.error("Error while looking for loadbalancer with name=" + evt.getLoadBalancer(),ex);
     return;
   }
-  LoadBalancerSecurityGroup group=null;
-  try {
-    group=LoadBalancerSecurityGroupEntityTransform.INSTANCE.apply(groupView);
-  }
- catch (  final Exception ex) {
-    LOG.error("Erorr while looking for loadbalancer group",ex);
-    return;
-  }
-  if (group != null) {
-    final EntityTransaction db=Entities.get(LoadBalancerSecurityGroup.class);
+  if (lb.getVpcId() == null) {
+    LoadBalancerSecurityGroup group;
     try {
+      group=LoadBalancerSecurityGroupEntityTransform.INSTANCE.apply(groupView);
+    }
+ catch (    final Exception ex) {
+      LOG.error("Erorr while looking for loadbalancer group",ex);
+      return;
+    }
+    try (TransactionResource db=Entities.transactionFor(LoadBalancerSecurityGroup.class)){
       final LoadBalancerSecurityGroup exist=Entities.uniqueResult(group);
       exist.setLoadBalancer(null);
       exist.setState(LoadBalancerSecurityGroup.STATE.OutOfService);
@@ -32,11 +31,7 @@ catch (  Exception ex) {
       db.commit();
     }
  catch (    Exception ex) {
-      db.rollback();
       LOG.warn("Could not disassociate the group from loadbalancer");
-    }
- finally {
-      if (db.isActive())       db.rollback();
     }
   }
 }

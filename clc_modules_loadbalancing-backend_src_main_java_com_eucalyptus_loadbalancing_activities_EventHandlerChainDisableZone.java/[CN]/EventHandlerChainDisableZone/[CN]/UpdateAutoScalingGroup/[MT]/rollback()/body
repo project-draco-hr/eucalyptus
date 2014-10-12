@@ -5,7 +5,7 @@
       if (capacityPerZone <= 0)       capacityPerZone=1;
       final int oldCapacity=capacityPerZone * this.beforeUpdate.size();
       EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(this.groupName,this.beforeUpdate,oldCapacity);
-      LoadBalancerAutoScalingGroup scaleGroup=null;
+      LoadBalancerAutoScalingGroup scaleGroup;
       try {
         scaleGroup=LoadBalancerAutoScalingGroupEntityTransform.INSTANCE.apply(this.group);
       }
@@ -13,23 +13,17 @@
         LOG.error("unable to transfrom scaling group from the view",ex);
         throw ex;
       }
-      final EntityTransaction db=Entities.get(LoadBalancerAutoScalingGroup.class);
-      try {
+      try (final TransactionResource db=Entities.transactionFor(LoadBalancerAutoScalingGroup.class)){
         final LoadBalancerAutoScalingGroup update=Entities.uniqueResult(scaleGroup);
         update.setCapacity(oldCapacity);
         Entities.persist(update);
         db.commit();
       }
  catch (      NoSuchElementException ex) {
-        db.rollback();
         LOG.error("failed to find the autoscaling group record",ex);
       }
 catch (      Exception ex) {
-        db.rollback();
         LOG.error("failed to update the autoscaling group record",ex);
-      }
- finally {
-        if (db.isActive())         db.rollback();
       }
     }
  catch (    Exception ex) {

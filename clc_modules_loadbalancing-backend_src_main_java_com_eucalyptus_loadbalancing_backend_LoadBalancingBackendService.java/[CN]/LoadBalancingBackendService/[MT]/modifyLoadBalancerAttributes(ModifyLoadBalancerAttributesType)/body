@@ -1,0 +1,33 @@
+{
+  final ModifyLoadBalancerAttributesResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String accountNumber=ctx.getAccount().getAccountNumber();
+  final Function<String,LoadBalancerAttributes> modifyAttributes=new Function<String,LoadBalancerAttributes>(){
+    @Override public LoadBalancerAttributes apply(    final String identifier){
+      try {
+        final LoadBalancer example=LoadBalancer.namedByAccountId(accountNumber,identifier);
+        final LoadBalancer loadBalancer=Entities.uniqueResult(example);
+        if (RestrictedTypes.filterPrivileged().apply(loadBalancer)) {
+          final ConnectionSettings connectionSettings=request.getLoadBalancerAttributes().getConnectionSettings();
+          if (connectionSettings != null) {
+            loadBalancer.setConnectionIdleTimeout(connectionSettings.getIdleTimeout());
+          }
+          return TypeMappers.transform(loadBalancer,LoadBalancerAttributes.class);
+        }
+ else {
+          throw new NoSuchElementException();
+        }
+      }
+ catch (      NoSuchElementException e) {
+        throw Exceptions.toUndeclared(new AccessPointNotFoundException());
+      }
+catch (      TransactionException e) {
+        throw Exceptions.toUndeclared(e);
+      }
+    }
+  }
+;
+  final LoadBalancerAttributes attributes=Entities.asTransaction(LoadBalancer.class,modifyAttributes).apply(request.getLoadBalancerName());
+  reply.getModifyLoadBalancerAttributesResult().setLoadBalancerAttributes(attributes);
+  return reply;
+}

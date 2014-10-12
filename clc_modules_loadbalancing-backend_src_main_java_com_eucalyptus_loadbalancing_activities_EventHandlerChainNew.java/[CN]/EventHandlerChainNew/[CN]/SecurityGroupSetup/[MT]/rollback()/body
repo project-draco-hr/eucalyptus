@@ -1,23 +1,18 @@
 {
-  if (this.createdGroup == null)   return;
-  LoadBalancer lb=null;
+  if (this.createdGroup == null || !this.rollbackCreate)   return;
+  LoadBalancer lb;
   try {
     lb=LoadBalancers.getLoadbalancer(this.event.getContext(),this.event.getLoadBalancer());
   }
- catch (  NoSuchElementException ex) {
-    return;
-  }
-catch (  Exception ex) {
+ catch (  Exception ex) {
     return;
   }
   try {
-    EucalyptusActivityTasks.getInstance().deleteSecurityGroup(this.createdGroup);
+    EucalyptusActivityTasks.getInstance().deleteSystemSecurityGroup(this.createdGroup);
   }
  catch (  Exception ex) {
-    ;
   }
-  final EntityTransaction db=Entities.get(LoadBalancerSecurityGroup.class);
-  try {
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancerSecurityGroup.class)){
     final LoadBalancerSecurityGroup group=Entities.uniqueResult(LoadBalancerSecurityGroup.named(lb,this.groupOwnerAccountId,this.createdGroup));
     group.setState(LoadBalancerSecurityGroup.STATE.OutOfService);
     group.setLoadBalancer(null);
@@ -25,13 +20,8 @@ catch (  Exception ex) {
     db.commit();
   }
  catch (  NoSuchElementException ex) {
-    db.rollback();
   }
 catch (  Exception ex) {
-    db.rollback();
     LOG.error("failed to mark the security group OutOfService",ex);
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
 }

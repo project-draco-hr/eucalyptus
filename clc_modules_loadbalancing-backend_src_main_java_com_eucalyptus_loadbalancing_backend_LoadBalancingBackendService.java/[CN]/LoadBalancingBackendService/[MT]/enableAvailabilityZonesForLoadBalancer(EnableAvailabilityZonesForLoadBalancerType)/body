@@ -3,28 +3,36 @@
   final Context ctx=Contexts.lookup();
   final String lbName=request.getLoadBalancerName();
   final Collection<String> requestedZones=request.getAvailabilityZones().getMember();
-  LoadBalancer lb=null;
+  LoadBalancer lb;
   try {
     lb=LoadBalancers.getLoadbalancer(ctx,lbName);
   }
  catch (  final Exception ex) {
     throw new AccessPointNotFoundException();
   }
-  final Set<String> allZones=Sets.newHashSet(Collections2.transform(lb.getZones(),new Function<LoadBalancerZoneCoreView,String>(){
-    @Override @Nullable public String apply(    @Nullable LoadBalancerZoneCoreView arg0){
-      return arg0.getName();
-    }
-  }
-));
-  if (lb != null && !LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
+  if (!LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
     throw new AccessPointNotFoundException();
   }
-  if (requestedZones != null && requestedZones.size() > 0) {
+  final Set<String> allZones=Sets.newHashSet(Iterables.transform(lb.getZones(),LoadBalancerZoneCoreView.name()));
+  final Optional<VpcType> vpcOptional=EucalyptusActivityTasks.getInstance().defaultVpc();
+  final Map<String,String> zoneToSubnetIdMap=Maps.newHashMap();
+  if (vpcOptional.isPresent() && Objects.equals(lb.getVpcId(),vpcOptional.get())) {
+    final List<SubnetType> subnets=EucalyptusActivityTasks.getInstance().describeSubnetsByZone(lb.getVpcId(),true,requestedZones);
+    CollectionUtils.putAll(subnets,zoneToSubnetIdMap,SubnetType.zone(),SubnetType.id());
+    if (requestedZones.size() != zoneToSubnetIdMap.size()) {
+      throw new InvalidConfigurationRequestException("Cannot enable zone for VPC loadbalancer, default subnet not found.");
+    }
+  }
+ else   if (lb.getVpcId() != null) {
+    throw new InvalidConfigurationRequestException("Cannot enable zone for VPC loadbalancer");
+  }
+  if (!requestedZones.isEmpty()) {
     try {
       final EnabledZoneEvent evt=new EnabledZoneEvent();
       evt.setLoadBalancer(lbName);
       evt.setContext(ctx);
       evt.setZones(requestedZones);
+      evt.setZoneToSubnetIdMap(zoneToSubnetIdMap);
       ActivityManager.getInstance().fire(evt);
     }
  catch (    EventFailedException e) {
@@ -36,9 +44,7 @@
   allZones.addAll(requestedZones);
   final EnableAvailabilityZonesForLoadBalancerResult result=new EnableAvailabilityZonesForLoadBalancerResult();
   final AvailabilityZones availZones=new AvailabilityZones();
-  availZones.setMember(Lists.newArrayList(allZones));
-  result.setAvailabilityZones(availZones);
-  reply.setEnableAvailabilityZonesForLoadBalancerResult(result);
-  reply.set_return(true);
+  availZones.getMember().addAll(allZones);
+  reply.getEnableAvailabilityZonesForLoadBalancerResult().setAvailabilityZones(availZones);
   return reply;
 }

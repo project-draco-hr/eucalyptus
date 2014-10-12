@@ -1,4 +1,59 @@
 {
-  AttachLoadBalancerToSubnetsResponseType reply=request.getReply();
+  final AttachLoadBalancerToSubnetsResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String lbName=request.getLoadBalancerName();
+  final Collection<String> requestedSubnetIds=request.getSubnets().getMember();
+  final String vpcId;
+  final BiMap<String,String> zoneToSubnetIdMap=HashBiMap.create();
+  final LoadBalancerCoreView lb;
+  try {
+    final LoadBalancer lbEntity=LoadBalancers.getLoadbalancer(ctx,lbName);
+    if (!LoadBalancingMetadatas.filterPrivileged().apply(lbEntity)) {
+      throw new AccessPointNotFoundException();
+    }
+    lb=lbEntity.getCoreView();
+    vpcId=lb.getVpcId();
+    CollectionUtils.putAll(lbEntity.getZones(),zoneToSubnetIdMap,name(),subnetId());
+  }
+ catch (  final LoadBalancingException e) {
+    throw e;
+  }
+catch (  final Exception ex) {
+    throw new AccessPointNotFoundException();
+  }
+  if (vpcId == null) {
+    throw new InvalidConfigurationRequestException("Invalid subnet for load balancer");
+  }
+  final List<SubnetType> subnets=EucalyptusActivityTasks.getInstance().describeSubnets(requestedSubnetIds);
+  if (subnets.size() != requestedSubnetIds.size()) {
+    throw new LoadBalancingBackendClientException("SubnetNotFound","Invalid subnet(s)");
+  }
+  for (  final SubnetType subnetType : subnets) {
+    if (!vpcId.equals(subnetType.getVpcId())) {
+      throw new InvalidConfigurationRequestException("Invalid subnet for load balancer");
+    }
+    final String previousSubnetId=zoneToSubnetIdMap.put(subnetType.getAvailabilityZone(),subnetType.getSubnetId());
+    if (previousSubnetId != null && !previousSubnetId.equals(subnetType.getSubnetId())) {
+      throw new InvalidConfigurationRequestException("Multiple subnets for zone (" + subnetType.getAvailabilityZone() + ")");
+    }
+  }
+  final List<String> requestedZones=Lists.newArrayList();
+  Iterables.addAll(requestedZones,Iterables.transform(requestedSubnetIds,Functions.forMap(zoneToSubnetIdMap.inverse())));
+  try {
+    final EnabledZoneEvent evt=new EnabledZoneEvent();
+    evt.setLoadBalancer(lbName);
+    evt.setContext(ctx);
+    evt.setZones(requestedZones);
+    evt.setZoneToSubnetIdMap(zoneToSubnetIdMap);
+    ActivityManager.getInstance().fire(evt);
+  }
+ catch (  EventFailedException e) {
+    LOG.error("failed to handle EnabledZone event",e);
+    final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
+    throw new InternalFailure400Exception(String.format("Failed to enable zones: %s",reason),e);
+  }
+  final Subnets replySubnets=new Subnets();
+  replySubnets.getMember().addAll(zoneToSubnetIdMap.values());
+  reply.getAttachLoadBalancerToSubnetsResult().setSubnets(replySubnets);
   return reply;
 }

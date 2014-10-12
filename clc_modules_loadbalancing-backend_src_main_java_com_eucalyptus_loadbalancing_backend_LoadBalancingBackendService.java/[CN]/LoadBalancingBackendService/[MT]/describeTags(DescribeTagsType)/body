@@ -1,0 +1,42 @@
+{
+  final DescribeTagsResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String accountNumber=ctx.getAccount().getAccountNumber();
+  final Set<String> requestedNames=Sets.newHashSet();
+  if (request.getLoadBalancerNames() != null) {
+    requestedNames.addAll(request.getLoadBalancerNames().getMember());
+  }
+  final boolean showAll=requestedNames.remove("verbose") && ctx.isAdministrator();
+  final Function<Set<String>,TagDescriptions> lookupAccountLBs=new Function<Set<String>,TagDescriptions>(){
+    @Override public TagDescriptions apply(    final Set<String> identifiers){
+      try {
+        final Predicate<? super LoadBalancer> requestedAndAccessible=LoadBalancingMetadatas.filteringFor(LoadBalancer.class).byId(identifiers).byPrivileges().buildPredicate();
+        final LoadBalancer example=showAll ? LoadBalancer.named(null,null) : LoadBalancer.namedByAccountId(accountNumber,null);
+        final List<LoadBalancer> lbs=Entities.query(example,true);
+        final TagDescriptions tagDescriptions=new TagDescriptions();
+        for (        final LoadBalancer loadBalancer : Iterables.filter(lbs,requestedAndAccessible)) {
+          final TagDescription tagDescription=new TagDescription();
+          tagDescription.setLoadBalancerName(loadBalancer.getName());
+          final TagList tagList=new TagList();
+          tagDescription.setTags(tagList);
+          for (          final Map.Entry<String,String> tagKeyAndValue : loadBalancer.getTags().entrySet()) {
+            final Tag tag=new Tag();
+            tag.setKey(tagKeyAndValue.getKey());
+            tag.setValue(Strings.emptyToNull(tagKeyAndValue.getValue()));
+            tagList.getMember().add(tag);
+          }
+          tagDescriptions.getMember().add(tagDescription);
+        }
+        return tagDescriptions;
+      }
+ catch (      EntityNotFoundException e) {
+        Entities.evictCache(LoadBalancer.class);
+        throw new OptimisticLockException("Error loading load balancers",e);
+      }
+    }
+  }
+;
+  final TagDescriptions tagDescriptions=Entities.asTransaction(LoadBalancer.class,lookupAccountLBs).apply(requestedNames);
+  reply.getDescribeTagsResult().setTagDescriptions(tagDescriptions);
+  return reply;
+}

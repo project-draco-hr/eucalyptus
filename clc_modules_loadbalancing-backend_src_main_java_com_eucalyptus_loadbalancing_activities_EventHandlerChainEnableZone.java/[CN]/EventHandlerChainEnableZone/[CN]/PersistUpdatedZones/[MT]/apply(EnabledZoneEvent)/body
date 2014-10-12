@@ -1,5 +1,5 @@
 {
-  LoadBalancer lb=null;
+  LoadBalancer lb;
   try {
     lb=LoadBalancers.getLoadbalancer(evt.getContext(),evt.getLoadBalancer());
   }
@@ -12,25 +12,22 @@ catch (  Exception ex) {
   final StoredResult<String> updated=this.getChain().findHandler(CreateOrUpdateAutoscalingGroup.class);
   if (updated != null && updated.getResult() != null) {
     for (    final String zone : updated.getResult()) {
-      final EntityTransaction db=Entities.get(LoadBalancerZone.class);
-      try {
-        final LoadBalancerZone exist=Entities.uniqueResult(LoadBalancerZone.named(lb,zone));
-        exist.setState(LoadBalancerZone.STATE.InService);
-        Entities.persist(exist);
+      try (final TransactionResource db=Entities.transactionFor(LoadBalancerZone.class)){
+        try {
+          final LoadBalancerZone exist=Entities.uniqueResult(LoadBalancerZone.named(lb,zone));
+          exist.setState(LoadBalancerZone.STATE.InService);
+        }
+ catch (        NoSuchElementException ex) {
+          final String subnetId=evt.getZoneToSubnetIdMap() == null ? null : evt.getZoneToSubnetIdMap().get(zone);
+          final LoadBalancerZone newZone=LoadBalancerZone.create(lb,zone,subnetId);
+          newZone.setState(LoadBalancerZone.STATE.InService);
+          Entities.persist(newZone);
+          persistedZones.add(newZone);
+        }
         db.commit();
       }
- catch (      NoSuchElementException ex) {
-        final LoadBalancerZone newZone=LoadBalancerZone.named(lb,zone);
-        newZone.setState(LoadBalancerZone.STATE.InService);
-        Entities.persist(newZone);
-        db.commit();
-        persistedZones.add(newZone);
-      }
-catch (      Exception ex) {
-        db.rollback();
-      }
- finally {
-        if (db.isActive())         db.rollback();
+ catch (      Exception ex) {
+        LOG.debug("Error adding load balancer zone",ex);
       }
     }
   }
