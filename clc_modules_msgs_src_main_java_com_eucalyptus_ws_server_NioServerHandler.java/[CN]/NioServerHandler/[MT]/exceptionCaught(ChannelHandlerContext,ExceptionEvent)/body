@@ -3,35 +3,39 @@
   final Throwable cause=e.getCause();
   Logs.extreme().error(cause,cause);
   try {
-    if (ch != null) {
-      Contexts.clear(Contexts.lookup(ch));
+    if (cause instanceof ReadTimeoutException) {
+      this.sendError(ctx,e,HttpResponseStatus.REQUEST_TIMEOUT,cause);
+    }
+ else     if (cause instanceof WriteTimeoutException) {
+      ctx.sendUpstream(e);
+      ctx.getChannel().close();
+    }
+ else     if (cause instanceof TooLongFrameException) {
+      this.sendError(ctx,e,HttpResponseStatus.BAD_REQUEST,cause);
+    }
+ else     if (cause instanceof IllegalArgumentException) {
+      this.sendError(ctx,e,HttpResponseStatus.BAD_REQUEST,cause);
+    }
+ else     if (cause instanceof LoginException) {
+      this.sendError(ctx,e,HttpResponseStatus.FORBIDDEN,cause);
+    }
+ else     if (e.getCause() instanceof WebServicesException) {
+      final WebServicesException webEx=(WebServicesException)e.getCause();
+      if (webEx.getStatus().getCode() != 403)       LOG.error("Internal Error: " + cause.getMessage());
+      Logs.extreme().error(cause,cause);
+      this.sendError(ctx,e,webEx.getStatus(),cause);
+    }
+ else {
+      this.sendError(ctx,e,HttpResponseStatus.BAD_REQUEST,cause);
     }
   }
- catch (  Exception ex) {
-  }
-  if (cause instanceof ReadTimeoutException) {
-    this.sendError(ctx,HttpResponseStatus.REQUEST_TIMEOUT,cause);
-  }
- else   if (cause instanceof WriteTimeoutException) {
-    ctx.sendUpstream(e);
-    ctx.getChannel().close();
-  }
- else   if (cause instanceof TooLongFrameException) {
-    this.sendError(ctx,HttpResponseStatus.BAD_REQUEST,cause);
-  }
- else   if (cause instanceof IllegalArgumentException) {
-    this.sendError(ctx,HttpResponseStatus.BAD_REQUEST,cause);
-  }
- else   if (cause instanceof LoginException) {
-    this.sendError(ctx,HttpResponseStatus.FORBIDDEN,cause);
-  }
- else   if (e.getCause() instanceof WebServicesException) {
-    final WebServicesException webEx=(WebServicesException)e.getCause();
-    if (webEx.getStatus().getCode() != 403)     LOG.error("Internal Error: " + cause.getMessage());
-    Logs.extreme().error(cause,cause);
-    this.sendError(ctx,webEx.getStatus(),cause);
-  }
- else {
-    this.sendError(ctx,HttpResponseStatus.BAD_REQUEST,cause);
+  finally {
+    try {
+      if (ch != null) {
+        Contexts.clear(Contexts.lookup(ch));
+      }
+    }
+ catch (    Exception ex) {
+    }
   }
 }
