@@ -2,6 +2,7 @@
   try {
     final String masterPassword=Crypto.generateAlphanumericId(8,"").toLowerCase();
     final String masterUserName="eucalyptus";
+    boolean vmCreated=false;
     try {
       final NewDBInstanceEvent evt=new NewDBInstanceEvent(Accounts.lookupSystemAdmin().getUserId());
       evt.setMasterUserName(masterUserName);
@@ -9,14 +10,23 @@
       evt.setDbInstanceIdentifier(DB_INSTANCE_IDENTIFIER);
       evt.setPort(DB_PORT);
       DatabaseEventListeners.getInstance().fire(evt);
+      vmCreated=true;
     }
  catch (    final Exception e) {
       LOG.error("failed to create a database vm",e);
+      vmCreated=false;
     }
     try {
       final EnableDBInstanceEvent evt=new EnableDBInstanceEvent(Accounts.lookupSystemAdmin().getUserId());
       evt.setMasterUserName(masterUserName);
-      evt.setMasterUserPassword(masterPassword);
+      if (vmCreated)       evt.setMasterUserPassword(masterPassword);
+ else {
+        final String pwd=DatabaseInfo.getDatabaseInfo().getAppendOnlyPassword();
+        if (pwd != null && pwd.length() > 0) {
+          evt.setMasterUserPassword(masterPassword);
+          LOG.debug("Master database password is set from properties");
+        }
+      }
       evt.setDbInstanceIdentifier(DB_INSTANCE_IDENTIFIER);
       evt.setPort(DB_PORT);
       DatabaseEventListeners.getInstance().fire(evt);
