@@ -13,6 +13,18 @@ catch (    final Exception ex) {
       throw new EucalyptusCloudException("Failed to verify EMI in the system");
     }
   }
+  if (volumeId != null) {
+    if (!volumeId.toLowerCase().startsWith("vol-"))     throw new EucalyptusCloudException("No such volume is found");
+    try {
+      final List<Volume> volumes=Ec2Client.getInstance().describeVolumes(null,Lists.newArrayList(volumeId));
+      if (!(volumeId.equals(volumes.get(0).getVolumeId()) && "available".equals(volumes.get(0).getStatus()))) {
+        throw new Exception();
+      }
+    }
+ catch (    final Exception ex) {
+      throw new EucalyptusCloudException("No such volume id is found");
+    }
+  }
   if (instanceType != null) {
     ;
   }
@@ -79,14 +91,17 @@ catch (    final Exception ex) {
           prefix=Joiner.on("\n").join(lines);
         }
         String newUserdata=lc.getUserData();
+        if (volumeId != null) {
+          newUserdata=B64.standard.encString(String.format("%s\n%s",prefix,getServerUserData(volumeId,DatabaseServerProperties.DB_SERVER_NTP_SERVER,null,null)));
+        }
         if (ntpServers != null) {
-          newUserdata=B64.standard.encString(String.format("%s\n%s",prefix,getServerUserData(ntpServers,null,null)));
+          newUserdata=B64.standard.encString(String.format("%s\n%s",prefix,getServerUserData(DatabaseServerProperties.DB_SERVER_VOLUME,ntpServers,null,null)));
         }
         if (logServer != null) {
-          newUserdata=B64.standard.encString(String.format("%s\n%s",prefix,getServerUserData(DatabaseServerProperties.DB_SERVER_NTP_SERVER,logServer,null)));
+          newUserdata=B64.standard.encString(String.format("%s\n%s",prefix,getServerUserData(DatabaseServerProperties.DB_SERVER_VOLUME,DatabaseServerProperties.DB_SERVER_NTP_SERVER,logServer,null)));
         }
         if (logServerPort != null) {
-          newUserdata=B64.standard.encString(String.format("%s\n%s",prefix,getServerUserData(DatabaseServerProperties.DB_SERVER_NTP_SERVER,null,logServerPort)));
+          newUserdata=B64.standard.encString(String.format("%s\n%s",prefix,getServerUserData(DatabaseServerProperties.DB_SERVER_VOLUME,DatabaseServerProperties.DB_SERVER_NTP_SERVER,null,logServerPort)));
         }
         try {
           AutoScalingClient.getInstance().createLaunchConfiguration(null,newEmi,newType,lc.getIamInstanceProfile(),tmpLaunchConfigName,lc.getSecurityGroups().getMember().get(0),newKeyname,newUserdata);
