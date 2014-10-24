@@ -1,0 +1,30 @@
+{
+  final String provider=getProperty(PROP_POSTGRESQL_SSL_PROVIDER);
+  final String protocol=getProperty(PROP_POSTGRESQL_SSL_PROTOCOL,DEFAULT_PROTOCOL);
+  X509Certificate certificate=null;
+  try {
+    String bodyPem=DatabaseInfo.getDatabaseInfo().getAppendOnlySslCert();
+    bodyPem=bodyPem.trim();
+    certificate=PEMFiles.getCert(bodyPem.getBytes(Charsets.UTF_8));
+  }
+ catch (  final Exception ex) {
+    LOG.error("Failed to read the server certificate",ex);
+    throw Exceptions.toUndeclared(ex);
+  }
+  final SSLContext sslContext;
+  try {
+    sslContext=provider != null ? SSLContext.getInstance(protocol,provider) : SSLContext.getInstance(protocol);
+    final TrustManager trustManager=new SimpleClientX509TrustManager(certificate,false);
+    sslContext.init(null,new TrustManager[]{trustManager},Crypto.getSecureRandomSupplier().get());
+    return sslContext.getSocketFactory();
+  }
+ catch (  NoSuchAlgorithmException e) {
+    throw propagate(e);
+  }
+catch (  KeyManagementException e) {
+    throw propagate(e);
+  }
+catch (  NoSuchProviderException e) {
+    throw propagate(e);
+  }
+}
