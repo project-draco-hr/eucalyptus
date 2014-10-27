@@ -3,7 +3,7 @@
   final Context ctx=Contexts.lookup();
   final String lbName=request.getLoadBalancerName();
   Instances instances=request.getInstances();
-  LoadBalancer lb=null;
+  LoadBalancer lb;
   try {
     lb=LoadBalancers.getLoadbalancer(ctx,lbName);
   }
@@ -17,7 +17,7 @@ catch (  Exception ex) {
     throw new AccessPointNotFoundException();
   }
   List<LoadBalancerBackendInstanceCoreView> lbInstances=Lists.newArrayList(lb.getBackendInstances());
-  List<LoadBalancerBackendInstanceCoreView> instancesFound=null;
+  List<LoadBalancerBackendInstanceCoreView> instancesFound;
   List<LoadBalancerBackendInstanceCoreView> stateOutdated=Lists.newArrayList();
   final int healthyTimeoutSec=3 * (lb.getHealthCheckInterval() * lb.getHealthyThreshold());
   long currentTime=System.currentTimeMillis();
@@ -39,7 +39,7 @@ catch (  Exception ex) {
   final ArrayList<InstanceState> stateList=Lists.newArrayList();
   for (  final LoadBalancerBackendInstanceCoreView instance : instancesFound) {
     boolean outdated=false;
-    Date lastUpdated=null;
+    Date lastUpdated;
     if ((lastUpdated=instance.instanceStateLastUpdated()) != null) {
       final int diffSec=(int)((currentTime - lastUpdated.getTime()) / 1000.0);
       if (LoadBalancerBackendInstance.STATE.InService.equals(instance.getState()) && diffSec > healthyTimeoutSec) {
@@ -62,8 +62,7 @@ catch (  Exception ex) {
     stateList.add(state);
   }
   if (!stateOutdated.isEmpty()) {
-    final EntityTransaction db=Entities.get(LoadBalancerBackendInstance.class);
-    try {
+    try (TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
       for (      final LoadBalancerBackendInstanceCoreView instanceView : stateOutdated) {
         final LoadBalancerBackendInstance sample=LoadBalancerBackendInstanceEntityTransform.INSTANCE.apply(instanceView);
         final LoadBalancerBackendInstance update=Entities.uniqueResult(sample);
@@ -74,14 +73,7 @@ catch (  Exception ex) {
       }
       db.commit();
     }
- catch (    final NoSuchElementException ex) {
-      db.rollback();
-    }
-catch (    final Exception ex) {
-      db.rollback();
-    }
- finally {
-      if (db.isActive())       db.rollback();
+ catch (    final Exception ex) {
     }
   }
   final InstanceStates states=new InstanceStates();

@@ -1,0 +1,37 @@
+{
+  final String userId=evt.getUserId();
+  final String systemUserId=getSystemUserId();
+  String acctNumber=null;
+  try {
+    acctNumber=Accounts.lookupUserById(userId).getAccountNumber();
+  }
+ catch (  final AuthException ex) {
+    throw new EventHandlerException("Failed to lookup account number",ex);
+  }
+  final String rolePath=DEFAULT_ROLE_PATH_PREFIX;
+  final String roleName=String.format("%s-%s-%s",DEFAULT_ROLE_NAME,acctNumber,evt.getDbInstanceIdentifier());
+  final String assumeRolePolicy=DEFAULT_ASSUME_ROLE_POLICY;
+  try {
+    List<RoleType> result=EuareClient.getInstance().listRoles(systemUserId,rolePath);
+    if (result != null) {
+      for (      RoleType r : result) {
+        if (roleName.equals(r.getRoleName())) {
+          role=r;
+          break;
+        }
+      }
+    }
+  }
+ catch (  Exception ex) {
+    throw new EventHandlerException("Failed to list IAM roles",ex);
+  }
+  if (role == null) {
+    try {
+      role=EuareClient.getInstance().createRole(systemUserId,roleName,rolePath,assumeRolePolicy);
+    }
+ catch (    Exception ex) {
+      throw new EventHandlerException("Failed to create the role for db server Vms");
+    }
+  }
+  if (role == null)   throw new EventHandlerException("No role is found for db server Vms");
+}

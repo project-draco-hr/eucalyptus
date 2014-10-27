@@ -1,0 +1,52 @@
+{
+  final RemoveTagsResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String accountNumber=ctx.getAccount().getAccountNumber();
+  final Set<String> requestedNames=Sets.newHashSet();
+  if (request.getLoadBalancerNames() != null) {
+    requestedNames.addAll(request.getLoadBalancerNames().getMember());
+  }
+  if (requestedNames.size() > 1) {
+    throw new LoadBalancingBackendClientException("InvalidParameterValue","Too many load balancers");
+  }
+  final Set<String> tags=Sets.newHashSet();
+  if (request.getTags() != null) {
+    for (    final TagKeyOnly tag : request.getTags().getMember()) {
+      tags.add(tag.getKey());
+    }
+    final int reservedTags=Iterables.size(Iterables.filter(tags,isReservedTagPrefix()));
+    if (reservedTags > 0 && !Contexts.lookup().isPrivileged()) {
+      throw new InvalidConfigurationRequestException("Invalid tag key (reserved prefix)");
+    }
+  }
+  final Function<String,Void> removeTags=new Function<String,Void>(){
+    @Override public Void apply(    final String identifier){
+      try {
+        final LoadBalancer example=LoadBalancer.namedByAccountId(accountNumber,identifier);
+        final LoadBalancer loadBalancer=Entities.uniqueResult(example);
+        if (RestrictedTypes.filterPrivileged().apply(loadBalancer)) {
+          final Map<String,String> lbTags=loadBalancer.getTags();
+          lbTags.keySet().removeAll(tags);
+          return null;
+        }
+ else {
+          throw new NoSuchElementException();
+        }
+      }
+ catch (      NoSuchElementException e) {
+        throw Exceptions.toUndeclared(new AccessPointNotFoundException());
+      }
+catch (      TransactionException e) {
+        throw Exceptions.toUndeclared(e);
+      }
+    }
+  }
+;
+  try {
+    Entities.asTransaction(LoadBalancer.class,removeTags).apply(Iterables.getOnlyElement(requestedNames));
+  }
+ catch (  Exception e) {
+    throw handleException(e);
+  }
+  return reply;
+}

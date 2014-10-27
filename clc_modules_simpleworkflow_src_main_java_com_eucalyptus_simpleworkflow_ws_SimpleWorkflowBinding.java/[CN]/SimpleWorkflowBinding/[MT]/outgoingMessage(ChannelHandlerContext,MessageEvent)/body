@@ -4,10 +4,16 @@
     ByteArrayOutputStream byteOut=new ByteArrayOutputStream(8192);
     if (httpResponse.getMessage() instanceof EucalyptusErrorMessageType) {
       httpResponse.setStatus(HttpResponseStatus.BAD_REQUEST);
+      final Optional<String> correlationId=getCorrelationId(event);
+      if (correlationId.isPresent())       httpResponse.addHeader("x-amzn-RequestId",correlationId.get());
+      SwfJsonUtils.writeObject(byteOut,ImmutableMap.of("__type","InternalFailure","message",((EucalyptusErrorMessageType)httpResponse.getMessage()).getMessage()));
     }
  else     if (httpResponse.getMessage() instanceof ExceptionResponseType) {
       ExceptionResponseType msg=(ExceptionResponseType)httpResponse.getMessage();
       httpResponse.setStatus(msg.getHttpStatus());
+      final Optional<String> correlationId=getCorrelationId(event);
+      if (correlationId.isPresent())       httpResponse.addHeader("x-amzn-RequestId",correlationId.get());
+      SwfJsonUtils.writeObject(byteOut,ImmutableMap.of("__type","InternalFailure","message",((ExceptionResponseType)httpResponse.getMessage()).getMessage()));
     }
  else     if (httpResponse.getMessage() != null) {
       final Object message=httpResponse.getMessage();
@@ -21,7 +27,7 @@
     byte[] req=byteOut.toByteArray();
     ChannelBuffer buffer=ChannelBuffers.wrappedBuffer(req);
     httpResponse.addHeader(HttpHeaders.Names.CONTENT_LENGTH,String.valueOf(buffer.readableBytes()));
-    httpResponse.addHeader(HttpHeaders.Names.CONTENT_TYPE,"application/json");
+    httpResponse.addHeader(HttpHeaders.Names.CONTENT_TYPE,"application/x-amz-json-1.0");
     httpResponse.setContent(buffer);
   }
 }

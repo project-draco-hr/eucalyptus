@@ -1,7 +1,7 @@
 {
   final List<String> zones=Lists.newArrayList(evt.getZones());
   if (zones == null || zones.size() <= 0)   return;
-  LoadBalancer lb=null;
+  LoadBalancer lb;
   try {
     lb=LoadBalancers.getLoadbalancer(evt.getContext(),evt.getLoadBalancer());
   }
@@ -18,14 +18,7 @@ catch (  Exception ex) {
         this.insert(new EventHandlerChainNew.IAMRoleSetup(this));
         this.insert(new EventHandlerChainNew.InstanceProfileSetup(this));
         this.insert(new EventHandlerChainNew.SecurityGroupSetup(this));
-        int numVm=1;
-        try {
-          numVm=Integer.parseInt(EventHandlerChainNew.LOADBALANCER_NUM_VM);
-        }
- catch (        NumberFormatException ex) {
-          LOG.warn("unable to parse loadbalancer_num_vm");
-        }
-        this.insert(new LoadBalancerASGroupCreator(this,numVm));
+        this.insert(new LoadBalancerASGroupCreator(this,EventHandlerChainNew.getCapacityPerZone()));
         return this;
       }
     }
@@ -35,6 +28,7 @@ catch (  Exception ex) {
       newEvt.setContext(evt.getContext());
       newEvt.setLoadBalancer(evt.getLoadBalancer());
       newEvt.setZones(evt.getZones());
+      newEvt.setZoneToSubnetIdMap(evt.getZoneToSubnetIdMap());
       newChain.execute(newEvt);
       this.newZones=Lists.newArrayList(evt.getZones());
       this.oldZones=Lists.newArrayList();
@@ -52,20 +46,14 @@ catch (  Exception ex) {
       }
     }
 ));
-    final Set<String> availableZones=Sets.newHashSet(Collections2.transform(currentZones,new Function<LoadBalancerZoneCoreView,String>(){
-      @Override public String apply(      @Nullable LoadBalancerZoneCoreView arg0){
-        return arg0.getName();
-      }
-    }
-));
-    final Set<String> newZones=new HashSet<String>(availableZones);
-    newZones.addAll(requestedZones);
+    final Set<String> availableZones=Sets.newHashSet(Iterables.transform(currentZones,LoadBalancerZoneCoreView.name()));
+    final Set<String> newZones=Sets.newHashSet(Iterables.concat(availableZones,requestedZones));
     if (Sets.difference(newZones,availableZones).size() > 0) {
       try {
         int capacityPerZone=Integer.parseInt(EventHandlerChainNew.LOADBALANCER_NUM_VM);
         if (capacityPerZone <= 0)         capacityPerZone=1;
         final int newCapacity=capacityPerZone * newZones.size();
-        LoadBalancerAutoScalingGroup scaleGroup=null;
+        LoadBalancerAutoScalingGroup scaleGroup;
         try {
           scaleGroup=LoadBalancerAutoScalingGroupEntityTransform.INSTANCE.apply(this.group);
         }
@@ -74,23 +62,16 @@ catch (  Exception ex) {
           throw ex;
         }
         EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(group.getName(),Lists.newArrayList(newZones),newCapacity);
-        final EntityTransaction db=Entities.get(LoadBalancerAutoScalingGroup.class);
-        try {
+        try (TransactionResource db=Entities.transactionFor(LoadBalancerAutoScalingGroup.class)){
           final LoadBalancerAutoScalingGroup update=Entities.uniqueResult(scaleGroup);
           update.setCapacity(newCapacity);
-          Entities.persist(update);
           db.commit();
         }
  catch (        NoSuchElementException ex) {
-          db.rollback();
           LOG.error("failed to find the autoscaling group record",ex);
         }
 catch (        Exception ex) {
-          db.rollback();
           LOG.error("failed to update the autoscaling group record",ex);
-        }
- finally {
-          if (db.isActive())           db.rollback();
         }
         this.newZones=Lists.newArrayList(newZones);
         this.oldZones=Lists.newArrayList(availableZones);

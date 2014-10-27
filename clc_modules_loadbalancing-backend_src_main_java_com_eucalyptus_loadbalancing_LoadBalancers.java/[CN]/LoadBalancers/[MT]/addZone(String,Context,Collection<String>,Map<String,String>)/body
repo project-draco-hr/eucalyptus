@@ -1,0 +1,33 @@
+{
+  LoadBalancer lb;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ctx,lbName);
+  }
+ catch (  Exception ex) {
+    throw new AccessPointNotFoundException();
+  }
+  try {
+    for (    final String zone : zones) {
+      try (final TransactionResource db=Entities.transactionFor(LoadBalancerZone.class)){
+        try {
+          final LoadBalancerZone sample=LoadBalancerZone.named(lb,zone);
+          final LoadBalancerZone exist=Entities.uniqueResult(sample);
+          exist.setState(LoadBalancerZone.STATE.InService);
+        }
+ catch (        final NoSuchElementException ex) {
+          final LoadBalancerZone newZone=LoadBalancerZone.create(lb,zone,zoneToSubnetIdMap.get(zone));
+          newZone.setState(LoadBalancerZone.STATE.InService);
+          Entities.persist(newZone);
+        }
+        db.commit();
+      }
+ catch (      final Exception ex) {
+        LOG.error("failed to persist the zone " + zone,ex);
+        throw ex;
+      }
+    }
+  }
+ catch (  Exception ex) {
+    throw new InternalFailure400Exception("Failed to persist the zone");
+  }
+}

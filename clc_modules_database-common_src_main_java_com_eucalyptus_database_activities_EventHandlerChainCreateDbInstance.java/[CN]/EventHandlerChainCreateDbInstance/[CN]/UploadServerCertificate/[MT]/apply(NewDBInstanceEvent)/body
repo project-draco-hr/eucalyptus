@@ -1,0 +1,52 @@
+{
+  final String userId=evt.getUserId();
+  final String systemUserId=getSystemUserId();
+  String acctNumber=null;
+  try {
+    acctNumber=Accounts.lookupUserById(userId).getAccountNumber();
+  }
+ catch (  final AuthException ex) {
+    throw new EventHandlerException("Failed to lookup account number",ex);
+  }
+  final String certPath=DEFAULT_SERVER_CERT_PATH;
+  final String certName=getCertificateName(acctNumber,evt.getDbInstanceIdentifier());
+  try {
+    final ServerCertificateType cert=EuareClient.getInstance().getServerCertificate(systemUserId,certName);
+    if (cert != null && cert.getServerCertificateMetadata() != null) {
+      try {
+        EuareClient.getInstance().deleteServerCertificate(systemUserId,cert.getServerCertificateMetadata().getServerCertificateName());
+        this.createdServerCert=null;
+      }
+ catch (      final Exception ex) {
+        throw new EventHandlerException("failed to delete server certificate");
+      }
+    }
+  }
+ catch (  final EventHandlerException ex) {
+    throw ex;
+  }
+catch (  final Exception ex) {
+    this.createdServerCert=null;
+  }
+  if (this.createdServerCert == null) {
+    String pkPem=null;
+    String certPem=null;
+    try {
+      final KeyPair kp=Certs.generateKeyPair();
+      final X509Certificate kpCert=Certs.generateCertificate(kp,String.format("Certificate-for-db-(%s-%s)",acctNumber,evt.getDbInstanceIdentifier()));
+      certPem=new String(PEMFiles.getBytes(kpCert));
+      pkPem=new String(PEMFiles.getBytes(kp));
+      certificate=PEMFiles.fromCertificate(kpCert);
+    }
+ catch (    final Exception ex) {
+      throw new EventHandlerException("failed generating server cert",ex);
+    }
+    try {
+      EuareClient.getInstance().uploadServerCertificate(systemUserId,certName,certPath,certPem,pkPem,null);
+      this.createdServerCert=certName;
+    }
+ catch (    final Exception ex) {
+      throw new EventHandlerException("failed to upload server cert",ex);
+    }
+  }
+}

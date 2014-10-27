@@ -4,23 +4,30 @@
   final AccountFullName accountFullName=userFullName.asAccountFullName();
   final Predicate<? super WorkflowExecution> accessible=SimpleWorkflowMetadatas.filteringFor(WorkflowExecution.class).byPrivileges().buildPredicate();
   try {
-    final Pair<String,String> domainTaskListPair=workflowExecutions.withRetries().updateByExample(WorkflowExecution.exampleForOpenWorkflow(accountFullName,request.getDomain(),request.getWorkflowId()),accountFullName,request.getWorkflowId(),new Function<WorkflowExecution,Pair<String,String>>(){
-      @Override public Pair<String,String> apply(      final WorkflowExecution workflowExecution){
-        if (accessible.apply(workflowExecution)) {
-          workflowExecution.setCancelRequested(true);
-          workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionCancelRequestedEventAttributes().withExternalInitiatedEventId(0L)));
-          if (workflowExecution.getDecisionStatus() != Pending) {
-            workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskScheduledEventAttributes().withTaskList(new TaskList().withName(workflowExecution.getTaskList())).withStartToCloseTimeout(String.valueOf(workflowExecution.getTaskStartToCloseTimeout()))));
-            workflowExecution.setDecisionStatus(Pending);
-            workflowExecution.setDecisionTimestamp(new Date());
-            return Pair.pair(workflowExecution.getDomainName(),workflowExecution.getTaskList());
+    final WorkflowExecution example=WorkflowExecution.exampleForOpenWorkflow(accountFullName,request.getDomain(),request.getWorkflowId(),request.getRunId());
+    final Pair<String,String> domainUuidRunIdPair=workflowExecutions.lookupByExample(example,accountFullName,request.getWorkflowId(),Predicates.alwaysTrue(),Pair.builder(WorkflowExecutions.WorkflowExecutionStringFunctions.DOMAIN_UUID,SimpleWorkflowMetadatas.toDisplayName()));
+    final Pair<String,String> domainTaskListPair;
+    try (final WorkflowLock lock=WorkflowLock.lock(accountFullName,domainUuidRunIdPair)){
+      domainTaskListPair=workflowExecutions.withRetries().updateByExample(example,accountFullName,request.getWorkflowId(),new Function<WorkflowExecution,Pair<String,String>>(){
+        @Override public Pair<String,String> apply(        final WorkflowExecution workflowExecution){
+          if (accessible.apply(workflowExecution)) {
+            workflowExecution.setCancelRequested(true);
+            workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionCancelRequestedEventAttributes().withExternalInitiatedEventId(0L)));
+            if (workflowExecution.getDecisionStatus() != Pending) {
+              workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new DecisionTaskScheduledEventAttributes().withTaskList(new TaskList().withName(workflowExecution.getTaskList())).withStartToCloseTimeout(String.valueOf(workflowExecution.getTaskStartToCloseTimeout()))));
+              if (workflowExecution.getDecisionStatus() == Idle) {
+                workflowExecution.setDecisionStatus(Pending);
+                workflowExecution.setDecisionTimestamp(new Date());
+                return Pair.pair(workflowExecution.getDomainName(),workflowExecution.getTaskList());
+              }
+            }
           }
+          return null;
         }
-        return null;
       }
-    }
 );
-    if (domainTaskListPair != null) {
+    }
+     if (domainTaskListPair != null) {
       notifyTaskList(accountFullName,domainTaskListPair.getLeft(),"decision",domainTaskListPair.getRight());
     }
   }

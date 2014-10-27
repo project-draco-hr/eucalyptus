@@ -13,7 +13,7 @@
       for (      final WorkflowExecution execution : pending) {
         if (decisionTask != null)         break;
         boolean retry=true;
-        while (retry)         try {
+        while (retry)         try (final WorkflowLock lock=WorkflowLock.lock(accountFullName,execution.getDomainUuid(),execution.getDisplayName())){
           retry=false;
           decisionTask=workflowExecutions.updateByExample(WorkflowExecution.exampleWithUniqueName(accountFullName,execution.getDomainName(),execution.getDisplayName()),accountFullName,execution.getDisplayName(),new Function<WorkflowExecution,DecisionTask>(){
             @Nullable @Override public DecisionTask apply(            final WorkflowExecution workflowExecution){
@@ -34,6 +34,12 @@
 );
         }
  catch (        Exception e) {
+          final StaleObjectStateException stale=Exceptions.findCause(e,StaleObjectStateException.class);
+          if (stale != null)           try {
+            Entities.evictCache(Class.forName(stale.getEntityName()));
+          }
+ catch (          ClassNotFoundException ce) {
+          }
           if (PersistenceExceptions.isStaleUpdate(e)) {
             logger.info("Decision task for workflow " + execution.getDisplayName() + " already taken.");
           }

@@ -1,0 +1,42 @@
+{
+  final String tagKey="Name";
+  final String tagValue=DatabaseServerProperties.DEFAULT_LAUNCHER_TAG;
+  final String userId=evt.getUserId();
+  final String systemUserId=getSystemUserId();
+  boolean vmFound=false;
+  final int MAX_RETRY_SEC=600;
+  for (int i=1; i <= MAX_RETRY_SEC; i++) {
+    try {
+      final List<RunningInstancesItemType> instances=Ec2Client.getInstance().describeInstances(systemUserId,Lists.<String>newArrayList());
+      for (      final RunningInstancesItemType instance : instances) {
+        final List<ResourceTag> tags=instance.getTagSet();
+        final String state=instance.getStateName();
+        if (tags != null) {
+          for (          final ResourceTag tag : tags) {
+            if (tagKey.equals(tag.getKey()) && tagValue.equals(tag.getValue()) && "running".equals(state)) {
+              vmFound=true;
+              instanceId=instance.getInstanceId();
+              break;
+            }
+          }
+        }
+        if (vmFound)         break;
+      }
+    }
+ catch (    final Exception ex) {
+      vmFound=false;
+    }
+    if (vmFound)     break;
+    try {
+      Thread.sleep(1000);
+    }
+ catch (    final Exception ex) {
+      ;
+    }
+    if (i % 10 == 0) {
+      LOG.info("Looking for running database VM");
+    }
+  }
+  if (!vmFound)   throw new EventHandlerException("Cannot find a running database VM");
+  LOG.info("Database VM (" + instanceId + ") is found");
+}

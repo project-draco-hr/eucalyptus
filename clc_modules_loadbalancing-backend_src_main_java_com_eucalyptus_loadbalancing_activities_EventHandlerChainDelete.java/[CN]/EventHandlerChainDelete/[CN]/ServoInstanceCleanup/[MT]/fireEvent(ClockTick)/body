@@ -1,23 +1,15 @@
 {
   if (!(Bootstrap.isFinished() && Topology.isEnabledLocally(LoadBalancingBackend.class) && Topology.isEnabled(Eucalyptus.class)))   return;
   List<LoadBalancerServoInstance> retired=null;
-  final EntityTransaction db=Entities.get(LoadBalancerServoInstance.class);
-  try {
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancerServoInstance.class)){
     LoadBalancerServoInstance sample=LoadBalancerServoInstance.withState(LoadBalancerServoInstance.STATE.Retired.name());
     retired=Entities.query(sample);
     sample=LoadBalancerServoInstance.withState(LoadBalancerServoInstance.STATE.Error.name());
     retired.addAll(Entities.query(sample));
     db.commit();
   }
- catch (  NoSuchElementException ex) {
-    db.rollback();
-  }
-catch (  Exception ex) {
-    db.rollback();
+ catch (  Exception ex) {
     LOG.warn("failed to query loadbalancer servo instance",ex);
-  }
- finally {
-    if (db.isActive())     db.rollback();
   }
   if (retired == null || retired.size() <= 0)   return;
   final List<LoadBalancerServoInstance> retiredAndDnsClean=Lists.newArrayList();
@@ -31,7 +23,7 @@ catch (  Exception ex) {
     if (instanceId == null)     continue;
     param.clear();
     param.add(instanceId);
-    String instanceState=null;
+    String instanceState;
     try {
       final List<RunningInstancesItemType> result=EucalyptusActivityTasks.getInstance().describeSystemInstances(param);
       if (result.isEmpty())       instanceState="terminated";
@@ -46,17 +38,13 @@ catch (  Exception ex) {
   for (  String instanceId : latestState.keySet()) {
     String state=latestState.get(instanceId);
     if (state.equals("terminated")) {
-      final EntityTransaction db2=Entities.get(LoadBalancerServoInstance.class);
-      try {
+      try (final TransactionResource db2=Entities.transactionFor(LoadBalancerServoInstance.class)){
         LoadBalancerServoInstance toDelete=Entities.uniqueResult(LoadBalancerServoInstance.named(instanceId));
         Entities.delete(toDelete);
         db2.commit();
       }
  catch (      Exception ex) {
-        db2.rollback();
-      }
- finally {
-        if (db2.isActive())         db2.rollback();
+        LOG.trace("Unable to delete load balancer servo instance: " + ex);
       }
     }
   }

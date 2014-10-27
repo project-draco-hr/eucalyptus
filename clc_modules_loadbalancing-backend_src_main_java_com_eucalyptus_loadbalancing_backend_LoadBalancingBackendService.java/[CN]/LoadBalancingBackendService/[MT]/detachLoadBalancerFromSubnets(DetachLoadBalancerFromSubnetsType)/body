@@ -1,4 +1,59 @@
 {
-  DetachLoadBalancerFromSubnetsResponseType reply=request.getReply();
+  final DetachLoadBalancerFromSubnetsResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String lbName=request.getLoadBalancerName();
+  final Collection<String> requestedSubnetIds=request.getSubnets().getMember();
+  final BiMap<String,String> zoneToSubnetIdMap=HashBiMap.create();
+  final String vpcId;
+  final LoadBalancerCoreView lb;
+  try {
+    final LoadBalancer lbEntity=LoadBalancers.getLoadbalancer(ctx,lbName);
+    if (!LoadBalancingMetadatas.filterPrivileged().apply(lbEntity)) {
+      throw new AccessPointNotFoundException();
+    }
+    lb=lbEntity.getCoreView();
+    vpcId=lb.getVpcId();
+    CollectionUtils.putAll(lbEntity.getZones(),zoneToSubnetIdMap,name(),subnetId());
+  }
+ catch (  final LoadBalancingException e) {
+    throw e;
+  }
+catch (  final Exception ex) {
+    throw new AccessPointNotFoundException();
+  }
+  if (vpcId == null) {
+    throw new InvalidConfigurationRequestException("Invalid subnet for load balancer");
+  }
+  final List<String> zones=Lists.newArrayList();
+  Iterables.addAll(zones,Iterables.transform(requestedSubnetIds,Functions.forMap(zoneToSubnetIdMap.inverse())));
+  if (!zones.isEmpty()) {
+    try {
+      final DisabledZoneEvent evt=new DisabledZoneEvent();
+      evt.setLoadBalancer(lbName);
+      evt.setContext(ctx);
+      evt.setZones(zones);
+      ActivityManager.getInstance().fire(evt);
+    }
+ catch (    EventFailedException e) {
+      LOG.error("failed to handle DisabledZone event",e);
+      final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
+      throw new InternalFailure400Exception(String.format("Failed to disable zones: %s",reason),e);
+    }
+  }
+  List<String> availableZones=Lists.newArrayList();
+  try {
+    final LoadBalancer updatedLb=LoadBalancers.getLoadbalancer(ctx,lbName);
+    availableZones=Lists.transform(LoadBalancers.findZonesInService(updatedLb),new Function<LoadBalancerZoneCoreView,String>(){
+      @Override public String apply(      @Nullable LoadBalancerZoneCoreView arg0){
+        return arg0.getName();
+      }
+    }
+);
+  }
+ catch (  Exception ex) {
+  }
+  final Subnets replySubnets=new Subnets();
+  replySubnets.getMember().addAll(zoneToSubnetIdMap.values());
+  reply.getDetachLoadBalancerFromSubnetsResult().setSubnets(replySubnets);
   return reply;
 }

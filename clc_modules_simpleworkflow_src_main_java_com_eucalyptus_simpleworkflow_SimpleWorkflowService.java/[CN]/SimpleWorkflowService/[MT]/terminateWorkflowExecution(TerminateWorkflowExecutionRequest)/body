@@ -4,17 +4,21 @@
   final AccountFullName accountFullName=userFullName.asAccountFullName();
   final Predicate<? super WorkflowExecution> accessible=SimpleWorkflowMetadatas.filteringFor(WorkflowExecution.class).byPrivileges().buildPredicate();
   try {
-    workflowExecutions.withRetries().updateByExample(WorkflowExecution.exampleForOpenWorkflow(accountFullName,request.getDomain(),request.getWorkflowId()),accountFullName,request.getWorkflowId(),new Function<WorkflowExecution,Void>(){
-      @Override public Void apply(      final WorkflowExecution workflowExecution){
-        if (accessible.apply(workflowExecution)) {
-          workflowExecution.closeWorkflow(WorkflowExecution.CloseStatus.Terminated,WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionTerminatedEventAttributes().withChildPolicy(Objects.firstNonNull(request.getChildPolicy(),workflowExecution.getChildPolicy())).withDetails(request.getDetails()).withReason(request.getReason())));
+    final WorkflowExecution example=WorkflowExecution.exampleForOpenWorkflow(accountFullName,request.getDomain(),request.getWorkflowId(),request.getRunId());
+    final Pair<String,String> domainUuidRunIdPair=workflowExecutions.lookupByExample(example,accountFullName,request.getWorkflowId(),Predicates.alwaysTrue(),Pair.builder(WorkflowExecutions.WorkflowExecutionStringFunctions.DOMAIN_UUID,SimpleWorkflowMetadatas.toDisplayName()));
+    try (final WorkflowLock lock=WorkflowLock.lock(accountFullName,domainUuidRunIdPair)){
+      workflowExecutions.withRetries().updateByExample(example,accountFullName,request.getWorkflowId(),new Function<WorkflowExecution,Void>(){
+        @Override public Void apply(        final WorkflowExecution workflowExecution){
+          if (accessible.apply(workflowExecution)) {
+            workflowExecution.closeWorkflow(WorkflowExecution.CloseStatus.Terminated,WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionTerminatedEventAttributes().withChildPolicy(Objects.firstNonNull(request.getChildPolicy(),workflowExecution.getChildPolicy())).withDetails(request.getDetails()).withReason(request.getReason())));
+          }
+          deleteActivities(activityTasks,accountFullName,workflowExecution);
+          return null;
         }
-        deleteActivities(activityTasks,accountFullName,workflowExecution);
-        return null;
       }
-    }
 );
-  }
+    }
+   }
  catch (  SwfMetadataNotFoundException e) {
     throw new SimpleWorkflowClientException("UnknownResourceFault",request.getRunId() == null ? "Unknown execution, workflowId = " + request.getWorkflowId() : "Unknown execution: WorkflowExecution=[workflowId=" + request.getWorkflowId() + ", runId="+ request.getRunId()+ "]");
   }

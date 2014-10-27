@@ -9,7 +9,16 @@
     throw new ValidationErrorException("Template error: all resources and parameters must have unique names. " + "Common name(s):" + commonParametersAndResources);
   }
   DependencyManager resourceDependencies=new DependencyManager();
+  if (resourceKeys.size() > Limits.MAX_RESOURCES_PER_TEMPLATE) {
+    throw new ValidationErrorException("Too many resources in the template.  Max allowed is " + Limits.MAX_RESOURCES_PER_TEMPLATE + ".");
+  }
   for (  String resourceKey : resourceKeys) {
+    if (resourceKey != null && resourceKey.length() > Limits.RESOURCE_NAME_MAX_LENGTH_CHARS) {
+      throw new ValidationErrorException("Resource name " + resourceKey + " exceeds the maximum resource name length of "+ Limits.RESOURCE_NAME_MAX_LENGTH_CHARS+ " characters.");
+    }
+    if (!resourceKey.matches("^[\\p{Alnum}]*$")) {
+      throw new ValidationErrorException("Resource name " + resourceKey + " must be alphanumeric.");
+    }
     resourceDependencies.addNode(resourceKey);
   }
   Set<String> unresolvedResourceDependencies=Sets.newLinkedHashSet();
@@ -74,10 +83,10 @@
     resourceDependencyCrawl(resourceKey,updatePolicyNode,resourceDependencies,template,unresolvedResourceDependencies,!onlyValidateTemplate);
     String deletionPolicy=JsonHelper.getString(resourceJsonNode,ResourceKey.DeletionPolicy.toString());
     if (deletionPolicy != null) {
-      if (!DeletionPolicyValues.Delete.toString().equals(deletionPolicy) && !DeletionPolicyValues.Retain.equals(deletionPolicy) && !DeletionPolicyValues.Snapshot.equals(deletionPolicy)) {
+      if (!DeletionPolicyValues.Delete.toString().equals(deletionPolicy) && !DeletionPolicyValues.Retain.toString().equals(deletionPolicy) && !DeletionPolicyValues.Snapshot.toString().equals(deletionPolicy)) {
         throw new ValidationErrorException("Template format error: Unrecognized DeletionPolicy " + deletionPolicy + " for resource "+ resourceKey);
       }
-      if (DeletionPolicyValues.Snapshot.equals(deletionPolicy) && !resourceInfo.supportsSnapshot()) {
+      if (DeletionPolicyValues.Snapshot.toString().equals(deletionPolicy) && !resourceInfo.supportsSnapshot()) {
         throw new ValidationErrorException("Template error: resource type " + resourceInfo.getType() + " does not support deletion policy Snapshot");
       }
       resourceInfo.setDeletionPolicy(deletionPolicy);

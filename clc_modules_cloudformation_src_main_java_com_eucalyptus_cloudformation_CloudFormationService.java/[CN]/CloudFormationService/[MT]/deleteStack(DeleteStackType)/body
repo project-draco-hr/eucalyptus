@@ -6,29 +6,46 @@
     User user=ctx.getUser();
     String userId=user.getUserId();
     String accountId=user.getAccount().getAccountNumber();
+    final String accountName=user.getAccount().getName();
     String stackName=request.getStackName();
     if (stackName == null)     throw new ValidationErrorException("Stack name is null");
     StackEntity stackEntity=StackEntityManager.getNonDeletedStackByNameOrId(stackName,accountId);
     if (stackEntity != null) {
-      if (stackEntity.getStackStatus() == StackEntity.Status.CREATE_IN_PROGRESS || stackEntity.getStackStatus() == StackEntity.Status.ROLLBACK_IN_PROGRESS || stackEntity.getStackStatus() == StackEntity.Status.DELETE_IN_PROGRESS) {
-        Date mostRecentActionDate=getLatestDate(stackEntity);
-        List<StackResourceEntity> stackResourceEntityList=StackResourceEntityManager.getStackResources(stackEntity.getStackId(),accountId);
-        if (stackResourceEntityList != null) {
-          for (          StackResourceEntity stackResourceEntity : stackResourceEntityList) {
-            mostRecentActionDate=newestDate(mostRecentActionDate,getLatestDate(stackResourceEntity));
+      boolean existingOpenDeleteWorkflow=false;
+      List<StackWorkflowEntity> deleteWorkflows=StackWorkflowEntityManager.getStackWorkflowEntities(stackEntity.getStackId(),StackWorkflowEntity.WorkflowType.DELETE_STACK_WORKFLOW);
+      if (deleteWorkflows != null) {
+        if (deleteWorkflows.size() > 1) {
+          throw new ValidationErrorException("More than one delete workflow exists for " + stackEntity.getStackId());
+        }
+        try {
+          AmazonSimpleWorkflow simpleWorkflowClient=CloudFormationBootstrapper.getSimpleWorkflowClient();
+          StackWorkflowEntity deleteStackWorkflowEntity=deleteWorkflows.get(0);
+          DescribeWorkflowExecutionRequest describeWorkflowExecutionRequest=new DescribeWorkflowExecutionRequest();
+          describeWorkflowExecutionRequest.setDomain(deleteStackWorkflowEntity.getDomain());
+          WorkflowExecution execution=new WorkflowExecution();
+          execution.setRunId(deleteStackWorkflowEntity.getRunId());
+          execution.setWorkflowId(deleteStackWorkflowEntity.getWorkflowId());
+          describeWorkflowExecutionRequest.setExecution(execution);
+          WorkflowExecutionDetail workflowExecutionDetail=simpleWorkflowClient.describeWorkflowExecution(describeWorkflowExecutionRequest);
+          if ("OPEN".equals(workflowExecutionDetail.getExecutionInfo().getExecutionStatus())) {
+            existingOpenDeleteWorkflow=true;
           }
         }
-        List<StackEventEntity> stackEventEntityList=StackEventEntityManager.getStackEventEntitiesById(stackEntity.getStackId(),accountId);
-        if (stackEventEntityList != null) {
-          for (          StackEventEntity stackEventEntity : stackEventEntityList) {
-            mostRecentActionDate=newestDate(mostRecentActionDate,getLatestDate(stackEventEntity));
-          }
-        }
-        if (mostRecentActionDate != null && (System.currentTimeMillis() - mostRecentActionDate.getTime() < 60 * 60 * 1000L)) {
-          throw new StackOperationInProgressException("A stack operation is ongoing (" + stackEntity.getStackStatus() + "), please try again later.");
+ catch (        Exception ex) {
+          LOG.error("Unable to get status of delete workflow for " + stackEntity.getStackId() + ", assuming not open");
+          LOG.debug(ex);
         }
       }
-      new StackDeletor(stackEntity,userId).start();
+      if (!existingOpenDeleteWorkflow) {
+        String stackId=stackEntity.getStackId();
+        StackWorkflowTags stackWorkflowTags=new StackWorkflowTags(stackId,stackName,accountId,accountName);
+        WorkflowClientFactory workflowClientFactory=new WorkflowClientFactory(CloudFormationBootstrapper.getSimpleWorkflowClient(),CloudFormationBootstrapper.SWF_DOMAIN,CloudFormationBootstrapper.SWF_TASKLIST);
+        WorkflowDescriptionTemplate workflowDescriptionTemplate=new DeleteStackWorkflowDescriptionTemplate();
+        InterfaceBasedWorkflowClient<DeleteStackWorkflow> client=workflowClientFactory.getNewWorkflowClient(DeleteStackWorkflow.class,workflowDescriptionTemplate,stackWorkflowTags);
+        DeleteStackWorkflow deleteStackWorkflow=new DeleteStackWorkflowClient(client);
+        deleteStackWorkflow.deleteStack(stackId,accountId,stackEntity.getResourceDependencyManagerJson(),userId);
+        StackWorkflowEntityManager.addOrUpdateStackWorkflowEntity(stackEntity.getStackId(),StackWorkflowEntity.WorkflowType.DELETE_STACK_WORKFLOW,CloudFormationBootstrapper.SWF_DOMAIN,client.getWorkflowExecution().getWorkflowId(),client.getWorkflowExecution().getRunId());
+      }
     }
   }
  catch (  Exception ex) {

@@ -1,0 +1,30 @@
+{
+  String certPem=null;
+  X509Certificate serverCert=null;
+  String serverCertName=null;
+  try {
+    List<String> result=this.getChain().findHandler(UploadServerCertificate.class).getResult();
+    serverCertName=result.get(0);
+    certPem=result.get(1);
+    serverCert=PEMFiles.toCertificate(certPem);
+  }
+ catch (  final Exception ex) {
+    throw new EventHandlerException("Failed to find the server certificate");
+  }
+  try {
+    final Cipher cipher=Ciphers.RSA_PKCS1.get();
+    cipher.init(Cipher.ENCRYPT_MODE,serverCert.getPublicKey(),Crypto.getSecureRandomSupplier().get());
+    byte[] bencPassword=cipher.doFinal(evt.getMasterUserPassword().getBytes());
+    encryptedPassword=new String(Base64.encode(bencPassword));
+  }
+ catch (  final Exception ex) {
+    throw new EventHandlerException("Failed to encrypt the password");
+  }
+  try {
+    final ServerCertificateType cert=EuareClient.getInstance().getServerCertificate(getSystemUserId(),serverCertName);
+    serverCertArn=cert.getServerCertificateMetadata().getArn();
+  }
+ catch (  final Exception ex) {
+    throw new EventHandlerException("Failed to get server certificate named " + serverCertName,ex);
+  }
+}

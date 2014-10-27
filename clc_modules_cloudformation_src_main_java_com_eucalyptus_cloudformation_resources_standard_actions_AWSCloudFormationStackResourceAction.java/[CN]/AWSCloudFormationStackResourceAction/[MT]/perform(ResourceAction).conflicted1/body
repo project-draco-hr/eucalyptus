@@ -1,0 +1,42 @@
+{
+  AWSCloudFormationStackResourceAction action=(AWSCloudFormationStackResourceAction)resourceAction;
+  ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
+  CreateStackType createStackType=MessageHelper.createMessage(CreateStackType.class,action.info.getEffectiveUserId());
+  String stackName=action.getDefaultPhysicalResourceId();
+  createStackType.setStackName(stackName);
+  if (action.properties.getTimeoutInMinutes() != null) {
+    createStackType.setTimeoutInMinutes(action.properties.getTimeoutInMinutes());
+  }
+  if (action.properties.getNotificationARNs() != null) {
+    ResourceList notificationARNs=new ResourceList();
+    notificationARNs.getMember().addAll(action.properties.getNotificationARNs());
+    createStackType.setNotificationARNs(notificationARNs);
+  }
+  createStackType.setDisableRollback(true);
+  if (action.properties.getParameters() != null) {
+    Parameters parameters=new Parameters();
+    createStackType.setParameters(parameters);
+    if (!action.properties.getParameters().isObject()) {
+      throw new ValidationErrorException("Invalid Parameters value " + action.properties.getParameters());
+    }
+    for (    String paramName : Lists.newArrayList(action.properties.getParameters().fieldNames())) {
+      JsonNode paramValue=action.properties.getParameters().get(paramName);
+      if (!paramValue.isTextual()) {
+        throw new ValidationErrorException("All Parameters must have String values for nested stacks");
+      }
+ else {
+        Parameter parameter=new Parameter();
+        parameter.setParameterKey(paramName);
+        parameter.setParameterValue(paramValue.textValue());
+        parameters.getMember().add(parameter);
+      }
+    }
+  }
+  createStackType.setTemplateURL(action.properties.getTemplateURL());
+  ResourceList capabilities=new ResourceList();
+  capabilities.getMember().add("CAPABILITY_IAM");
+  createStackType.setCapabilities(capabilities);
+  CreateStackResponseType createStackResponseType=AsyncRequests.<CreateStackType,CreateStackResponseType>sendSync(configuration,createStackType);
+  action.info.setPhysicalResourceId(createStackResponseType.getCreateStackResult().getStackId());
+  return action;
+}

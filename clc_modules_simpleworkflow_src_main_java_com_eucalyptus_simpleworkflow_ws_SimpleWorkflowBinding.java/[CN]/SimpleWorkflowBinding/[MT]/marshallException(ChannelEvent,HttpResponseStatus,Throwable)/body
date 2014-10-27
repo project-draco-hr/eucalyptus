@@ -1,0 +1,28 @@
+{
+  HttpResponseStatus responseStatus=status;
+  final Map<String,String> headers=Maps.newHashMap();
+  headers.put(HttpHeaders.Names.CONTENT_TYPE,"application/x-amz-json-1.0");
+  final Optional<String> correlationId=getCorrelationId(event);
+  if (correlationId.isPresent()) {
+    headers.put("x-amzn-RequestId",correlationId.get());
+  }
+  String type="InternalFailure";
+  String message=throwable.getMessage();
+  if (Exceptions.isCausedBy(throwable,InvalidAccessKeyAuthException.class)) {
+    responseStatus=HttpResponseStatus.FORBIDDEN;
+    type="InvalidClientTokenId";
+    message="The security token included in the request is invalid.";
+  }
+ else   if (Exceptions.isCausedBy(throwable,InvalidSignatureAuthException.class)) {
+    responseStatus=HttpResponseStatus.FORBIDDEN;
+    type="InvalidSignatureException";
+    message="The request signature we calculated does not match the signature you provided. Check your AWS Secret Access Key and signing method.";
+  }
+ else   if (throwable instanceof BindingException) {
+    responseStatus=HttpResponseStatus.BAD_REQUEST;
+    type="InvalidParameterValue";
+  }
+  final ByteArrayOutputStream byteOut=new ByteArrayOutputStream(8192);
+  SwfJsonUtils.writeObject(byteOut,ImmutableMap.of("__type",type,"message",message));
+  return new ExceptionResponse(responseStatus,ChannelBuffers.wrappedBuffer(byteOut.toByteArray()),ImmutableMap.copyOf(headers));
+}
