@@ -1,0 +1,89 @@
+{
+  if (!(Bootstrap.isFinished() && Topology.isEnabledLocally(Eucalyptus.class)))   return;
+  if (Topology.isEnabled(Reporting.class))   return;
+  if (lastChecked == null) {
+    lastChecked=new Date();
+  }
+ else {
+    int elapsedSec=(int)(((new Date()).getTime() - lastChecked.getTime()) / 1000.0);
+    if (elapsedSec < CHECK_EVERY_SECONDS) {
+      return;
+    }
+    lastChecked=new Date();
+  }
+  try {
+    final ConfigurableProperty hostProp=PropertyDirectory.getPropertyEntry("cloud.db.appendonlyhost");
+    if ("localhost".equals(hostProp.getValue()))     return;
+  }
+ catch (  final Exception ex) {
+    return;
+  }
+  final List<String> instances=Lists.newArrayList();
+  String asgName=null;
+  try {
+    final List<TagDescription> tags=AutoScalingClient.getInstance().describeAutoScalingTags(null);
+    for (    final TagDescription tag : tags) {
+      if (DEFAULT_LAUNCHER_TAG.equals(tag.getValue())) {
+        asgName=tag.getResourceId();
+        break;
+      }
+    }
+  }
+ catch (  final Exception ex) {
+    return;
+  }
+  if (asgName == null)   return;
+  AutoScalingGroupType asgType=null;
+  try {
+    final DescribeAutoScalingGroupsResponseType resp=AutoScalingClient.getInstance().describeAutoScalingGroups(null,Lists.newArrayList(asgName));
+    if (resp.getDescribeAutoScalingGroupsResult() != null && resp.getDescribeAutoScalingGroupsResult().getAutoScalingGroups() != null && resp.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember() != null && resp.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember().size() > 0) {
+      asgType=resp.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember().get(0);
+    }
+    if (asgType.getInstances() != null && asgType.getInstances().getMember() != null)     instances.addAll(Collections2.transform(asgType.getInstances().getMember(),new Function<Instance,String>(){
+      @Override public String apply(      Instance arg0){
+        return arg0.getInstanceId();
+      }
+    }
+));
+  }
+ catch (  final Exception ex) {
+    LOG.warn("Can't find autoscaling group named " + asgName);
+    return;
+  }
+  final List<String> runningIps=Lists.newArrayList();
+  try {
+    final List<RunningInstancesItemType> ec2Instances=Ec2Client.getInstance().describeInstances(null,instances);
+    for (    final RunningInstancesItemType inst : ec2Instances) {
+      if ("running".equals(inst.getStateName())) {
+        runningIps.add(inst.getIpAddress());
+      }
+    }
+  }
+ catch (  final Exception ex) {
+    LOG.warn("Can't get the ip address of the running instance",ex);
+    return;
+  }
+  if (runningIps.size() > 1) {
+    LOG.warn("There are more than 1 instances running remote databases.");
+  }
+ else   if (runningIps.size() == 0) {
+    return;
+  }
+  final String instanceIp=runningIps.get(0);
+  if (instanceIp == null || instanceIp.length() <= 0) {
+    LOG.warn("Invalid IP address for the instance running remote databases.");
+    return;
+  }
+  try {
+    final ConfigurableProperty hostProp=PropertyDirectory.getPropertyEntry("cloud.db.appendonlyhost");
+    final String curHost=hostProp.getValue();
+    if ("localhost".equals(curHost))     return;
+ else     if (!instanceIp.equals(curHost)) {
+      hostProp.setValue(instanceIp);
+      LOG.info("Updated the property cloud.db.appendonlyhost to " + instanceIp);
+    }
+  }
+ catch (  final Exception ex) {
+    LOG.error("Failed to update the property: cloud.db.appendonlyhost",ex);
+  }
+}
