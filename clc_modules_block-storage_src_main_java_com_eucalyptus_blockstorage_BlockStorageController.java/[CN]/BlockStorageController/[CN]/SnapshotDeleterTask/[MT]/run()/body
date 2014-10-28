@@ -1,53 +1,64 @@
 {
-  TransactionResource tran=Entities.transactionFor(SnapshotInfo.class);
   SnapshotInfo searchSnap=new SnapshotInfo();
   searchSnap.setStatus(StorageProperties.Status.deleting.toString());
-  List<SnapshotInfo> snapshots=Entities.query(searchSnap);
-  tran.commit();
-  S3SnapshotTransfer snapshotTransfer=null;
-  for (  SnapshotInfo snap : snapshots) {
-    String snapshotId=snap.getSnapshotId();
-    LOG.info("Snapshot: " + snapshotId + " was marked for deletion. Cleaning up...");
-    try {
-      blockManager.deleteSnapshot(snapshotId);
-    }
- catch (    EucalyptusCloudException e1) {
-      LOG.error(e1);
-      continue;
-    }
-    SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
-    SnapshotInfo foundSnapshotInfo;
-    try (TransactionResource tran2=Entities.transactionFor(SnapshotInfo.class)){
-      foundSnapshotInfo=Entities.uniqueResult(snapInfo);
-      foundSnapshotInfo.setStatus(StorageProperties.Status.deleted.toString());
-      tran2.commit();
-    }
- catch (    TransactionException|NoSuchElementException e) {
-      LOG.error(e);
-      continue;
-    }
-    if (StringUtils.isNotBlank(foundSnapshotInfo.getSnapshotLocation())) {
+  List<SnapshotInfo> snapshotsToBeDeleted=null;
+  try {
+    snapshotsToBeDeleted=Transactions.findAll(searchSnap);
+  }
+ catch (  Exception e) {
+    LOG.error("Failed to lookup snapshots marked for deletion",e);
+    return;
+  }
+  if (snapshotsToBeDeleted != null && !snapshotsToBeDeleted.isEmpty()) {
+    S3SnapshotTransfer snapshotTransfer=null;
+    for (    SnapshotInfo snap : snapshotsToBeDeleted) {
+      String snapshotId=snap.getSnapshotId();
+      LOG.info("Snapshot: " + snapshotId + " was marked for deletion. Cleaning up...");
       try {
-        String[] names=SnapshotInfo.getSnapshotBucketKeyNames(foundSnapshotInfo.getSnapshotLocation());
-        if (snapshotTransfer == null) {
-          if (mock == null) {
-            snapshotTransfer=new S3SnapshotTransfer();
-          }
+        blockManager.deleteSnapshot(snapshotId);
+      }
+ catch (      EucalyptusCloudException e1) {
+        LOG.debug("Failed to delete " + snapshotId,e1);
+        LOG.warn("Unable to delete " + snapshotId + ". Will retry later");
+        continue;
+      }
+      SnapshotInfo snapInfo=new SnapshotInfo(snapshotId);
+      SnapshotInfo foundSnapshotInfo;
+      try (TransactionResource tran=Entities.transactionFor(SnapshotInfo.class)){
+        foundSnapshotInfo=Entities.uniqueResult(snapInfo);
+        foundSnapshotInfo.setStatus(StorageProperties.Status.deleted.toString());
+        tran.commit();
+      }
+ catch (      TransactionException|NoSuchElementException e) {
+        LOG.error(e);
+        continue;
+      }
+      if (StringUtils.isNotBlank(foundSnapshotInfo.getSnapshotLocation())) {
+        try {
+          String[] names=SnapshotInfo.getSnapshotBucketKeyNames(foundSnapshotInfo.getSnapshotLocation());
+          if (snapshotTransfer == null) {
+            if (mock == null) {
+              snapshotTransfer=new S3SnapshotTransfer();
+            }
  else {
-            snapshotTransfer=mock;
+              snapshotTransfer=mock;
+            }
           }
+          snapshotTransfer.setSnapshotId(snapshotId);
+          snapshotTransfer.setBucketName(names[0]);
+          snapshotTransfer.setKeyName(names[1]);
+          snapshotTransfer.delete();
         }
-        snapshotTransfer.setSnapshotId(snapshotId);
-        snapshotTransfer.setBucketName(names[0]);
-        snapshotTransfer.setKeyName(names[1]);
-        snapshotTransfer.delete();
+ catch (        Exception e) {
+          LOG.warn("Failed to delete snapshot " + snapshotId + " from objectstorage",e);
+        }
       }
- catch (      Exception e) {
-        LOG.warn("Failed to delete snapshot " + snapshotId + " from objectstorage",e);
-      }
-    }
  else {
-      LOG.debug("Snapshot location missing for " + snapshotId + ". Skipping deletion from ObjectStorageGateway");
+        LOG.debug("Snapshot location missing for " + snapshotId + ". Skipping deletion from ObjectStorageGateway");
+      }
     }
+  }
+ else {
+    LOG.trace("No snapshots marked for deletion");
   }
 }
