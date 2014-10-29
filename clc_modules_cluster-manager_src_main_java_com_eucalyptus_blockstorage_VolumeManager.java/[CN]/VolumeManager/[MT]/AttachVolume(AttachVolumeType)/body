@@ -4,9 +4,6 @@
   final String volumeId=normalizeVolumeIdentifier(request.getVolumeId());
   final String instanceId=normalizeInstanceIdentifier(request.getInstanceId());
   final Context ctx=Contexts.lookup();
-  if (deviceName == null || deviceName.endsWith("sda") || !validateDeviceName(deviceName)) {
-    throw new ClientComputeException("InvalidParameterValue","Value (" + deviceName + ") for parameter device is invalid.");
-  }
   VmInstance vm=null;
   try {
     vm=RestrictedTypes.doPrivileged(instanceId,VmInstance.class);
@@ -20,6 +17,9 @@ catch (  Exception ex) {
   }
   if (MigrationState.isMigrating(vm)) {
     throw Exceptions.toUndeclared("Cannot attach a volume to an instance which is currently migrating: " + vm.getInstanceId() + " "+ vm.getMigrationTask());
+  }
+  if (deviceName == null || (deviceName.endsWith("sda") && !VmState.STOPPED.equals(vm.getState())) || !validateDeviceName(deviceName)) {
+    throw new ClientComputeException("InvalidParameterValue","Value (" + deviceName + ") for parameter device is invalid.");
   }
   AccountFullName ownerFullName=ctx.getUserFullName().asAccountFullName();
   Volume volume=null;
@@ -74,9 +74,14 @@ catch (  Exception ex) {
   String token=StorageProperties.formatVolumeAttachmentTokenForTransfer(scGetTokenResponse.getToken(),volume.getDisplayName());
   request.setRemoteDevice(token);
   AttachedVolume attachVol=new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice(),request.getRemoteDevice());
-  vm.addTransientVolume(deviceName,token,volume);
-  final VolumeAttachCallback cb=new VolumeAttachCallback(request);
-  AsyncRequests.newRequest(cb).dispatch(ccConfig);
+  if (deviceName.endsWith("sda") && VmState.STOPPED.equals(vm.getState())) {
+    vm.addRootVolumeToStoppedInstance(token,volume);
+  }
+ else   vm.addTransientVolume(deviceName,token,volume);
+  if (!VmState.STOPPED.equals(vm.getState())) {
+    final VolumeAttachCallback cb=new VolumeAttachCallback(request);
+    AsyncRequests.newRequest(cb).dispatch(ccConfig);
+  }
   EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getOwner().toString(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("partition",vm.getPartition().toString()).info();
   reply.setAttachedVolume(attachVol);
   Volumes.fireUsageEvent(volume,VolumeEvent.forVolumeAttach(vm.getInstanceUuid(),volume.getDisplayName()));
