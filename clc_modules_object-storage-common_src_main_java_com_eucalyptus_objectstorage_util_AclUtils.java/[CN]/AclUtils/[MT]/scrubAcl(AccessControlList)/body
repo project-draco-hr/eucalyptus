@@ -1,0 +1,52 @@
+{
+  AccessControlList scrubbed=new AccessControlList();
+  if (acl == null || acl.getGrants() == null || acl.getGrants().size() == 0) {
+    return scrubbed;
+  }
+  String canonicalId=null;
+  Grantee grantee;
+  CanonicalUser canonicalUser;
+  Group group;
+  String email;
+  for (  Grant g : acl.getGrants()) {
+    grantee=g.getGrantee();
+    if (grantee == null) {
+      continue;
+    }
+ else {
+      canonicalUser=grantee.getCanonicalUser();
+      group=grantee.getGroup();
+      email=grantee.getEmailAddress();
+    }
+    canonicalId=canonicalUser == null ? null : resolveCanonicalId(canonicalUser.getID());
+    if (canonicalId == null) {
+      try {
+        User user=Accounts.lookupUserByEmailAddress(email);
+        if (user != null && user.isAccountAdmin() && user.getAccount() != null) {
+          canonicalId=user.getAccount().getCanonicalId();
+        }
+      }
+ catch (      AuthException authEx) {
+      }
+    }
+    if (canonicalId == null && group != null && !Strings.isNullOrEmpty(group.getUri())) {
+      ObjectStorageProperties.S3_GROUP foundGroup=AclUtils.getGroupFromUri(group.getUri());
+      if (foundGroup == null) {
+        throw new NoSuchElementException("URI: " + group.getUri() + " not found in group map");
+      }
+      canonicalId=group.getUri();
+    }
+    if (canonicalId == null) {
+      throw new NoSuchElementException("No canonicalId found for grant: " + g.toString());
+    }
+ else {
+      if (grantee.getCanonicalUser() == null) {
+        grantee.setCanonicalUser(new CanonicalUser(canonicalId,""));
+      }
+ else {
+        grantee.getCanonicalUser().setID(canonicalId);
+      }
+    }
+  }
+  return acl;
+}

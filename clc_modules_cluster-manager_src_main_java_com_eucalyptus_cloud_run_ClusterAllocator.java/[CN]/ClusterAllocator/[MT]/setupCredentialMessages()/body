@@ -6,18 +6,26 @@
  catch (  final AuthException ex) {
     return;
   }
-  if (allocInfo.getUserData() == null || allocInfo.getUserData().length < VmInstances.VmSpecialUserData.EUCAKEY_CRED_SETUP.toString().length())   return;
-  String userData=new String(allocInfo.getUserData(),0,VmInstances.VmSpecialUserData.EUCAKEY_CRED_SETUP.toString().length());
-  if (!userData.startsWith(VmInstances.VmSpecialUserData.EUCAKEY_CRED_SETUP.toString()))   return;
-  userData=new String(allocInfo.getUserData());
+  if (allocInfo.getUserData() == null || allocInfo.getUserData().length <= 0)   return;
+  final String userData=new String(allocInfo.getUserData());
+  if (!VmInstances.VmSpecialUserData.apply(userData))   return;
   String payload=null;
-  if (userData.length() > VmInstances.VmSpecialUserData.EUCAKEY_CRED_SETUP.toString().length()) {
-    payload=userData.substring(VmInstances.VmSpecialUserData.EUCAKEY_CRED_SETUP.toString().length()).trim();
+  int expirationDays=180;
+  try {
+    final VmInstances.VmSpecialUserData specialData=new VmInstances.VmSpecialUserData(userData);
+    if (!VmInstances.VmSpecialUserData.EUCAKEY_CRED_SETUP.equals(specialData.getKey()))     return;
+    final String strExpDay=specialData.getArgValue("expiration_day");
+    if (strExpDay != null)     expirationDays=Integer.parseInt(strExpDay);
+    payload=specialData.getPayload();
+  }
+ catch (  final Exception ex) {
+    LOG.error("Failed to parse VM user data",ex);
+    return;
   }
   this.allocInfo.setUserDataAsString(payload);
   try {
     final KeyPair kp=Certs.generateKeyPair();
-    final X509Certificate kpCert=Certs.generateCertificate(kp,String.format("Certificate-for-%s/%s",this.allocInfo.getOwnerFullName().getAccountName(),this.allocInfo.getOwnerFullName().getUserName()));
+    final X509Certificate kpCert=Certs.generateCertificate(kp,String.format("Certificate-for-%s/%s",this.allocInfo.getOwnerFullName().getAccountName(),this.allocInfo.getOwnerFullName().getUserName()),DateUtils.addDays(Calendar.getInstance().getTime(),expirationDays));
     final String b64PubKey=B64.standard.encString(PEMFiles.getBytes(kpCert));
     final ServiceConfiguration euare=Topology.lookup(Euare.class);
     final SignCertificateType req=new SignCertificateType();
