@@ -5,16 +5,25 @@
   final String routeTableId=Identifier.rtb.normalize(request.getRouteTableId());
   final String associationId=Identifier.rtbassoc.normalize(request.getAssociationId());
   try {
-    final Subnet subnet=subnets.updateByExample(Subnet.exampleWithRouteTableAssociation(accountFullName,associationId),accountFullName,request.getAssociationId(),new Callback<Subnet>(){
-      @Override public void fire(      final Subnet subnet){
-        if (RestrictedTypes.filterPrivileged().apply(subnet))         try {
-          final RouteTable routeTable=routeTables.lookupByName(accountFullName,routeTableId,Functions.<RouteTable>identity());
-          if (subnet.getRouteTable().getMain()) {
-            subnet.getRouteTable().setMain(false);
-            routeTable.setMain(true);
+    final String newAssociationId=routeTables.updateByAssociationId(associationId,accountFullName,new Function<RouteTable,String>(){
+      @Override public String apply(      final RouteTable routeTable){
+        if (RestrictedTypes.filterPrivileged().apply(routeTable))         try {
+          final RouteTable newRouteTable=routeTables.lookupByName(accountFullName,routeTableId,Functions.<RouteTable>identity());
+          final RouteTableAssociation association=Iterables.find(routeTable.getRouteTableAssociations(),CollectionUtils.propertyPredicate(associationId,RouteTables.AssociationFilterStringFunctions.ASSOCIATION_ID));
+          if (!newRouteTable.getVpc().getDisplayName().equals(routeTable.getVpc().getDisplayName())) {
+            throw Exceptions.toUndeclared(new ClientComputeException("InvalidParameterValue","Route table " + routeTableId + " belongs to different network"));
           }
-          subnet.setRouteTable(routeTable);
-          subnet.setRouteTableAssociationId(Identifier.rtbassoc.generate());
+          final RouteTableAssociation oldAssociation=routeTable.disassociate(associationId);
+          Entities.delete(oldAssociation);
+          Entities.flush(oldAssociation);
+          final RouteTableAssociation newAssociation;
+          if (association.getMain()) {
+            newAssociation=newRouteTable.associateMain();
+          }
+ else {
+            newAssociation=newRouteTable.associate(association.getSubnet());
+          }
+          return newAssociation.getAssociationId();
         }
  catch (        VpcMetadataNotFoundException e) {
           throw Exceptions.toUndeclared(new ClientComputeException("InvalidRouteTableID.NotFound","Route table not found '" + request.getRouteTableId() + "'"));
@@ -29,7 +38,7 @@ catch (        Exception e) {
     }
 );
     invalidate(routeTableId);
-    reply.setNewAssociationId(subnet.getRouteTableAssociationId());
+    reply.setNewAssociationId(newAssociationId);
   }
  catch (  VpcMetadataNotFoundException e) {
     throw new ClientComputeException("InvalidAssociationID.NotFound","Route table association (" + request.getAssociationId() + ") not found ");

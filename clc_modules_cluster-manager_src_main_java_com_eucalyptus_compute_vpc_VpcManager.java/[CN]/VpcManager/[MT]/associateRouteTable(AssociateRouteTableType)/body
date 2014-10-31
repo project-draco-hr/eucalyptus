@@ -5,15 +5,19 @@
   final String routeTableId=Identifier.rtb.normalize(request.getRouteTableId());
   final String subnetId=Identifier.subnet.normalize(request.getSubnetId());
   try {
-    final Subnet subnet=subnets.updateByExample(Subnet.exampleWithName(accountFullName,subnetId),accountFullName,request.getSubnetId(),new Callback<Subnet>(){
-      @Override public void fire(      final Subnet subnet){
-        if (RestrictedTypes.filterPrivileged().apply(subnet))         try {
-          final RouteTable routeTable=routeTables.lookupByName(accountFullName,routeTableId,Functions.<RouteTable>identity());
-          subnet.setRouteTable(routeTable);
-          subnet.setRouteTableAssociationId(Identifier.rtbassoc.generate());
+    final RouteTable routeTable=routeTables.updateByExample(RouteTable.exampleWithName(accountFullName,routeTableId),accountFullName,request.getRouteTableId(),new Callback<RouteTable>(){
+      @Override public void fire(      final RouteTable routeTable){
+        if (RestrictedTypes.filterPrivileged().apply(routeTable))         try {
+          final Subnet subnet=subnets.lookupByName(accountFullName,subnetId,Functions.<Subnet>identity());
+          if (!subnet.getVpc().getDisplayName().equals(routeTable.getVpc().getDisplayName())) {
+            throw Exceptions.toUndeclared(new ClientComputeException("InvalidParameterValue","Route table " + routeTableId + " and subnet "+ subnetId+ " belong to different networks"));
+          }
+          if (!Iterables.tryFind(routeTable.getRouteTableAssociations(),CollectionUtils.propertyPredicate(subnetId,RouteTables.AssociationFilterStringFunctions.SUBNET_ID)).isPresent()) {
+            routeTable.associate(subnet);
+          }
         }
  catch (        VpcMetadataNotFoundException e) {
-          throw Exceptions.toUndeclared(new ClientComputeException("InvalidRouteTableID.NotFound","Route table not found '" + request.getRouteTableId() + "'"));
+          throw Exceptions.toUndeclared(new ClientComputeException("InvalidSubnetID.NotFound","Subnet (" + request.getSubnetId() + ") not found"));
         }
 catch (        Exception e) {
           throw Exceptions.toUndeclared(e);
@@ -24,13 +28,17 @@ catch (        Exception e) {
       }
     }
 );
-    reply.setAssociationId(subnet.getRouteTableAssociationId());
+    final RouteTableAssociation association=Iterables.find(routeTable.getRouteTableAssociations(),CollectionUtils.propertyPredicate(subnetId,RouteTables.AssociationFilterStringFunctions.SUBNET_ID));
+    reply.setAssociationId(association.getAssociationId());
     invalidate(subnetId);
   }
  catch (  VpcMetadataNotFoundException e) {
-    throw new ClientComputeException("InvalidSubnetID.NotFound","Subnet (" + request.getSubnetId() + ") not found ");
+    throw new ClientComputeException("InvalidRouteTableID.NotFound","Route table not found '" + request.getRouteTableId() + "'");
   }
 catch (  Exception e) {
+    if (Exceptions.isCausedBy(e,ConstraintViolationException.class)) {
+      throw new ClientComputeException("InvalidParameterValue","Subnet " + subnetId + " already associated.");
+    }
     throw handleException(e);
   }
   return reply;
