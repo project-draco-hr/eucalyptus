@@ -4,20 +4,24 @@
   final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
   final String associationId=Identifier.rtbassoc.normalize(request.getAssociationId());
   try {
-    final Subnet subnet=subnets.updateByExample(Subnet.exampleWithRouteTableAssociation(accountFullName,associationId),accountFullName,request.getAssociationId(),new Callback<Subnet>(){
-      @Override public void fire(      final Subnet subnet){
-        if (RestrictedTypes.filterPrivileged().apply(subnet))         try {
-          final RouteTable routeTable=routeTables.lookupMain(subnet.getVpc().getDisplayName(),Functions.<RouteTable>identity());
-          subnet.setRouteTable(routeTable);
-          subnet.setRouteTableAssociationId(Identifier.rtbassoc.generate());
+    final String subnetId=routeTables.updateByAssociationId(associationId,accountFullName,new Function<RouteTable,String>(){
+      @Override public String apply(      final RouteTable routeTable){
+        if (RestrictedTypes.filterPrivileged().apply(routeTable))         try {
+          final RouteTableAssociation association=Iterables.find(routeTable.getRouteTableAssociations(),CollectionUtils.propertyPredicate(associationId,RouteTables.AssociationFilterStringFunctions.ASSOCIATION_ID));
+          if (association.getMain()) {
+            throw new ClientComputeException("InvalidParameterValue","Cannot disassociate the main route table association " + request.getAssociationId());
+          }
+          routeTable.disassociate(associationId);
+          return association.getSubnetId();
         }
  catch (        Exception e) {
           throw Exceptions.toUndeclared(e);
         }
+        return null;
       }
     }
 );
-    invalidate(subnet.getDisplayName());
+    if (subnetId != null)     invalidate(subnetId);
   }
  catch (  VpcMetadataNotFoundException e) {
     throw new ClientComputeException("InvalidAssociationID.NotFound","Route table association (" + request.getAssociationId() + ") not found ");
