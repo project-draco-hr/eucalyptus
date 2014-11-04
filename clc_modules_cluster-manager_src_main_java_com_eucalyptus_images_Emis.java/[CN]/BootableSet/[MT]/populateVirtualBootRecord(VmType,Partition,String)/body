@@ -3,15 +3,18 @@
   try {
     if (this.isLinux()) {
       if (this.hasKernel()) {
+        if (!this.getKernel().getManifestHash().isEmpty() && !this.getKernel().getManifestHash().equals(ImageManifests.getManifestHash(this.getKernel().getManifestLocation())))         throw new MetadataException("Kernel manifest was changed after registration");
         String manifestLocation=DownloadManifestFactory.generateDownloadManifest(new ImageManifestFile(this.getKernel().getManifestLocation(),BundleImageManifest.INSTANCE,ImageConfiguration.getInstance().getMaxManifestSizeBytes()),partition.getNodeCertificate().getPublicKey(),this.getKernel().getDisplayName() + "-" + reservationId,true);
         vmTypeInfo.setKernel(this.getKernel().getDisplayName(),manifestLocation,this.getKernel().getImageSizeBytes());
       }
       if (this.hasRamdisk()) {
+        if (!this.getRamdisk().getManifestHash().isEmpty() && !this.getRamdisk().getManifestHash().equals(ImageManifests.getManifestHash(this.getRamdisk().getManifestLocation())))         throw new MetadataException("Ramdisk manifest was changed after registration");
         String manifestLocation=DownloadManifestFactory.generateDownloadManifest(new ImageManifestFile(this.getRamdisk().getManifestLocation(),BundleImageManifest.INSTANCE,ImageConfiguration.getInstance().getMaxManifestSizeBytes()),partition.getNodeCertificate().getPublicKey(),this.getRamdisk().getDisplayName() + "-" + reservationId,true);
         vmTypeInfo.setRamdisk(this.getRamdisk().getDisplayName(),manifestLocation,this.getRamdisk().getImageSizeBytes());
       }
     }
     if (this.getMachine() instanceof StaticDiskImage) {
+      StaticDiskImage diskImage=(StaticDiskImage)this.getMachine();
       final MachineImageInfo emi=LookupMachine.INSTANCE.apply(this.getMachine().getDisplayName());
       String manifestLocation=null;
       if (ImageMetadata.State.pending_available.equals(emi.getState())) {
@@ -22,9 +25,10 @@
         manifestLocation=DownloadManifestFactory.generatePresignedUrl(reservationId);
       }
  else {
-        manifestLocation=DownloadManifestFactory.generateDownloadManifest(new ImageManifestFile(((StaticDiskImage)this.getMachine()).getRunManifestLocation(),BundleImageManifest.INSTANCE,ImageConfiguration.getInstance().getMaxManifestSizeBytes()),partition.getNodeCertificate().getPublicKey(),reservationId,true);
+        if (diskImage.getRunManifestLocation().equals(diskImage.getManifestLocation()) && !diskImage.getManifestHash().isEmpty() && !diskImage.getManifestHash().equals(ImageManifests.getManifestHash(diskImage.getManifestLocation())))         throw new MetadataException("Instance manifest was changed after registration");
+        manifestLocation=DownloadManifestFactory.generateDownloadManifest(new ImageManifestFile(diskImage.getRunManifestLocation(),BundleImageManifest.INSTANCE,ImageConfiguration.getInstance().getMaxManifestSizeBytes()),partition.getNodeCertificate().getPublicKey(),reservationId,true);
       }
-      vmTypeInfo.setRoot(this.getMachine().getDisplayName(),manifestLocation,this.getMachine().getImageSizeBytes());
+      vmTypeInfo.setRoot(diskImage.getDisplayName(),manifestLocation,this.getMachine().getImageSizeBytes());
     }
   }
  catch (  DownloadManifestException ex) {
