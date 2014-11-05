@@ -1,2 +1,35 @@
 {
+  ServiceConfiguration config=Topology.lookup(ClusterController.class,allocInfo.getPartition());
+  Cluster cluster=Clusters.lookup(config);
+  if (cluster.getGateLock().readLock().tryLock(60,TimeUnit.SECONDS)) {
+    try {
+      final ResourceState state=cluster.getNodeState();
+      boolean unorderedType=VmTypes.isUnorderedType(allocInfo.getVmType());
+      boolean forceResourceRefresh=state.hasUnorderedTokens() || unorderedType;
+      if (forceResourceRefresh) {
+        cluster.refreshResources();
+      }
+      final BatchAllocator<ResourceToken> allocator=new BatchAllocator<ResourceToken>(){
+        @Override public List<ResourceToken> allocate(        int min,        int max){
+          try {
+            final List<ResourceToken> ret=state.requestResourceAllocation(allocInfo,min,max);
+            allocInfo.getAllocationTokens().addAll(ret);
+            return ret;
+          }
+ catch (          final NotEnoughResourcesException e) {
+            throw Exceptions.toUndeclared(e);
+          }
+        }
+      }
+;
+      RestrictedTypes.allocateUnitlessResources(CloudMetadata.VmInstanceMetadata.class,tryAmount,maxAmount,allocator);
+      return allocInfo.getAllocationTokens();
+    }
+  finally {
+      cluster.getGateLock().readLock().unlock();
+    }
+  }
+ else {
+    throw new ServiceStateException("Failed to allocate resources in the zone " + cluster.getPartition() + ", it is currently locked for maintenance.");
+  }
 }
