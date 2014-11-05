@@ -1,0 +1,123 @@
+{
+  try (final EucaS3Client s3Client=EucaS3ClientFactory.getEucaS3Client(Accounts.lookupAwsExecReadAdmin(true))){
+    if (!urlForNc)     s3Client.refreshEndpoint(true);
+    Date expiration=new Date();
+    long msec=expiration.getTime() + 1000 * 60 * 60* expirationHours;
+    expiration.setTime(msec);
+    if (objectExist(s3Client,DOWNLOAD_MANIFEST_BUCKET_NAME,DOWNLOAD_MANIFEST_PREFIX + manifestName)) {
+      LOG.debug("Manifest '" + (DOWNLOAD_MANIFEST_PREFIX + manifestName) + "' is already created and has not expired. Skipping creation");
+      URL s=s3Client.generatePresignedUrl(DOWNLOAD_MANIFEST_BUCKET_NAME,DOWNLOAD_MANIFEST_PREFIX + manifestName,expiration,HttpMethod.GET);
+      return String.format("%s://imaging@%s%s?%s",s.getProtocol(),s.getAuthority(),s.getPath(),s.getQuery());
+    }
+ else {
+      LOG.debug("Manifest '" + (DOWNLOAD_MANIFEST_PREFIX + manifestName) + "' does not exist");
+    }
+    UrlValidator urlValidator=new UrlValidator();
+    final String manifest=baseManifest.getManifest();
+    if (manifest == null) {
+      throw new DownloadManifestException("Can't generate download manifest from null base manifest");
+    }
+    final Document inputSource;
+    final XPath xpath;
+    Function<String,String> xpathHelper;
+    DocumentBuilder builder=XMLParser.getDocBuilder();
+    inputSource=builder.parse(new ByteArrayInputStream(manifest.getBytes()));
+    if (!"manifest".equals(inputSource.getDocumentElement().getNodeName())) {
+      LOG.error("Expected image manifest. Got " + nodeToString(inputSource,false));
+      throw new InvalidBaseManifestException("Base manifest does not have manifest element");
+    }
+    StringBuilder signatureSrc=new StringBuilder();
+    Document manifestDoc=builder.newDocument();
+    Element root=(Element)manifestDoc.createElement("manifest");
+    manifestDoc.appendChild(root);
+    Element el=manifestDoc.createElement("version");
+    el.appendChild(manifestDoc.createTextNode("2014-01-14"));
+    signatureSrc.append(nodeToString(el,false));
+    root.appendChild(el);
+    el=manifestDoc.createElement("file-format");
+    el.appendChild(manifestDoc.createTextNode(baseManifest.getManifestType().getFileType().toString()));
+    root.appendChild(el);
+    signatureSrc.append(nodeToString(el,false));
+    xpath=XPathFactory.newInstance().newXPath();
+    xpathHelper=new Function<String,String>(){
+      @Override public String apply(      String input){
+        try {
+          return (String)xpath.evaluate(input,inputSource,XPathConstants.STRING);
+        }
+ catch (        XPathExpressionException ex) {
+          return null;
+        }
+      }
+    }
+;
+    if (baseManifest.getManifestType().getFileType() == FileType.BUNDLE) {
+      String encryptedKey=xpathHelper.apply("/manifest/image/ec2_encrypted_key");
+      String encryptedIV=xpathHelper.apply("/manifest/image/ec2_encrypted_iv");
+      String size=xpathHelper.apply("/manifest/image/size");
+      EncryptedKey encryptKey=reEncryptKey(new EncryptedKey(encryptedKey,encryptedIV),keyToUse);
+      el=manifestDoc.createElement("bundle");
+      Element key=manifestDoc.createElement("encrypted-key");
+      key.appendChild(manifestDoc.createTextNode(encryptKey.getKey()));
+      Element iv=manifestDoc.createElement("encrypted-iv");
+      iv.appendChild(manifestDoc.createTextNode(encryptKey.getIV()));
+      el.appendChild(key);
+      el.appendChild(iv);
+      Element sizeEl=manifestDoc.createElement("unbundled-size");
+      sizeEl.appendChild(manifestDoc.createTextNode(size));
+      el.appendChild(sizeEl);
+      root.appendChild(el);
+      signatureSrc.append(nodeToString(el,false));
+    }
+    el=manifestDoc.createElement("image");
+    String bundleSize=xpathHelper.apply(baseManifest.getManifestType().getSizePath());
+    if (bundleSize == null) {
+      throw new InvalidBaseManifestException("Base manifest does not have size element");
+    }
+    Element size=manifestDoc.createElement("size");
+    size.appendChild(manifestDoc.createTextNode(bundleSize));
+    el.appendChild(size);
+    Element partsEl=manifestDoc.createElement("parts");
+    el.appendChild(partsEl);
+    NodeList parts=(NodeList)xpath.evaluate(baseManifest.getManifestType().getPartsPath(),inputSource,XPathConstants.NODESET);
+    if (parts == null) {
+      throw new InvalidBaseManifestException("Base manifest does not have parts");
+    }
+    for (int i=0; i < parts.getLength(); i++) {
+      Node part=parts.item(i);
+      String partIndex=part.getAttributes().getNamedItem("index").getNodeValue();
+      String partKey=((Node)xpath.evaluate(baseManifest.getManifestType().getPartUrlElement(),part,XPathConstants.NODE)).getTextContent();
+      String partDownloadUrl=partKey;
+      if (baseManifest.getManifestType().signPartUrl()) {
+        GeneratePresignedUrlRequest generatePresignedUrlRequest=new GeneratePresignedUrlRequest(baseManifest.getBaseBucket(),partKey,HttpMethod.GET);
+        generatePresignedUrlRequest.setExpiration(expiration);
+        URL s=s3Client.generatePresignedUrl(generatePresignedUrlRequest);
+        partDownloadUrl=s.toString();
+      }
+ else {
+        if (!urlValidator.isEucalyptusUrl(partDownloadUrl))         throw new DownloadManifestException("Some parts in the manifest are not stored in the OS. Its location is outside Eucalyptus:" + partDownloadUrl);
+      }
+      Element aPart=manifestDoc.createElement("part");
+      Element getUrl=manifestDoc.createElement("get-url");
+      getUrl.appendChild(manifestDoc.createTextNode(partDownloadUrl));
+      aPart.setAttribute("index",partIndex);
+      aPart.appendChild(getUrl);
+      partsEl.appendChild(aPart);
+    }
+    root.appendChild(el);
+    signatureSrc.append(nodeToString(el,false));
+    String signatureData=signatureSrc.toString();
+    Element signature=manifestDoc.createElement("signature");
+    signature.setAttribute("algorithm","RSA-SHA256");
+    signature.appendChild(manifestDoc.createTextNode(Signatures.SHA256withRSA.trySign(Eucalyptus.class,signatureData.getBytes())));
+    root.appendChild(signature);
+    String downloadManifest=nodeToString(manifestDoc,true);
+    createManifestsBucketIfNeeded(s3Client);
+    putManifestData(s3Client,DOWNLOAD_MANIFEST_BUCKET_NAME,DOWNLOAD_MANIFEST_PREFIX + manifestName,downloadManifest,expiration);
+    URL s=s3Client.generatePresignedUrl(DOWNLOAD_MANIFEST_BUCKET_NAME,DOWNLOAD_MANIFEST_PREFIX + manifestName,expiration,HttpMethod.GET);
+    return String.format("%s://imaging@%s%s?%s",s.getProtocol(),s.getAuthority(),s.getPath(),s.getQuery());
+  }
+ catch (  Exception ex) {
+    LOG.error("Got an error",ex);
+    throw new DownloadManifestException("Can't generate download manifest");
+  }
+}
