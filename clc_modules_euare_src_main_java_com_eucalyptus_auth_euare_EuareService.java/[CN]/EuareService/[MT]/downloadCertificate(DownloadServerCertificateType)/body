@@ -10,8 +10,12 @@
   final String certPem=request.getDelegationCertificate();
   final String authSigB64=request.getAuthSignature();
   final String certArn=request.getCertificateArn();
+  boolean oldCertType=false;
   try {
-    if (!EuareServerCertificateUtil.verifyCertificate(certPem))     throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Invalid VM certificate (certificate may have been expired)");
+    if (!EuareServerCertificateUtil.verifyCertificate(certPem,true)) {
+      oldCertType=true;
+      if (!EuareServerCertificateUtil.verifyCertificate(certPem,false))       throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Invalid VM certificate (certificate may have been expired)");
+    }
   }
  catch (  final EuareException ex) {
     throw ex;
@@ -39,16 +43,18 @@ catch (  final Exception ex) {
     LOG.error("failed to verify signature",ex);
     throw new EuareException(HttpResponseStatus.INTERNAL_SERVER_ERROR,EuareException.INTERNAL_FAILURE);
   }
-  final String certStr=B64.standard.decString(certPem);
-  try {
-    if (!EuareServerCertificateUtil.verifySignatureWithEuare(certStr,authSigB64))     throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Invalid signature");
-  }
- catch (  final EuareException ex) {
-    throw ex;
-  }
-catch (  final Exception ex) {
-    LOG.error("failed to verify auth signature",ex);
-    throw new EuareException(HttpResponseStatus.INTERNAL_SERVER_ERROR,EuareException.INTERNAL_FAILURE);
+  if (oldCertType) {
+    try {
+      final String certStr=B64.standard.decString(certPem);
+      if (!EuareServerCertificateUtil.verifySignatureWithEuare(certStr,authSigB64))       throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Invalid signature");
+    }
+ catch (    final EuareException ex) {
+      throw ex;
+    }
+catch (    final Exception ex) {
+      LOG.error("failed to verify auth signature",ex);
+      throw new EuareException(HttpResponseStatus.INTERNAL_SERVER_ERROR,EuareException.INTERNAL_FAILURE);
+    }
   }
   try {
     final ServerCertificateEntity cert=RestrictedTypes.doPrivileged(certArn,ServerCertificates.Lookup.INSTANCE);
