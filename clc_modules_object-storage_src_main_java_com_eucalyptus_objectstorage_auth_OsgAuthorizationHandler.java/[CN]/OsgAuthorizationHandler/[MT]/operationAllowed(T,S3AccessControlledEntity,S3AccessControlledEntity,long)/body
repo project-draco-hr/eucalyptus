@@ -60,77 +60,85 @@
   if (authContext == null) {
     authContext=Permissions.createAuthContextSupplier(requestUser,Collections.<String,String>emptyMap());
   }
-  Account resourceOwnerAccount=null;
+  final Account resourceOwnerAccount;
+  final PolicyResourceInfo policyResourceInfo;
   if (resourceType == null) {
     LOG.error("No resource type found in request class annotations, cannot process.");
     return false;
   }
  else {
     try {
-      if (PolicySpec.S3_RESOURCE_BUCKET.equals(resourceType)) {
+switch (resourceType) {
+case PolicySpec.S3_RESOURCE_BUCKET:
         if (bucketResourceEntity == null) {
           LOG.error("Could not check access for operation due to no bucket resource entity found");
           return false;
         }
  else {
           resourceOwnerAccount=Accounts.lookupAccountByCanonicalId(bucketResourceEntity.getOwnerCanonicalId());
+          policyResourceInfo=PolicyResourceContext.resourceInfo(resourceOwnerAccount.getAccountNumber(),bucketResourceEntity);
         }
-      }
- else       if (PolicySpec.S3_RESOURCE_OBJECT.equals(resourceType)) {
-        if (objectResourceEntity == null) {
-          LOG.error("Could not check access for operation due to no object resource entity found");
-          return false;
-        }
- else {
-          resourceOwnerAccount=Accounts.lookupAccountByCanonicalId(objectResourceEntity.getOwnerCanonicalId());
-        }
-      }
-    }
- catch (    AuthException e) {
-      LOG.error("Exception caught looking up resource owner. Disallowing operation.",e);
-      return false;
-    }
-  }
-  String resourceId=null;
-  if (resourceId == null) {
-    if (PolicySpec.S3_RESOURCE_BUCKET.equals(resourceType)) {
-      resourceId=request.getBucket();
-    }
- else     if (PolicySpec.S3_RESOURCE_OBJECT.equals(resourceType)) {
-      resourceId=request.getFullResource();
-    }
-  }
-  if (allowAdmin && requestUser.isSystemUser() && iamPermissionsAllow(authContext,requiredActions,resourceType,resourceId,resourceAllocationSize)) {
-    return true;
-  }
-  if (requiredBucketACLPermissions == null && requiredObjectACLPermissions == null) {
-    throw new IllegalArgumentException("No requires-permission actions found in request class annotations, cannot process.");
-  }
-  Boolean aclAllow=false;
-  if (requiredBucketACLPermissions != null && requiredBucketACLPermissions.length > 0) {
-    if (bucketResourceEntity == null) {
-      LOG.error("Null bucket resource, cannot evaluate bucket ACL");
-      return false;
-    }
-    for (    ObjectStorageProperties.Permission permission : requiredBucketACLPermissions) {
-      aclAllow=aclAllow || bucketResourceEntity.can(permission,requestAccount.getCanonicalId());
-    }
-  }
-  if (requiredObjectACLPermissions != null && requiredObjectACLPermissions.length > 0) {
+      break;
+case PolicySpec.S3_RESOURCE_OBJECT:
     if (objectResourceEntity == null) {
-      LOG.error("Null bucket resource, cannot evaluate bucket ACL");
+      LOG.error("Could not check access for operation due to no object resource entity found");
       return false;
     }
-    for (    ObjectStorageProperties.Permission permission : requiredObjectACLPermissions) {
-      aclAllow=aclAllow || objectResourceEntity.can(permission,requestAccount.getCanonicalId());
-    }
-  }
-  aclAllow=(allowOwnerOnly ? resourceOwnerAccount.getAccountNumber().equals(requestAccount.getAccountNumber()) : aclAllow);
-  if (isUserAnonymous(requestUser)) {
-    return aclAllow;
-  }
  else {
-    Boolean iamAllow=iamPermissionsAllow(authContext,requiredActions,resourceType,resourceId,resourceAllocationSize);
-    return aclAllow && iamAllow;
-  }
+      resourceOwnerAccount=Accounts.lookupAccountByCanonicalId(objectResourceEntity.getOwnerCanonicalId());
+      policyResourceInfo=PolicyResourceContext.resourceInfo(resourceOwnerAccount.getAccountNumber(),objectResourceEntity);
+    }
+  break;
+default :
+LOG.error("Unknown resource type looking up resource owner. Disallowing operation.");
+return false;
+}
+}
+ catch (AuthException e) {
+LOG.error("Exception caught looking up resource owner. Disallowing operation.",e);
+return false;
+}
+}
+String resourceId=null;
+if (resourceId == null) {
+if (PolicySpec.S3_RESOURCE_BUCKET.equals(resourceType)) {
+resourceId=request.getBucket();
+}
+ else if (PolicySpec.S3_RESOURCE_OBJECT.equals(resourceType)) {
+resourceId=request.getFullResource();
+}
+}
+if (allowAdmin && requestUser.isSystemUser() && iamPermissionsAllow(authContext,requiredActions,policyResourceInfo,resourceType,resourceId,resourceAllocationSize)) {
+return true;
+}
+if (requiredBucketACLPermissions == null && requiredObjectACLPermissions == null) {
+throw new IllegalArgumentException("No requires-permission actions found in request class annotations, cannot process.");
+}
+Boolean aclAllow=false;
+if (requiredBucketACLPermissions != null && requiredBucketACLPermissions.length > 0) {
+if (bucketResourceEntity == null) {
+LOG.error("Null bucket resource, cannot evaluate bucket ACL");
+return false;
+}
+for (ObjectStorageProperties.Permission permission : requiredBucketACLPermissions) {
+aclAllow=aclAllow || bucketResourceEntity.can(permission,requestAccount.getCanonicalId());
+}
+}
+if (requiredObjectACLPermissions != null && requiredObjectACLPermissions.length > 0) {
+if (objectResourceEntity == null) {
+LOG.error("Null bucket resource, cannot evaluate bucket ACL");
+return false;
+}
+for (ObjectStorageProperties.Permission permission : requiredObjectACLPermissions) {
+aclAllow=aclAllow || objectResourceEntity.can(permission,requestAccount.getCanonicalId());
+}
+}
+aclAllow=(allowOwnerOnly ? resourceOwnerAccount.getAccountNumber().equals(requestAccount.getAccountNumber()) : aclAllow);
+if (isUserAnonymous(requestUser)) {
+return aclAllow;
+}
+ else {
+Boolean iamAllow=iamPermissionsAllow(authContext,requiredActions,policyResourceInfo,resourceType,resourceId,resourceAllocationSize);
+return aclAllow && iamAllow;
+}
 }
