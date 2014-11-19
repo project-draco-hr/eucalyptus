@@ -1,14 +1,33 @@
 {
   AWSEC2SecurityGroupResourceAction action=(AWSEC2SecurityGroupResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  List<EC2Tag> tags=TagHelper.getEC2StackTags(action.info,action.getStackEntity());
-  if (action.properties.getTags() != null && !action.properties.getTags().isEmpty()) {
-    TagHelper.checkReservedEC2TemplateTags(action.properties.getTags());
-    tags.addAll(action.properties.getTags());
+  if (action.properties.getSecurityGroupIngress() != null && !action.properties.getSecurityGroupIngress().isEmpty()) {
+    for (    EC2SecurityGroupRule ec2SecurityGroupRule : action.properties.getSecurityGroupIngress()) {
+      AuthorizeSecurityGroupIngressType authorizeSecurityGroupIngressType=MessageHelper.createMessage(AuthorizeSecurityGroupIngressType.class,action.info.getEffectiveUserId());
+      authorizeSecurityGroupIngressType.setGroupId(JsonHelper.getJsonNodeFromString(action.info.getGroupId()).asText());
+      if (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getCidrIp()) && (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupId()) || !Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupName()) || !Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupOwnerId()))) {
+        throw new ValidationErrorException("Both CidrIp and SourceSecurityGroup cannot be specified in SecurityGroupIngress");
+      }
+      if (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupId()) && !Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupName())) {
+        throw new ValidationErrorException("Both SourceSecurityGroupName and SourceSecurityGroupId cannot be specified in SecurityGroupIngress");
+      }
+      IpPermissionType ipPermissionType=new IpPermissionType(ec2SecurityGroupRule.getIpProtocol(),ec2SecurityGroupRule.getFromPort(),ec2SecurityGroupRule.getToPort());
+      if (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getCidrIp())) {
+        ipPermissionType.setCidrIpRanges(Lists.newArrayList(ec2SecurityGroupRule.getCidrIp()));
+      }
+      if (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupId())) {
+        ipPermissionType.setGroups(Lists.newArrayList(new UserIdGroupPairType(ec2SecurityGroupRule.getSourceSecurityGroupOwnerId(),null,ec2SecurityGroupRule.getSourceSecurityGroupId())));
+      }
+      if (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupName())) {
+        String sourceSecurityGroupOwnerId=ec2SecurityGroupRule.getSourceSecurityGroupOwnerId();
+        if (Strings.isNullOrEmpty(sourceSecurityGroupOwnerId)) {
+          sourceSecurityGroupOwnerId=action.getStackEntity().getAccountId();
+        }
+        ipPermissionType.setGroups(Lists.newArrayList(new UserIdGroupPairType(sourceSecurityGroupOwnerId,ec2SecurityGroupRule.getSourceSecurityGroupName(),null)));
+      }
+      authorizeSecurityGroupIngressType.setIpPermissions(Lists.newArrayList(ipPermissionType));
+      AuthorizeSecurityGroupIngressResponseType authorizeSecurityGroupIngressResponseType=AsyncRequests.<AuthorizeSecurityGroupIngressType,AuthorizeSecurityGroupIngressResponseType>sendSync(configuration,authorizeSecurityGroupIngressType);
+    }
   }
-  CreateTagsType createTagsType=MessageHelper.createPrivilegedMessage(CreateTagsType.class,action.info.getEffectiveUserId());
-  createTagsType.setResourcesSet(Lists.newArrayList(JsonHelper.getJsonNodeFromString(action.info.getGroupId()).textValue()));
-  createTagsType.setTagSet(EC2Helper.createTagSet(tags));
-  AsyncRequests.<CreateTagsType,CreateTagsResponseType>sendSync(configuration,createTagsType);
   return action;
 }

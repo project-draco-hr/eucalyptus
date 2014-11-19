@@ -1,18 +1,32 @@
 {
   final DeleteVpcResponseType reply=request.getReply();
-  delete(Identifier.vpc,request.getVpcId(),new Function<Pair<AccountFullName,String>,Vpc>(){
-    @Override public Vpc apply(    final Pair<AccountFullName,String> accountAndId){
+  delete(Identifier.vpc,request.getVpcId(),new Function<Pair<Optional<AccountFullName>,String>,Vpc>(){
+    @Override public Vpc apply(    final Pair<Optional<AccountFullName>,String> accountAndId){
       try {
-        final Vpc vpc=vpcs.lookupByName(accountAndId.getLeft(),accountAndId.getRight(),Functions.<Vpc>identity());
+        final Vpc vpc=vpcs.lookupByName(accountAndId.getLeft().orNull(),accountAndId.getRight(),Functions.<Vpc>identity());
         if (RestrictedTypes.filterPrivileged().apply(vpc)) {
-          if (Boolean.TRUE.equals(vpc.getDefaultVpc()) && Contexts.lookup().isAdministrator())           try {
-            final InternetGateway internetGateway=internetGateways.lookupByVpc(null,vpc.getDisplayName(),Functions.<InternetGateway>identity());
-            internetGateways.delete(internetGateway);
+          if (Boolean.TRUE.equals(vpc.getDefaultVpc()) && Contexts.lookup().isAdministrator()) {
+            final List<Subnet> defaultSubnets=subnets.listByExample(Subnet.exampleDefault(AccountFullName.getInstance(vpc.getOwnerAccountNumber()),null),Predicates.alwaysTrue(),Functions.<Subnet>identity());
+            for (            final Subnet subnet : defaultSubnets) {
+              subnets.delete(subnet);
+            }
+            try {
+              final InternetGateway internetGateway=internetGateways.lookupByVpc(null,vpc.getDisplayName(),Functions.<InternetGateway>identity());
+              internetGateways.delete(internetGateway);
+            }
+ catch (            VpcMetadataNotFoundException e) {
+            }
+          }
+          try {
+            networkAcls.delete(networkAcls.lookupDefault(vpc.getDisplayName(),Functions.<NetworkAcl>identity()));
           }
  catch (          VpcMetadataNotFoundException e) {
           }
-          networkAcls.delete(networkAcls.lookupDefault(vpc.getDisplayName(),Functions.<NetworkAcl>identity()));
-          routeTables.delete(routeTables.lookupMain(vpc.getDisplayName(),Functions.<RouteTable>identity()));
+          try {
+            routeTables.delete(routeTables.lookupMain(vpc.getDisplayName(),Functions.<RouteTable>identity()));
+          }
+ catch (          VpcMetadataNotFoundException e) {
+          }
           try {
             securityGroups.delete(securityGroups.lookupDefault(vpc.getDisplayName(),Functions.<NetworkGroup>identity()));
           }
