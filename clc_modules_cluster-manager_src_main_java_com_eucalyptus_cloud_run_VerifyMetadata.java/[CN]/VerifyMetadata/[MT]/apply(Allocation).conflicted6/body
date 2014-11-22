@@ -1,54 +1,33 @@
 {
-  final UserFullName ownerFullName=allocInfo.getOwnerFullName();
-  final String instanceProfileArn=allocInfo.getRequest().getIamInstanceProfileArn();
-  final String instanceProfileName=allocInfo.getRequest().getIamInstanceProfileName();
-  if (!Strings.isNullOrEmpty(instanceProfileArn) || !Strings.isNullOrEmpty(instanceProfileName)) {
-    final InstanceProfile profile;
-    if (!Strings.isNullOrEmpty(instanceProfileArn))     try {
-      final Ern name=Ern.parse(instanceProfileArn);
-      if (!(name instanceof EuareResourceName)) {
-        throw new InvalidInstanceProfileMetadataException("Invalid IAM instance profile ARN: " + instanceProfileArn);
+  RunInstancesType msg=allocInfo.getRequest();
+  String imageId=msg.getImageId();
+  VmType vmType=allocInfo.getVmType();
+  try {
+    BootableSet bootSet=Emis.newBootableSet(imageId);
+    allocInfo.setBootableSet(bootSet);
+    if (!bootSet.isBlockStorage()) {
+      if (Platform.windows.equals(bootSet.getMachine().getPlatform()) && bootSet.getMachine().getImageSizeBytes() > ((1024L * 1024L * 1024L* vmType.getDisk()) + (1024L * 1024L * 10))) {
+        throw new ImageInstanceTypeVerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
       }
-      profile=Accounts.lookupAccountById(name.getNamespace()).lookupInstanceProfileByName(((EuareResourceName)name).getName());
-      if (!Strings.isNullOrEmpty(instanceProfileName) && !instanceProfileName.equals(profile.getName())) {
-        throw new InvalidInstanceProfileMetadataException(String.format("Invalid IAM instance profile name '%s' for ARN: %s",name,instanceProfileArn));
+ else       if (bootSet.getMachine().getImageSizeBytes() >= ((1024L * 1024L * 1024L* vmType.getDisk()))) {
+        throw new ImageInstanceTypeVerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
       }
-    }
- catch (    AuthException|JSONException e) {
-      throw new InvalidInstanceProfileMetadataException("Invalid IAM instance profile ARN: " + instanceProfileArn,e);
-    }
- else     if (!Strings.isNullOrEmpty(instanceProfileName))     try {
-      profile=Accounts.lookupAccountById(ownerFullName.getAccountNumber()).lookupInstanceProfileByName(instanceProfileName);
-    }
- catch (    AuthException e) {
-      throw new InvalidInstanceProfileMetadataException("Invalid IAM instance profile name: " + instanceProfileName,e);
-    }
- else {
-      profile=null;
-    }
-    if (profile != null)     try {
-      final String profileArn=Accounts.getInstanceProfileArn(profile);
-      final AuthContextSupplier user=allocInfo.getAuthContext();
-      if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_INSTANCE_PROFILE,Accounts.getInstanceProfileFullName(profile),profile.getAccount(),PolicySpec.IAM_LISTINSTANCEPROFILES,user)) {
-        throw new IllegalMetadataAccessException(String.format("Not authorized to access instance profile with ARN %s for %s",profileArn,ownerFullName));
-      }
-      final Role role=profile.getRole();
-      final String roleArn=role == null ? null : Accounts.getRoleArn(role);
-      if (role != null && !Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_ROLE,Accounts.getRoleFullName(role),role.getAccount(),PolicySpec.IAM_PASSROLE,user)) {
-        throw new IllegalMetadataAccessException(String.format("Not authorized to pass role with ARN %s for %s",roleArn,ownerFullName));
-      }
-      if (role != null) {
-        allocInfo.setInstanceProfileArn(profileArn);
-        allocInfo.setIamInstanceProfileId(profile.getInstanceProfileId());
-        allocInfo.setIamRoleArn(roleArn);
-      }
- else {
-        throw new InvalidInstanceProfileMetadataException("Role not found for IAM instance profile ARN: " + instanceProfileArn);
+      final MachineImageInfo emi=LookupMachine.INSTANCE.apply(imageId);
+      if (ImageMetadata.State.pending_available.equals(emi.getState()) && !verifyImagerCapacity(emi)) {
+        throw new MetadataException("Partition image of this size cannot be deployed without an adequately provisioned Imaging Worker." + " Please contact your cloud administrator.");
       }
     }
- catch (    AuthException e) {
-      throw new MetadataException("IAM instance profile error",e);
-    }
+  }
+ catch (  VerificationException e) {
+    throw e;
+  }
+catch (  MetadataException ex) {
+    LOG.error(ex);
+    throw ex;
+  }
+catch (  RuntimeException ex) {
+    LOG.error(ex);
+    throw new VerificationException("Failed to verify references for request: " + msg.toSimpleString() + " because of: "+ ex.getMessage(),ex);
   }
   return true;
 }
