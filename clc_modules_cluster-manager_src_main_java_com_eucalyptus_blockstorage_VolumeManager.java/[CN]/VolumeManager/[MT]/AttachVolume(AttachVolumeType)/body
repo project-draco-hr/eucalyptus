@@ -72,14 +72,18 @@ catch (  Exception ex) {
     throw new EucalyptusCloudException(e.getMessage(),e);
   }
   String token=StorageProperties.formatVolumeAttachmentTokenForTransfer(scGetTokenResponse.getToken(),volume.getDisplayName());
-  request.setRemoteDevice(token);
-  AttachedVolume attachVol=new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice(),request.getRemoteDevice());
+  final ClusterAttachVolumeType attachVolume=new ClusterAttachVolumeType();
+  attachVolume.setInstanceId(request.getInstanceId());
+  attachVolume.setVolumeId(request.getVolumeId());
+  attachVolume.setDevice(request.getDevice());
+  attachVolume.setRemoteDevice(token);
+  AttachedVolume attachVol=new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice());
   if (deviceName.endsWith("sda") && VmState.STOPPED.equals(vm.getState())) {
     vm.addRootVolumeToStoppedInstance(token,volume);
   }
  else   vm.addTransientVolume(deviceName,token,volume);
   if (!VmState.STOPPED.equals(vm.getState())) {
-    final VolumeAttachCallback cb=new VolumeAttachCallback(request);
+    final VolumeAttachCallback cb=new VolumeAttachCallback(attachVolume);
     AsyncRequests.newRequest(cb).dispatch(ccConfig);
   }
   EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getOwner().toString(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("partition",vm.getPartition().toString()).info();
