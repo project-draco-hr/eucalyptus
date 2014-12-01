@@ -1,5 +1,6 @@
 {
   final DescribeBundleTasksResponseType reply=request.getReply();
+  final boolean showAll=request.getBundleIds().remove("verbose") || !request.getBundleIds().isEmpty();
   final Filter filter=Filters.generate(request.getFilterSet(),VmBundleTask.class);
   try (final TransactionResource db=Entities.transactionFor(VmInstance.class)){
     final Predicate<? super VmBundleTask> filteredAndBundling=Predicates.and(filter.asPredicate(),VmBundleTask.Filters.BUNDLING);
@@ -8,7 +9,9 @@
     final Predicate<? super VmInstance> requestedAndAccessible=CloudMetadatas.filteringFor(VmInstance.class).byId(toInstanceIds(request.getBundleIds())).byPrivileges().buildPredicate();
     final Predicate<? super VmInstance> filteredInstances=Predicates.compose(filter.asPredicate(),VmInstances.bundleTask());
     final Filter noFilters=Filters.generate(new ArrayList<com.eucalyptus.compute.common.Filter>(),VmBundleTask.class);
-    final Collection<VmInstance> dbBundles=VmInstances.list(null,noFilters.asCriterion(),noFilters.getAliases(),requestedAndAccessible);
+    final Context ctx=Contexts.lookup();
+    final OwnerFullName ownerFullName=(ctx.isAdministrator() && showAll) ? null : ctx.getUserFullName().asAccountFullName();
+    final Collection<VmInstance> dbBundles=VmInstances.list(ownerFullName,noFilters.asCriterion(),noFilters.getAliases(),requestedAndAccessible);
     for (    final VmInstance v : dbBundles) {
       if (filteredInstances.apply(v) && VmInstance.Filters.BUNDLING.apply(v)) {
         LOG.debug("Getting current bundle for " + v.getInstanceId());
