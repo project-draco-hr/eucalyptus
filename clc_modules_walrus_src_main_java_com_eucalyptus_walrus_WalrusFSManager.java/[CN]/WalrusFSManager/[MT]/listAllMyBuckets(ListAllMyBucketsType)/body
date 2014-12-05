@@ -5,47 +5,28 @@
   if (account == null) {
     throw new AccessDeniedException("no such account");
   }
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
   try {
-    ArrayList<BucketListEntry> buckets=new ArrayList<BucketListEntry>();
     BucketInfo searchBucket=new BucketInfo();
     searchBucket.setOwnerId(account.getAccountNumber());
-    searchBucket.setHidden(false);
-    List<BucketInfo> bucketInfoList=db.queryEscape(searchBucket);
-    for (    BucketInfo bucketInfo : bucketInfoList) {
-      try {
-        if (bucketHasSnapshots(bucketInfo.getBucketName())) {
-          continue;
+    List<BucketInfo> bucketInfoList=Transactions.findAll(searchBucket);
+    ListAllMyBucketsList bucketList=new ListAllMyBucketsList();
+    if (bucketInfoList != null && !bucketInfoList.isEmpty()) {
+      bucketList.setBuckets((ArrayList<BucketListEntry>)Lists.transform(bucketInfoList,new Function<BucketInfo,BucketListEntry>(){
+        @Override public BucketListEntry apply(        BucketInfo arg0){
+          return new BucketListEntry(arg0.getBucketName(),DateFormatter.dateToListingFormattedString(arg0.getCreationDate()));
         }
+      }
+));
+    }
  else {
-          buckets.add(new BucketListEntry(bucketInfo.getBucketName(),DateFormatter.dateToListingFormattedString(bucketInfo.getCreationDate())));
-        }
-      }
- catch (      Exception e) {
-        LOG.debug(e,e);
-        continue;
-      }
+      bucketList.setBuckets(new ArrayList<BucketListEntry>());
     }
-    db.commit();
-    try {
-      CanonicalUser owner=new CanonicalUser(account.getCanonicalId(),account.getName());
-      ListAllMyBucketsList bucketList=new ListAllMyBucketsList();
-      reply.setOwner(owner);
-      bucketList.setBuckets(buckets);
-      reply.setBucketList(bucketList);
-    }
- catch (    Exception ex) {
-      LOG.error(ex);
-      throw new AccessDeniedException("Account: " + account.getName() + " not found",ex);
-    }
+    reply.setBucketList(bucketList);
+    reply.setOwner(new CanonicalUser(account.getCanonicalId(),account.getName()));
   }
- catch (  EucalyptusCloudException e) {
-    db.rollback();
-    throw new InternalErrorException(e);
-  }
-catch (  Exception e) {
-    LOG.debug(e,e);
-    db.rollback();
+ catch (  Exception e) {
+    LOG.error("Failed to list buckets for account " + account.getDisplayName(),e);
+    throw new InternalErrorException("Failed to list buckets for account " + account.getDisplayName(),e);
   }
   return reply;
 }

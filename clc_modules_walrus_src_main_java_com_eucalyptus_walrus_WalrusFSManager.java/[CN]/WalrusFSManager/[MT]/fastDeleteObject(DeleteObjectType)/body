@@ -1,39 +1,51 @@
 {
-  String bucketName=request.getBucket();
-  String objectKey=request.getKey();
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  BucketInfo bucketInfos=new BucketInfo(bucketName);
-  List<BucketInfo> bucketList=db.queryEscape(bucketInfos);
-  if (bucketList.size() > 0) {
-    BucketInfo bucketInfo=bucketList.get(0);
-    BucketLogData logData=bucketInfo.getLoggingEnabled() ? request.getLogData() : null;
-    ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
-    searchObjectInfo.setVersionId(WalrusProperties.NULL_VERSION_ID);
-    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-    List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
-    if (objectInfos.size() > 0) {
-      ObjectInfo foundObject=objectInfos.get(0);
-      dbObject.delete(foundObject);
-      String objectName=foundObject.getObjectName();
-      for (      GrantInfo grantInfo : foundObject.getGrants()) {
-        db.delete(grantInfo);
-      }
-      Long size=foundObject.getSize();
-      try {
-        storageManager.deleteObject(bucketName,objectName);
-      }
- catch (      IOException ex) {
-        LOG.error(ex,ex);
-      }
-    }
- else {
-      db.rollback();
-      throw new NoSuchEntityException(objectKey,logData);
-    }
+  final String bucketName=request.getBucket();
+  final String objectKey=request.getKey();
+  try {
+    Transactions.find(new BucketInfo(bucketName));
   }
- else {
-    db.rollback();
+ catch (  NoSuchElementException e) {
     throw new NoSuchBucketException(bucketName);
   }
-  db.commit();
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for bucket=" + bucketName,e);
+    throw new InternalErrorException("Failed to lookup bucket " + bucketName,e);
+  }
+  Boolean deleted=Boolean.FALSE;
+  try {
+    Entities.asTransaction(ObjectInfo.class,new Function<Boolean,String>(){
+      @Override public String apply(      Boolean arg0){
+        try {
+          ObjectInfo objectInfo=Entities.uniqueResult(new ObjectInfo(bucketName,objectKey));
+          if (!arg0) {
+            try {
+              if (objectInfo.isMultipart()) {
+                deleteParts(bucketName,objectKey,objectInfo.getUploadId(),false);
+              }
+ else {
+                storageManager.deleteObject(bucketName,objectInfo.getObjectName());
+              }
+            }
+ catch (            IOException e) {
+              LOG.warn("Failed to delete object-file=" + objectInfo.getObjectName() + ", bucket="+ bucketName+ " on disk. Cause: "+ e.getMessage());
+            }
+            arg0=Boolean.TRUE;
+          }
+          Entities.delete(objectInfo);
+        }
+ catch (        NoSuchElementException e) {
+          LOG.debug("Metadata for object-key=" + objectKey + ", bucket="+ bucketName+ " not found. Nothing to delete");
+        }
+catch (        Exception e) {
+          Exceptions.toUndeclared(e);
+        }
+        return null;
+      }
+    }
+).apply(deleted);
+  }
+ catch (  Exception e) {
+    LOG.error("Failed to delete object-key=" + objectKey + ", bucket="+ bucketName,e);
+    throw new InternalErrorException("Failed to delete object-key=" + objectKey + ", bucket="+ bucketName,e);
+  }
 }

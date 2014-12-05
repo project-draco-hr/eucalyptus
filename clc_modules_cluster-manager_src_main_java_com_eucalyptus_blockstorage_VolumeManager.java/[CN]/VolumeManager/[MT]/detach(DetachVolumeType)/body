@@ -19,9 +19,11 @@
     throw new EucalyptusCloudException("Not authorized to detach volume " + volumeId + " by "+ ctx.getUser().getName());
   }
   VmInstance vm=null;
+  String remoteDevice=null;
   AttachedVolume volume=null;
   try {
     VmVolumeAttachment vmVolAttach=VmInstances.lookupTransientVolumeAttachment(volumeId);
+    remoteDevice=vmVolAttach.getRemoteDevice();
     volume=VmVolumeAttachment.asAttachedVolume(vmVolAttach.getVmInstance()).apply(vmVolAttach);
     vm=vmVolAttach.getVmInstance();
   }
@@ -78,11 +80,13 @@
       LOG.debug(e,e);
       throw new EucalyptusCloudException("Cluster does not exist in partition: " + vm.getPartition());
     }
-    request.setVolumeId(volume.getVolumeId());
-    request.setRemoteDevice(volume.getRemoteDevice());
-    request.setDevice(volume.getDevice().replaceAll("unknown,requested:",""));
-    request.setInstanceId(vm.getInstanceId());
-    VolumeDetachCallback ncDetach=new VolumeDetachCallback(request);
+    final ClusterDetachVolumeType detachVolume=new ClusterDetachVolumeType();
+    detachVolume.setVolumeId(volume.getVolumeId());
+    detachVolume.setRemoteDevice(remoteDevice);
+    detachVolume.setDevice(volume.getDevice().replaceAll("unknown,requested:",""));
+    detachVolume.setInstanceId(vm.getInstanceId());
+    detachVolume.setForce(request.getForce());
+    VolumeDetachCallback ncDetach=new VolumeDetachCallback(detachVolume);
     AsyncRequests.newRequest(ncDetach).dispatch(cluster.getConfiguration());
   }
   vm.updateVolumeAttachment(volumeId,AttachmentState.detaching);

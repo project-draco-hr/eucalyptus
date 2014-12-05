@@ -1,0 +1,37 @@
+{
+  PartInfo searchPart=new PartInfo();
+  searchPart.setBucketName(bucketName);
+  try {
+    Entities.asTransaction(PartInfo.class,new Function<PartInfo,String>(){
+      @Override public String apply(      PartInfo arg0){
+        try {
+          List<PartInfo> allParts=Entities.query(arg0);
+          if (allParts != null && !allParts.isEmpty()) {
+            for (            PartInfo part : allParts) {
+              if (part.getObjectName() != null) {
+                try {
+                  storageManager.deleteObject(part.getBucketName(),part.getObjectName());
+                }
+ catch (                IOException e) {
+                  LOG.warn("Unable to delete file on disk for part-file=" + part.getObjectName() + ", part-number="+ part.getPartNumber()+ ", upload-id="+ part.getUploadId()+ ", object-key="+ part.getObjectKey()+ ", bucket="+ part.getBucketName()+ ". cause: "+ e.getMessage());
+                }
+              }
+              Entities.delete(part);
+            }
+          }
+ else {
+            LOG.debug("No parts to delete for bucket=" + arg0.getBucketName());
+          }
+        }
+ catch (        Exception e) {
+          LOG.warn("Failed to cleanup parts for bucket=" + arg0.getBucketName(),e);
+        }
+        return null;
+      }
+    }
+).apply(searchPart);
+  }
+ catch (  Exception e) {
+    LOG.warn("Failed to cleanup parts for bucket=" + searchPart.getBucketName(),e);
+  }
+}

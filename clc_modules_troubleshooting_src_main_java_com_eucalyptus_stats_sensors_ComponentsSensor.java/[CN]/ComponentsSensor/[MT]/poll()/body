@@ -1,0 +1,32 @@
+{
+  List<SystemMetric> results=Lists.newArrayList();
+  SystemMetric stateOutput;
+  boolean result;
+  String componentName;
+  List<String> componentTags;
+  for (  Component comp : Components.listLocal()) {
+    componentName=comp.getComponentId().getName();
+    componentTags=new ArrayList<String>(tags.size() + 1);
+    componentTags.addAll(tags);
+    componentTags.add(comp.getLocalServiceConfiguration().getFullName().toString());
+    stateOutput=new SystemMetric(this.sensorName + "." + componentName+ "."+ STATE_NAME,componentTags,"Component " + componentName + " state and health checks",new HashMap<String,Object>(),ttl);
+    try {
+      LOG.trace("Running check() on component: " + componentName + " for monitoring results");
+      result=Iterables.all(comp.getBootstrappers(),RUN_CHECK);
+    }
+ catch (    Throwable e) {
+      LOG.fatal("Component " + componentName + " Check() call threw exception. Component may not be available for use",e);
+      result=false;
+    }
+    stateOutput.getValues().put("Check",result ? StatsOutputValues.CHECK_OK : StatsOutputValues.CHECK_FAILED);
+    try {
+      LOG.trace("Getting state for component: " + componentName + " for monitoring results");
+      stateOutput.getValues().put("State",comp.getState().toString());
+    }
+ catch (    Throwable e) {
+      LOG.fatal("Component " + componentName + " getState() call threw exception. Component may not be available for use",e);
+    }
+    results.add(stateOutput);
+  }
+  return results;
+}

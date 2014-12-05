@@ -1,17 +1,8 @@
 {
   GetBucketLocationResponseType reply=(GetBucketLocationResponseType)request.getReply();
   String bucketName=request.getBucket();
-  Context ctx=Contexts.lookup();
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  BucketInfo bucketInfo=new BucketInfo(bucketName);
-  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
-  if (bucketList.size() > 0) {
-    BucketInfo bucket=bucketList.get(0);
-    BucketLogData logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
-    if (logData != null) {
-      updateLogData(bucket,logData);
-      reply.setLogData(logData);
-    }
+  try {
+    BucketInfo bucket=Transactions.find(new BucketInfo(bucketName));
     String location=bucket.getLocation();
     if (location == null || location.equalsIgnoreCase("US")) {
       reply.setLocationConstraint(null);
@@ -19,11 +10,13 @@
  else {
       reply.setLocationConstraint(location);
     }
+    return reply;
   }
- else {
-    db.rollback();
+ catch (  NoSuchElementException e) {
     throw new NoSuchBucketException(bucketName);
   }
-  db.commit();
-  return reply;
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for bucket=" + bucketName,e);
+    throw new InternalErrorException("Failed to lookup bucket " + bucketName,e);
+  }
 }

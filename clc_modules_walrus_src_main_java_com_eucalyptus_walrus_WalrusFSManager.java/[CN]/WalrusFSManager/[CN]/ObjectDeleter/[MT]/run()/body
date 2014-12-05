@@ -1,51 +1,13 @@
 {
-  if (uploadId != null) {
-    EntityWrapper<PartInfo> dbPart=EntityWrapper.get(PartInfo.class);
-    PartInfo searchManifest=new PartInfo(bucketName,objectKey);
-    searchManifest.setUploadId(uploadId);
-    searchManifest.setCleanup(Boolean.FALSE);
-    Criteria partCriteria=dbPart.createCriteria(PartInfo.class);
-    partCriteria.add(Example.create(searchManifest));
-    partCriteria.add(Restrictions.isNull("partNumber"));
-    List<PartInfo> found=partCriteria.list();
-    if (found.size() == 0) {
-      dbPart.rollback();
-      LOG.error("Multipart upload ID is invalid: " + uploadId);
-      return;
-    }
-    if (found.size() > 1) {
-      dbPart.rollback();
-      LOG.error("Multiple manifests found for same uploadId: " + uploadId);
-      return;
-    }
-    PartInfo foundManifest=found.get(0);
-    if (foundManifest != null) {
-      foundManifest.markForCleanup();
-      PartInfo searchPart=new PartInfo(bucketName,objectKey);
-      searchPart.setUploadId(uploadId);
-      List<PartInfo> foundParts=dbPart.queryEscape(searchPart);
-      if (foundParts != null && foundParts.size() > 0) {
-        for (        PartInfo part : foundParts) {
-          part.markForCleanup();
-        }
-      }
- else {
-        dbPart.rollback();
-        LOG.error("No parts found for upload: " + uploadId);
-        return;
-      }
-      dbPart.commit();
-      if (uploadId != null) {
-        firePartsCleanupTask(bucketName,objectKey,uploadId);
-      }
-    }
+  if (StringUtils.isNotBlank(uploadId)) {
+    deleteParts(bucketName,objectKey,uploadId,false);
   }
  else {
     try {
       storageManager.deleteObject(bucketName,objectName);
     }
  catch (    Exception ex) {
-      LOG.error(ex,ex);
+      LOG.error("Failed to delete file=" + objectName + ", bucket="+ bucketName,ex);
       return;
     }
   }

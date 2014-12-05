@@ -1,43 +1,18 @@
 {
-  GetBucketAccessControlPolicyResponseType reply=(GetBucketAccessControlPolicyResponseType)request.getReply();
-  String bucketName=request.getBucket();
   Context ctx=Contexts.lookup();
   Account account=ctx.getAccount();
-  String ownerId=null;
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  BucketInfo bucketInfo=new BucketInfo(bucketName);
-  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
-  AccessControlList accessControlList=new AccessControlList();
-  BucketLogData logData;
-  if (bucketList.size() > 0) {
-    BucketInfo bucket=bucketList.get(0);
-    logData=bucket.getLoggingEnabled() ? request.getLogData() : null;
-    List<GrantInfo> grantInfos=bucket.getGrants();
-    if (logData != null) {
-      updateLogData(bucket,logData);
-      reply.setLogData(logData);
-    }
-    ownerId=bucket.getOwnerId();
-    ArrayList<Grant> grants=new ArrayList<Grant>();
-    bucket.readPermissions(grants);
-    addGrants(grants,grantInfos);
-    accessControlList.setGrants(grants);
+  GetBucketAccessControlPolicyResponseType reply=(GetBucketAccessControlPolicyResponseType)request.getReply();
+  String bucketName=request.getBucket();
+  try {
+    Transactions.find(new BucketInfo(bucketName));
   }
- else {
-    db.rollback();
+ catch (  NoSuchElementException e) {
     throw new NoSuchBucketException(bucketName);
   }
-  AccessControlPolicy accessControlPolicy=new AccessControlPolicy();
-  try {
-    Account ownerInfo=Accounts.lookupAccountById(ownerId);
-    accessControlPolicy.setOwner(new CanonicalUser(ownerInfo.getCanonicalId(),ownerInfo.getName()));
-    accessControlPolicy.setAccessControlList(accessControlList);
+catch (  Exception e) {
+    LOG.error("Failed to lookup metadata for bucket=" + bucketName,e);
+    throw new InternalErrorException("Failed to lookup metadata for bucket=" + bucketName,e);
   }
- catch (  AuthException e) {
-    db.rollback();
-    throw new WalrusException("AccountProblem","Could not set owner id","Account",ownerId,HttpResponseStatus.BAD_REQUEST);
-  }
-  reply.setAccessControlPolicy(accessControlPolicy);
-  db.commit();
+  reply.setAccessControlPolicy(getPrivateACP(account.getCanonicalId(),account.getName()));
   return reply;
 }

@@ -1,123 +1,46 @@
 {
   DeleteObjectResponseType reply=(DeleteObjectResponseType)request.getReply();
-  String bucketName=request.getBucket();
-  String objectKey=request.getKey();
-  Context ctx=Contexts.lookup();
-  Account account=ctx.getAccount();
-  String uploadId=null;
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
+  final String bucketName=request.getBucket();
+  final String objectKey=request.getKey();
   try {
-    BucketInfo bucketInfos=new BucketInfo(bucketName);
-    BucketInfo bucketInfo=null;
-    try {
-      bucketInfo=db.uniqueResultEscape(bucketInfos);
-    }
- catch (    TransactionException e) {
-      bucketInfo=null;
-    }
-    if (bucketInfo == null) {
-      throw new NoSuchBucketException(bucketName);
-    }
- else {
-      BucketLogData logData=bucketInfo.getLoggingEnabled() ? request.getLogData() : null;
-      EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-      if (bucketInfo.isVersioningEnabled()) {
-        ObjectInfo searchDeletedObjectInfo=new ObjectInfo(bucketName,objectKey);
-        searchDeletedObjectInfo.setDeleted(true);
-        searchDeletedObjectInfo.setLast(true);
+    Transactions.find(new BucketInfo(bucketName));
+  }
+ catch (  NoSuchElementException e) {
+    throw new NoSuchBucketException(bucketName);
+  }
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for bucket=" + bucketName,e);
+    throw new InternalErrorException("Failed to lookup bucket " + bucketName,e);
+  }
+  Boolean taskAdded=Boolean.FALSE;
+  try {
+    Entities.asTransaction(ObjectInfo.class,new Function<Boolean,String>(){
+      @Override public String apply(      Boolean arg0){
         try {
-          dbObject.getUniqueEscape(searchDeletedObjectInfo);
-          db.rollback();
-          LOG.debug("Object " + objectKey + " has a delete marker in bucket "+ bucketName+ " that is marked latest. Nothing to delete");
-        }
- catch (        NoSuchEntityException ex) {
-          LOG.debug("Object " + objectKey + " not found in bucket "+ bucketName+ ". Nothing to delete");
-        }
-catch (        EucalyptusCloudException ex) {
-          ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
-          searchObjectInfo.setLast(true);
-          List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
-          for (          ObjectInfo objInfo : objectInfos) {
-            objInfo.setLast(false);
-          }
-          ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
-          deleteMarker.setDeleted(true);
-          deleteMarker.setLast(true);
-          deleteMarker.setOwnerId(account.getAccountNumber());
-          deleteMarker.setLastModified(new Date());
-          deleteMarker.setVersionId(UUID.randomUUID().toString().replaceAll("-",""));
-          dbObject.add(deleteMarker);
-        }
-      }
- else {
-        ObjectInfo searchObjectInfo=new ObjectInfo(bucketName,objectKey);
-        searchObjectInfo.setLast(true);
-        searchObjectInfo.setDeleted(false);
-        List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
-        if (objectInfos.size() > 0) {
-          if (objectInfos.size() > 1) {
-            db.rollback();
-            throw new InternalErrorException("More than one object set to 'last' found");
-          }
-          ObjectInfo lastObject=objectInfos.get(0);
-          if (lastObject.getVersionId().equals(WalrusProperties.NULL_VERSION_ID)) {
-            ObjectInfo nullObject=lastObject;
-            dbObject.delete(nullObject);
-            String objectName=nullObject.getObjectName();
-            uploadId=nullObject.getUploadId();
-            for (            GrantInfo grantInfo : nullObject.getGrants()) {
-              db.delete(grantInfo);
-            }
-            Long size=nullObject.getSize();
-            boolean success=true;
-            ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectName,objectKey,uploadId,WalrusProperties.NULL_VERSION_ID,size,ctx.getUser().getName(),ctx.getUser().getUserId(),ctx.getAccount().getName(),ctx.getAccount().getAccountNumber());
+          ObjectInfo objectInfo=Entities.uniqueResult(new ObjectInfo(bucketName,objectKey));
+          if (!arg0) {
+            ObjectDeleter objectDeleter=new ObjectDeleter(bucketName,objectInfo.getObjectName(),objectKey,objectInfo.getUploadId());
             Threads.lookup(WalrusBackend.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
+            arg0=Boolean.TRUE;
           }
- else {
-            if (bucketInfo.isVersioningSuspended()) {
-              lastObject.setLast(false);
-            }
- else {
-              db.rollback();
-              throw new InternalErrorException("Non 'null' versioned object found in a versioning disabled bucket, not sure how to proceed with delete.");
-            }
-          }
-          if (logData != null) {
-            updateLogData(bucketInfo,logData);
-            reply.setLogData(logData);
-          }
-          if (bucketInfo.isVersioningSuspended()) {
-            ObjectInfo deleteMarker=new ObjectInfo(bucketName,objectKey);
-            deleteMarker.setDeleted(true);
-            deleteMarker.setLast(true);
-            deleteMarker.setOwnerId(account.getAccountNumber());
-            deleteMarker.setLastModified(new Date());
-            deleteMarker.setVersionId(WalrusProperties.NULL_VERSION_ID);
-            deleteMarker.setSize(0L);
-            dbObject.add(deleteMarker);
-          }
+          Entities.delete(objectInfo);
         }
- else {
-          LOG.debug("Object " + objectKey + " not found in bucket "+ bucketName+ ". Nothing to delete");
+ catch (        NoSuchElementException e) {
+          LOG.debug("Metadata for object-key=" + objectKey + ", bucket="+ bucketName+ " not found. Nothing to delete");
         }
+catch (        Exception e) {
+          Exceptions.toUndeclared(e);
+        }
+        return null;
       }
     }
-    db.commit();
-    reply.setStatus(HttpResponseStatus.NO_CONTENT);
-    reply.setStatusMessage("NO CONTENT");
-    return reply;
+).apply(taskAdded);
   }
- catch (  WalrusException e) {
-    LOG.debug("Replying to client with error: " + e.getCode());
-    throw e;
+ catch (  Exception e) {
+    LOG.error("Failed to delete object-key=" + objectKey + ", bucket="+ bucketName,e);
+    throw new InternalErrorException("Failed to delete object-key=" + objectKey + ", bucket="+ bucketName,e);
   }
-catch (  EucalyptusCloudException e) {
-    LOG.error("DeleteObject operation for " + bucketName + "/"+ objectKey+ " failed with: "+ e.getMessage());
-    throw new InternalErrorException(e);
-  }
- finally {
-    if (db != null && db.isActive()) {
-      db.rollback();
-    }
-  }
+  reply.setStatus(HttpResponseStatus.NO_CONTENT);
+  reply.setStatusMessage("NO CONTENT");
+  return reply;
 }

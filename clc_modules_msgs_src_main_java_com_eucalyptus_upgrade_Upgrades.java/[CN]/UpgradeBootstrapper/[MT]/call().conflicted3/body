@@ -1,11 +1,24 @@
 {
-  if (Version.getCurrentVersion().equals(UpgradeEventLog.getLastUpgradedVersion())) {
-    return Boolean.TRUE.parseBoolean(System.getProperty("euca.upgrade.force"));
+  try {
+    final Map<String,String> props=getDatabaseProperties();
+    for (    final String ctx : PersistenceContexts.list()) {
+      final Properties p=new Properties();
+      p.putAll(props);
+      final String databaseName=PersistenceContexts.toDatabaseName().apply(ctx);
+      final String schemaName=PersistenceContexts.toSchemaName().apply(ctx);
+      putContextProperties(p,schemaName,DatabaseFilters.NEWVERSION.getVersionedName(databaseName));
+      final Ejb3Configuration config=new Ejb3Configuration();
+      config.setProperties(p);
+      for (      final Class c : PersistenceContexts.listEntities(ctx)) {
+        config.addAnnotatedClass(c);
+      }
+      PersistenceContexts.registerPersistenceContext(ctx,config);
+    }
   }
- else   if (Version.getCurrentVersion().equals(Version.getOldVersion()) && !BootstrapArgs.isUpgradeSystem()) {
-    return Boolean.TRUE.parseBoolean(System.getProperty("euca.upgrade.force"));
+ catch (  final Exception e) {
+    LOG.fatal(e,e);
+    LOG.fatal("Failed to initialize the persistence layer.");
+    throw Exceptions.toUndeclared(e);
   }
- else {
-    return true;
-  }
+  return true;
 }

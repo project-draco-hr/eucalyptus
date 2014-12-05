@@ -1,166 +1,106 @@
 {
   CopyObjectResponseType reply=(CopyObjectResponseType)request.getReply();
-  Context ctx=Contexts.lookup();
-  Account account=ctx.getAccount();
-  String sourceBucket=request.getSourceBucket();
-  String sourceKey=request.getSourceObject();
-  String sourceVersionId=request.getSourceVersionId();
-  String destinationBucket=request.getDestinationBucket();
-  String destinationKey=request.getDestinationObject();
+  String srcBucketName=request.getSourceBucket();
+  String srcObjectKey=request.getSourceObject();
+  String destBucketName=request.getDestinationBucket();
+  String destObjectKey=request.getDestinationObject();
   String metadataDirective=request.getMetadataDirective();
-  AccessControlList accessControlList=request.getAccessControlList();
-  String copyIfMatch=request.getCopySourceIfMatch();
-  String copyIfNoneMatch=request.getCopySourceIfNoneMatch();
-  Date copyIfUnmodifiedSince=request.getCopySourceIfUnmodifiedSince();
-  Date copyIfModifiedSince=request.getCopySourceIfModifiedSince();
   if (metadataDirective == null) {
     metadataDirective="COPY";
   }
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  BucketInfo bucketInfo=new BucketInfo(sourceBucket);
-  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
-  if (bucketList.size() > 0) {
-    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-    ObjectInfo searchObjectInfo=new ObjectInfo(sourceBucket,sourceKey);
-    searchObjectInfo.setVersionId(sourceVersionId);
-    if (sourceVersionId == null) {
-      searchObjectInfo.setLast(true);
+  try {
+    Transactions.find(new BucketInfo(srcBucketName));
+  }
+ catch (  NoSuchElementException e) {
+    throw new NoSuchBucketException(srcBucketName);
+  }
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for bucket=" + srcBucketName,e);
+    throw new InternalErrorException("Failed to lookup bucket " + srcBucketName,e);
+  }
+  ObjectInfo srcObjectInfo=null;
+  try (TransactionResource tr=Entities.transactionFor(ObjectInfo.class)){
+    srcObjectInfo=Entities.uniqueResult(new ObjectInfo(srcBucketName,srcObjectKey));
+    if (srcObjectInfo.getMetaData() != null) {
+      srcObjectInfo.getMetaData().size();
     }
-    List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
-    if (objectInfos.size() > 0) {
-      ObjectInfo sourceObjectInfo=objectInfos.get(0);
-      if (copyIfMatch != null) {
-        if (!copyIfMatch.equals(sourceObjectInfo.getEtag())) {
-          db.rollback();
-          throw new PreconditionFailedException(sourceKey + " CopySourceIfMatch: " + copyIfMatch);
-        }
-      }
-      if (copyIfNoneMatch != null) {
-        if (copyIfNoneMatch.equals(sourceObjectInfo.getEtag())) {
-          db.rollback();
-          throw new PreconditionFailedException(sourceKey + " CopySourceIfNoneMatch: " + copyIfNoneMatch);
-        }
-      }
-      if (copyIfUnmodifiedSince != null) {
-        long unmodifiedTime=copyIfUnmodifiedSince.getTime();
-        long objectTime=sourceObjectInfo.getLastModified().getTime();
-        if (unmodifiedTime < objectTime) {
-          db.rollback();
-          throw new PreconditionFailedException(sourceKey + " CopySourceIfUnmodifiedSince: " + copyIfUnmodifiedSince.toString());
-        }
-      }
-      if (copyIfModifiedSince != null) {
-        long modifiedTime=copyIfModifiedSince.getTime();
-        long objectTime=sourceObjectInfo.getLastModified().getTime();
-        if (modifiedTime > objectTime) {
-          db.rollback();
-          throw new PreconditionFailedException(sourceKey + " CopySourceIfModifiedSince: " + copyIfModifiedSince.toString());
-        }
-      }
-      BucketInfo destinationBucketInfo=new BucketInfo(destinationBucket);
-      List<BucketInfo> destinationBuckets=db.queryEscape(destinationBucketInfo);
-      if (destinationBuckets.size() > 0) {
-        BucketInfo foundDestinationBucketInfo=destinationBuckets.get(0);
-        if (ctx.hasAdministrativePrivileges() || (foundDestinationBucketInfo.canWrite(account.getAccountNumber()) && (foundDestinationBucketInfo.isGlobalWrite() || Lookups.checkPrivilege(PolicySpec.S3_PUTOBJECT,PolicySpec.VENDOR_S3,PolicySpec.S3_RESOURCE_BUCKET,destinationBucket,null)))) {
-          Long destinationObjectOldSize=0L;
-          String destinationVersionId=sourceVersionId;
-          ObjectInfo destinationObjectInfo=null;
-          String destinationObjectName;
-          ObjectInfo destSearchObjectInfo=new ObjectInfo(destinationBucket,destinationKey);
-          if (foundDestinationBucketInfo.isVersioningEnabled()) {
-            destinationVersionId=UUID.randomUUID().toString().replaceAll("-","");
-          }
- else {
-            destinationVersionId=WalrusProperties.NULL_VERSION_ID;
-          }
-          destSearchObjectInfo.setVersionId(destinationVersionId);
-          List<ObjectInfo> destinationObjectInfos=dbObject.queryEscape(destSearchObjectInfo);
-          if (destinationObjectInfos.size() > 0) {
-            destinationObjectInfo=destinationObjectInfos.get(0);
-            if (!destinationObjectInfo.getDeleted() && !destinationObjectInfo.canWrite(account.getAccountNumber())) {
-              db.rollback();
-              throw new AccessDeniedException("Key",destinationKey);
-            }
-          }
-          boolean addNew=false;
-          if (destinationObjectInfo == null) {
-            addNew=true;
-            destinationObjectInfo=new ObjectInfo();
-            List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-            destinationObjectInfo.setBucketName(destinationBucket);
-            destinationObjectInfo.setObjectKey(destinationKey);
-            destinationObjectInfo.addGrants(account.getAccountNumber(),foundDestinationBucketInfo.getOwnerId(),grantInfos,accessControlList);
-            destinationObjectInfo.setGrants(grantInfos);
-            destinationObjectInfo.setObjectName(UUID.randomUUID().toString());
-          }
- else {
-            List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-            destinationObjectInfo.addGrants(account.getAccountNumber(),foundDestinationBucketInfo.getOwnerId(),grantInfos,accessControlList);
-            destinationObjectInfo.setGrants(grantInfos);
-            destinationObjectOldSize=destinationObjectInfo.getSize() == null ? 0L : destinationObjectInfo.getSize();
-          }
-          destinationObjectInfo.setSize(sourceObjectInfo.getSize());
-          destinationObjectInfo.setStorageClass(sourceObjectInfo.getStorageClass());
-          destinationObjectInfo.setOwnerId(sourceObjectInfo.getOwnerId());
-          destinationObjectInfo.setContentType(sourceObjectInfo.getContentType());
-          destinationObjectInfo.setContentDisposition(sourceObjectInfo.getContentDisposition());
-          String etag=sourceObjectInfo.getEtag();
-          destinationObjectInfo.setEtag(etag);
-          Date lastModified=new Date();
-          destinationObjectInfo.setLastModified(lastModified);
-          destinationObjectInfo.setVersionId(destinationVersionId);
-          destinationObjectInfo.setLast(true);
-          destinationObjectInfo.setDeleted(false);
-          if (!metadataDirective.equals("REPLACE")) {
-            destinationObjectInfo.setMetaData(sourceObjectInfo.cloneMetaData());
-          }
- else {
-            List<MetaDataEntry> metaData=request.getMetaData();
-            if (metaData != null)             destinationObjectInfo.replaceMetaData(metaData);
-          }
-          String sourceObjectName=sourceObjectInfo.getObjectName();
-          destinationObjectName=destinationObjectInfo.getObjectName();
-          try {
-            if (sourceObjectInfo.isMultipart()) {
-              List<PartInfo> parts=getOrderedListOfParts(sourceObjectInfo);
-              storageManager.copyMultipartObject(parts,destinationBucket,destinationObjectName);
-            }
- else {
-              storageManager.copyObject(sourceBucket,sourceObjectName,destinationBucket,destinationObjectName);
-            }
-          }
- catch (          Exception ex) {
-            LOG.error(ex);
-            db.rollback();
-            throw new InternalErrorException("Could not rename " + sourceObjectName + " to "+ destinationObjectName);
-          }
-          if (addNew)           dbObject.add(destinationObjectInfo);
-          reply.setEtag(etag);
-          reply.setLastModified(copyObjectFormat.format(lastModified));
-          if (foundDestinationBucketInfo.isVersioningEnabled()) {
-            reply.setCopySourceVersionId(sourceVersionId);
-            reply.setVersionId(destinationVersionId);
-          }
-          db.commit();
-          return reply;
-        }
- else {
-          db.rollback();
-          throw new AccessDeniedException("Bucket",destinationBucket);
-        }
-      }
- else {
-        db.rollback();
-        throw new NoSuchBucketException(destinationBucket);
-      }
+    tr.commit();
+  }
+ catch (  NoSuchElementException e) {
+    throw new NoSuchEntityException(srcObjectKey);
+  }
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for object-key=" + srcObjectKey + ", bucket="+ srcBucketName,e);
+    throw new InternalErrorException("Failed to look up metadata for object-key=" + srcObjectKey + ", bucket="+ srcBucketName,e);
+  }
+  if (!StringUtils.equalsIgnoreCase(srcBucketName,destBucketName)) {
+    try {
+      Transactions.find(new BucketInfo(destBucketName));
     }
- else {
-      db.rollback();
-      throw new NoSuchEntityException(sourceKey);
+ catch (    NoSuchElementException e) {
+      throw new NoSuchBucketException(destBucketName);
+    }
+catch (    Exception e) {
+      LOG.error("Failed to look up metadata for bucket=" + destBucketName,e);
+      throw new InternalErrorException("Failed to lookup bucket " + destBucketName,e);
     }
   }
+  String prevDestObjectName=null;
+  String destinationObjectName=UUID.randomUUID().toString();
+  String etag=srcObjectInfo.getEtag();
+  Date lastModified=null;
+  try {
+    if (srcObjectInfo.isMultipart()) {
+      List<PartInfo> parts=getOrderedListOfParts(srcObjectInfo);
+      storageManager.copyMultipartObject(parts,destBucketName,destinationObjectName);
+    }
  else {
-    db.rollback();
-    throw new NoSuchBucketException(sourceBucket);
+      storageManager.copyObject(srcBucketName,srcObjectInfo.getObjectName(),destBucketName,destinationObjectName);
+    }
+    lastModified=new Date();
+    try (TransactionResource tr=Entities.transactionFor(ObjectInfo.class)){
+      ObjectInfo destObjectInfo=null;
+      try {
+        destObjectInfo=Entities.uniqueResult(new ObjectInfo(destBucketName,destObjectKey));
+        prevDestObjectName=destObjectInfo.getObjectName();
+      }
+ catch (      NoSuchElementException e) {
+        destObjectInfo=Entities.persist(new ObjectInfo(destBucketName,destObjectKey));
+      }
+      destObjectInfo.setObjectName(destinationObjectName);
+      destObjectInfo.setSize(srcObjectInfo.getSize());
+      destObjectInfo.setStorageClass(srcObjectInfo.getStorageClass());
+      destObjectInfo.setContentType(srcObjectInfo.getContentType());
+      destObjectInfo.setContentDisposition(srcObjectInfo.getContentDisposition());
+      destObjectInfo.setEtag(etag);
+      destObjectInfo.setLastModified(lastModified);
+      if (!metadataDirective.equals("REPLACE")) {
+        destObjectInfo.setMetaData(srcObjectInfo.cloneMetaData());
+      }
+ else {
+        destObjectInfo.replaceMetaData(request.getMetaData());
+      }
+      tr.commit();
+    }
+ catch (    Exception e) {
+      LOG.error("Failed to update metadata for object-key=" + destObjectKey + ", bucket="+ destBucketName,e);
+      throw new InternalErrorException("Failed to update metadata for object-key=" + destObjectKey + ", bucket="+ destBucketName,e);
+    }
+    if (prevDestObjectName != null) {
+      ObjectDeleter objectDeleter=new ObjectDeleter(destBucketName,prevDestObjectName,null,null);
+      Threads.lookup(WalrusBackend.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(objectDeleter);
+    }
   }
+ catch (  WalrusException e) {
+    throw e;
+  }
+catch (  Exception e) {
+    LOG.error("Failed to copy source-object-key=" + srcObjectKey + ", source-bucket="+ srcBucketName+ " to destination-object-key="+ destObjectKey+ ", destination-bucket="+ destBucketName);
+    throw new InternalErrorException("Failed to copy source-object-key=" + srcObjectKey + ", source-bucket="+ srcBucketName+ " to destination-object-key="+ destObjectKey+ ", destination-bucket="+ destBucketName,e);
+  }
+  reply.setEtag(etag);
+  reply.setLastModified(DateFormatter.dateToListingFormattedString(lastModified));
+  reply.setCopySourceVersionId(WalrusProperties.NULL_VERSION_ID);
+  reply.setVersionId(WalrusProperties.NULL_VERSION_ID);
+  return reply;
 }

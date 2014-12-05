@@ -1,46 +1,38 @@
 {
   AddObjectResponseType reply=(AddObjectResponseType)request.getReply();
   String bucketName=request.getBucket();
-  String key=request.getKey();
-  Context ctx=Contexts.lookup();
-  Account account=ctx.getAccount();
+  String objectKey=request.getKey();
   String objectName=request.getObjectName();
-  AccessControlList accessControlList=request.getAccessControlList();
-  if (accessControlList == null) {
-    accessControlList=new AccessControlList();
+  try {
+    Transactions.find(new BucketInfo(bucketName));
   }
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  BucketInfo bucketInfo=new BucketInfo(bucketName);
-  List<BucketInfo> bucketList=db.queryEscape(bucketInfo);
-  if (bucketList.size() > 0) {
-    BucketInfo bucket=bucketList.get(0);
-    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
-    ObjectInfo searchObjectInfo=new ObjectInfo();
-    searchObjectInfo.setBucketName(bucketName);
-    List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObjectInfo);
-    for (    ObjectInfo objectInfo : objectInfos) {
-      if (objectInfo.getObjectKey().equals(key)) {
-        db.rollback();
-        throw new InternalErrorException("object already exists " + key);
-      }
+ catch (  NoSuchElementException e) {
+    throw new NoSuchBucketException(bucketName);
+  }
+catch (  Exception e) {
+    LOG.error("Failed to look up metadata for bucket=" + bucketName,e);
+    throw new InternalErrorException("Failed to lookup bucket " + bucketName,e);
+  }
+  ObjectInfo objectInfo=null;
+  try (TransactionResource tr=Entities.transactionFor(ObjectInfo.class)){
+    try {
+      objectInfo=Entities.uniqueResult(new ObjectInfo(bucketName,objectKey));
+      throw new InternalErrorException("Object already exists " + objectKey);
     }
-    ObjectInfo objectInfo=new ObjectInfo(bucketName,key);
-    objectInfo.setObjectName(objectName);
-    List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-    objectInfo.addGrants(account.getAccountNumber(),bucket.getOwnerId(),grantInfos,accessControlList);
-    objectInfo.setGrants(grantInfos);
-    dbObject.add(objectInfo);
-    objectInfo.setObjectKey(key);
-    objectInfo.setOwnerId(account.getAccountNumber());
-    objectInfo.setSize(storageManager.getSize(bucketName,objectName));
-    objectInfo.setEtag(request.getEtag());
-    objectInfo.setLastModified(new Date());
-    objectInfo.setStorageClass("STANDARD");
+ catch (    NoSuchElementException e) {
+      objectInfo=new ObjectInfo(bucketName,objectKey);
+      objectInfo.setObjectName(objectName);
+      objectInfo.setSize(storageManager.getSize(bucketName,objectName));
+      objectInfo.setEtag(request.getEtag());
+      objectInfo.setLastModified(new Date());
+      objectInfo.setStorageClass("STANDARD");
+      objectInfo=Entities.persist(objectInfo);
+    }
+    tr.commit();
   }
- else {
-    db.rollback();
-    throw new AccessDeniedException("Bucket",bucketName);
+ catch (  Exception e) {
+    LOG.error("Failed to process metadata for object-key=" + objectKey + ", bucket="+ bucketName,e);
+    throw new InternalErrorException("Failed to process metadata for object-key=" + objectKey + ", bucket="+ bucketName,e);
   }
-  db.commit();
   return reply;
 }

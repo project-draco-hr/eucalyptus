@@ -1,27 +1,25 @@
 {
   String bucketName=request.getBucket();
-  EntityWrapper<BucketInfo> db=EntityWrapper.get(BucketInfo.class);
-  BucketInfo searchBucket=new BucketInfo(bucketName);
-  List<BucketInfo> bucketList=db.queryEscape(searchBucket);
-  if (bucketList.size() > 0) {
-    BucketInfo bucketFound=bucketList.get(0);
-    EntityWrapper<ObjectInfo> dbObject=db.recast(ObjectInfo.class);
+  try (TransactionResource tr=Entities.transactionFor(BucketInfo.class)){
+    BucketInfo bucketInfo=Entities.uniqueResult(new BucketInfo(bucketName));
     ObjectInfo searchObject=new ObjectInfo();
     searchObject.setBucketName(bucketName);
-    searchObject.setDeleted(false);
-    List<ObjectInfo> objectInfos=dbObject.queryEscape(searchObject);
-    if (objectInfos.size() == 0) {
-      db.delete(bucketFound);
-      Threads.lookup(WalrusBackend.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(new BucketDeleter(bucketName));
-    }
- else {
-      db.rollback();
+    List<ObjectInfo> objects=Transactions.findAll(searchObject);
+    if (objects != null && !objects.isEmpty()) {
+      tr.commit();
       throw new BucketNotEmptyException(bucketName);
     }
-  }
  else {
-    db.rollback();
+      Entities.delete(bucketInfo);
+      tr.commit();
+      Threads.lookup(WalrusBackend.class,WalrusFSManager.ObjectDeleter.class).limitTo(10).submit(new BucketDeleter(bucketName));
+    }
+  }
+ catch (  NoSuchElementException e) {
     throw new NoSuchBucketException(bucketName);
   }
-  db.commit();
+catch (  Exception e) {
+    LOG.error("Failed to delete bucket=" + bucketName,e);
+    throw new InternalErrorException("Failed to delete bucket=" + bucketName,e);
+  }
 }
