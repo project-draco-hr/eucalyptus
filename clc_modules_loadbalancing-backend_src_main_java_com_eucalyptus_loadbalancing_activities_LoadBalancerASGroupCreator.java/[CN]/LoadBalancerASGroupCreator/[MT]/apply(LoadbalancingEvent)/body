@@ -1,17 +1,17 @@
 {
   if (LOADBALANCER_EMI == null)   throw new EventHandlerException("Loadbalancer's EMI is not configured");
-  Collection<String> eventZones=Collections.emptySet();
+  Collection<String> eventZones=null;
   Collection<String> eventSecurityGroupIds=Collections.emptySet();
   Map<String,String> zoneToSubnetIdMap=null;
   if (evt instanceof NewLoadbalancerEvent) {
-    eventZones=Objects.firstNonNull(((NewLoadbalancerEvent)evt).getZones(),eventZones);
+    eventZones=((NewLoadbalancerEvent)evt).getZones();
     zoneToSubnetIdMap=((NewLoadbalancerEvent)evt).getZoneToSubnetIdMap();
   }
  else   if (evt instanceof ApplySecurityGroupsEvent) {
     final Map<String,String> groupIdToNameMap=((ApplySecurityGroupsEvent)evt).getSecurityGroupIdsToNames();
     eventSecurityGroupIds=groupIdToNameMap == null ? eventSecurityGroupIds : groupIdToNameMap.keySet();
   }
-  if (eventZones.isEmpty() && eventSecurityGroupIds.isEmpty())   return;
+  if (eventZones == null && eventSecurityGroupIds.isEmpty())   return;
   final LoadBalancer lbEntity;
   final LoadBalancer.LoadBalancerCoreView lb;
   try {
@@ -92,8 +92,11 @@ catch (  Exception ex) {
       throw new EventHandlerException("Failed to create launch configuration",ex);
     }
   }
-  int capacity;
+  Integer capacity;
   if (!asgFound) {
+    if (eventZones == null) {
+      throw new EventHandlerException("Availability zones required to create auto scaling group.");
+    }
     try {
       final List<String> availabilityZones=Lists.newArrayList(eventZones);
       final String vpcZoneIdentifier=zoneToSubnetIdMap.isEmpty() ? null : Strings.emptyToNull(Joiner.on(',').skipNulls().join(Iterables.transform(availabilityZones,Functions.forMap(zoneToSubnetIdMap))));
@@ -107,8 +110,8 @@ catch (  Exception ex) {
   }
  else {
     try {
-      final List<String> availabilityZones=Lists.newArrayList(eventZones);
-      capacity=availabilityZones.size() * this.capacityPerZone;
+      final List<String> availabilityZones=eventZones == null ? null : Lists.newArrayList(eventZones);
+      capacity=availabilityZones == null ? null : availabilityZones.size() * this.capacityPerZone;
       EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(groupName,availabilityZones,capacity,launchConfigName);
     }
  catch (    Exception ex) {
@@ -125,11 +128,12 @@ catch (  Exception ex) {
   }
   try (final TransactionResource db=Entities.transactionFor(LoadBalancerAutoScalingGroup.class)){
     try {
-      Entities.uniqueResult(LoadBalancerAutoScalingGroup.named(lbEntity));
+      final LoadBalancerAutoScalingGroup group=Entities.uniqueResult(LoadBalancerAutoScalingGroup.named(lbEntity));
+      if (capacity != null)       group.setCapacity(capacity);
     }
  catch (    NoSuchElementException ex) {
       final LoadBalancerAutoScalingGroup group=LoadBalancerAutoScalingGroup.newInstance(lbEntity,groupName,this.launchConfigName);
-      group.setCapacity(capacity);
+      if (capacity != null)       group.setCapacity(capacity);
       Entities.persist(group);
     }
     db.commit();
