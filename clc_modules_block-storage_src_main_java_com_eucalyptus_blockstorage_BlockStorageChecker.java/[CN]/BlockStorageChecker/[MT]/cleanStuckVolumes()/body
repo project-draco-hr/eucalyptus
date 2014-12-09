@@ -1,13 +1,28 @@
 {
-  TransactionResource tran=Entities.transactionFor(VolumeInfo.class);
   VolumeInfo volumeInfo=new VolumeInfo();
   volumeInfo.setStatus(StorageProperties.Status.creating.toString());
-  List<VolumeInfo> volumeInfos=Entities.query(volumeInfo);
-  for (  VolumeInfo volInfo : volumeInfos) {
+  List<VolumeInfo> volumesInCreating;
+  try {
+    volumesInCreating=Transactions.findAll(volumeInfo);
+  }
+ catch (  TransactionException f) {
+    LOG.warn("Failed to execute query for stuck volumes",f);
+    volumesInCreating=null;
+  }
+  if (volumesInCreating == null || volumesInCreating.size() == 0) {
+    LOG.info("No stuck volumes found. No cleanup needed for stuck volumes");
+    return;
+  }
+  for (  VolumeInfo volInfo : volumesInCreating) {
     String volumeId=volInfo.getVolumeId();
     LOG.info("Cleaning stuck volume " + volumeId);
-    blockManager.cleanVolume(volumeId);
-    volumeInfo.setStatus(StorageProperties.Status.failed.toString());
+    try {
+      blockManager.cleanVolume(volumeId);
+      volInfo.setStatus(StorageProperties.Status.failed.toString());
+      Transactions.save(volInfo);
+    }
+ catch (    Throwable f) {
+      LOG.warn("Failed updating state of volume " + volumeId + " to failed state after back-end cleanup.");
+    }
   }
-  tran.commit();
 }
