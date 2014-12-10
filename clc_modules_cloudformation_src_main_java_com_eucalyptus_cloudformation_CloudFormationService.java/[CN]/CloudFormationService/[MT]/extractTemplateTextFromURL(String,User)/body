@@ -8,18 +8,31 @@
   }
   boolean inWhitelist=WhiteListURLMatcher.urlIsAllowed(url,URL_DOMAIN_WHITELIST);
   if (inWhitelist) {
+    InputStream templateIn=null;
     try {
-      return copyStreamToString(new BoundedInputStream(url.openStream(),Limits.REQUEST_TEMPLATE_URL_MAX_CONTENT_LENGTH_BYTES + 1));
+      final URLConnection connection=SslSetup.configureHttpsUrlConnection(url.openConnection());
+      templateIn=connection.getInputStream();
+      long contentLength=connection.getContentLengthLong();
+      if (contentLength > Limits.REQUEST_TEMPLATE_URL_MAX_CONTENT_LENGTH_BYTES) {
+        throw new ValidationErrorException("Template URL exceeds maximum byte count, " + Limits.REQUEST_TEMPLATE_URL_MAX_CONTENT_LENGTH_BYTES);
+      }
+      return copyStreamToString(new BoundedInputStream(templateIn,Limits.REQUEST_TEMPLATE_URL_MAX_CONTENT_LENGTH_BYTES + 1));
     }
  catch (    UnknownHostException ex) {
       throw new ValidationErrorException("Invalid template url " + templateUrl);
     }
-catch (    javax.net.ssl.SSLHandshakeException ex) {
-      throw new ValidationErrorException(ex.getMessage());
+catch (    SSLHandshakeException ex) {
+      throw new ValidationErrorException("HTTPS connection error for " + templateUrl);
     }
 catch (    IOException ex) {
+      if (Strings.nullToEmpty(ex.getMessage()).startsWith("HTTPS hostname wrong")) {
+        throw new ValidationErrorException("HTTPS connection failed hostname verification for " + templateUrl);
+      }
       LOG.info("Unable to connect to whitelisted URL, trying S3 instead");
       LOG.debug(ex,ex);
+    }
+ finally {
+      IO.close(templateIn);
     }
   }
   String[] validHostBucketSuffixes=new String[]{"walrus","objectstorage"};
