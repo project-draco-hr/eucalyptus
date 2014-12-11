@@ -1,0 +1,33 @@
+{
+  try {
+    if (ServiceConfigurations.list(Imaging.class).isEmpty()) {
+      final String imaging=ComponentIds.lookup(Imaging.class).name();
+      final String compute=ComponentIds.lookup(Compute.class).name();
+      final ServiceBuilder builder=ServiceBuilders.lookup(Imaging.class);
+      for (      final ServiceConfiguration configuration : ServiceConfigurations.list(Compute.class)) {
+        final String imagingServiceName;
+        if (configuration.getName().equals(configuration.getPartition() + "." + compute)) {
+          imagingServiceName=configuration.getPartition() + "." + imaging;
+        }
+ else {
+          imagingServiceName=configuration.getHostName() + "_" + imaging;
+        }
+        try {
+          ServiceConfigurations.lookupByName(Imaging.class,imagingServiceName);
+          logger.warn("Existing imaging service found with name: " + imagingServiceName);
+        }
+ catch (        final NoSuchElementException e) {
+          logger.info("Registering imaging service on host " + configuration.getHostName());
+          ServiceConfigurations.store(builder.newInstance(configuration.getPartition(),imagingServiceName,configuration.getHostName(),configuration.getPort()));
+        }
+      }
+    }
+ else {
+      logger.info("Not registering imaging services on upgrade, existing service found");
+    }
+  }
+ catch (  final Exception e) {
+    logger.error("Error registering imaging services on upgrade",e);
+  }
+  return true;
+}
