@@ -1,19 +1,22 @@
 {
   AWSEC2EIPResourceAction action=(AWSEC2EIPResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  AllocateAddressType allocateAddressType=MessageHelper.createMessage(AllocateAddressType.class,action.info.getEffectiveUserId());
-  if (action.properties.getDomain() != null && !"vpc".equals(action.properties.getDomain())) {
-    throw new ValidationErrorException("vpc is the only supported value for Domain");
-  }
-  if (action.properties.getDomain() != null) {
-    allocateAddressType.setDomain(action.properties.getDomain());
-  }
-  AllocateAddressResponseType allocateAddressResponseType=AsyncRequests.<AllocateAddressType,AllocateAddressResponseType>sendSync(configuration,allocateAddressType);
-  String publicIp=allocateAddressResponseType.getPublicIp();
-  action.info.setPhysicalResourceId(publicIp);
-  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
-  if (action.properties.getDomain() != null) {
-    action.info.setAllocationId(JsonHelper.getStringFromJsonNode(new TextNode(allocateAddressResponseType.getAllocationId())));
+  if (action.properties.getInstanceId() != null) {
+    DescribeInstancesType describeInstancesType=MessageHelper.createMessage(DescribeInstancesType.class,action.info.getEffectiveUserId());
+    describeInstancesType.setInstancesSet(Lists.newArrayList(action.properties.getInstanceId()));
+    DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.<DescribeInstancesType,DescribeInstancesResponseType>sendSync(configuration,describeInstancesType);
+    if (describeInstancesResponseType.getReservationSet() == null || describeInstancesResponseType.getReservationSet().isEmpty()) {
+      throw new ValidationErrorException("No such instance " + action.properties.getInstanceId());
+    }
+    AssociateAddressType associateAddressType=MessageHelper.createMessage(AssociateAddressType.class,action.info.getEffectiveUserId());
+    if (action.properties.getDomain() != null) {
+      associateAddressType.setAllocationId(JsonHelper.getJsonNodeFromString(action.info.getAllocationId()).asText());
+    }
+ else {
+      associateAddressType.setPublicIp(action.info.getPhysicalResourceId());
+    }
+    associateAddressType.setInstanceId(action.properties.getInstanceId());
+    AsyncRequests.<AssociateAddressType,AssociateAddressResponseType>sendSync(configuration,associateAddressType);
   }
   return action;
 }

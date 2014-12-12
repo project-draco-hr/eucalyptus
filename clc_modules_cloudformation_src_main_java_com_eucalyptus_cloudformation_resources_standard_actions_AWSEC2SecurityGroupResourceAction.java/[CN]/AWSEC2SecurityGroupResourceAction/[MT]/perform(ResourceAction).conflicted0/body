@@ -1,33 +1,24 @@
 {
   AWSEC2SecurityGroupResourceAction action=(AWSEC2SecurityGroupResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  if (action.properties.getSecurityGroupIngress() != null && !action.properties.getSecurityGroupIngress().isEmpty()) {
-    for (    EC2SecurityGroupRule ec2SecurityGroupRule : action.properties.getSecurityGroupIngress()) {
-      AuthorizeSecurityGroupIngressType authorizeSecurityGroupIngressType=MessageHelper.createMessage(AuthorizeSecurityGroupIngressType.class,action.info.getEffectiveUserId());
-      authorizeSecurityGroupIngressType.setGroupId(JsonHelper.getJsonNodeFromString(action.info.getGroupId()).asText());
-      if (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getCidrIp()) && (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupId()) || !Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupName()) || !Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupOwnerId()))) {
-        throw new ValidationErrorException("Both CidrIp and SourceSecurityGroup cannot be specified in SecurityGroupIngress");
-      }
-      if (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupId()) && !Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupName())) {
-        throw new ValidationErrorException("Both SourceSecurityGroupName and SourceSecurityGroupId cannot be specified in SecurityGroupIngress");
-      }
-      IpPermissionType ipPermissionType=new IpPermissionType(ec2SecurityGroupRule.getIpProtocol(),ec2SecurityGroupRule.getFromPort(),ec2SecurityGroupRule.getToPort());
-      if (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getCidrIp())) {
-        ipPermissionType.setCidrIpRanges(Lists.newArrayList(ec2SecurityGroupRule.getCidrIp()));
-      }
-      if (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupId())) {
-        ipPermissionType.setGroups(Lists.newArrayList(new UserIdGroupPairType(ec2SecurityGroupRule.getSourceSecurityGroupOwnerId(),null,ec2SecurityGroupRule.getSourceSecurityGroupId())));
-      }
-      if (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getSourceSecurityGroupName())) {
-        String sourceSecurityGroupOwnerId=ec2SecurityGroupRule.getSourceSecurityGroupOwnerId();
-        if (Strings.isNullOrEmpty(sourceSecurityGroupOwnerId)) {
-          sourceSecurityGroupOwnerId=action.getStackEntity().getAccountId();
-        }
-        ipPermissionType.setGroups(Lists.newArrayList(new UserIdGroupPairType(sourceSecurityGroupOwnerId,ec2SecurityGroupRule.getSourceSecurityGroupName(),null)));
-      }
-      authorizeSecurityGroupIngressType.setIpPermissions(Lists.newArrayList(ipPermissionType));
-      AuthorizeSecurityGroupIngressResponseType authorizeSecurityGroupIngressResponseType=AsyncRequests.<AuthorizeSecurityGroupIngressType,AuthorizeSecurityGroupIngressResponseType>sendSync(configuration,authorizeSecurityGroupIngressType);
-    }
+  CreateSecurityGroupType createSecurityGroupType=MessageHelper.createMessage(CreateSecurityGroupType.class,action.info.getEffectiveUserId());
+  if (!Strings.isNullOrEmpty(action.properties.getGroupDescription())) {
+    createSecurityGroupType.setGroupDescription(action.properties.getGroupDescription());
   }
+  if (!Strings.isNullOrEmpty(action.properties.getVpcId())) {
+    createSecurityGroupType.setVpcId(action.properties.getVpcId());
+  }
+  String groupName=action.getDefaultPhysicalResourceId();
+  createSecurityGroupType.setGroupName(groupName);
+  CreateSecurityGroupResponseType createSecurityGroupResponseType=AsyncRequests.<CreateSecurityGroupType,CreateSecurityGroupResponseType>sendSync(configuration,createSecurityGroupType);
+  String groupId=createSecurityGroupResponseType.getGroupId();
+  if (!Strings.isNullOrEmpty(action.properties.getVpcId())) {
+    action.info.setPhysicalResourceId(groupId);
+  }
+ else {
+    action.info.setPhysicalResourceId(groupName);
+  }
+  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
+  action.info.setGroupId(JsonHelper.getStringFromJsonNode(new TextNode(groupId)));
   return action;
 }

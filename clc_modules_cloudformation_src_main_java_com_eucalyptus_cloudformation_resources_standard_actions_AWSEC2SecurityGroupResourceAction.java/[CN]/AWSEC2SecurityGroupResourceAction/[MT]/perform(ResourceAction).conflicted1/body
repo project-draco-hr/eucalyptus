@@ -1,24 +1,14 @@
 {
   AWSEC2SecurityGroupResourceAction action=(AWSEC2SecurityGroupResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  CreateSecurityGroupType createSecurityGroupType=MessageHelper.createMessage(CreateSecurityGroupType.class,action.info.getEffectiveUserId());
-  if (!Strings.isNullOrEmpty(action.properties.getGroupDescription())) {
-    createSecurityGroupType.setGroupDescription(action.properties.getGroupDescription());
+  List<EC2Tag> tags=TagHelper.getEC2StackTags(action.info,action.getStackEntity());
+  if (action.properties.getTags() != null && !action.properties.getTags().isEmpty()) {
+    TagHelper.checkReservedEC2TemplateTags(action.properties.getTags());
+    tags.addAll(action.properties.getTags());
   }
-  if (!Strings.isNullOrEmpty(action.properties.getVpcId())) {
-    createSecurityGroupType.setVpcId(action.properties.getVpcId());
-  }
-  String groupName=action.getDefaultPhysicalResourceId();
-  createSecurityGroupType.setGroupName(groupName);
-  CreateSecurityGroupResponseType createSecurityGroupResponseType=AsyncRequests.<CreateSecurityGroupType,CreateSecurityGroupResponseType>sendSync(configuration,createSecurityGroupType);
-  String groupId=createSecurityGroupResponseType.getGroupId();
-  if (!Strings.isNullOrEmpty(action.properties.getVpcId())) {
-    action.info.setPhysicalResourceId(groupId);
-  }
- else {
-    action.info.setPhysicalResourceId(groupName);
-  }
-  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
-  action.info.setGroupId(JsonHelper.getStringFromJsonNode(new TextNode(groupId)));
+  CreateTagsType createTagsType=MessageHelper.createPrivilegedMessage(CreateTagsType.class,action.info.getEffectiveUserId());
+  createTagsType.setResourcesSet(Lists.newArrayList(JsonHelper.getJsonNodeFromString(action.info.getGroupId()).asText()));
+  createTagsType.setTagSet(EC2Helper.createTagSet(tags));
+  AsyncRequests.<CreateTagsType,CreateTagsResponseType>sendSync(configuration,createTagsType);
   return action;
 }
