@@ -1,0 +1,20 @@
+{
+  final String provider=getProperty(PROP_USER_SSL_PROVIDER);
+  final String protocol=getProperty(PROP_USER_SSL_PROTOCOL,DEFAULT_PROTOCOL);
+  final String trustStorePath=getProperty(PROP_USER_SSL_TRUSTSTORE_PATH,DEFAULT_TRUSTSTORE_PATH);
+  final SSLContext sslContext;
+  try {
+    sslContext=provider != null ? SSLContext.getInstance(protocol,provider) : SSLContext.getInstance(protocol);
+    final List<TrustManager> trustManagers=Lists.newArrayList();
+    trustManagers.addAll(trustManagersForStore(((AbstractKeyStore)SystemCredentials.getKeyStore()).getKeyStore()));
+    final File trustStore=new File(System.getProperty("java.home"),trustStorePath);
+    if (Objects.firstNonNull(USER_SSL_DEFAULT_CAS,false) && trustStore.isFile()) {
+      trustManagers.addAll(trustManagersForStore(getTrustStore(trustStore)));
+    }
+    sslContext.init(null,new TrustManager[]{new DelegatingX509ExtendedTrustManager(Iterables.transform(Iterables.filter(trustManagers,Predicates.instanceOf(javax.net.ssl.X509ExtendedTrustManager.class)),CollectionUtils.cast(javax.net.ssl.X509ExtendedTrustManager.class)))},Crypto.getSecureRandomSupplier().get());
+    return sslContext.getSocketFactory();
+  }
+ catch (  final GeneralSecurityException|IOException e) {
+    throw propagate(e);
+  }
+}
