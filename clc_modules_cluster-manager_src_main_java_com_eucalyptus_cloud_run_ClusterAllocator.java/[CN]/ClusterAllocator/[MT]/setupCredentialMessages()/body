@@ -14,7 +14,7 @@
   try {
     final VmInstances.VmSpecialUserData specialData=new VmInstances.VmSpecialUserData(userData);
     if (!VmInstances.VmSpecialUserData.EUCAKEY_CRED_SETUP.equals(specialData.getKey()))     return;
-    final String strExpDay=specialData.getArgValue("expiration_day");
+    final String strExpDay=specialData.getExpirationDays();
     if (strExpDay != null)     expirationDays=Integer.parseInt(strExpDay);
     payload=specialData.getPayload();
   }
@@ -22,7 +22,15 @@
     LOG.error("Failed to parse VM user data",ex);
     return;
   }
-  this.allocInfo.setUserDataAsString(payload);
+  for (  String s : this.allocInfo.getInstanceIds()) {
+    try (final TransactionResource db=Entities.transactionFor(VmInstance.class)){
+      final VmInstance instance=VmInstances.lookup(s);
+      instance.setUserDataAsString(payload);
+    }
+ catch (    NoSuchElementException e) {
+      LOG.error("Can't find instance " + s + " to change its user data");
+    }
+  }
   try {
     final KeyPair kp=Certs.generateKeyPair();
     final ServiceConfiguration euare=Topology.lookup(Euare.class);
