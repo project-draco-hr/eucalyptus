@@ -1,10 +1,14 @@
 {
   AWSEC2NetworkAclResourceAction action=(AWSEC2NetworkAclResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  CreateNetworkAclType createNetworkAclType=MessageHelper.createMessage(CreateNetworkAclType.class,action.info.getEffectiveUserId());
-  createNetworkAclType.setVpcId(action.properties.getVpcId());
-  CreateNetworkAclResponseType createNetworkAclResponseType=AsyncRequests.<CreateNetworkAclType,CreateNetworkAclResponseType>sendSync(configuration,createNetworkAclType);
-  action.info.setPhysicalResourceId(createNetworkAclResponseType.getNetworkAcl().getNetworkAclId());
-  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
+  List<EC2Tag> tags=TagHelper.getEC2StackTags(action.info,action.getStackEntity());
+  if (action.properties.getTags() != null && !action.properties.getTags().isEmpty()) {
+    TagHelper.checkReservedEC2TemplateTags(action.properties.getTags());
+    tags.addAll(action.properties.getTags());
+  }
+  CreateTagsType createTagsType=MessageHelper.createPrivilegedMessage(CreateTagsType.class,action.info.getEffectiveUserId());
+  createTagsType.setResourcesSet(Lists.newArrayList(action.info.getPhysicalResourceId()));
+  createTagsType.setTagSet(EC2Helper.createTagSet(tags));
+  AsyncRequests.<CreateTagsType,CreateTagsResponseType>sendSync(configuration,createTagsType);
   return action;
 }

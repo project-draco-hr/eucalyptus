@@ -1,26 +1,25 @@
 {
   AWSElasticLoadBalancingLoadBalancerResourceAction action=(AWSElasticLoadBalancingLoadBalancerResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(LoadBalancing.class);
-  if (action.properties.getPolicies() != null) {
-    for (    ElasticLoadBalancingPolicyType elasticLoadBalancingPropertyType : action.properties.getPolicies()) {
-      CreateLoadBalancerPolicyType createLoadBalancerPolicyType=MessageHelper.createMessage(CreateLoadBalancerPolicyType.class,action.info.getEffectiveUserId());
-      createLoadBalancerPolicyType.setLoadBalancerName(action.info.getPhysicalResourceId());
-      if (elasticLoadBalancingPropertyType.getAttributes() != null) {
-        PolicyAttributes policyAttributes=new PolicyAttributes();
-        ArrayList<PolicyAttribute> member=Lists.newArrayList();
-        for (        ElasticLoadBalancingPolicyTypeAttribute elasticLoadBalancingPolicyTypeAttribute : elasticLoadBalancingPropertyType.getAttributes()) {
-          PolicyAttribute policyAttribute=new PolicyAttribute();
-          policyAttribute.setAttributeName(elasticLoadBalancingPolicyTypeAttribute.getName());
-          policyAttribute.setAttributeValue(elasticLoadBalancingPolicyTypeAttribute.getValue());
-          member.add(policyAttribute);
-        }
-        policyAttributes.setMember(member);
-        createLoadBalancerPolicyType.setPolicyAttributes(policyAttributes);
-      }
-      createLoadBalancerPolicyType.setPolicyName(elasticLoadBalancingPropertyType.getPolicyName());
-      createLoadBalancerPolicyType.setPolicyTypeName(elasticLoadBalancingPropertyType.getPolicyType());
-      AsyncRequests.<CreateLoadBalancerPolicyType,CreateLoadBalancerPolicyResponseType>sendSync(configuration,createLoadBalancerPolicyType);
+  DescribeLoadBalancersType describeLoadBalancersType=MessageHelper.createMessage(DescribeLoadBalancersType.class,action.info.getEffectiveUserId());
+  LoadBalancerNames loadBalancerNames=new LoadBalancerNames();
+  ArrayList<String> member=Lists.newArrayList(action.info.getPhysicalResourceId());
+  loadBalancerNames.setMember(member);
+  describeLoadBalancersType.setLoadBalancerNames(loadBalancerNames);
+  DescribeLoadBalancersResponseType describeLoadBalancersResponseType=AsyncRequests.<DescribeLoadBalancersType,DescribeLoadBalancersResponseType>sendSync(configuration,describeLoadBalancersType);
+  if (describeLoadBalancersResponseType != null && describeLoadBalancersResponseType.getDescribeLoadBalancersResult() != null && describeLoadBalancersResponseType.getDescribeLoadBalancersResult().getLoadBalancerDescriptions() != null && describeLoadBalancersResponseType.getDescribeLoadBalancersResult().getLoadBalancerDescriptions().getMember() != null && describeLoadBalancersResponseType.getDescribeLoadBalancersResult().getLoadBalancerDescriptions().getMember().size() > 0) {
+    LoadBalancerDescription loadBalancerDescription=describeLoadBalancersResponseType.getDescribeLoadBalancersResult().getLoadBalancerDescriptions().getMember().get(0);
+    String canonicalHostedZoneName=loadBalancerDescription.getCanonicalHostedZoneName();
+    String canonicalHostedZoneNameId=loadBalancerDescription.getCanonicalHostedZoneNameID();
+    String sourceSecurityGroupGroupName=loadBalancerDescription.getSourceSecurityGroup().getGroupName();
+    String sourceSecurityGroupGroupOwnerAlias=loadBalancerDescription.getSourceSecurityGroup().getOwnerAlias();
+    if ("internal".equals(loadBalancerDescription.getScheme())) {
+      canonicalHostedZoneName=loadBalancerDescription.getDnsName();
     }
+    action.info.setSourceSecurityGroupGroupName(JsonHelper.getStringFromJsonNode(new TextNode(sourceSecurityGroupGroupName)));
+    action.info.setSourceSecurityGroupOwnerAlias(JsonHelper.getStringFromJsonNode(new TextNode(sourceSecurityGroupGroupOwnerAlias)));
+    action.info.setCanonicalHostedZoneNameID(JsonHelper.getStringFromJsonNode(new TextNode(canonicalHostedZoneNameId)));
+    action.info.setCanonicalHostedZoneName(JsonHelper.getStringFromJsonNode(new TextNode(canonicalHostedZoneName)));
   }
   return action;
 }
