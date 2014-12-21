@@ -1,0 +1,67 @@
+{
+  if (paramFieldMap.containsKey("AccessControlList") || paramFieldMap.containsKey("AccessControlPolicy")) {
+    ArrayList<Grant> grants=new ArrayList<Grant>();
+    String cannedACLString=httpRequest.getAndRemoveHeader(ObjectStorageProperties.AMZ_ACL);
+    if (!Strings.isNullOrEmpty(cannedACLString)) {
+      validateCannedAcl(cannedACLString);
+      grants.add(new Grant(new Grantee(new CanonicalUser("","")),cannedACLString));
+    }
+    for (    Map.Entry<X_AMZ_GRANT,Permission> mapEntry : ObjectStorageProperties.HEADER_PERMISSION_MAP.entrySet()) {
+      String grantsString=httpRequest.getAndRemoveHeader(mapEntry.getKey().toString());
+      String[] grantsArray=null;
+      if (StringUtils.isNotBlank(grantsString) && (grantsArray=grantsString.split(",")) != null && grantsArray.length > 0) {
+        for (int i=0; i < grantsArray.length; i++) {
+          String[] grantIdentityArray=grantsArray[0].split("=");
+          if (grantIdentityArray != null && grantIdentityArray.length == 2) {
+switch (grantIdentityArray[0]) {
+case "emailAddress":
+              grants.add(new Grant(new Grantee(StringUtils.strip(grantIdentityArray[1],"'\"")),mapEntry.getValue().toString()));
+            break;
+case "id":
+          grants.add(new Grant(new Grantee(new CanonicalUser(StringUtils.strip(grantIdentityArray[1],"'\""),"")),mapEntry.getValue().toString()));
+        break;
+case "uri":
+      grants.add(new Grant(new Grantee(new Group(StringUtils.strip(grantIdentityArray[1],"'\""))),mapEntry.getValue().toString()));
+    break;
+default :
+  throw new InvalidRequestException(mapEntry.getKey().toString(),"Invalid type specification for grantee: " + grantIdentityArray[0] + ". Valid types are emailAddress, id or url");
+}
+}
+ else {
+throw new InvalidRequestException(mapEntry.getKey().toString(),"Invalid specification for grantee: " + grantsArray[0] + ". Valid format for grantee is 'type=value' where type is emailAddress, id or url");
+}
+}
+}
+ else {
+}
+}
+if (!grants.isEmpty()) {
+if (paramFieldMap.containsKey("AccessControlList")) {
+AccessControlList accessControlList;
+if (bindingMap.containsKey("AccessControlList")) {
+accessControlList=(AccessControlList)bindingMap.get("AccessControlList");
+}
+ else {
+accessControlList=new AccessControlList();
+bindingMap.put("AccessControlList",accessControlList);
+}
+accessControlList.getGrants().addAll(grants);
+}
+ else {
+AccessControlPolicy accessControlPolicy;
+if (bindingMap.containsKey("AccessControlPolicy")) {
+accessControlPolicy=(AccessControlPolicy)bindingMap.get("AccessControlPolicy");
+}
+ else {
+accessControlPolicy=new AccessControlPolicy(new CanonicalUser("",""),new AccessControlList());
+bindingMap.put("AccessControlPolicy",accessControlPolicy);
+}
+accessControlPolicy.getAccessControlList().getGrants().addAll(grants);
+}
+}
+ else {
+}
+}
+ else {
+}
+}
