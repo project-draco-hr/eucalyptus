@@ -2,19 +2,20 @@
   SetStackPolicyResponseType reply=request.getReply();
   try {
     final Context ctx=Contexts.lookup();
-    checkActionPermission(CloudFormationPolicySpec.CLOUDFORMATION_SETSTACKPOLICY,ctx);
-    User user=ctx.getUser();
-    String userId=user.getUserId();
-    String accountId=user.getAccount().getAccountNumber();
+    final User user=ctx.getUser();
+    final String accountId=user.getAccount().getAccountNumber();
     final String stackName=request.getStackName();
     final String stackPolicyBody=request.getStackPolicyBody();
     if (request.getStackPolicyURL() != null) {
       throw new ValidationErrorException("StackPolicyURL is not supported");
     }
     if (stackName == null)     throw new ValidationErrorException("Stack name is null");
-    StackEntity stackEntity=StackEntityManager.getAnyStackByNameOrId(stackName,accountId);
+    StackEntity stackEntity=StackEntityManager.getAnyStackByNameOrId(stackName,ctx.isAdministrator() && stackName.startsWith(STACK_ID_PREFIX) ? null : accountId);
     if (stackEntity == null) {
       throw new ValidationErrorException("Stack " + stackName + " does not exist");
+    }
+    if (!RestrictedTypes.filterPrivileged().apply(stackEntity)) {
+      throw new AccessDeniedException("Not authorized.");
     }
     stackEntity.setStackPolicy(stackPolicyBody);
     StackEntityManager.updateStack(stackEntity);
