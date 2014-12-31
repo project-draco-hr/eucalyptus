@@ -1,14 +1,29 @@
 {
   final List<Class<? extends AccountMetadata>> accountMetadataClasses=getAccountMetadataClasses();
   final Class<? extends AccountMetadata> contextClass=Iterables.get(accountMetadataClasses,0);
-  return Upgrades.transactionalForEntity(contextClass,new Function<EntityManager,Boolean>(){
-    @Override public Boolean apply(    final EntityManager entityManager){
-      for (      final Class<? extends AccountMetadata> accountMetadataClass : accountMetadataClasses) {
-        final int updated=entityManager.createNativeQuery(String.format(SQL_DROP_NAME_COLUMN,Ats.from(accountMetadataClass).get(Table.class).name())).executeUpdate();
+  final String context=Ats.inClassHierarchy(contextClass).get(PersistenceContext.class).name();
+  Sql sql=null;
+  try {
+    sql=Upgrades.DatabaseFilters.NEWVERSION.getConnection(context);
+    for (    final Class<? extends AccountMetadata> accountMetadataClass : accountMetadataClasses) {
+      final int updated;
+      try {
+        updated=sql.executeUpdate(String.format(SQL_DROP_NAME_COLUMN,Ats.from(accountMetadataClass).get(Table.class).name()));
         logger.info("Cleared account alias for " + updated + " "+ accountMetadataClass.getSimpleName()+ "(s)");
       }
-      return true;
+ catch (      final SQLException e) {
+        throw Exceptions.toUndeclared("Error clearing account alias for " + accountMetadataClass.getSimpleName(),e);
+      }
+    }
+    return true;
+  }
+ catch (  final Exception e) {
+    logger.error(e,e);
+    return false;
+  }
+ finally {
+    if (sql != null) {
+      sql.close();
     }
   }
-);
 }
