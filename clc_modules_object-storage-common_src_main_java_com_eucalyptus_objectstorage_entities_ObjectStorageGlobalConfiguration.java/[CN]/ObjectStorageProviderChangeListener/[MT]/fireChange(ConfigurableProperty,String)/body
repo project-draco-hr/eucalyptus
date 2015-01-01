@@ -9,9 +9,8 @@
   }
   final String proposedValue=newValue;
   final Set<String> validEntries=Sets.newHashSet();
-  EntityTransaction tx=Entities.get(ObjectStorageConfiguration.class);
-  try {
-    if (!Iterables.any(Components.lookup(ObjectStorage.class).services(),new Predicate<ServiceConfiguration>(){
+  try (TransactionResource tr=Entities.transactionFor(ObjectStorageConfiguration.class)){
+    boolean match=Iterables.any(Components.lookup(ObjectStorage.class).services(),new Predicate<ServiceConfiguration>(){
       @Override public boolean apply(      ServiceConfiguration config){
         if (config.isVmLocal()) {
           validEntries.addAll(ObjectStorageProviders.list());
@@ -31,11 +30,12 @@
         }
       }
     }
-)) {
+);
+    tr.commit();
+    if (!match) {
       throw new ConfigurablePropertyException("Cannot modify " + t.getQualifiedName() + "."+ t.getFieldName()+ " new value is not a valid value.  "+ "Legal values are: "+ Joiner.on(",").join(validEntries));
     }
+ else {
+    }
   }
-  finally {
-    tx.rollback();
-  }
-}
+ }
