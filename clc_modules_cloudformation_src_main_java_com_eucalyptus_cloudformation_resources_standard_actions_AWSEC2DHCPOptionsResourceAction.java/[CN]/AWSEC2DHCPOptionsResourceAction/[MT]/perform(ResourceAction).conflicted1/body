@@ -1,29 +1,21 @@
 {
   AWSEC2DHCPOptionsResourceAction action=(AWSEC2DHCPOptionsResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  action.validateProperties();
-  CreateDhcpOptionsType createDhcpOptionsType=MessageHelper.createMessage(CreateDhcpOptionsType.class,action.info.getEffectiveUserId());
-  DhcpConfigurationItemSetType dhcpConfigurationSet=new DhcpConfigurationItemSetType();
-  dhcpConfigurationSet.setItem(Lists.<DhcpConfigurationItemType>newArrayList());
-  ArrayList<DhcpConfigurationItemType> item=Lists.newArrayList();
-  if (!Strings.isNullOrEmpty(action.properties.getDomainName())) {
-    dhcpConfigurationSet.getItem().add(action.createDhcpConfigurationItemType("domain-name",action.createValueSet(action.properties.getDomainName())));
+  String effectiveAdminUserId=Accounts.lookupUserById(action.info.getEffectiveUserId()).getAccount().lookupAdmin().getUserId();
+  CreateTagsType createSystemTagsType=MessageHelper.createPrivilegedMessage(CreateTagsType.class,effectiveAdminUserId);
+  createSystemTagsType.setResourcesSet(Lists.newArrayList(action.info.getPhysicalResourceId()));
+  createSystemTagsType.setTagSet(EC2Helper.createTagSet(TagHelper.getEC2SystemTags(action.info,action.getStackEntity())));
+  AsyncRequests.<CreateTagsType,CreateTagsResponseType>sendSync(configuration,createSystemTagsType);
+  List<EC2Tag> tags=TagHelper.getEC2StackTags(action.getStackEntity());
+  if (action.properties.getTags() != null && !action.properties.getTags().isEmpty()) {
+    TagHelper.checkReservedEC2TemplateTags(action.properties.getTags());
+    tags.addAll(action.properties.getTags());
   }
-  if (action.properties.getDomainNameServers() != null && !action.properties.getDomainNameServers().isEmpty()) {
-    dhcpConfigurationSet.getItem().add(action.createDhcpConfigurationItemType("domain-name-servers",action.createValueSet(action.properties.getDomainNameServers())));
+  if (!tags.isEmpty()) {
+    CreateTagsType createTagsType=MessageHelper.createMessage(CreateTagsType.class,action.info.getEffectiveUserId());
+    createTagsType.setResourcesSet(Lists.newArrayList(action.info.getPhysicalResourceId()));
+    createTagsType.setTagSet(EC2Helper.createTagSet(tags));
+    AsyncRequests.<CreateTagsType,CreateTagsResponseType>sendSync(configuration,createTagsType);
   }
-  if (action.properties.getNtpServers() != null && !action.properties.getNtpServers().isEmpty()) {
-    dhcpConfigurationSet.getItem().add(action.createDhcpConfigurationItemType("ntp-servers",action.createValueSet(action.properties.getNtpServers())));
-  }
-  if (action.properties.getNetbiosNameServers() != null && !action.properties.getNetbiosNameServers().isEmpty()) {
-    dhcpConfigurationSet.getItem().add(action.createDhcpConfigurationItemType("netbios-name-servers",action.createValueSet(action.properties.getNetbiosNameServers())));
-  }
-  if (action.properties.getNetbiosNodeType() != null) {
-    dhcpConfigurationSet.getItem().add(action.createDhcpConfigurationItemType("netbios-node-type",action.createValueSet(String.valueOf(action.properties.getNetbiosNodeType()))));
-  }
-  createDhcpOptionsType.setDhcpConfigurationSet(dhcpConfigurationSet);
-  CreateDhcpOptionsResponseType createDhcpOptionsResponseType=AsyncRequests.<CreateDhcpOptionsType,CreateDhcpOptionsResponseType>sendSync(configuration,createDhcpOptionsType);
-  action.info.setPhysicalResourceId(createDhcpOptionsResponseType.getDhcpOptions().getDhcpOptionsId());
-  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
   return action;
 }
