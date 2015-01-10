@@ -8,22 +8,11 @@ synchronized (AWSEC2InstanceResourceAction.class) {
       for (      EC2MountPoint ec2MountPoint : action.properties.getVolumes()) {
         volumeIds.add(ec2MountPoint.getVolumeId());
         deviceMap.put(ec2MountPoint.getVolumeId(),ec2MountPoint.getDevice());
-      }
-      DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,action.info.getEffectiveUserId());
-      describeVolumesType.setVolumeSet(Lists.newArrayList(volumeIds));
-      DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.<DescribeVolumesType,DescribeVolumesResponseType>sendSync(configuration,describeVolumesType);
-      Map<String,String> volumeStatusMap=Maps.newHashMap();
-      for (      Volume volume : describeVolumesResponseType.getVolumeSet()) {
-        for (        AttachedVolume attachedVolume : volume.getAttachmentSet()) {
-          if (attachedVolume.getInstanceId().equals(action.info.getPhysicalResourceId()) && attachedVolume.getDevice().equals(deviceMap.get(volume.getVolumeId()))) {
-            volumeStatusMap.put(volume.getVolumeId(),attachedVolume.getStatus());
-          }
-        }
-      }
-      for (      String volumeId : volumeIds) {
-        if (!"attached".equals(volumeStatusMap.get(volumeId))) {
-          throw new ValidationFailedException("One or more volumes is not yet attached to the instance");
-        }
+        AttachVolumeType attachVolumeType=MessageHelper.createMessage(AttachVolumeType.class,action.info.getEffectiveUserId());
+        attachVolumeType.setInstanceId(action.info.getPhysicalResourceId());
+        attachVolumeType.setVolumeId(ec2MountPoint.getVolumeId());
+        attachVolumeType.setDevice(ec2MountPoint.getDevice());
+        AsyncRequests.<AttachVolumeType,AttachVolumeResponseType>sendSync(configuration,attachVolumeType);
       }
     }
     return action;

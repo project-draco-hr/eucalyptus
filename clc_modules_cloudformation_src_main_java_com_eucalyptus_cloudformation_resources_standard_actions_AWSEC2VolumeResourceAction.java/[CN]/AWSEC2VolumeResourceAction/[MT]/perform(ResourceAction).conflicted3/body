@@ -1,14 +1,14 @@
 {
   AWSEC2VolumeResourceAction action=(AWSEC2VolumeResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  List<EC2Tag> tags=TagHelper.getEC2StackTags(action.info,action.getStackEntity());
-  if (action.properties.getTags() != null && !action.properties.getTags().isEmpty()) {
-    TagHelper.checkReservedEC2TemplateTags(action.properties.getTags());
-    tags.addAll(action.properties.getTags());
+  DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,action.info.getEffectiveUserId());
+  describeVolumesType.setVolumeSet(Lists.newArrayList(action.info.getPhysicalResourceId()));
+  DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.<DescribeVolumesType,DescribeVolumesResponseType>sendSync(configuration,describeVolumesType);
+  if (describeVolumesResponseType.getVolumeSet().size() == 0) {
+    throw new ValidationFailedException("Volume " + action.info.getPhysicalResourceId() + " not yet available");
   }
-  CreateTagsType createTagsType=MessageHelper.createPrivilegedMessage(CreateTagsType.class,action.info.getEffectiveUserId());
-  createTagsType.setResourcesSet(Lists.newArrayList(action.info.getPhysicalResourceId()));
-  createTagsType.setTagSet(EC2Helper.createTagSet(tags));
-  AsyncRequests.<CreateTagsType,CreateTagsResponseType>sendSync(configuration,createTagsType);
+  if (!"available".equals(describeVolumesResponseType.getVolumeSet().get(0).getStatus())) {
+    throw new ValidationFailedException("Volume " + action.info.getPhysicalResourceId() + " not yet available");
+  }
   return action;
 }

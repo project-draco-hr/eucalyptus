@@ -2,5 +2,20 @@
   AWSAutoScalingAutoScalingGroupResourceAction action=(AWSAutoScalingAutoScalingGroupResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
   if (groupDoesNotExist(configuration,action))   return action;
-  throw new ValidationFailedException("Autoscaling group " + action.info.getPhysicalResourceId() + " is not yet deleted");
+  DescribeAutoScalingGroupsType describeAutoScalingGroupsType=MessageHelper.createMessage(DescribeAutoScalingGroupsType.class,action.info.getEffectiveUserId());
+  AutoScalingGroupNames autoScalingGroupNames=new AutoScalingGroupNames();
+  ArrayList<String> member=Lists.newArrayList(action.info.getPhysicalResourceId());
+  autoScalingGroupNames.setMember(member);
+  describeAutoScalingGroupsType.setAutoScalingGroupNames(autoScalingGroupNames);
+  DescribeAutoScalingGroupsResponseType describeAutoScalingGroupsResponseType=AsyncRequests.<DescribeAutoScalingGroupsType,DescribeAutoScalingGroupsResponseType>sendSync(configuration,describeAutoScalingGroupsType);
+  if (action.doesGroupNotExist(describeAutoScalingGroupsResponseType)) {
+    return action;
+  }
+ else {
+    AutoScalingGroupType firstGroup=describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember().get(0);
+    if (firstGroup.getInstances() == null || firstGroup.getInstances().getMember() == null || firstGroup.getInstances().getMember().isEmpty()) {
+      return action;
+    }
+  }
+  throw new ValidationFailedException("Autoscaling group " + action.info.getPhysicalResourceId() + " still has instances");
 }
