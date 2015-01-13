@@ -1,9 +1,19 @@
 {
   AWSAutoScalingAutoScalingGroupResourceAction action=(AWSAutoScalingAutoScalingGroupResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
-  if (groupDoesNotExist(configuration,action))   return action;
-  DeleteAutoScalingGroupType deleteAutoScalingGroupType=MessageHelper.createMessage(DeleteAutoScalingGroupType.class,action.info.getEffectiveUserId());
-  deleteAutoScalingGroupType.setAutoScalingGroupName(action.info.getPhysicalResourceId());
-  AsyncRequests.<DeleteAutoScalingGroupType,DeleteAutoScalingGroupResponseType>sendSync(configuration,deleteAutoScalingGroupType);
+  String effectiveAdminUserId=Accounts.lookupUserById(action.info.getEffectiveUserId()).getAccount().lookupAdmin().getUserId();
+  CreateOrUpdateTagsType createSystemTagsType=MessageHelper.createPrivilegedMessage(CreateOrUpdateTagsType.class,effectiveAdminUserId);
+  createSystemTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(action.info.getPhysicalResourceId(),TagHelper.getAutoScalingSystemTags(action.info,action.getStackEntity())));
+  AsyncRequests.<CreateOrUpdateTagsType,CreateOrUpdateTagsResponseType>sendSync(configuration,createSystemTagsType);
+  List<AutoScalingTag> tags=TagHelper.getAutoScalingStackTags(action.getStackEntity());
+  if (action.properties.getTags() != null && !action.properties.getTags().isEmpty()) {
+    TagHelper.checkReservedAutoScalingTemplateTags(action.properties.getTags());
+    tags.addAll(action.properties.getTags());
+  }
+  if (!tags.isEmpty()) {
+    CreateOrUpdateTagsType createOrUpdateTagsType=MessageHelper.createMessage(CreateOrUpdateTagsType.class,action.info.getEffectiveUserId());
+    createOrUpdateTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(action.info.getPhysicalResourceId(),tags));
+    AsyncRequests.<CreateOrUpdateTagsType,CreateOrUpdateTagsResponseType>sendSync(configuration,createOrUpdateTagsType);
+  }
   return action;
 }

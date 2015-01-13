@@ -1,14 +1,16 @@
 {
   AWSEC2VolumeResourceAction action=(AWSEC2VolumeResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,action.info.getEffectiveUserId());
-  describeVolumesType.setVolumeSet(Lists.newArrayList(action.info.getPhysicalResourceId()));
-  DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.<DescribeVolumesType,DescribeVolumesResponseType>sendSync(configuration,describeVolumesType);
-  if (describeVolumesResponseType.getVolumeSet().size() == 0) {
-    throw new ValidationFailedException("Volume " + action.info.getPhysicalResourceId() + " not yet available");
+  if (volumeDeleted(action,configuration))   return action;
+  if (!("Snapshot".equals(action.info.getDeletionPolicy())))   return action;
+  CreateSnapshotType createSnapshotType=MessageHelper.createMessage(CreateSnapshotType.class,action.info.getEffectiveUserId());
+  createSnapshotType.setVolumeId(action.info.getPhysicalResourceId());
+  CreateSnapshotResponseType createSnapshotResponseType=AsyncRequests.<CreateSnapshotType,CreateSnapshotResponseType>sendSync(configuration,createSnapshotType);
+  if (createSnapshotResponseType.getSnapshot() == null || createSnapshotResponseType.getSnapshot().getSnapshotId() == null) {
+    throw new ResourceFailureException("Unable to create snapshot on delete for volume " + action.info.getPhysicalResourceId());
   }
-  if (!"available".equals(describeVolumesResponseType.getVolumeSet().get(0).getStatus())) {
-    throw new ValidationFailedException("Volume " + action.info.getPhysicalResourceId() + " not yet available");
+ else {
+    action.info.setSnapshotIdForDelete(JsonHelper.getStringFromJsonNode(new TextNode(createSnapshotResponseType.getSnapshot().getSnapshotId())));
   }
   return action;
 }

@@ -1,39 +1,47 @@
 {
   final RevokeSecurityGroupEgressResponseType reply=request.getReply().markFailed();
   final Context ctx=Contexts.lookup();
-  try (final TransactionResource tx=Entities.transactionFor(NetworkGroup.class)){
-    final NetworkGroup ruleGroup=lookupGroup(request.getGroupId(),null);
-    final List<IpPermissionType> ipPermissions=request.getIpPermissions();
-    if (RestrictedTypes.filterPrivileged().apply(ruleGroup)) {
-      if (ruleGroup.getVpcId() == null) {
-        throw new ClientComputeException("InvalidGroup.NotFound","VPC security group (" + request.getGroupId() + ") not found");
-      }
+  final Predicate<Void> updateFunction=new Predicate<Void>(){
+    @Override public boolean apply(    @Nullable final Void aVoid){
       try {
-        final List<NetworkRule> rules=NetworkGroups.ipPermissionsAsNetworkRules(ipPermissions,ruleGroup.getVpcId() != null);
-        for (        final NetworkRule rule : rules)         rule.setEgress(true);
-        NetworkGroups.resolvePermissions(ipPermissions,ctx.getUser().getAccountNumber(),ruleGroup.getVpcId(),true);
-        Iterators.removeAll(ruleGroup.getNetworkRules().iterator(),rules);
-      }
- catch (      IllegalArgumentException e) {
-        throw new ClientComputeException("InvalidPermission.Malformed",e.getMessage());
-      }
-catch (      NoSuchMetadataException e) {
-        throw new ClientComputeException("InvalidGroup.NotFound",e.getMessage());
-      }
-    }
+        final NetworkGroup ruleGroup=lookupGroup(request.getGroupId(),null);
+        final List<IpPermissionType> ipPermissions=request.getIpPermissions();
+        if (RestrictedTypes.filterPrivileged().apply(ruleGroup)) {
+          if (ruleGroup.getVpcId() == null) {
+            throw new ClientComputeException("InvalidGroup.NotFound","VPC security group (" + request.getGroupId() + ") not found");
+          }
+          try {
+            final List<NetworkRule> rules=NetworkGroups.ipPermissionsAsNetworkRules(ipPermissions,true);
+            for (            final NetworkRule rule : rules)             rule.setEgress(true);
+            NetworkGroups.resolvePermissions(ipPermissions,ctx.getUser().getAccountNumber(),ruleGroup.getVpcId(),true);
+            Iterators.removeAll(ruleGroup.getNetworkRules().iterator(),rules);
+          }
+ catch (          IllegalArgumentException e) {
+            throw new ClientComputeException("InvalidPermission.Malformed",e.getMessage());
+          }
+catch (          NoSuchMetadataException e) {
+            throw new ClientComputeException("InvalidGroup.NotFound",e.getMessage());
+          }
+        }
  else {
-      throw new ClientUnauthorizedComputeException("Not authorized to revoke network group " + request.getGroupId() + " for "+ ctx.getUser().getName());
+          throw new ClientUnauthorizedComputeException("Not authorized to revoke network group " + request.getGroupId() + " for "+ ctx.getUser().getName());
+        }
+      }
+ catch (      final Exception e) {
+        throw Exceptions.toUndeclared(e);
+      }
+      return true;
     }
-    reply.set_return(true);
-    tx.commit();
+  }
+;
+  try {
+    reply.set_return(Entities.asDistinctTransaction(NetworkGroup.class,updateFunction).apply(null));
     NetworkGroups.flushRules();
   }
- catch (  EucalyptusCloudException ex) {
-    throw ex;
-  }
-catch (  Exception ex) {
+ catch (  Exception ex) {
+    Exceptions.findAndRethrow(ex,EucalyptusCloudException.class,EucalyptusWebServiceException.class);
     Logs.exhaust().error(ex,ex);
-    throw new EucalyptusCloudException("RevokeSecurityGroupIngress failed because: " + ex.getMessage(),ex);
+    throw new EucalyptusCloudException("RevokeSecurityGroupEgress failed because: " + ex.getMessage(),ex);
   }
   return reply;
 }
