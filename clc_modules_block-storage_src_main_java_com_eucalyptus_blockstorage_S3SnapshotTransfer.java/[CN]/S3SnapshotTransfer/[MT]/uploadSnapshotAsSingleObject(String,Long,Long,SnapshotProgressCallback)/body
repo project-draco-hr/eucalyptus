@@ -1,6 +1,5 @@
 {
   callback.setUploadSize(actualSize);
-  FileInputStreamWithCallback snapInputStream=new FileInputStreamWithCallback(new File(compressedSnapFileName),callback);
   ObjectMetadata objectMetadata=new ObjectMetadata();
   Map<String,String> userMetadataMap=new HashMap<String,String>();
   userMetadataMap.put(UNCOMPRESSED_SIZE_KEY,String.valueOf(uncompressedSize));
@@ -9,8 +8,15 @@
   return retryAfterRefresh(new Function<PutObjectRequest,PutObjectResult>(){
     @Override @Nullable public PutObjectResult apply(    @Nullable PutObjectRequest arg0){
       eucaS3Client.refreshEndpoint();
+      try {
+        arg0.setInputStream(new FileInputStreamWithCallback(new File(compressedSnapFileName),callback));
+      }
+ catch (      Exception e) {
+        LOG.warn("Failed to upload snapshot to objectstorage: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName+ ", reason: unable to initialize FileInputStreamWithCallback for file "+ compressedSnapFileName,e);
+        Exceptions.toUndeclared(e);
+      }
       return eucaS3Client.putObject(arg0);
     }
   }
-,new PutObjectRequest(bucketName,keyName,snapInputStream,objectMetadata),REFRESH_TOKEN_RETRIES);
+,new PutObjectRequest(bucketName,keyName,null,objectMetadata),REFRESH_TOKEN_RETRIES);
 }
