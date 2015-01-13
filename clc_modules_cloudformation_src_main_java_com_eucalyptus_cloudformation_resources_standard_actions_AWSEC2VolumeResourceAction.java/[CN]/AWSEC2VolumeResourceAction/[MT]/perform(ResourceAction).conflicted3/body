@@ -1,14 +1,20 @@
 {
   AWSEC2VolumeResourceAction action=(AWSEC2VolumeResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,action.info.getEffectiveUserId());
-  describeVolumesType.setVolumeSet(Lists.newArrayList(action.info.getPhysicalResourceId()));
-  DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.<DescribeVolumesType,DescribeVolumesResponseType>sendSync(configuration,describeVolumesType);
-  if (describeVolumesResponseType.getVolumeSet().size() == 0) {
-    throw new ValidationFailedException("Volume " + action.info.getPhysicalResourceId() + " not yet available");
+  if (volumeDeleted(action,configuration))   return action;
+  if (!("Snapshot".equals(action.info.getDeletionPolicy())))   return action;
+  DescribeSnapshotsType describeSnapshotsType=MessageHelper.createMessage(DescribeSnapshotsType.class,action.info.getEffectiveUserId());
+  String snapshotId=JsonHelper.getJsonNodeFromString(action.info.getSnapshotIdForDelete()).asText();
+  describeSnapshotsType.setSnapshotSet(Lists.newArrayList(snapshotId));
+  DescribeSnapshotsResponseType describeSnapshotsResponseType=AsyncRequests.<DescribeSnapshotsType,DescribeSnapshotsResponseType>sendSync(configuration,describeSnapshotsType);
+  if (describeSnapshotsResponseType.getSnapshotSet() == null || describeSnapshotsResponseType.getSnapshotSet().isEmpty()) {
+    throw new ValidationFailedException("Snapshot " + snapshotId + " not yet complete");
   }
-  if (!"available".equals(describeVolumesResponseType.getVolumeSet().get(0).getStatus())) {
-    throw new ValidationFailedException("Volume " + action.info.getPhysicalResourceId() + " not yet available");
+  if ("error".equals(describeSnapshotsResponseType.getSnapshotSet().get(0).getStatus())) {
+    throw new ResourceFailureException("Error creating snapshot " + snapshotId + ", while deleting volume "+ action.info.getPhysicalResourceId());
+  }
+ else   if (!"completed".equals(describeSnapshotsResponseType.getSnapshotSet().get(0).getStatus())) {
+    throw new ValidationFailedException("Snapshot " + snapshotId + " not yet complete");
   }
   return action;
 }
