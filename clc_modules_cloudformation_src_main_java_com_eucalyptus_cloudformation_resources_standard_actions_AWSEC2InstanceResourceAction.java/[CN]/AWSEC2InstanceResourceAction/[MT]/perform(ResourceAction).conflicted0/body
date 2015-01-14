@@ -2,22 +2,15 @@
 synchronized (AWSEC2InstanceResourceAction.class) {
     AWSEC2InstanceResourceAction action=(AWSEC2InstanceResourceAction)resourceAction;
     ServiceConfiguration configuration=Topology.lookup(Compute.class);
+    if (action.info.getPhysicalResourceId() == null)     return action;
     DescribeInstancesType describeInstancesType=MessageHelper.createMessage(DescribeInstancesType.class,action.info.getEffectiveUserId());
     describeInstancesType.setInstancesSet(Lists.newArrayList(action.info.getPhysicalResourceId()));
     DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.<DescribeInstancesType,DescribeInstancesResponseType>sendSync(configuration,describeInstancesType);
-    if (describeInstancesResponseType.getReservationSet().size() == 0) {
-      throw new ValidationFailedException("Instance " + action.info.getAccountId() + " does not yet exist");
-    }
-    RunningInstancesItemType runningInstancesItemType=describeInstancesResponseType.getReservationSet().get(0).getInstancesSet().get(0);
-    if ("running".equals(runningInstancesItemType.getStateName())) {
-      action.info.setPrivateIp(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getPrivateIpAddress())));
-      action.info.setPublicIp(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getIpAddress())));
-      action.info.setAvailabilityZone(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getPlacement())));
-      action.info.setPrivateDnsName(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getPrivateDnsName())));
-      action.info.setPublicDnsName(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getDnsName())));
-      action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
-      return action;
-    }
-    throw new ValidationFailedException(("Instance " + action.info.getPhysicalResourceId() + " is not yet running, currently "+ runningInstancesItemType.getStateName()));
+    if (describeInstancesResponseType.getReservationSet().size() == 0)     return action;
+    if ("terminated".equals(describeInstancesResponseType.getReservationSet().get(0).getInstancesSet().get(0).getStateName()))     return action;
+    TerminateInstancesType terminateInstancesType=MessageHelper.createMessage(TerminateInstancesType.class,action.info.getEffectiveUserId());
+    terminateInstancesType.setInstancesSet(Lists.newArrayList(action.info.getPhysicalResourceId()));
+    AsyncRequests.<TerminateInstancesType,TerminateInstancesResponseType>sendSync(configuration,terminateInstancesType);
+    return action;
   }
 }
