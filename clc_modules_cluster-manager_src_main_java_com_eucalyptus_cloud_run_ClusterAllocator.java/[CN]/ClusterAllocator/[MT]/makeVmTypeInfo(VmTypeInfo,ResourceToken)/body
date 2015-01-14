@@ -2,6 +2,8 @@
   VmTypeInfo childVmInfo=vmInfo.child();
   if (this.allocInfo.getBootSet().getMachine() instanceof BlockStorageImageInfo) {
     String instanceId=token.getInstanceId();
+    final VmInstance vm=VmInstances.lookup(instanceId);
+    Map<String,String> volumeAttachmentTokenMap=Maps.newHashMap();
     VirtualBootRecord rootVbr=childVmInfo.lookupRoot();
     Volume rootVolume=token.getRootVolume();
     String volumeId=rootVolume.getDisplayName();
@@ -29,6 +31,7 @@
       }
       rootVbr.setResourceLocation(volumeToken);
       rootVbr.setSize(rootVolume.getSize() * BYTES_PER_GB);
+      volumeAttachmentTokenMap.put(volumeId,volumeToken);
     }
  catch (    final Exception ex) {
       LOG.error(ex);
@@ -63,6 +66,7 @@
           volumeToken=StorageProperties.formatVolumeAttachmentTokenForTransfer(volumeToken,volumeId);
           VirtualBootRecord vbr=new VirtualBootRecord(volumeId,volumeToken,"ebs",mapping.getKey(),(volume.getSize() * BYTES_PER_GB),"none");
           childVmInfo.getVirtualBootRecord().add(vbr);
+          volumeAttachmentTokenMap.put(volumeId,volumeToken);
         }
       }
  catch (      final Exception ex) {
@@ -70,6 +74,9 @@
         Logs.extreme().error(ex,ex);
         throw ex;
       }
+    }
+    if (!volumeAttachmentTokenMap.isEmpty()) {
+      vm.updateAttachmentToken(volumeAttachmentTokenMap);
     }
     for (    String deviceName : token.getEphemeralDisks().keySet()) {
       childVmInfo.setEphemeral(0,deviceName,(this.allocInfo.getVmType().getDisk() * BYTES_PER_GB),"none");
