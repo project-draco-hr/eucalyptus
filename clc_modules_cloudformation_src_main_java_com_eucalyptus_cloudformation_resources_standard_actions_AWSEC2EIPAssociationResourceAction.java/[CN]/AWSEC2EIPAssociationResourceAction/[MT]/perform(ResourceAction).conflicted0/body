@@ -2,6 +2,9 @@
   AWSEC2EIPAssociationResourceAction action=(AWSEC2EIPAssociationResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
   AssociateAddressType associateAddressType=MessageHelper.createMessage(AssociateAddressType.class,action.info.getEffectiveUserId());
+  if (action.properties.getInstanceId() == null && action.properties.getNetworkInterfaceId() == null) {
+    throw new ValidationErrorException("Either instance ID or network interface id must be specified");
+  }
   if (action.properties.getInstanceId() != null) {
     DescribeInstancesType describeInstancesType=MessageHelper.createMessage(DescribeInstancesType.class,action.info.getEffectiveUserId());
     describeInstancesType.setInstancesSet(Lists.newArrayList(action.properties.getInstanceId()));
@@ -44,19 +47,23 @@
   }
   action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
   if (action.properties.getInstanceId() != null) {
-    String stackId=action.getStackEntity().getStackId();
-    String accountId=action.getStackEntity().getAccountId();
-    StackResourceEntity instanceStackResourceEntity=StackResourceEntityManager.getStackResourceByPhysicalResourceId(stackId,accountId,action.properties.getInstanceId());
-    if (instanceStackResourceEntity != null) {
-      ResourceInfo instanceResourceInfo=StackResourceEntityManager.getResourceInfo(instanceStackResourceEntity);
-      ResourceAction instanceResourceAction=new ResourceResolverManager().resolveResourceAction(instanceResourceInfo.getType());
-      instanceResourceAction.setStackEntity(action.getStackEntity());
-      instanceResourceInfo.setEffectiveUserId(action.info.getEffectiveUserId());
-      instanceResourceAction.setResourceInfo(instanceResourceInfo);
-      ResourcePropertyResolver.populateResourceProperties(instanceResourceAction.getResourceProperties(),JsonHelper.getJsonNodeFromString(instanceResourceInfo.getPropertiesJson()));
-      instanceResourceAction.refreshAttributes();
-      instanceStackResourceEntity=StackResourceEntityManager.updateResourceInfo(instanceStackResourceEntity,instanceResourceInfo);
-      StackResourceEntityManager.updateStackResource(instanceStackResourceEntity);
+    EC2Helper.refreshInstanceAttributes(action.getStackEntity(),action.properties.getInstanceId(),action.info.getEffectiveUserId());
+  }
+  if (action.properties.getNetworkInterfaceId() != null) {
+    DescribeNetworkInterfacesType describeNetworkInterfacesType=MessageHelper.createMessage(DescribeNetworkInterfacesType.class,action.info.getEffectiveUserId());
+    NetworkInterfaceIdSetType networkInterfaceIdSetType=new NetworkInterfaceIdSetType();
+    NetworkInterfaceIdSetItemType networkInterfaceIdSetItemType=new NetworkInterfaceIdSetItemType();
+    networkInterfaceIdSetItemType.setNetworkInterfaceId(action.properties.getNetworkInterfaceId());
+    ArrayList<NetworkInterfaceIdSetItemType> networkInterfaceIdSetItemTypes=Lists.newArrayList(networkInterfaceIdSetItemType);
+    networkInterfaceIdSetType.setItem(networkInterfaceIdSetItemTypes);
+    describeNetworkInterfacesType.setNetworkInterfaceIdSet(networkInterfaceIdSetType);
+    DescribeNetworkInterfacesResponseType describeNetworkInterfacesResponseType=AsyncRequests.<DescribeNetworkInterfacesType,DescribeNetworkInterfacesResponseType>sendSync(configuration,describeNetworkInterfacesType);
+    if (describeNetworkInterfacesResponseType.getNetworkInterfaceSet() != null && describeNetworkInterfacesResponseType.getNetworkInterfaceSet().getItem() != null && describeNetworkInterfacesResponseType.getNetworkInterfaceSet().getItem().isEmpty()) {
+      for (      NetworkInterfaceType networkInterfaceType : describeNetworkInterfacesResponseType.getNetworkInterfaceSet().getItem()) {
+        if (networkInterfaceType != null && networkInterfaceType.getAttachment() != null && networkInterfaceType.getAttachment().getDeviceIndex() == 0 && networkInterfaceType.getAttachment().getInstanceId() != null) {
+          EC2Helper.refreshInstanceAttributes(action.getStackEntity(),networkInterfaceType.getAttachment().getInstanceId(),action.info.getEffectiveUserId());
+        }
+      }
     }
   }
   return action;
