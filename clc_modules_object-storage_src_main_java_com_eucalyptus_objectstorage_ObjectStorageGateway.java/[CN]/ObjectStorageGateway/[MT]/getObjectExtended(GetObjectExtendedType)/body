@@ -1,10 +1,47 @@
 {
   ObjectEntity objectEntity=getObjectEntityAndCheckPermissions(request,null);
+  Long objectSize=objectEntity.getSize();
+  Long lastIndex=(objectSize - 1) < 0 ? 0 : (objectSize - 1);
+  Long byteRangeStart=request.getByteRangeStart();
+  Long byteRangeEnd=request.getByteRangeEnd();
+  if (byteRangeStart != null && byteRangeEnd != null) {
+    if (byteRangeEnd < byteRangeStart) {
+      byteRangeStart=0L;
+      byteRangeEnd=lastIndex;
+    }
+  }
+ else   if (byteRangeStart == null && byteRangeEnd == null) {
+    byteRangeStart=0L;
+    byteRangeEnd=lastIndex;
+  }
+ else   if (byteRangeStart != null) {
+    if (objectSize == 0) {
+      throw new InvalidRangeException("bytes=" + request.getByteRangeStart() + "-"+ request.getByteRangeEnd());
+    }
+ else {
+      byteRangeEnd=lastIndex;
+    }
+  }
+ else {
+    if (byteRangeEnd == 0) {
+      throw new InvalidRangeException("bytes=" + request.getByteRangeStart() + "-"+ request.getByteRangeEnd());
+    }
+ else {
+      byteRangeStart=(objectSize - byteRangeEnd) > 0 ? (objectSize - byteRangeEnd) : 0;
+    }
+    byteRangeEnd=lastIndex;
+  }
+  if (byteRangeStart > lastIndex) {
+    throw new InvalidRangeException("bytes=" + request.getByteRangeStart() + "-"+ request.getByteRangeEnd());
+  }
+  if (byteRangeEnd > lastIndex) {
+    byteRangeEnd=lastIndex;
+  }
   request.setKey(objectEntity.getObjectUuid());
   request.setBucket(objectEntity.getBucket().getBucketUuid());
+  request.setByteRangeStart(byteRangeStart);
+  request.setByteRangeEnd(byteRangeEnd);
   try {
-    request.setBucket(objectEntity.getBucket().getBucketUuid());
-    request.setKey(objectEntity.getObjectUuid());
     GetObjectExtendedResponseType response=ospClient.getObjectExtended(request);
     response.setVersionId(objectEntity.getVersionId());
     response.setLastModified(objectEntity.getObjectModifiedTimestamp());
@@ -12,7 +49,11 @@
     response.setResponseHeaderOverrides(request.getResponseHeaderOverrides());
     return response;
   }
- catch (  Exception e) {
+ catch (  S3Exception e) {
+    LOG.warn("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with: ",e);
+    throw e;
+  }
+catch (  Exception e) {
     LOG.warn("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with 500 InternalError because of:",e);
     throw new InternalErrorException(request.getBucket() + "/" + request.getKey(),e);
   }
