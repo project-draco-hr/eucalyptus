@@ -1,4 +1,38 @@
 {
-  ResetSnapshotAttributeResponseType reply=request.getReply();
+  final ResetSnapshotAttributeResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String snapshotId=normalizeSnapshotIdentifier(request.getSnapshotId());
+  final Function<String,Boolean> resetSnapshotAttribute=new Function<String,Boolean>(){
+    @Override public Boolean apply(    final String snapshotId){
+      try {
+        final Snapshot snap=Entities.uniqueResult(Snapshot.named(ctx.isAdministrator() ? null : ctx.getUserFullName().asAccountFullName(),snapshotId));
+        if (!State.EXTANT.equals(snap.getState()) && !State.GENERATING.equals(snap.getState())) {
+          return false;
+        }
+ else         if (!canModifySnapshot(snap)) {
+          throw Exceptions.toUndeclared(new ClientComputeException("AuthFailure","Not authorized to reset attribute for snapshot " + request.getSnapshotId()));
+        }
+ else         if (request.getCreateVolumePermission() != null && ("".equals(request.getCreateVolumePermission()) || "createVolumePermission".equals(request.getCreateVolumePermission()))) {
+          snap.setSnapshotPublic(false);
+          snap.setPermissions(Sets.<String>newHashSet());
+        }
+        return true;
+      }
+ catch (      TransactionException e) {
+        throw Exceptions.toUndeclared(e);
+      }
+    }
+  }
+;
+  try {
+    reply.set_return(Entities.asDistinctTransaction(Snapshot.class,resetSnapshotAttribute).apply(snapshotId));
+  }
+ catch (  NoSuchElementException e) {
+    throw new ClientComputeException("InvalidSnapshot.NotFound","The snapshot '" + request.getSnapshotId() + "' does not exist.");
+  }
+catch (  Exception e) {
+    Exceptions.findAndRethrow(e,EucalyptusCloudException.class,EucalyptusWebServiceException.class);
+    throw new EucalyptusCloudException(Objects.firstNonNull(e.getCause(),e));
+  }
   return reply;
 }
