@@ -1,6 +1,41 @@
 {
-  DatabaseAuthProvider dbAuth=new DatabaseAuthProvider();
-  Accounts.setAccountProvider(dbAuth);
-  createBlockStorageAccount();
-  generateCanonicaIDs();
+  EntityTransaction tran=Entities.get(ObjectInfo.class);
+  try {
+    List<ObjectInfo> walrusObjects=Entities.query(new ObjectInfo());
+    if (walrusObjects != null && !walrusObjects.isEmpty()) {
+      for (      ObjectInfo walrusObject : walrusObjects) {
+        try {
+          if (walrusObject.getDeleted() != null && walrusObject.getDeleted()) {
+            LOG.info("Removing delete marker from Walrus for object " + walrusObject.getObjectKey() + " in bucket "+ walrusObject.getBucketName()+ " with version ID "+ walrusObject.getVersionId());
+            Entities.delete(walrusObject);
+            continue;
+          }
+          walrusObject.setObjectKey(walrusObject.getObjectName());
+          walrusObject.setVersionId(WalrusProperties.NULL_VERSION_ID);
+          walrusObject.setLast(Boolean.TRUE);
+          walrusObject.setOwnerId(getEucalyptusAccount().getAccountNumber());
+          walrusObject.resetGlobalGrants();
+          List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
+          GrantInfo.setFullControl(walrusObject.getOwnerId(),grantInfos);
+          walrusObject.setGrants(grantInfos);
+        }
+ catch (        Exception e) {
+          LOG.error("Failed to modify Walrus object " + walrusObject.getObjectKey(),e);
+          throw e;
+        }
+      }
+    }
+ else {
+    }
+    tran.commit();
+  }
+ catch (  Exception e) {
+    tran.rollback();
+    throw e;
+  }
+ finally {
+    if (tran.isActive()) {
+      tran.commit();
+    }
+  }
 }
