@@ -1,0 +1,29 @@
+{
+  final Record query=request.getQuery();
+  if (DnsResolvers.RequestType.A.apply(query)) {
+    try {
+      final Name name=query.getName();
+      final Name hostName=name.relativize(LoadBalancerDomainName.getLoadBalancerSubdomain());
+      final Optional<LoadBalancerDomainName> domainName=LoadBalancerDomainName.findMatching(hostName);
+      if (domainName.isPresent()) {
+        final Pair<String,String> accountNamePair=domainName.get().toScopedLoadBalancerName(hostName);
+        final Set<String> ips=Sets.newTreeSet();
+        try (final TransactionResource tx=Entities.transactionFor(LoadBalancer.class)){
+          final LoadBalancer loadBalancer=LoadBalancers.getLoadbalancer(accountNamePair.getLeft(),accountNamePair.getRight());
+          final Function<LoadBalancerServoInstanceCoreView,String> ipExtractor=loadBalancer.getScheme() == LoadBalancer.Scheme.Internal ? LoadBalancerServoInstanceCoreView.privateIp() : LoadBalancerServoInstanceCoreView.address();
+          Iterables.addAll(ips,Iterables.transform(INSTANCE.apply(loadBalancer.getAutoScaleGroup()).getServos(),ipExtractor));
+        }
+         final List<Record> records=Lists.newArrayList();
+        for (        String ip : ips) {
+          final InetAddress inetAddress=InetAddresses.forString(ip);
+          records.add(DomainNameRecords.addressRecord(name,inetAddress));
+        }
+        return DnsResponse.forName(name).answer(records);
+      }
+    }
+ catch (    Exception ex) {
+      logger.debug(ex);
+    }
+  }
+  return DnsResponse.forName(query.getName()).nxdomain();
+}
