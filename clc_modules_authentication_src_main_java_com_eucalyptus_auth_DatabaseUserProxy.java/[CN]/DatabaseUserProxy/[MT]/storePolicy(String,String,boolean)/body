@@ -10,11 +10,11 @@
     Debugging.logError(LOG,null,"Policy name already used: " + name);
     throw new AuthException(AuthException.INVALID_NAME);
   }
-  PolicyEntity parsedPolicy=PolicyParser.getInstance().parse(policy);
-  if (this.isAccountAdmin() && parsedPolicy.containsAllowEffect()) {
+  final PolicyPolicy policyPolicy=PolicyParser.getInstance().parse(policy);
+  final PolicyEntity parsedPolicy=PolicyEntity.create(name,policyPolicy.getPolicyVersion(),policy);
+  if (this.isAccountAdmin() && containsAllowEffect(policyPolicy)) {
     throw new PolicyParseException("Policy with Allow effect can not be assigned to account/account admin");
   }
-  parsedPolicy.setName(name);
   try (final TransactionResource db=Entities.transactionFor(UserEntity.class)){
     UserEntity userEntity=DatabaseAuthUtils.getUnique(UserEntity.class,"userId",this.delegate.getUserId());
     final GroupEntity groupEntity=getUserGroupEntity(userEntity);
@@ -27,18 +27,6 @@
     }
     Entities.persist(parsedPolicy);
     parsedPolicy.setGroup(groupEntity);
-    for (    StatementEntity statement : parsedPolicy.getStatements()) {
-      Entities.persist(statement);
-      statement.setPolicy(parsedPolicy);
-      for (      AuthorizationEntity auth : statement.getAuthorizations()) {
-        Entities.persist(auth);
-        auth.setStatement(statement);
-      }
-      for (      ConditionEntity cond : statement.getConditions()) {
-        Entities.persist(cond);
-        cond.setStatement(statement);
-      }
-    }
     groupEntity.getPolicies().add(parsedPolicy);
     db.commit();
     return new DatabasePolicyProxy(parsedPolicy);
