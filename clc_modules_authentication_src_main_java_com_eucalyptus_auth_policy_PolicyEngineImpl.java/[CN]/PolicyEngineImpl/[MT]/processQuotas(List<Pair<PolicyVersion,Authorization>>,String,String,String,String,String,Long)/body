@@ -1,0 +1,39 @@
+{
+  NumericGreaterThan ngt=new NumericGreaterThan();
+  for (  Pair<PolicyVersion,Authorization> quota : quotas) {
+    final PolicyVersion policy=quota.getLeft();
+    final Authorization auth=quota.getRight();
+    if (!matchActions(auth,action)) {
+      LOG.debug("Action " + action + " not matching");
+      continue;
+    }
+    if (!matchResources(auth,resourceName)) {
+      LOG.debug("Resource " + resourceName + " not matching");
+      continue;
+    }
+    PolicyScope scope=policy.getPolicyScope();
+    String principalId=getAuthorizationPrincipalId(scope,accountId,userId);
+    for (    Condition cond : auth.getConditions()) {
+      Key key=Keys.getKeyInstance(Keys.getKeyClass(cond.getKey()));
+      if (!(key instanceof QuotaKey)) {
+        LOG.debug("Key " + cond.getKey() + " is not a quota");
+        continue;
+      }
+      QuotaKey quotaKey=(QuotaKey)key;
+      if (!key.canApply(action)) {
+        LOG.debug("Key " + cond.getKey() + " can not apply for action="+ action+ ", resourceType="+ resourceType);
+        continue;
+      }
+      String usageValue=quotaKey.value(scope,principalId,resourceName,quantity);
+      if (QuotaKey.NOT_SUPPORTED.equals(usageValue)) {
+        LOG.debug("Key " + cond.getKey() + " is not supported for scope="+ scope);
+        continue;
+      }
+      String quotaValue=Iterables.getFirst(cond.getValues(),null);
+      if (ngt.check(usageValue,quotaValue)) {
+        LOG.error("Quota " + key.getClass().getName() + " is exceeded: quota="+ quotaValue+ ", usage="+ usageValue);
+        throw new AuthException(AuthException.QUOTA_EXCEEDED);
+      }
+    }
+  }
+}
