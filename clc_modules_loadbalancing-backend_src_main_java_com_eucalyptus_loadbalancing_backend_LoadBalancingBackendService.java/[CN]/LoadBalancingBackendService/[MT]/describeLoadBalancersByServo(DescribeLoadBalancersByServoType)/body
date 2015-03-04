@@ -47,6 +47,7 @@
       }
       desc.setAvailabilityZones(new AvailabilityZones());
       desc.getAvailabilityZones().getMember().add(zone.getName());
+      final Set<String> policiesOfListener=Sets.newHashSet();
       if (lb.getListeners().size() > 0) {
         desc.setListenerDescriptions(new ListenerDescriptions());
         desc.getListenerDescriptions().setMember(new ArrayList<>(Collections2.transform(lb.getListeners(),new Function<LoadBalancerListenerCoreView,ListenerDescription>(){
@@ -64,25 +65,15 @@
             pnames.setMember(new ArrayList<>(Lists.transform(lbListener.getPolicies(),new Function<LoadBalancerPolicyDescriptionCoreView,String>(){
               @Override public String apply(              LoadBalancerPolicyDescriptionCoreView arg0){
                 try {
-                  final LoadBalancerPolicyDescription policy=LoadBalancerPolicyDescriptionEntityTransform.INSTANCE.apply(arg0);
-                  if ("LBCookieStickinessPolicyType".equals(arg0.getPolicyTypeName())) {
-                    final String expiration=policy.findAttributeDescription("CookieExpirationPeriod").getAttributeValue();
-                    return String.format("LBCookieStickinessPolicyType:%s",expiration);
-                  }
- else                   if ("AppCookieStickinessPolicyType".equals(arg0.getPolicyTypeName())) {
-                    final String cookieName=policy.findAttributeDescription("CookieName").getAttributeValue();
-                    return String.format("AppCookieStickinessPolicyType:%s",cookieName);
-                  }
- else {
-                    return arg0.getPolicyName();
-                  }
+                  return arg0.getPolicyName();
                 }
  catch (                final Exception ex) {
-                  return arg0.getPolicyName();
+                  return "";
                 }
               }
             }
 )));
+            policiesOfListener.addAll(pnames.getMember());
             desc.setPolicyNames(pnames);
             return desc;
           }
@@ -106,6 +97,20 @@
  catch (      Exception ex) {
       }
       desc.setLoadBalancerAttributes(TypeMappers.transform(lb,LoadBalancerAttributes.class));
+      List<LoadBalancerPolicyDescription> lbPolicies=Lists.newArrayList();
+      try {
+        lbPolicies=LoadBalancerPolicies.getLoadBalancerPolicyDescription(lb);
+      }
+ catch (      final Exception ex) {
+        ;
+      }
+      final List<PolicyDescription> policies=Lists.newArrayList();
+      for (      final LoadBalancerPolicyDescription lbPolicy : lbPolicies) {
+        if (policiesOfListener.contains(lbPolicy.getPolicyName()))         policies.add(LoadBalancerPolicies.AsPolicyDescription.INSTANCE.apply(lbPolicy));
+      }
+      final PolicyDescriptions policyDescs=new PolicyDescriptions();
+      policyDescs.setMember((ArrayList<PolicyDescription>)policies);
+      desc.setPolicyDescriptions(policyDescs);
       return Optional.of(desc);
     }
   }
