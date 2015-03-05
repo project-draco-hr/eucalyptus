@@ -1,16 +1,15 @@
 {
   logRequest(request);
   try {
-    User requestUser=getRequestUser(request);
-    Account requestAccount=requestUser.getAccount();
-    long bucketCount;
+    final User requestUser=getRequestUser(request);
+    final String canonicalId=Accounts.lookupCanonicalIdByAccountId(requestUser.getAccountNumber());
     if (!checkBucketNameValidity(request.getBucket())) {
       throw new InvalidBucketNameException(request.getBucket());
     }
     final AccessControlPolicy acPolicy=getFullAcp(request.getAccessControlList(),requestUser,null);
     Bucket bucket=Bucket.getInitializedBucket(request.getBucket(),requestUser.getUserId(),acPolicy,request.getLocationConstraint());
     if (OsgAuthorizationHandler.getInstance().operationAllowed(request,bucket,null,1)) {
-      if (!Contexts.lookup().hasAdministrativePrivileges() && BucketMetadataManagers.getInstance().countBucketsByAccount(requestAccount.getCanonicalId()) >= ConfigurationCache.getConfiguration(ObjectStorageGlobalConfiguration.class).getMax_buckets_per_account()) {
+      if (!Contexts.lookup().hasAdministrativePrivileges() && BucketMetadataManagers.getInstance().countBucketsByAccount(canonicalId) >= ConfigurationCache.getConfiguration(ObjectStorageGlobalConfiguration.class).getMax_buckets_per_account()) {
         throw new TooManyBucketsException(request.getBucket());
       }
       try {
@@ -25,7 +24,7 @@
       }
  catch (      BucketAlreadyExistsException e) {
         Bucket extantBucket=BucketMetadataManagers.getInstance().lookupExtantBucket(request.getBucket());
-        if (extantBucket.isOwnedBy(requestAccount.getCanonicalId())) {
+        if (extantBucket.isOwnedBy(canonicalId)) {
           CreateBucketResponseType reply=request.getReply();
           reply.setStatus(HttpResponseStatus.OK);
           reply.setBucket(bucket.getBucketName());

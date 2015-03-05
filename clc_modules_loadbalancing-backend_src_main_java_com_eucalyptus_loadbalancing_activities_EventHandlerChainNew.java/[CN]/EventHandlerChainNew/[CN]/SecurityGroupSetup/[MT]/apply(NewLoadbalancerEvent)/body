@@ -65,19 +65,12 @@ catch (  Exception ex) {
  else   if (lb.getSecurityGroupIdsToNames().isEmpty()) {
     final String groupName=generateDefaultVPCSecurityGroupName(lb.getVpcId());
     final String groupDesc=String.format("ELB created security group used when no security group is specified during ELB creation - modifications could impact traffic to future ELBs");
-    final Account account=evt.getContext().getAccount();
-    final String userId;
-    try {
-      userId=account.lookupAdmin().getUserId();
-    }
- catch (    AuthException e) {
-      throw Exceptions.toUndeclared(e);
-    }
-    final List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsByName(userId,lb.getVpcId(),groupName);
+    final AccountFullName accountFullName=evt.getContext().getAccount();
+    final List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsByName(accountFullName,lb.getVpcId(),groupName);
     final SecurityGroupItemType elbVpcGroup;
     if (groups.isEmpty()) {
-      EucalyptusActivityTasks.getInstance().createUserSecurityGroup(userId,groupName,groupDesc);
-      final List<SecurityGroupItemType> createdGroupList=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsByName(userId,lb.getVpcId(),groupName);
+      EucalyptusActivityTasks.getInstance().createUserSecurityGroup(accountFullName,groupName,groupDesc);
+      final List<SecurityGroupItemType> createdGroupList=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsByName(accountFullName,lb.getVpcId(),groupName);
       elbVpcGroup=Iterables.getOnlyElement(createdGroupList);
     }
  else {
@@ -86,7 +79,7 @@ catch (  Exception ex) {
     Entities.asDistinctTransaction(LoadBalancer.class,new Predicate<String>(){
       @Override public boolean apply(      @Nullable final String loadBalancerName){
         try {
-          final LoadBalancer lb=Entities.uniqueResult(LoadBalancer.namedByAccountId(account.getAccountNumber(),loadBalancerName));
+          final LoadBalancer lb=Entities.uniqueResult(LoadBalancer.namedByAccountId(accountFullName.getAccountNumber(),loadBalancerName));
           lb.setSecurityGroupRefs(Lists.newArrayList(new LoadBalancerSecurityGroupRef(elbVpcGroup.getGroupId(),elbVpcGroup.getGroupName())));
         }
  catch (        TransactionException e) {

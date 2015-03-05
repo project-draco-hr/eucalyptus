@@ -1,0 +1,40 @@
+{
+  final BlockDeviceMappingItemType rootBlockDevice=Iterables.find(blockDeviceMappings,findEbsRoot(rootDeviceName));
+  final String snapshotId=ResourceIdentifiers.tryNormalize().apply(rootBlockDevice.getEbs().getSnapshotId());
+  try {
+    Snapshot snap=Transactions.find(Snapshot.named(accountFullName,snapshotId));
+    if (!accountFullName.getAccountNumber().equals(snap.getOwnerAccountNumber())) {
+      throw new EucalyptusCloudException("Failed to create image from specified block device mapping: " + rootBlockDevice + " because of: you must be the owner of the source snapshot.");
+    }
+    Integer suppliedVolumeSize=rootBlockDevice.getEbs().getVolumeSize() != null ? rootBlockDevice.getEbs().getVolumeSize() : snap.getVolumeSize();
+    Long imageSizeBytes=suppliedVolumeSize * 1024l * 1024l* 1024l;
+    Boolean targetDeleteOnTermination=Boolean.TRUE.equals(rootBlockDevice.getEbs().getDeleteOnTermination());
+    BlockStorageImageInfo ret=null;
+    final EntityTransaction tx=Entities.get(BlockStorageImageInfo.class);
+    try {
+      ret=(BlockStorageImageInfo)Entities.uniqueResult(BlockStorageImageInfo.named(imageId));
+      final List<DeviceMapping> mappings=Lists.transform(blockDeviceMappings,Images.deviceMappingGenerator(ret,suppliedVolumeSize));
+      ret.getDeviceMappings().addAll(mappings);
+      ret.setSnapshotId(snap.getDisplayName());
+      ret.setDeleteOnTerminate(targetDeleteOnTermination);
+      ret.setImageSizeBytes(imageSizeBytes);
+      ret.setRootDeviceName(rootDeviceName);
+      ret.setState(ImageMetadata.State.available);
+      Entities.persist(ret);
+      tx.commit();
+      LOG.info("Registering image pk=" + ret.getDisplayName() + " owner="+ accountFullName);
+    }
+ catch (    Exception e) {
+      tx.rollback();
+      throw new EucalyptusCloudException("Failed to register image using snapshot: " + snapshotId + " because of: "+ e.getMessage(),e);
+    }
+    return ret;
+  }
+ catch (  TransactionExecutionException ex) {
+    throw new EucalyptusCloudException("Failed to update image with specified block device mapping: " + rootBlockDevice + " because of: "+ ex.getMessage());
+  }
+catch (  ExecutionException ex) {
+    LOG.error(ex,ex);
+    throw new EucalyptusCloudException("Failed to update image with specified block device mapping: " + rootBlockDevice + " because of: "+ ex.getMessage());
+  }
+}

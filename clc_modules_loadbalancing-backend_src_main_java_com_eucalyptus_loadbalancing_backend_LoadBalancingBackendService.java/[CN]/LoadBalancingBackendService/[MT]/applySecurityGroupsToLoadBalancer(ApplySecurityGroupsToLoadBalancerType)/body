@@ -1,16 +1,9 @@
 {
   final ApplySecurityGroupsToLoadBalancerResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  final String accountNumber=ctx.getAccount().getAccountNumber();
-  final String adminUserId;
-  try {
-    adminUserId=ctx.getAccount().lookupAdmin().getUserId();
-  }
- catch (  final AuthException e) {
-    throw new LoadBalancingException("Error accessing default security group");
-  }
+  final String accountNumber=ctx.getAccountNumber();
   final Set<String> securityGroupIds=Sets.newHashSet(request.getSecurityGroups().getMember());
-  final List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsById(adminUserId,null,securityGroupIds);
+  final List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsById(ctx.getAccount(),null,securityGroupIds);
   if (groups.size() != securityGroupIds.size()) {
     throw new LoadBalancingBackendClientException("InvalidSecurityGroup","Invalid security group(s)");
   }
@@ -24,6 +17,7 @@
           loadBalancer.setSecurityGroupRefs(Lists.newArrayList(Iterables.transform(sortedGroups,TypeMappers.lookup(SecurityGroupItemType.class,LoadBalancerSecurityGroupRef.class))));
           final ApplySecurityGroupsEvent evt=new ApplySecurityGroupsEvent();
           evt.setContext(ctx);
+          evt.setLoadBalancerAccountNumber(loadBalancer.getOwnerAccountNumber());
           evt.setLoadBalancer(loadBalancer.getDisplayName());
           evt.setSecurityGroupIdsToNames(CollectionUtils.putAll(sortedGroups,Maps.<String,String>newLinkedHashMap(),SecurityGroupItemType.groupId(),SecurityGroupItemType.groupName()));
           return evt;
