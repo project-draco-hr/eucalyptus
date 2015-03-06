@@ -47,7 +47,7 @@ catch (    final Exception ex) {
   if (!Topology.isEnabledLocally(Eucalyptus.class))   return;
   if ((emi != null && emi.length() > 0) || (instanceType != null && instanceType.length() > 0) || (keyname != null && keyname.length() > 0)|| (ntpServers != null && ntpServers.length() > 0)|| (logServer != null && logServer.length() > 0)|| (logServerPort != null && logServerPort.length() > 0) | initScript != null) {
     String asgName=null;
-    LOG.info("Changing launch configuration");
+    LOG.info("Changing launch configuration for internal-db ASG");
     try {
       final List<TagDescription> tags=AutoScalingClient.getInstance().describeAutoScalingTags(null);
       for (      final TagDescription tag : tags) {
@@ -85,20 +85,30 @@ catch (    final Exception ex) {
         final String newType=instanceType != null ? instanceType : lc.getInstanceType();
         String newKeyname=keyname != null ? keyname : lc.getKeyName();
         if (lc.getUserData() == null || lc.getUserData().length() < 0)         throw new EucalyptusCloudException("ASG group for internal-db has invalid user data");
-        String newUserdata=new String(Base64.decode(lc.getUserData().getBytes()));
+        String oldUserdata=null;
+        try {
+          oldUserdata=new String(Base64.decode(lc.getUserData().getBytes()));
+        }
+ catch (        Exception ex) {
+          throw new EucalyptusCloudException("Can't decode user data for internal-db");
+        }
         String encryptedPasword=null;
         String serverCertArn=null;
-        int start=newUserdata.indexOf(CONFIG_COMMMENT);
+        int start=oldUserdata.indexOf(CONFIG_COMMMENT);
         if (start < 0) {
           throw new EucalyptusCloudException("ASG group for internal-db has invalid user data");
         }
  else {
-          int i=newUserdata.indexOf(PASSWORD_PROPERTY,start);
-          int j=newUserdata.indexOf("\n",i);
-          encryptedPasword=newUserdata.substring(i + PASSWORD_PROPERTY.length() + 1,j);
-          i=newUserdata.indexOf(CERT_PROPERTY,start);
-          j=newUserdata.indexOf("\n",i);
-          serverCertArn=newUserdata.substring(i + CERT_PROPERTY.length() + 1,j);
+          int i=oldUserdata.indexOf(PASSWORD_PROPERTY,start);
+          int j=oldUserdata.indexOf("\n",i);
+          encryptedPasword=oldUserdata.substring(i + PASSWORD_PROPERTY.length() + 1,j);
+          i=oldUserdata.indexOf(CERT_PROPERTY,start);
+          j=oldUserdata.indexOf("\n",i);
+          serverCertArn=oldUserdata.substring(i + CERT_PROPERTY.length() + 1,j);
+        }
+        String newUserdata=null;
+        if (emi != null) {
+          newUserdata=lc.getUserData();
         }
         if (volumeId != null) {
           newUserdata=B64.standard.encString(String.format("%s\n%s",getCredentialsString(),getServerUserData(volumeId,DatabaseServerProperties.NTP_SERVER,DatabaseServerProperties.INIT_SCRIPT,encryptedPasword,serverCertArn)));
@@ -115,6 +125,7 @@ catch (    final Exception ex) {
         if (logServerPort != null) {
           newUserdata=B64.standard.encString(String.format("%s\n%s",getCredentialsString(),getServerUserData(DatabaseServerProperties.VOLUME,DatabaseServerProperties.NTP_SERVER,DatabaseServerProperties.INIT_SCRIPT,encryptedPasword,serverCertArn)));
         }
+        if (newUserdata == null)         throw new EucalyptusCloudException("Failed to create user-data");
         try {
           AutoScalingClient.getInstance().createLaunchConfiguration(null,newEmi,newType,lc.getIamInstanceProfile(),tmpLaunchConfigName,lc.getSecurityGroups().getMember().get(0),newKeyname,newUserdata);
         }
@@ -155,7 +166,7 @@ catch (    final Exception ex) {
         }
         if (emi != null) {
           try {
-            final List<ImageDetails> images=Ec2Client.getInstance().describeImages(emi,Lists.newArrayList(emi));
+            final List<ImageDetails> images=Ec2Client.getInstance().describeImages(null,Lists.newArrayList(emi));
             for (            ResourceTag tag : images.get(0).getTagSet())             AutoScalingClient.getInstance().createOrUpdateAutoscalingTags(null,tag.getKey(),tag.getValue(),asgName);
           }
  catch (          final Exception ex) {
