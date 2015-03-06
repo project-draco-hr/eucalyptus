@@ -1,16 +1,18 @@
 {
   final Account account=user.getAccount();
   final List<PolicyVersion> policies=Lists.newArrayList();
-  if (user.isAccountAdmin()) {
-    policies.add(PolicyVersions.getAdministratorPolicy());
-  }
- else {
-    Iterables.addAll(policies,Iterables.transform(user.getPolicies(),PolicyVersions.policyVersion(PolicyScope.User,Accounts.getUserArn(user))));
-    for (    final Group group : Iterables.filter(user.getGroups(),Predicates.not(Accounts.isUserGroup()))) {
-      Iterables.addAll(policies,Iterables.transform(group.getPolicies(),PolicyVersions.policyVersion(PolicyScope.Group,Accounts.getGroupArn(group))));
+  if (user.isEnabled()) {
+    if (user.isAccountAdmin()) {
+      policies.add(PolicyVersions.getAdministratorPolicy());
     }
+ else {
+      Iterables.addAll(policies,Iterables.transform(user.getPolicies(),PolicyVersions.policyVersion(PolicyScope.User,Accounts.getUserArn(user))));
+      for (      final Group group : Iterables.filter(user.getGroups(),Predicates.not(Accounts.isUserGroup()))) {
+        Iterables.addAll(policies,Iterables.transform(group.getPolicies(),PolicyVersions.policyVersion(PolicyScope.Group,Accounts.getGroupArn(group))));
+      }
+    }
+    Iterables.addAll(policies,Iterables.transform(account.lookupAdmin().getPolicies(),PolicyVersions.policyVersion(PolicyScope.Account,user.getAccountNumber())));
   }
-  Iterables.addAll(policies,Iterables.transform(account.lookupAdmin().getPolicies(),PolicyVersions.policyVersion(PolicyScope.Account,user.getAccountNumber())));
   this.name=user.getName();
   this.path=user.getPath();
   this.userId=user.getUserId();
@@ -23,7 +25,7 @@
   this.accountAdmin=user.isAccountAdmin();
   this.systemAdmin=user.isSystemAdmin();
   this.systemUser=user.isSystemUser();
-  this.keys=ImmutableList.copyOf(user.getKeys());
-  this.certificates=ImmutableList.copyOf(user.getCertificates());
+  this.keys=ImmutableList.copyOf(Iterables.transform(user.getKeys(),keyWrapper(this)));
+  this.certificates=ImmutableList.copyOf(Iterables.filter(user.getCertificates(),propertyPredicate(false,revoked())));
   this.principalPolicies=ImmutableList.copyOf(policies);
 }
