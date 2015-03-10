@@ -1,52 +1,18 @@
 {
-  final DescribeAvailabilityZonesResponseType reply=(DescribeAvailabilityZonesResponseType)request.getReply();
+  final DescribeAvailabilityZonesResponseType reply=request.getReply();
   final List<String> args=request.getAvailabilityZoneSet();
-  final Filter filter=Filters.generate(request.getFilterSet(),Cluster.class);
-  if (Contexts.lookup().hasAdministrativePrivileges()) {
-    for (    String keyword : describeKeywords.keySet()) {
-      if (args.remove(keyword)) {
-        reply.getAvailabilityZoneInfo().addAll(describeKeywords.get(keyword).get());
-        return reply;
-      }
-    }
-  }
- else {
-    for (    String keyword : describeKeywords.keySet()) {
-      args.remove(keyword);
+  final Predicate<Object> filterPredicate=Filters.generateFor(request.getFilterSet(),Cluster.class).withOptionalInternalFilter("zone-name",Iterables.filter(args,Predicates.not(Predicates.in(describeKeywords.keySet())))).generate().asPredicate();
+  final boolean admin=Contexts.lookup().hasAdministrativePrivileges();
+  for (  String keyword : describeKeywords.keySet()) {
+    if (args.remove(keyword) && admin) {
+      reply.getAvailabilityZoneInfo().addAll(describeKeywords.get(keyword).apply(filterPredicate));
+      return reply;
     }
   }
   final Clusters clusterRegistry=Clusters.getInstance();
-  final List<Cluster> clusters;
-  if (args.isEmpty()) {
-    clusters=Lists.newArrayList(clusterRegistry.listValues());
-    Iterables.addAll(clusters,Iterables.filter(clusterRegistry.listDisabledValues(),Predicates.not(CollectionUtils.propertyPredicate(Collections2.transform(clusters,CloudMetadatas.toDisplayName()),CloudMetadatas.toDisplayName()))));
-  }
- else {
-    clusters=Lists.newArrayList();
-    for (    final String partitionName : request.getAvailabilityZoneSet()) {
-      try {
-        clusters.add(Iterables.find(clusterRegistry.listValues(),new Predicate<Cluster>(){
-          @Override public boolean apply(          Cluster input){
-            return partitionName.equals(input.getConfiguration().getPartition());
-          }
-        }
-));
-      }
- catch (      NoSuchElementException e) {
-        try {
-          clusters.add(clusterRegistry.lookup(partitionName));
-        }
- catch (        NoSuchElementException ex) {
-          try {
-            clusters.add(clusterRegistry.lookupDisabled(partitionName));
-          }
- catch (          NoSuchElementException ex2) {
-          }
-        }
-      }
-    }
-  }
-  for (  final Cluster c : Iterables.filter(clusters,filter.asPredicate())) {
+  final List<Cluster> clusters=Lists.newArrayList(clusterRegistry.listValues());
+  Iterables.addAll(clusters,Iterables.filter(clusterRegistry.listDisabledValues(),Predicates.not(CollectionUtils.propertyPredicate(Collections2.transform(clusters,CloudMetadatas.toDisplayName()),CloudMetadatas.toDisplayName()))));
+  for (  final Cluster c : Iterables.filter(clusters,filterPredicate)) {
     reply.getAvailabilityZoneInfo().addAll(this.getDescriptionEntry(c));
   }
   return reply;
