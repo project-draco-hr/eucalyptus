@@ -5,25 +5,22 @@
   final Function<String,LoadBalancerAttributes> lookupAttributes=new Function<String,LoadBalancerAttributes>(){
     @Override public LoadBalancerAttributes apply(    final String identifier){
       try {
-        final LoadBalancer example=LoadBalancer.namedByAccountId(accountNumber,identifier);
-        final LoadBalancer loadBalancer=Entities.uniqueResult(example);
-        if (RestrictedTypes.filterPrivileged().apply(loadBalancer)) {
-          return TypeMappers.transform(loadBalancer,LoadBalancerAttributes.class);
-        }
- else {
-          throw new NoSuchElementException();
-        }
+        final LoadBalancer loadBalancer=lookupAuthorizedByNameOrDnsName(accountNumber,identifier);
+        return TypeMappers.transform(loadBalancer,LoadBalancerAttributes.class);
       }
- catch (      NoSuchElementException e) {
-        throw Exceptions.toUndeclared(new AccessPointNotFoundException());
-      }
-catch (      TransactionException e) {
+ catch (      Exception e) {
         throw Exceptions.toUndeclared(e);
       }
     }
   }
 ;
-  final LoadBalancerAttributes attributes=Entities.asTransaction(LoadBalancer.class,lookupAttributes).apply(request.getLoadBalancerName());
-  reply.getDescribeLoadBalancerAttributesResult().setLoadBalancerAttributes(attributes);
+  try {
+    final LoadBalancerAttributes attributes=Entities.asTransaction(LoadBalancer.class,lookupAttributes).apply(request.getLoadBalancerName());
+    reply.getDescribeLoadBalancerAttributesResult().setLoadBalancerAttributes(attributes);
+  }
+ catch (  RuntimeException e) {
+    Exceptions.findAndRethrow(e,LoadBalancingException.class);
+    throw e;
+  }
   return reply;
 }
