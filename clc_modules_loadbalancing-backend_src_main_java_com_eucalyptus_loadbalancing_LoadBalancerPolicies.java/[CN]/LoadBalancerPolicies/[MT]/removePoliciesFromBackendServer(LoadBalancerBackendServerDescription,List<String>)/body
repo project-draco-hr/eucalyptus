@@ -1,0 +1,21 @@
+{
+  final List<LoadBalancerPolicyDescription> policyToRemove=Lists.newArrayList();
+  for (  final LoadBalancerPolicyDescriptionCoreView pview : backend.getPolicyDescriptions()) {
+    if (policyNames.contains(pview.getPolicyName()))     policyToRemove.add(LoadBalancerPolicyDescriptionEntityTransform.INSTANCE.apply(pview));
+  }
+  if (policyToRemove.size() < policyNames.size())   throw new InvalidConfigurationRequestException("Unknow policy names found");
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendServerDescription.class)){
+    try {
+      final LoadBalancerBackendServerDescription entity=Entities.uniqueResult(backend);
+      for (      final LoadBalancerPolicyDescription p : policyToRemove)       entity.removePolicy(p);
+      Entities.persist(entity);
+      db.commit();
+    }
+ catch (    final NoSuchElementException ex) {
+      throw new InvalidConfigurationRequestException("Backend server description is not found on db");
+    }
+catch (    final Exception ex) {
+      throw new InvalidConfigurationRequestException("Unknown error ocrrued while updating db");
+    }
+  }
+ }

@@ -9,9 +9,23 @@
     }
     if (attrType == null)     throw new InvalidConfigurationRequestException(String.format("Attribute %s is not defined in the policy type",attrName));
     if (!LoadBalancerPolicies.isAttributeValueValid(attrType.getAttributeType(),attrType.getCardinality(),attrValue))     throw new InvalidConfigurationRequestException(String.format("Attribute value %s is not valid",attrValue));
+    final String cardinality=attrType.getCardinality();
+    if (this.policyAttrDescription != null && ("ONE".equals(cardinality) || "ZERO_OR_ONE".equals(cardinality))) {
+      for (      final LoadBalancerPolicyAttributeDescription existing : this.policyAttrDescription) {
+        if (attrName.equals(existing.getAttributeName()))         throw new InvalidConfigurationRequestException(String.format("More than one attribute(%s) is found (Cardinality: %s)",attrName,cardinality));
+      }
+    }
+    if ("PublicKeyPolicyType".equals(this.policyType.getPolicyTypeName()) && "PublicKey".equals(attrName)) {
+      try {
+        final X509Certificate cert=PEMFiles.getCert(attrValue.getBytes(Charsets.UTF_8));
+        if (cert == null)         throw new EucalyptusCloudException("Malformed cert");
+      }
+ catch (      final Exception ex) {
+        throw new InvalidConfigurationRequestException("PublicKey is invalid");
+      }
+    }
   }
   final LoadBalancerPolicyAttributeDescription attr=new LoadBalancerPolicyAttributeDescription(this,attrName,attrValue);
   if (this.policyAttrDescription == null)   this.policyAttrDescription=Lists.newArrayList();
-  this.removePolicyAttributeDescription(attr);
   this.policyAttrDescription.add(attr);
 }

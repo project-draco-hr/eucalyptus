@@ -48,6 +48,7 @@
       desc.setAvailabilityZones(new AvailabilityZones());
       desc.getAvailabilityZones().getMember().add(zone.getName());
       final Set<String> policiesOfListener=Sets.newHashSet();
+      final Set<String> policiesForBackendServer=Sets.newHashSet();
       if (lb.getListeners().size() > 0) {
         desc.setListenerDescriptions(new ListenerDescriptions());
         desc.getListenerDescriptions().setMember(new ArrayList<>(Collections2.transform(lb.getListeners(),new Function<LoadBalancerListenerCoreView,ListenerDescription>(){
@@ -81,6 +82,31 @@
 )));
       }
       try {
+        if (lb.getBackendServers().size() > 0) {
+          desc.setBackendServerDescriptions(new BackendServerDescriptions());
+          desc.getBackendServerDescriptions().setMember(new ArrayList<>(Collections2.transform(lb.getBackendServers(),new Function<LoadBalancerBackendServerDescriptionCoreView,BackendServerDescription>(){
+            @Override public BackendServerDescription apply(            LoadBalancerBackendServerDescriptionCoreView arg0){
+              final LoadBalancerBackendServerDescription backend=LoadBalancerBackendServerDescriptionEntityTransform.INSTANCE.apply(arg0);
+              final BackendServerDescription desc=new BackendServerDescription();
+              desc.setInstancePort(arg0.getInstancePort());
+              desc.setPolicyNames(new PolicyNames());
+              desc.getPolicyNames().setMember(new ArrayList<>(Collections2.transform(backend.getPolicyDescriptions(),new Function<LoadBalancerPolicyDescriptionCoreView,String>(){
+                @Override public String apply(                LoadBalancerPolicyDescriptionCoreView arg0){
+                  return arg0.getPolicyName();
+                }
+              }
+)));
+              policiesForBackendServer.addAll(desc.getPolicyNames().getMember());
+              return desc;
+            }
+          }
+)));
+        }
+      }
+ catch (      final Exception ex) {
+        ;
+      }
+      try {
         int interval=lb.getHealthCheckInterval();
         String target=lb.getHealthCheckTarget();
         int timeout=lb.getHealthCheckTimeout();
@@ -106,7 +132,7 @@
       }
       final List<PolicyDescription> policies=Lists.newArrayList();
       for (      final LoadBalancerPolicyDescription lbPolicy : lbPolicies) {
-        if (policiesOfListener.contains(lbPolicy.getPolicyName()))         policies.add(LoadBalancerPolicies.AsPolicyDescription.INSTANCE.apply(lbPolicy));
+        if (policiesOfListener.contains(lbPolicy.getPolicyName()) || policiesForBackendServer.contains(lbPolicy.getPolicyName()) || "PublicKeyPolicyType".equals(lbPolicy.getPolicyTypeName()))         policies.add(LoadBalancerPolicies.AsPolicyDescription.INSTANCE.apply(lbPolicy));
       }
       final PolicyDescriptions policyDescs=new PolicyDescriptions();
       policyDescs.setMember((ArrayList<PolicyDescription>)policies);

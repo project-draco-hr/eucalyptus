@@ -2,14 +2,27 @@
   for (  final LoadBalancerPolicyDescriptionCoreView current : lb.getPolicies()) {
     if (policyName.equals(current.getPolicyName()))     throw new DuplicatePolicyNameException();
   }
-  boolean typeFound=false;
+  LoadBalancerPolicyTypeDescription policyType=null;
   for (  final LoadBalancerPolicyTypeDescription type : getLoadBalancerPolicyTypeDescriptions()) {
     if (policyTypeName.equals(type.getPolicyTypeName())) {
-      typeFound=true;
+      policyType=type;
       break;
     }
   }
-  if (!typeFound)   throw new PolicyTypeNotFoundException();
+  if (policyType == null)   throw new PolicyTypeNotFoundException();
+  final List<LoadBalancerPolicyAttributeTypeDescriptionCoreView> policyAttrTypes=policyType.getPolicyAttributeTypeDescriptions();
+  for (  final LoadBalancerPolicyAttributeTypeDescriptionCoreView policyAttrType : policyAttrTypes) {
+    if ("ONE".equals(policyAttrType.getCardinality()) || "ONE_OR_MORE".equals(policyAttrType.getCardinality())) {
+      boolean attrFound=false;
+      for (      final PolicyAttribute attr : attributes) {
+        if (policyAttrType.getAttributeName().equals(attr.getAttributeName()) && attr.getAttributeValue() != null) {
+          attrFound=true;
+          break;
+        }
+      }
+      if (!attrFound)       throw new InvalidConfigurationRequestException(String.format("There is no attribute %s found (Cardinality: %s)",policyAttrType.getAttributeName(),policyAttrType.getCardinality()));
+    }
+  }
   final LoadBalancerPolicyDescription policyDesc=new LoadBalancerPolicyDescription(lb,policyName,policyTypeName);
   for (  final PolicyAttribute attr : attributes) {
     policyDesc.addPolicyAttributeDescription(attr.getAttributeName(),attr.getAttributeValue());
