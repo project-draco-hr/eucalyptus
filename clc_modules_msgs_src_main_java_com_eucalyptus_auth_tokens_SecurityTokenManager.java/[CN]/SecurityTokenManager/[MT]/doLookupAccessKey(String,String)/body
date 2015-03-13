@@ -17,34 +17,25 @@
   }
   final String originatingAccessKeyId=encryptedToken.getOriginatingAccessKeyId();
   final String userId=encryptedToken.getUserId();
-  final boolean active;
-  final String secretKey;
-  final User user;
+  final UserPrincipal user;
   final TemporaryKeyType type;
   if (originatingAccessKeyId != null) {
-    final AccessKey key=lookupAccessKeyById(originatingAccessKeyId);
-    active=key.isActive();
-    secretKey=encryptedToken.getSecretKey(key.getSecretKey());
-    user=key.getUser();
+    user=lookupByAccessKeyId(originatingAccessKeyId,encryptedToken.getNonce());
     type=TemporaryKeyType.Session;
   }
  else   if (userId != null) {
-    user=lookupUserById(encryptedToken.getUserId());
-    active=user.isEnabled();
-    secretKey=encryptedToken.getSecretKey(Objects.firstNonNull(user.getToken(),""));
+    user=lookupByUserById(encryptedToken.getUserId(),encryptedToken.getNonce());
     type=TemporaryKeyType.Access;
   }
  else {
-    final Role role=lookupRoleById(encryptedToken.getRoleId());
-    user=roleAsUser(role);
-    active=true;
-    secretKey=encryptedToken.getSecretKey(role.getSecret());
+    user=lookupByRoleById(encryptedToken.getRoleId(),encryptedToken.getNonce());
     type=TemporaryKeyType.Role;
   }
   return new TemporaryAccessKey(){
     private static final long serialVersionUID=1L;
+    private UserPrincipal principal=new UserPrincipalImpl(user,Collections.<AccessKey>singleton(this));
     @Override public Boolean isActive(){
-      return active && encryptedToken.isValid();
+      return user.isEnabled() && encryptedToken.isValid();
     }
     @Override public String getAccessKey(){
       return encryptedToken.getAccessKeyId();
@@ -53,7 +44,7 @@
       return token;
     }
     @Override public String getSecretKey(){
-      return secretKey;
+      return Iterables.getOnlyElement(user.getKeys()).getSecretKey();
     }
     @Override public TemporaryKeyType getType(){
       return type;
@@ -64,8 +55,8 @@
     @Override public Date getExpiryDate(){
       return new Date(encryptedToken.getExpires());
     }
-    @Override public User getUser() throws AuthException {
-      return user;
+    @Override public UserPrincipal getPrincipal() throws AuthException {
+      return principal;
     }
     @Override public void setActive(    final Boolean active) throws AuthException {
     }
