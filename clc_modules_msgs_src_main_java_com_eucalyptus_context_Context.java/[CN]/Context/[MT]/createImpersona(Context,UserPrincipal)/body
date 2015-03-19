@@ -1,0 +1,68 @@
+{
+  return new DelegatingContextSupport(ctx){
+    private Boolean isSystemAdmin;
+    private Boolean isSystemUser;
+    private Subject subject=new Subject();
+    private Map<String,String> evaluatedKeys;
+    @Override public UserPrincipal getUser(){
+      return user;
+    }
+    @Override public AccountFullName getAccount(){
+      return AccountFullName.getInstance(getAccountNumber());
+    }
+    @Override public String getAccountAlias(){
+      return getUser().getAccountAlias();
+    }
+    @Override public String getAccountNumber(){
+      return getUser().getAccountNumber();
+    }
+    @Override public UserFullName getUserFullName(){
+      return UserFullName.getInstance(user);
+    }
+    @Override public boolean isPrivileged(){
+      return Principals.systemUser().getName().equals(ctx.request.getEffectiveUserId());
+    }
+    @Override public boolean isAdministrator(){
+      if (isSystemUser == null) {
+        isSystemUser=this.getUser().isSystemUser();
+      }
+      return isSystemUser;
+    }
+    @Override public boolean hasAdministrativePrivileges(){
+      if (isSystemAdmin == null) {
+        isSystemAdmin=user.isSystemAdmin();
+      }
+      return isSystemAdmin;
+    }
+    @Override public boolean isImpersonated(){
+      return true;
+    }
+    @Override public Subject getSubject(){
+      return subject;
+    }
+    @Override public void setSubject(    final Subject subject){
+      this.subject=subject;
+    }
+    @Override public Map<String,String> evaluateKeys() throws AuthException {
+      if (evaluatedKeys == null) {
+        final BaseCallerContext context=super.getRequest().getCallerContext();
+        if (context == null) {
+          evaluatedKeys=Collections.emptyMap();
+        }
+ else {
+          evaluatedKeys=CollectionUtils.putAll(context.getEvaluatedKeys(),Maps.<String,String>newHashMap(),EvaluatedIamConditionKey.key(),EvaluatedIamConditionKey.value());
+        }
+      }
+      return evaluatedKeys;
+    }
+    @Override public AuthContextSupplier getAuthContext(){
+      return new AuthContextSupplier(){
+        @Override public AuthContext get() throws AuthException {
+          return Permissions.createAuthContext(getUser(),evaluateKeys());
+        }
+      }
+;
+    }
+  }
+;
+}

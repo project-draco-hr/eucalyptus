@@ -99,6 +99,29 @@
  catch (        Exception ex) {
         }
         try {
+          final List<LoadBalancerBackendServerDescription> backendServers=LoadBalancerBackendServers.getLoadBalancerBackendServerDescription(lb);
+          final List<BackendServerDescription> backendDescription=Lists.newArrayList();
+          for (          final LoadBalancerBackendServerDescription server : backendServers) {
+            final BackendServerDescription serverDesc=new BackendServerDescription();
+            serverDesc.setInstancePort(server.getInstancePort());
+            final PolicyNames polNames=new PolicyNames();
+            polNames.setMember(new ArrayList<String>(Lists.transform(server.getPolicyDescriptions(),new Function<LoadBalancerPolicyDescriptionCoreView,String>(){
+              @Override public String apply(              LoadBalancerPolicyDescriptionCoreView arg0){
+                return arg0.getPolicyName();
+              }
+            }
+)));
+            serverDesc.setPolicyNames(polNames);
+            backendDescription.add(serverDesc);
+          }
+          final BackendServerDescriptions backendDescs=new BackendServerDescriptions();
+          backendDescs.setMember((ArrayList<BackendServerDescription>)backendDescription);
+          desc.setBackendServerDescriptions(backendDescs);
+        }
+ catch (        final Exception ex) {
+          LOG.error("Failed to load backend server description",ex);
+        }
+        try {
           LoadBalancerSecurityGroupCoreView group=lb.getGroup();
           if (group != null) {
             desc.setSourceSecurityGroup(new SourceSecurityGroup(group.getGroupOwnerAccountId(),group.getName()));
@@ -121,13 +144,15 @@
             if ("LBCookieStickinessPolicyType".equals(policy.getPolicyTypeName())) {
               final LBCookieStickinessPolicy lbp=new LBCookieStickinessPolicy();
               lbp.setPolicyName(policy.getPolicyName());
-              lbp.setCookieExpirationPeriod(Long.parseLong(policy.findAttributeDescription("CookieExpirationPeriod").getAttributeValue()));
+              final List<LoadBalancerPolicyAttributeDescription> attrs=policy.findAttributeDescription("CookieExpirationPeriod");
+              if (!attrs.isEmpty())               lbp.setCookieExpirationPeriod(Long.parseLong(attrs.get(0).getAttributeValue()));
               lbCookiePolicies.add(lbp);
             }
  else             if ("AppCookieStickinessPolicyType".equals(policy.getPolicyTypeName())) {
               final AppCookieStickinessPolicy app=new AppCookieStickinessPolicy();
               app.setPolicyName(policy.getPolicyName());
-              app.setCookieName(policy.findAttributeDescription("CookieName").getAttributeValue());
+              final List<LoadBalancerPolicyAttributeDescription> attrs=policy.findAttributeDescription("CookieName");
+              if (!attrs.isEmpty())               app.setCookieName(attrs.get(0).getAttributeValue());
               appCookiePolicies.add(app);
             }
  else             otherPolicies.add(policy.getPolicyName());

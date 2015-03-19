@@ -1,4 +1,78 @@
 {
-  SetLoadBalancerPoliciesForBackendServerResponseType reply=request.getReply();
+  final SetLoadBalancerPoliciesForBackendServerResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String lbName=request.getLoadBalancerName();
+  final int instancePort=request.getInstancePort();
+  final PolicyNames pNames=request.getPolicyNames();
+  if (lbName == null || lbName.isEmpty())   throw new InvalidConfigurationRequestException("Loadbalancer name must be specified");
+  if (instancePort < 0 || instancePort > 65535)   throw new InvalidConfigurationRequestException("Invalid port number specified");
+  final List<String> policyNames=pNames.getMember();
+  LoadBalancer lb;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ctx,lbName);
+  }
+ catch (  final NoSuchElementException ex) {
+    throw new AccessPointNotFoundException();
+  }
+catch (  final Exception ex) {
+    LOG.error("Failed to find the loadbalancer",ex);
+    throw new InternalFailure400Exception("Failed to find the loadbalancer");
+  }
+  if (lb != null && !LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
+    throw new AccessPointNotFoundException();
+  }
+  try {
+    final Set<String> policyTypes=Sets.newHashSet();
+    final List<LoadBalancerPolicyDescription> policiesToAdd=Lists.newArrayList();
+    if (policyNames != null) {
+      for (      final String policyName : policyNames) {
+        try {
+          final LoadBalancerPolicyDescription policy=LoadBalancerPolicies.getLoadBalancerPolicyDescription(lb,policyName);
+          if (!"BackendServerAuthenticationPolicyType".equals(policy.getPolicyTypeName()))           throw new InvalidConfigurationRequestException("Only BackendServerAuthenticationPolicyType can be set to backend server");
+          policyTypes.add(policy.getPolicyTypeName());
+          policiesToAdd.add(policy);
+        }
+ catch (        final LoadBalancingException ex) {
+          throw ex;
+        }
+catch (        final Exception ex) {
+          throw new PolicyNotFoundException();
+        }
+      }
+    }
+    boolean listenerFound=false;
+    for (    final LoadBalancerListenerCoreView l : lb.getListeners()) {
+      if (l.getInstancePort() == instancePort) {
+        if (policyTypes.contains("BackendServerAuthenticationPolicyType") && !(PROTOCOL.HTTPS.equals(l.getInstanceProtocol()) || PROTOCOL.SSL.equals(l.getInstanceProtocol()))) {
+          throw new InvalidConfigurationRequestException("Policies of BackendServerAuthenticationPolicyType can be set to only HTTPS/SSL instance protocol");
+        }
+        listenerFound=true;
+        break;
+      }
+    }
+    if (!listenerFound)     throw new InvalidConfigurationRequestException("Listener with the specified backend instance port is not found");
+    LoadBalancerBackendServerDescription backend=null;
+    if (!LoadBalancerBackendServers.hasBackendServerDescription(lb,instancePort)) {
+      backend=LoadBalancerBackendServers.createBackendServerDescription(lb,instancePort);
+    }
+ else {
+      backend=LoadBalancerBackendServers.getBackendServerDescription(lb,instancePort);
+    }
+    if (backend == null)     throw new InvalidConfigurationRequestException("Failed to find the backend server description for port " + instancePort);
+    LoadBalancerPolicies.clearPoliciesFromBackendServer(backend);
+    try {
+      if (policiesToAdd.size() > 0)       LoadBalancerPolicies.addPoliciesToBackendServer(backend,policiesToAdd);
+    }
+ catch (    final Exception ex) {
+      throw ex;
+    }
+  }
+ catch (  final LoadBalancingException ex) {
+    throw ex;
+  }
+catch (  final Exception ex) {
+    LOG.error("Failed to set policies to backend server description",ex);
+    throw new InternalFailure400Exception("Failed to set policies to backend server description",ex);
+  }
   return reply;
 }

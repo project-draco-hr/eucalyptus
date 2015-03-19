@@ -4,10 +4,18 @@
   if (!key.isActive()) {
     throw new AuthenticationException("The AWS Access Key Id you provided does not exist in our records.");
   }
-  final User user=key.getUser();
+  final UserPrincipal user=key.getPrincipal();
   final String queryKey=key.getSecretKey();
   final String authSig=checkSignature(queryKey,credentials.getLoginData());
   if (authSig.equals(signature)) {
+    try {
+      if (!Account.OBJECT_STORAGE_WALRUS_ACCOUNT.equals(Accounts.lookupAccountAliasById(user.getAccountNumber()))) {
+        throw new AccessDeniedException("walrus only accepts requests from " + Account.OBJECT_STORAGE_WALRUS_ACCOUNT);
+      }
+    }
+ catch (    AuthException e) {
+      throw new AccessDeniedException(e.getMessage());
+    }
     super.setCredential(credentials.getQueryIdCredential());
     super.setPrincipal(user);
     return true;

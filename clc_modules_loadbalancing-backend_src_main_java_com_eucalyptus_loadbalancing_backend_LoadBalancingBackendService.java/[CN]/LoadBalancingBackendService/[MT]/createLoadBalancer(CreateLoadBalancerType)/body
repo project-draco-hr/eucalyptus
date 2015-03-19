@@ -72,10 +72,10 @@
       }
     }
   }
-  final String adminUserId=lookupAdmin(ctx);
+  final AccountFullName accountFullName=ctx.getAccount();
   boolean defaultVpc=false;
   if (subnetVpcId == null) {
-    final Optional<VpcType> vpcOptional=EucalyptusActivityTasks.getInstance().defaultVpc(adminUserId);
+    final Optional<VpcType> vpcOptional=EucalyptusActivityTasks.getInstance().defaultVpc(accountFullName);
     subnetVpcId=vpcOptional.transform(VpcType.id()).orNull();
     defaultVpc=subnetVpcId != null;
   }
@@ -118,7 +118,7 @@ catch (  final Exception e) {
     securityGroupIds.addAll(request.getSecurityGroups().getMember());
   }
  else   if (vpcId != null && !defaultVpc) {
-    final List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsByName(adminUserId,vpcId,"default");
+    final List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsByName(accountFullName,vpcId,"default");
     if (groups.isEmpty()) {
       throw new InvalidConfigurationRequestException("Default security group not found for VPC " + vpcId);
     }
@@ -127,7 +127,7 @@ catch (  final Exception e) {
   if (!securityGroupIds.isEmpty() && vpcId == null) {
     throw new InvalidConfigurationRequestException("Security groups should not be specified for EC2-Classic platform");
   }
-  final List<SecurityGroupItemType> groups=securityGroupIds.isEmpty() ? Collections.<SecurityGroupItemType>emptyList() : EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsById(adminUserId,vpcId,securityGroupIds);
+  final List<SecurityGroupItemType> groups=securityGroupIds.isEmpty() ? Collections.<SecurityGroupItemType>emptyList() : EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsById(accountFullName,vpcId,securityGroupIds);
   if (groups.size() != securityGroupIds.size()) {
     throw new LoadBalancingBackendClientException("InvalidSecurityGroup","Invalid security group(s)");
   }
@@ -203,6 +203,7 @@ catch (    Exception ex) {
   try {
     NewLoadbalancerEvent evt=new NewLoadbalancerEvent();
     evt.setLoadBalancer(lbName);
+    evt.setLoadBalancerAccountNumber(lb.getOwnerAccountNumber());
     evt.setContext(ctx);
     evt.setZones(zones);
     ActivityManager.getInstance().fire(evt);
@@ -218,6 +219,7 @@ catch (    Exception ex) {
     try {
       CreateListenerEvent evt=new CreateListenerEvent();
       evt.setLoadBalancer(lbName);
+      evt.setLoadBalancerAccountNumber(lb.getOwnerAccountNumber());
       evt.setListeners(listeners);
       evt.setContext(ctx);
       ActivityManager.getInstance().fire(evt);

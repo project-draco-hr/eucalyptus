@@ -28,18 +28,44 @@
       }
       final LoadBalancerDnsRecordCoreView dnsView=lb.getDns();
       desc.setDnsName(dnsView.getDnsName());
-      Collection<LoadBalancerBackendInstanceCoreView> notInError=Collections2.filter(zone.getBackendInstances(),new Predicate<LoadBalancerBackendInstanceCoreView>(){
+      desc.setLoadBalancerAttributes(TypeMappers.transform(lb,LoadBalancerAttributes.class));
+      Collection<LoadBalancerBackendInstanceCoreView> backendInstancesInSameZone=Collections2.filter(zone.getBackendInstances(),new Predicate<LoadBalancerBackendInstanceCoreView>(){
         @Override public boolean apply(        LoadBalancerBackendInstanceCoreView arg0){
           return !LoadBalancerBackendInstance.STATE.Error.equals(arg0.getBackendState()) && !(arg0.getIpAddress() == null || arg0.getIpAddress().length() <= 0);
         }
       }
 );
-      if (!notInError.isEmpty()) {
-        desc.setInstances(new Instances());
-        desc.getInstances().getMember().addAll(Collections2.transform(notInError,new Function<LoadBalancerBackendInstanceCoreView,Instance>(){
-          @Override public Instance apply(          final LoadBalancerBackendInstanceCoreView be){
-            Instance instance=new Instance();
-            instance.setInstanceId(be.getInstanceId() + ":" + be.getIpAddress());
+      Collection<LoadBalancerBackendInstanceCoreView> crossZoneBackendInstances=Lists.newArrayList();
+      if (desc.getLoadBalancerAttributes().getCrossZoneLoadBalancing().getEnabled()) {
+        crossZoneBackendInstances=Collections2.filter(lb.getBackendInstances(),new Predicate<LoadBalancerBackendInstanceCoreView>(){
+          @Override public boolean apply(          LoadBalancerBackendInstanceCoreView arg0){
+            final boolean inService=LoadBalancerBackendInstance.STATE.InService.equals(arg0.getBackendState()) && !(arg0.getIpAddress() == null || arg0.getIpAddress().length() <= 0);
+            return inService && arg0.getVmInstance() != null && !zone.getName().equals(arg0.getVmInstance().getPlacement());
+          }
+        }
+);
+      }
+      if (!backendInstancesInSameZone.isEmpty()) {
+        desc.setBackendInstances(new BackendInstances());
+        desc.getBackendInstances().getMember().addAll(Collections2.transform(backendInstancesInSameZone,new Function<LoadBalancerBackendInstanceCoreView,BackendInstance>(){
+          @Override public BackendInstance apply(          final LoadBalancerBackendInstanceCoreView be){
+            final BackendInstance instance=new BackendInstance();
+            instance.setInstanceId(be.getInstanceId());
+            instance.setInstanceIpAddress(be.getIpAddress());
+            instance.setReportHealthCheck(true);
+            return instance;
+          }
+        }
+));
+      }
+      if (!crossZoneBackendInstances.isEmpty()) {
+        if (desc.getBackendInstances() == null)         desc.setBackendInstances(new BackendInstances());
+        desc.getBackendInstances().getMember().addAll(Collections2.transform(crossZoneBackendInstances,new Function<LoadBalancerBackendInstanceCoreView,BackendInstance>(){
+          @Override public BackendInstance apply(          final LoadBalancerBackendInstanceCoreView be){
+            final BackendInstance instance=new BackendInstance();
+            instance.setInstanceId(be.getInstanceId());
+            instance.setInstanceIpAddress(be.getIpAddress());
+            instance.setReportHealthCheck(false);
             return instance;
           }
         }
@@ -48,6 +74,7 @@
       desc.setAvailabilityZones(new AvailabilityZones());
       desc.getAvailabilityZones().getMember().add(zone.getName());
       final Set<String> policiesOfListener=Sets.newHashSet();
+      final Set<String> policiesForBackendServer=Sets.newHashSet();
       if (lb.getListeners().size() > 0) {
         desc.setListenerDescriptions(new ListenerDescriptions());
         desc.getListenerDescriptions().setMember(new ArrayList<>(Collections2.transform(lb.getListeners(),new Function<LoadBalancerListenerCoreView,ListenerDescription>(){
@@ -81,6 +108,31 @@
 )));
       }
       try {
+        if (lb.getBackendServers().size() > 0) {
+          desc.setBackendServerDescriptions(new BackendServerDescriptions());
+          desc.getBackendServerDescriptions().setMember(new ArrayList<>(Collections2.transform(lb.getBackendServers(),new Function<LoadBalancerBackendServerDescriptionCoreView,BackendServerDescription>(){
+            @Override public BackendServerDescription apply(            LoadBalancerBackendServerDescriptionCoreView arg0){
+              final LoadBalancerBackendServerDescription backend=LoadBalancerBackendServerDescriptionEntityTransform.INSTANCE.apply(arg0);
+              final BackendServerDescription desc=new BackendServerDescription();
+              desc.setInstancePort(arg0.getInstancePort());
+              desc.setPolicyNames(new PolicyNames());
+              desc.getPolicyNames().setMember(new ArrayList<>(Collections2.transform(backend.getPolicyDescriptions(),new Function<LoadBalancerPolicyDescriptionCoreView,String>(){
+                @Override public String apply(                LoadBalancerPolicyDescriptionCoreView arg0){
+                  return arg0.getPolicyName();
+                }
+              }
+)));
+              policiesForBackendServer.addAll(desc.getPolicyNames().getMember());
+              return desc;
+            }
+          }
+)));
+        }
+      }
+ catch (      final Exception ex) {
+        ;
+      }
+      try {
         int interval=lb.getHealthCheckInterval();
         String target=lb.getHealthCheckTarget();
         int timeout=lb.getHealthCheckTimeout();
@@ -96,7 +148,6 @@
       }
  catch (      Exception ex) {
       }
-      desc.setLoadBalancerAttributes(TypeMappers.transform(lb,LoadBalancerAttributes.class));
       List<LoadBalancerPolicyDescription> lbPolicies=Lists.newArrayList();
       try {
         lbPolicies=LoadBalancerPolicies.getLoadBalancerPolicyDescription(lb);
@@ -106,7 +157,7 @@
       }
       final List<PolicyDescription> policies=Lists.newArrayList();
       for (      final LoadBalancerPolicyDescription lbPolicy : lbPolicies) {
-        if (policiesOfListener.contains(lbPolicy.getPolicyName()))         policies.add(LoadBalancerPolicies.AsPolicyDescription.INSTANCE.apply(lbPolicy));
+        if (policiesOfListener.contains(lbPolicy.getPolicyName()) || policiesForBackendServer.contains(lbPolicy.getPolicyName()) || "PublicKeyPolicyType".equals(lbPolicy.getPolicyTypeName()))         policies.add(LoadBalancerPolicies.AsPolicyDescription.INSTANCE.apply(lbPolicy));
       }
       final PolicyDescriptions policyDescs=new PolicyDescriptions();
       policyDescs.setMember((ArrayList<PolicyDescription>)policies);

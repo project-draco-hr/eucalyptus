@@ -1,26 +1,16 @@
 {
   logRequest(request);
+  CanonicalUser canonicalUser=AclUtils.buildCanonicalUser(Contexts.lookup().getUser());
   Bucket fakeBucket=new Bucket();
   fakeBucket.setBucketName("*");
-  fakeBucket.setOwnerCanonicalId(Contexts.lookup().getAccount().getCanonicalId());
+  fakeBucket.setOwnerCanonicalId(canonicalUser.getID());
   request.setBucket(fakeBucket.getBucketName());
   if (OsgAuthorizationHandler.getInstance().operationAllowed(request,fakeBucket,null,0)) {
     ListAllMyBucketsResponseType response=request.getReply();
-    Account accnt;
     try {
-      accnt=Contexts.lookup(request.getCorrelationId()).getAccount();
-      if (accnt == null) {
-        throw new NoSuchContextException();
-      }
-    }
- catch (    NoSuchContextException e) {
-      LOG.error("Could not retrieve canonicalId for user with userId: " + request.getUserId() + " effectiveUserId: "+ request.getEffectiveUserId());
-      throw new AccountProblemException(request.getUserId());
-    }
-    try {
-      List<Bucket> listing=BucketMetadataManagers.getInstance().lookupBucketsByOwner(accnt.getCanonicalId());
+      List<Bucket> listing=BucketMetadataManagers.getInstance().lookupBucketsByOwner(canonicalUser.getID());
       response.setBucketList(generateBucketListing(listing));
-      response.setOwner(AclUtils.buildCanonicalUser(accnt));
+      response.setOwner(canonicalUser);
       return response;
     }
  catch (    Exception e) {
