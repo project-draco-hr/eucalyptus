@@ -109,6 +109,25 @@ if (errorCode != null && errorCode.length() > 0 && ImagingWorkers.isFatalError(e
 LOG.warn(String.format("A task %s experienced fatal error. Worker instance %s is being retired",request.getImportTaskId(),request.getInstanceId()));
 ImagingWorkers.retireWorker(request.getInstanceId());
 }
+if (imagingTask instanceof DiskImagingTask) {
+String conversionTaskId=((DiskImagingTask)imagingTask).getTask().getConversionTaskId();
+String imageId=null;
+for (ImageInfo imageInfo : ImageConversionManager.getPartitionedImages()) {
+if (imageInfo instanceof MachineImageInfo) {
+if (conversionTaskId.equals(((MachineImageInfo)imageInfo).getImageConversionId())) {
+imageId=imageInfo.getDisplayName();
+break;
+}
+}
+}
+LOG.debug("Image that failed conversion: " + imageId);
+if (imageId != null) {
+for (VmInstance vm : VmInstances.list(new InstanceByImageId(imageId))) {
+LOG.debug("Shutting down instance: " + vm.getInstanceId());
+vm.setState(VmState.SHUTTING_DOWN,Reason.FAILED);
+}
+}
+}
 break;
 }
 }
