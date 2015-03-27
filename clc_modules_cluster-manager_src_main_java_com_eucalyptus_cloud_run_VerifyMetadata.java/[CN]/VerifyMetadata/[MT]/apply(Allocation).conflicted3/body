@@ -1,21 +1,15 @@
 {
+  if (allocInfo.getRequest().getKeyName() == null || "".equals(allocInfo.getRequest().getKeyName())) {
+    allocInfo.setSshKeyPair(KeyPairs.noKey());
+    return true;
+  }
+  UserFullName ownerFullName=allocInfo.getOwnerFullName();
   RunInstancesType request=allocInfo.getRequest();
-  String zoneName=request.getAvailabilityZone();
-  if (Clusters.getInstance().listValues().isEmpty()) {
-    LOG.debug("enabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
-    LOG.debug("disabled values: " + Joiner.on("\n").join(Clusters.getInstance().listValues()));
-    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
+  String keyName=request.getKeyName();
+  SshKeyPair key=KeyPairs.lookup(ownerFullName.asAccountFullName(),keyName);
+  if (!RestrictedTypes.filterPrivileged().apply(key)) {
+    throw new IllegalMetadataAccessException("Not authorized to use keypair " + keyName + " by "+ ownerFullName.getUserName());
   }
- else   if (Partitions.exists(zoneName)) {
-    Partition partition=Partitions.lookupByName(zoneName);
-    allocInfo.setPartition(partition);
-  }
- else   if (Partition.DEFAULT_NAME.equals(zoneName)) {
-    Partition partition=Partition.DEFAULT;
-    allocInfo.setPartition(partition);
-  }
- else {
-    throw new VerificationException("Not enough resources: no cluster controller is currently available to run instances.");
-  }
+  allocInfo.setSshKeyPair(key);
   return true;
 }
