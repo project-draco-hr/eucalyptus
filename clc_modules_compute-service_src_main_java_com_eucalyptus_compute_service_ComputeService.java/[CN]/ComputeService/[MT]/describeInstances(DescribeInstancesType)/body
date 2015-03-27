@@ -1,0 +1,38 @@
+{
+  final DescribeInstancesResponseType reply=msg.getReply();
+  Context ctx=Contexts.lookup();
+  boolean showAll=msg.getInstancesSet().remove("verbose") || !msg.getInstancesSet().isEmpty();
+  final Multimap<String,RunningInstancesItemType> instanceMap=TreeMultimap.create();
+  final Map<String,ReservationInfoType> reservations=Maps.newHashMap();
+  final Collection<String> identifiers=normalizeInstanceIdentifiers(msg.getInstancesSet());
+  final Filter filter=Filters.generateFor(msg.getFilterSet(),VmInstance.class).withOptionalInternalFilter("instance-id",identifiers).generate();
+  final Predicate<? super VmInstance> requestedAndAccessible=CloudMetadatas.filteringFor(VmInstance.class).byId(identifiers).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
+  final Criterion criterion=filter.asCriterionWithConjunction(Restrictions.not(VmInstance.criterion(VmInstance.VmState.BURIED)));
+  final OwnerFullName ownerFullName=(ctx.isAdministrator() && showAll) ? null : ctx.getUserFullName().asAccountFullName();
+  try (final TransactionResource db=Entities.readOnlyDistinctTransactionFor(VmInstance.class)){
+    final List<VmInstance> instances=VmInstances.list(ownerFullName,criterion,filter.getAliases(),requestedAndAccessible);
+    final Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(VmInstance.class).getResourceTagMap(AccountFullName.getInstance(ctx.getAccountNumber()),Iterables.transform(instances,CloudMetadatas.toDisplayName()));
+    for (    final VmInstance vm : instances) {
+      if (instanceMap.put(vm.getReservationId(),VmInstance.transform(vm)) && !reservations.containsKey(vm.getReservationId())) {
+        reservations.put(vm.getReservationId(),TypeMappers.transform(vm,ReservationInfoType.class));
+      }
+    }
+    List<ReservationInfoType> replyReservations=reply.getReservationSet();
+    for (    ReservationInfoType r : reservations.values()) {
+      Collection<RunningInstancesItemType> instanceSet=instanceMap.get(r.getReservationId());
+      if (!instanceSet.isEmpty()) {
+        for (        final RunningInstancesItemType instancesItemType : instanceSet) {
+          Tags.addFromTags(instancesItemType.getTagSet(),ResourceTag.class,tagsMap.get(instancesItemType.getInstanceId()));
+        }
+        r.getInstancesSet().addAll(instanceSet);
+        replyReservations.add(r);
+      }
+    }
+  }
+ catch (  final Exception e) {
+    LOG.error(e);
+    LOG.debug(e,e);
+    throw new EucalyptusCloudException(e.getMessage());
+  }
+  return reply;
+}

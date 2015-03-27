@@ -1,0 +1,20 @@
+{
+  DescribeImagesResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final boolean showAllStates=ctx.isAdministrator() && request.getImagesSet().remove("verbose");
+  final String requestAccountId=ctx.getUserFullName().getAccountNumber();
+  final List<String> imageIds=normalizeImageIdentifiers(request.getImagesSet());
+  final List<String> ownersSet=request.getOwnersSet();
+  if (ownersSet.remove(Images.SELF)) {
+    ownersSet.add(requestAccountId);
+  }
+  final Filter filter=Filters.generate(request.getFilterSet(),ImageInfo.class);
+  final Predicate<? super ImageInfo> requestedAndAccessible=CloudMetadatas.filteringFor(ImageInfo.class).byId(imageIds).byOwningAccount(request.getOwnersSet()).byPredicate(showAllStates ? Predicates.<ImageInfo>alwaysTrue() : Images.standardStatePredicate()).byPredicate(Images.filterExecutableBy(request.getExecutableBySet())).byPredicate(filter.asPredicate()).byPredicate(Images.FilterPermissions.INSTANCE).byPrivilegesWithoutOwner().buildPredicate();
+  final List<ImageDetails> imageDetailsList=Transactions.filteredTransform(new ImageInfo(),filter.asCriterion(),filter.getAliases(),requestedAndAccessible,Images.TO_IMAGE_DETAILS);
+  final Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(ImageInfo.class).getResourceTagMap(AccountFullName.getInstance(ctx.getAccountNumber()),Iterables.transform(imageDetailsList,ImageDetails.imageId()));
+  for (  final ImageDetails details : imageDetailsList) {
+    Tags.addFromTags(details.getTagSet(),ResourceTag.class,tagsMap.get(details.getImageId()));
+  }
+  reply.getImagesSet().addAll(imageDetailsList);
+  return reply;
+}

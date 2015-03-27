@@ -1,0 +1,30 @@
+{
+  DescribeSnapshotAttributeResponseType reply=request.getReply();
+  reply.setSnapshotId(request.getSnapshotId());
+  final Context ctx=Contexts.lookup();
+  final String snapshotId=normalizeSnapshotIdentifier(request.getSnapshotId());
+  try (TransactionResource db=Entities.transactionFor(Snapshot.class)){
+    Snapshot result=Entities.uniqueResult(Snapshot.named(ctx.isAdministrator() ? null : ctx.getUserFullName().asAccountFullName(),snapshotId));
+    if (!RestrictedTypes.filterPrivileged().apply(result)) {
+      throw new EucalyptusCloudException("Not authorized to describe attributes for snapshot " + request.getSnapshotId());
+    }
+    ArrayList<CreateVolumePermissionItemType> permissions=Lists.newArrayList();
+    for (    String id : result.getPermissions()) {
+      permissions.add(new CreateVolumePermissionItemType(id,null));
+    }
+    if (result.getSnapshotPublic()) {
+      permissions.add(new CreateVolumePermissionItemType(null,"all"));
+    }
+    if (result.getProductCodes() != null) {
+      reply.setProductCodes(new ArrayList<>(result.getProductCodes()));
+    }
+    reply.setCreateVolumePermission(permissions);
+  }
+ catch (  NoSuchElementException ex2) {
+    throw new ComputeServiceClientException("InvalidSnapshot.NotFound","The snapshot '" + request.getSnapshotId() + "' does not exist.");
+  }
+catch (  ExecutionException ex1) {
+    throw new EucalyptusCloudException(ex1.getCause());
+  }
+  return reply;
+}

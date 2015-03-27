@@ -1,0 +1,28 @@
+{
+  try (TransactionResource db=Entities.transactionFor(VmInstance.class)){
+    final VmInstance entity=Entities.merge(vm);
+    final Volume volEntity=Volumes.lookup(null,volumeId);
+    VmVolumeAttachment ret;
+    try {
+      ret=entity.getTransientVolumeState().removeVolumeAttachment(volumeId);
+    }
+ catch (    NoSuchElementException ex) {
+      try {
+        ret=Iterables.find(entity.getBootRecord().getPersistentVolumes(),VmVolumeAttachment.volumeIdFilter(volumeId));
+        entity.getBootRecord().getPersistentVolumes().remove(ret);
+      }
+ catch (      NoSuchElementException ex1) {
+        throw ex1;
+      }
+    }
+    if (State.BUSY.equals(volEntity.getState())) {
+      volEntity.setState(State.EXTANT);
+    }
+    db.commit();
+    return ret;
+  }
+ catch (  final Exception ex) {
+    Logs.extreme().error(ex,ex);
+    throw new NoSuchElementException("Failed to lookup volume: " + volumeId);
+  }
+}
