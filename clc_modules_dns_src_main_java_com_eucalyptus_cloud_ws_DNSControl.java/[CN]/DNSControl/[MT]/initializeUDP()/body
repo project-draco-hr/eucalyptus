@@ -1,8 +1,40 @@
 {
-  initializeListeners(udpListenerRef,"UDP",new ListenerBuilder<UDPListener>(){
-    @Override public UDPListener build(    final InetAddress address,    final int port) throws IOException {
-      return new UDPListener(address,port);
+  if (udpChannelFactory == null) {
+    try {
+      udpChannelFactory=new NioDatagramChannelFactory(Executors.newCachedThreadPool());
+      final ConnectionlessBootstrap b=new ConnectionlessBootstrap(udpChannelFactory);
+      udpExecHandler=new ExecutionHandler(createWorkerPool());
+      b.setPipelineFactory(new UdpChannelPipelineFactory(udpExecHandler));
+      b.setOption("receiveBufferSize",4194304);
+      b.setOption("broadcast","false");
+      b.setOption("receiveBufferSizePredictor",new FixedReceiveBufferSizePredictor(1024));
+      b.setOption("child.tcpNoDelay",true);
+      b.setOption("child.reuseAddress",true);
+      b.setOption("child.connectTimeoutMillis",3000);
+      b.setOption("tcpNoDelay",true);
+      b.setOption("reuseAddress",true);
+      b.setOption("connectTimeoutMillis",3000);
+      Capabilities.runWithCapabilities(new Callable<Boolean>(){
+        @Override public Boolean call() throws Exception {
+          final Channel udpChannel=b.bind(new InetSocketAddress(53));
+          udpChannelGroup.add(udpChannel);
+          return true;
+        }
+      }
+);
+    }
+ catch (    final Exception ex) {
+      LOG.debug("Failed initializing DNS udp listener",ex);
+      udpChannelGroup.close().awaitUninterruptibly();
+      if (udpChannelFactory != null) {
+        udpChannelFactory.releaseExternalResources();
+        udpChannelFactory=null;
+      }
+      if (udpExecHandler != null) {
+        udpExecHandler.releaseExternalResources();
+        udpExecHandler=null;
+      }
+      throw ex;
     }
   }
-);
 }
