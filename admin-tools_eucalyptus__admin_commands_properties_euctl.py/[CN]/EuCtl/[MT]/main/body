@@ -1,0 +1,32 @@
+def main(self):
+    if self.args.get('dump'):
+        prop_name = self.args.get('prop_pairs')[0][0]
+        self.log.info('dumping property value   %s', prop_name)
+        prop = self._get_unique_property(prop_name)
+        formatter = self._get_formatter()
+        print formatter.dumps(prop.value).strip()
+    elif self.args.get('edit'):
+        prop_name = self.args.get('prop_pairs')[0][0]
+        self.log.info('editing property value   %s', prop_name)
+        prop = self._get_unique_property(prop_name)
+        has_changed = self.edit_interactively(prop)
+        if has_changed:
+            self.log.info('setting property value   %s', prop_name)
+            self._set_property(prop_name, value=prop.dumps())
+        else:
+            print  >> sys.stderr, prop_name, 'is unchanged'
+    else:
+        for (key, val) in (self.args.get('prop_pairs') or [(None, None)]):
+            if (val is not None):
+                self.log.info('setting property value   %s: %s', key, val)
+                self._set_property(key, value=val)
+            if ((val is None) and self.args.get('reset')):
+                self.log.info('resetting property value %s', key)
+                self._set_property(key, reset=True)
+            self.log.info('showing property value   %s', key)
+            req = DescribeProperties.from_other(self, Property=[key])
+            response = req.main()
+            for prop_dict in (response.get('properties') or []):
+                prop = _build_property(prop_dict.get('name'), prop_dict.get('value'))
+                if (not self.args.get('suppress_all')):
+                    prop.print_(suppress_name=self.args.get('suppress_name'), force=self.args.get('all_types'))
