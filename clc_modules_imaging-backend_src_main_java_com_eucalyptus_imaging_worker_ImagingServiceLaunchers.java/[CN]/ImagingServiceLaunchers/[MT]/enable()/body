@@ -1,27 +1,32 @@
 {
-  if (!this.shouldEnable())   throw new EucalyptusCloudException("Imaging service instances are found in the system");
+  if (!this.shouldEnable())   throw new EucalyptusCloudException("Imaging service is active or still shutting down");
   this.lockLauncher(launcherId);
   try {
-    final String emi=ImagingServiceProperties.IMAGE;
-    final String instanceType=ImagingServiceProperties.INSTANCE_TYPE;
-    final String keyName=ImagingServiceProperties.KEYNAME;
-    ImagingServiceLauncher launcher=null;
-    try {
-      ImagingServiceLauncher.Builder builder=new ImagingServiceLauncher.Builder(launcherId);
-      launcher=builder.checkAdmission().withSecurityGroup().withRole().withInstanceProfile().withRolePermissions().withServerCertificate(SERVER_CERTIFICATE_NAME).withVolumeOperations().withS3Operations().withUserData().withLaunchConfiguration(emi,instanceType,keyName).withAutoScalingGroup().withTag(ImagingServiceProperties.DEFAULT_LAUNCHER_TAG).build();
-    }
- catch (    final Exception ex) {
-      throw new EucalyptusCloudException("Failed to prepare imaging service launcher",ex);
-    }
-    try {
-      launcher.launch();
-    }
- catch (    final Exception ex) {
-      throw new EucalyptusCloudException("Failed launching image service instance",ex);
-    }
+    if (!Topology.isEnabled(CloudFormation.class))     throw new EucalyptusCloudException("CloudFormation is not enabled");
+    if ("NULL".equals(ImagingServiceProperties.IMAGE))     throw new EucalyptusCloudException("You need to set 'services.imaging.worker.image'" + "before enabling the service");
+    ServerCertificateMetadataType metadata=createAndUploadCertificate();
+    LOG.debug("Created new certificate " + metadata.getServerCertificateName());
+    String template=getInstance().loadTemplate("worker-cf-template.json");
+    ArrayList<Parameter> params=new ArrayList<Parameter>();
+    params.add(new Parameter("KeyName",ImagingServiceProperties.KEYNAME));
+    params.add(new Parameter("CERTARN",metadata.getArn()));
+    params.add(new Parameter("ImageId",ImagingServiceProperties.IMAGE));
+    params.add(new Parameter("VmExpirationDays",ImagingServiceProperties.EXPIRATION_DAYS));
+    params.add(new Parameter("InstanceType",ImagingServiceProperties.INSTANCE_TYPE));
+    params.add(new Parameter("NtpServer",ImagingServiceProperties.NTP_SERVER));
+    params.add(new Parameter("LogServer",ImagingServiceProperties.LOG_SERVER));
+    params.add(new Parameter("LogServerPort",ImagingServiceProperties.LOG_SERVER_PORT));
+    params.add(new Parameter("ImagingServiceUrl",String.format("imaging.%s",DNSProperties.DOMAIN)));
+    params.add(new Parameter("EuareServiceUrl",String.format("euare.%s",DNSProperties.DOMAIN)));
+    params.add(new Parameter("ComputeServiceUrl",String.format("compute.%s",DNSProperties.DOMAIN)));
+    LOG.debug("Creating CF stack for the imaging worker");
+    CloudFormationClient.getInstance().createStack(null,ImagingServiceProperties.IMAGING_WORKER_STACK_NAME,template,params);
+    LOG.debug("Done creating CF stack for the imaging worker");
   }
  catch (  final Exception ex) {
-    this.releaseLauncher(launcherId);
     throw ex;
+  }
+ finally {
+    this.releaseLauncher(launcherId);
   }
 }

@@ -1,0 +1,46 @@
+{
+  byte[] inbuf=null;
+  try {
+    if (e.getMessage() instanceof TimedDns) {
+      final TimedDns request=(TimedDns)e.getMessage();
+      inbuf=request.getRequest();
+      if (request.getReceivedTime() != null && (new Date()).getTime() - request.getReceivedTime() > DISCARD_REQUEST_AFTER_MS) {
+        throw new Exception("Request timed out");
+      }
+    }
+ else {
+      final ChannelBuffer buffer=((ChannelBuffer)e.getMessage());
+      inbuf=new byte[buffer.readableBytes()];
+      buffer.getBytes(0,inbuf);
+    }
+    Message query=new Message(inbuf);
+    final InetAddress localAddr=((InetSocketAddress)e.getChannel().getLocalAddress()).getAddress();
+    final InetAddress remoteAddr=((InetSocketAddress)e.getRemoteAddress()).getAddress();
+    ConnectionHandler.setLocalAndRemoteInetAddresses(localAddr,remoteAddr);
+    try {
+      byte[] outbuf=legacyDns.generateReply(query,inbuf,inbuf.length,null);
+      ChannelBuffer chanOutBuf=ChannelBuffers.wrappedBuffer(outbuf);
+      ctx.getChannel().write(chanOutBuf,e.getRemoteAddress());
+      return;
+    }
+ catch (    Exception ex) {
+      LOG.debug(ex,ex);
+      byte[] outbuf=legacyDns.errorMessage(query,Rcode.SERVFAIL);
+      LOG.info(outbuf);
+      ChannelBuffer chanOutBuf=ChannelBuffers.wrappedBuffer(outbuf);
+      ctx.getChannel().write(chanOutBuf,e.getRemoteAddress());
+      throw ex;
+    }
+ finally {
+      ConnectionHandler.clearInetAddresses();
+    }
+  }
+ catch (  Exception ex) {
+    LOG.debug(ex,ex);
+    byte[] outbuf=legacyDns.formerrMessage(inbuf);
+    LOG.info(outbuf);
+    ChannelBuffer chanOutBuf=ChannelBuffers.wrappedBuffer(outbuf);
+    ctx.getChannel().write(chanOutBuf,e.getRemoteAddress());
+    throw ex;
+  }
+}
