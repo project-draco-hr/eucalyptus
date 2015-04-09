@@ -1,0 +1,167 @@
+{
+  return new Predicate<VmInfo>(){
+    @Override public boolean apply(    final VmInfo runVm){
+      if (!Entities.isPersistent(vm)) {
+        throw new TransientEntityException(this.toString());
+      }
+ else {
+        try {
+          final VmState runVmState=VmState.Mapper.get(runVm.getStateName());
+          if (vm.getRuntimeState().isBundling()) {
+            final VmBundleTask.BundleState bundleState=VmBundleTask.BundleState.mapper.apply(runVm.getBundleTaskStateName());
+            Bundles.updateBundleTaskState(vm,bundleState,runVm.getBundleTaskProgress());
+          }
+ else           if (VmStateSet.RUN.apply(vm) && VmStateSet.RUN.contains(runVmState)) {
+            setState(vm,runVmState,VmInstance.Reason.APPEND,"UPDATE");
+            this.updateState(runVm);
+          }
+ else           if (VmState.SHUTTING_DOWN.apply(vm) && VmState.SHUTTING_DOWN.equals(runVmState)) {
+            setState(vm,VmState.TERMINATED,VmInstance.Reason.APPEND,"DONE");
+          }
+ else           if (VmInstances.Timeout.SHUTTING_DOWN.apply(vm)) {
+            setState(vm,VmState.TERMINATED,VmInstance.Reason.EXPIRED);
+          }
+ else           if (VmInstances.Timeout.STOPPING.apply(vm)) {
+            setState(vm,VmState.STOPPED,VmInstance.Reason.EXPIRED);
+          }
+ else           if (VmStateSet.NOT_RUNNING.apply(vm) && VmStateSet.RUN.contains(runVmState)) {
+            if (Timeout.SHUTTING_DOWN.apply(vm)) {
+              VmInstances.terminated(vm);
+            }
+ else             if (Timeout.STOPPING.apply(vm)) {
+              VmInstances.stopped(vm);
+            }
+ else             if (vm.lastUpdateMillis() > (VmInstances.VOLATILE_STATE_TIMEOUT_SEC * 1000l)) {
+              VmInstances.sendTerminate(vm.getInstanceId(),vm.getPartition());
+              vm.updateTimeStamps();
+            }
+          }
+ else {
+            this.updateState(runVm);
+          }
+        }
+ catch (        final Exception ex) {
+          Logs.extreme().error(ex,ex);
+        }
+      }
+      return true;
+    }
+    private void updateState(    final VmInfo runVm){
+      Bundles.updateBundleTaskState(vm,runVm.getBundleTaskStateName());
+      setServiceTag(vm,runVm.getServiceTag());
+      vm.getRuntimeState().setGuestState(runVm.getGuestStateName());
+      if (!Boolean.TRUE.equals(vm.getRuntimeState().getZombie())) {
+        if (VmStateSet.RUN.apply(vm)) {
+          if (!VmRuntimeState.InstanceStatus.Ok.apply(vm)) {
+            vm.getRuntimeState().reachable();
+          }
+        }
+        if (VmState.RUNNING.apply(vm)) {
+          updateVolumeAttachments(runVm.getVolumes());
+          setMigrationState(vm,runVm.getMigrationStateName(),com.google.common.base.Strings.nullToEmpty(runVm.getMigrationSource()),com.google.common.base.Strings.nullToEmpty(runVm.getMigrationDestination()));
+        }
+      }
+      if (VmInstances.Timeout.UNTOUCHED.apply(vm)) {
+        vm.updateTimeStamps();
+      }
+    }
+    /** 
+ */
+    private void updateVolumeAttachments(    final List<AttachedVolume> volumes){
+      try {
+        final List<VmVolumeAttachment> ncAttachedVols=Lists.transform(volumes,VmVolumeAttachment.fromAttachedVolume(vm));
+        Set<String> remoteVolumes=Sets.newHashSet(Collections2.transform(ncAttachedVols,VmVolumeState.VmVolumeAttachmentName.INSTANCE));
+        Set<String> localVolumes=Sets.newHashSet(Collections2.transform(vm.getTransientVolumeState().getAttachments(),VmVolumeState.VmVolumeAttachmentName.INSTANCE));
+        localVolumes.addAll(Collections2.transform(vm.getBootRecord().getPersistentVolumes(),VmVolumeState.VmVolumeAttachmentName.INSTANCE));
+        Set<String> intersection=Sets.intersection(remoteVolumes,localVolumes);
+        Set<String> remoteOnly=Sets.difference(remoteVolumes,localVolumes);
+        Set<String> localOnly=Sets.difference(localVolumes,remoteVolumes);
+        if (!intersection.isEmpty() || !remoteOnly.isEmpty() || !localOnly.isEmpty()) {
+          LOG.debug("Updating volume attachments for: " + vm.getInstanceId() + " intersection="+ intersection+ " local="+ localOnly+ " remote="+ remoteOnly);
+          LOG.debug("Reported state for: " + vm.getInstanceId() + Collections2.transform(ncAttachedVols,VmVolumeState.VmVolumeAttachmentStateInfo.INSTANCE));
+        }
+        final Map<String,VmVolumeAttachment> ncAttachedVolMap=new HashMap<String,VmVolumeAttachment>(){
+{
+            for (            final VmVolumeAttachment v : ncAttachedVols) {
+              this.put(v.getVolumeId(),v);
+            }
+          }
+        }
+;
+        for (        String volId : intersection) {
+          try {
+            VmVolumeAttachment ncVolumeAttachment=ncAttachedVolMap.get(volId);
+            VmVolumeAttachment localVolumeAttachment=vm.lookupVolumeAttachment(volId);
+            final VmVolumeAttachment.AttachmentState localState=localVolumeAttachment.getAttachmentState();
+            final VmVolumeAttachment.AttachmentState remoteState=VmVolumeAttachment.AttachmentState.parse(ncVolumeAttachment.getStatus());
+            if (!localState.isVolatile()) {
+              if (VmVolumeAttachment.AttachmentState.detached.equals(remoteState)) {
+                removeVolumeAttachment(vm,volId);
+              }
+ else               if (VmVolumeAttachment.AttachmentState.attaching_failed.equals(remoteState)) {
+                removeVolumeAttachment(vm,volId);
+              }
+ else               if (VmVolumeAttachment.AttachmentState.detaching_failed.equals(remoteState) && !VmVolumeAttachment.AttachmentState.attached.equals(localState)) {
+                updateVolumeAttachment(vm,volId,VmVolumeAttachment.AttachmentState.attached);
+              }
+ else               if (VmVolumeAttachment.AttachmentState.attached.equals(remoteState) && !VmVolumeAttachment.AttachmentState.attached.equals(localState)) {
+                updateVolumeAttachment(vm,volId,VmVolumeAttachment.AttachmentState.attached);
+              }
+            }
+ else {
+              if (VmVolumeAttachment.AttachmentState.detaching.equals(localState) && VmVolumeAttachment.AttachmentState.detached.equals(remoteState)) {
+                removeVolumeAttachment(vm,volId);
+              }
+ else               if (VmVolumeAttachment.AttachmentState.attaching.equals(localState) && VmVolumeAttachment.AttachmentState.attached.equals(remoteState)) {
+                updateVolumeAttachment(vm,volId,VmVolumeAttachment.AttachmentState.attached);
+              }
+ else               if (VmVolumeAttachment.AttachmentState.attaching.equals(localState) && VmVolumeAttachment.AttachmentState.attaching_failed.equals(remoteState)) {
+                removeVolumeAttachment(vm,volId);
+              }
+ else               if (VmVolumeAttachment.AttachmentState.detaching.equals(localState) && VmVolumeAttachment.AttachmentState.detaching_failed.equals(remoteState)) {
+                updateVolumeAttachment(vm,volId,VmVolumeAttachment.AttachmentState.attached);
+              }
+            }
+          }
+ catch (          Exception ex) {
+            LOG.error(ex);
+          }
+        }
+        for (        String volId : remoteOnly) {
+          try {
+            Volumes.lookup(null,volId);
+          }
+ catch (          NoSuchElementException e) {
+            LOG.debug("Invalid volume id " + volId + " passed from back-end");
+            continue;
+          }
+          try {
+            VmVolumeAttachment ncVolumeAttachment=ncAttachedVolMap.get(volId);
+            final VmVolumeAttachment.AttachmentState remoteState=VmVolumeAttachment.AttachmentState.parse(ncVolumeAttachment.getStatus());
+            if (VmVolumeAttachment.AttachmentState.attached.equals(remoteState) || VmVolumeAttachment.AttachmentState.detaching_failed.equals(remoteState)) {
+              LOG.warn("Restoring volume attachment state for " + vm.getInstanceId() + " with "+ ncVolumeAttachment.toString());
+              vm.getTransientVolumeState().addVolumeAttachment(ncVolumeAttachment);
+            }
+          }
+ catch (          Exception ex) {
+            LOG.error(ex);
+          }
+        }
+        for (        String volId : localOnly) {
+          try {
+            final VmVolumeAttachment.AttachmentState localState=vm.lookupVolumeAttachment(volId).getAttachmentState();
+            if (!localState.isVolatile()) {
+            }
+          }
+ catch (          Exception ex) {
+            LOG.error(ex);
+          }
+        }
+      }
+ catch (      final Exception ex) {
+        Logs.extreme().error(ex,ex);
+      }
+    }
+  }
+;
+}

@@ -1,0 +1,28 @@
+{
+  try (final EucaS3Client s3c=EucaS3ClientFactory.getEucaS3Client(new SecurityTokenAWSCredentialsProvider(AccountFullName.getInstance(accountId)))){
+    final List<Bucket> buckets=s3c.listBuckets();
+    boolean bucketFound=false;
+    for (    final Bucket bucket : buckets) {
+      if (bucketName.equals(bucket.getName())) {
+        bucketFound=true;
+        break;
+      }
+    }
+    if (bucketFound) {
+      final ObjectListing objects=s3c.listObjects(bucketName,Strings.emptyToNull(prefix));
+      for (      final S3ObjectSummary object : objects.getObjectSummaries()) {
+        s3c.deleteObject(bucketName,object.getKey());
+      }
+      if (deleteEmptyBucket) {
+        final VersionListing versions=s3c.listVersions(bucketName,null);
+        if (versions.getVersionSummaries().isEmpty()) {
+          s3c.deleteBucket(bucketName);
+        }
+      }
+    }
+  }
+ catch (  final Exception ex) {
+    LOG.debug("Error deleting bucket (" + bucketName + ") "+ (Strings.isNullOrEmpty(prefix) ? "" : "prefix (" + prefix + ") ")+ "for account "+ accountId,ex);
+    throw new ComputeException("InternalError","Unable to delete the bucket");
+  }
+}

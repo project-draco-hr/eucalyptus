@@ -1,0 +1,49 @@
+{
+  if (vm.getRuntimeState().getBundleTask() != null) {
+    final VmBundleTask.BundleState current=vm.getRuntimeState().getBundleTask().getState();
+    VmBundleTask currentTask=vm.getRuntimeState().getBundleTask();
+    currentTask.setProgress((int)Math.round(progress * 100D));
+    if (VmBundleTask.BundleState.complete.equals(state) && !VmBundleTask.BundleState.complete.equals(current) && !VmBundleTask.BundleState.none.equals(current)) {
+      setBundleTaskState(currentTask,state);
+      currentTask.setProgress(100);
+      bundleRestartInstance(currentTask);
+    }
+ else     if (VmBundleTask.BundleState.failed.equals(state) && !VmBundleTask.BundleState.failed.equals(current) && !VmBundleTask.BundleState.none.equals(current)) {
+      try {
+        deleteBucketContent(vm.getOwnerAccountNumber(),currentTask.getBucket(),currentTask.getPrefix(),true);
+      }
+ catch (      final Exception ex) {
+        LOG.error("After bundle failure, failed to delete the bucket",ex);
+      }
+      setBundleTaskState(currentTask,state);
+      bundleRestartInstance(currentTask);
+    }
+ else     if (VmBundleTask.BundleState.cancelled.equals(state) && !VmBundleTask.BundleState.cancelled.equals(current) && !VmBundleTask.BundleState.none.equals(current)) {
+      try {
+        deleteBucketContent(vm.getOwnerAccountNumber(),vm.getRuntimeState().getBundleTask().getBucket(),vm.getRuntimeState().getBundleTask().getPrefix(),true);
+      }
+ catch (      final Exception ex) {
+        LOG.error("After bundle cancellation, failed to delete the bucket",ex);
+      }
+      setBundleTaskState(currentTask,state);
+      bundleRestartInstance(currentTask);
+    }
+ else     if (VmBundleTask.BundleState.canceling.equals(state) || VmBundleTask.BundleState.canceling.equals(current)) {
+    }
+ else     if (VmBundleTask.BundleState.pending.equals(current) && !VmBundleTask.BundleState.none.equals(state)) {
+      setBundleTaskState(currentTask,state);
+      currentTask.setUpdateTime(new Date());
+      EventRecord.here(VmRuntimeState.class,EventType.BUNDLE_TRANSITION,vm.getOwner().toString(),"" + vm.getRuntimeState().getBundleTask()).info();
+    }
+ else     if (VmBundleTask.BundleState.storing.equals(state)) {
+      setBundleTaskState(currentTask,state);
+      currentTask.setUpdateTime(new Date());
+      EventRecord.here(VmRuntimeState.class,EventType.BUNDLE_TRANSITION,vm.getOwner().toString(),"" + vm.getRuntimeState().getBundleTask()).info();
+    }
+  }
+ else {
+    putPreviousTask(vm.getRuntimeState().getBundleTask());
+    vm.getRuntimeState().setBundleTask(new VmBundleTask(vm,state.name(),new Date(),new Date(),0,"unknown","unknown","unknown","unknown"));
+    Logs.extreme().trace("Unhandle bundle task state update: " + state);
+  }
+}

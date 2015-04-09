@@ -1,0 +1,52 @@
+{
+  final DescribeVolumesResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final boolean showAll=request.getVolumeSet().remove("verbose");
+  final AccountFullName ownerFullName=(ctx.isAdministrator() && showAll) ? null : ctx.getUserFullName().asAccountFullName();
+  final Set<String> volumeIds=Sets.newHashSet(normalizeVolumeIdentifiers(request.getVolumeSet()));
+  final Filter filter=Filters.generate(request.getFilterSet(),Volume.class);
+  final Predicate<? super Volume> requestedAndAccessible=CloudMetadatas.filteringFor(Volume.class).byId(volumeIds).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
+  final Function<Set<String>,Pair<Set<String>,ArrayList<com.eucalyptus.compute.common.Volume>>> populateVolumeSet=new Function<Set<String>,Pair<Set<String>,ArrayList<com.eucalyptus.compute.common.Volume>>>(){
+    public Pair<Set<String>,ArrayList<com.eucalyptus.compute.common.Volume>> apply(    final Set<String> input){
+      final Set<String> allowedVolumeIds=Sets.newHashSet();
+      final ArrayList<com.eucalyptus.compute.common.Volume> replyVolumes=Lists.newArrayList();
+      final List<VmInstance> vms=VmInstances.list(ownerFullName,Predicates.alwaysTrue());
+      final List<Volume> volumes=Entities.query(Volume.named(ownerFullName,null),true,filter.asCriterion(),filter.getAliases());
+      for (      final Volume foundVol : Iterables.filter(volumes,requestedAndAccessible)) {
+        allowedVolumeIds.add(foundVol.getDisplayName());
+        if (State.ANNIHILATED.equals(foundVol.getState())) {
+          Entities.delete(foundVol);
+          replyVolumes.add(foundVol.morph(new com.eucalyptus.compute.common.Volume()));
+        }
+ else {
+          AttachedVolume attachedVolume=null;
+          try {
+            VmVolumeAttachment attachment=VmInstances.lookupVolumeAttachment(foundVol.getDisplayName(),vms);
+            attachedVolume=VmVolumeAttachment.asAttachedVolume(attachment.getVmInstance()).apply(attachment);
+          }
+ catch (          NoSuchElementException ex) {
+            if (State.BUSY.equals(foundVol.getState())) {
+              foundVol.setState(State.EXTANT);
+            }
+          }
+          com.eucalyptus.compute.common.Volume msgTypeVolume=foundVol.morph(new com.eucalyptus.compute.common.Volume());
+          if (attachedVolume != null) {
+            msgTypeVolume.setStatus("in-use");
+            msgTypeVolume.getAttachmentSet().add(attachedVolume);
+          }
+          replyVolumes.add(msgTypeVolume);
+        }
+      }
+      return Pair.pair(allowedVolumeIds,replyVolumes);
+    }
+  }
+;
+  final Pair<Set<String>,ArrayList<com.eucalyptus.compute.common.Volume>> volumeIdsAndVolumes=Entities.asTransaction(Volume.class,populateVolumeSet).apply(volumeIds);
+  @SuppressWarnings("ConstantConditions") final Set<String> allowedVolumeIds=volumeIdsAndVolumes.getLeft();
+  reply.setVolumeSet(volumeIdsAndVolumes.getRight());
+  final Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(Volume.class).getResourceTagMap(AccountFullName.getInstance(ctx.getAccountNumber()),allowedVolumeIds);
+  for (  final com.eucalyptus.compute.common.Volume volume : reply.getVolumeSet()) {
+    Tags.addFromTags(volume.getTagSet(),ResourceTag.class,tagsMap.get(volume.getVolumeId()));
+  }
+  return reply;
+}

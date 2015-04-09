@@ -1,2 +1,76 @@
 {
+  final Context ctx=Contexts.lookup();
+  ImageInfo imageInfo=null;
+  final String rootDevName=(request.getRootDeviceName() != null) ? request.getRootDeviceName() : Images.DEFAULT_ROOT_DEVICE;
+  final String eki=ImageMetadata.Platform.windows.name().equals(request.getKernelId()) ? request.getKernelId() : normalizeOptionalImageIdentifier(request.getKernelId());
+  final String eri=normalizeOptionalImageIdentifier(request.getRamdiskId());
+  verifyImageNameAndDescription(request.getName(),request.getDescription());
+  ImageMetadata.VirtualizationType virtType=ImageMetadata.VirtualizationType.paravirtualized;
+  if (request.getVirtualizationType() != null) {
+    if (StringUtils.equalsIgnoreCase("paravirtual",request.getVirtualizationType()))     virtType=ImageMetadata.VirtualizationType.paravirtualized;
+ else     if (StringUtils.equalsIgnoreCase("hvm",request.getVirtualizationType()))     virtType=ImageMetadata.VirtualizationType.hvm;
+ else     throw new EucalyptusCloudException("Unknown virtualization-type");
+  }
+  if (request.getImageLocation() != null) {
+    bdmInstanceStoreImageVerifier().apply(request);
+    final ImageManifest manifest=ImageManifests.lookup(request.getImageLocation(),ctx.getUser());
+    LOG.debug("Obtained manifest information for requested image registration: " + manifest);
+    final ImageMetadata.Platform imagePlatform=request.getPlatform() != null ? ImageMetadata.Platform.valueOf(request.getPlatform()) : manifest.getPlatform();
+    if (ImageMetadata.Platform.windows.equals(imagePlatform))     virtType=ImageMetadata.VirtualizationType.hvm;
+    final ImageMetadata.VirtualizationType virtualizationType=virtType;
+    if (ImageMetadata.Type.machine.equals(manifest.getImageType()) && ImageMetadata.VirtualizationType.paravirtualized.equals(virtualizationType)) {
+      if (request.getKernelId() == null && manifest.getKernelId() == null)       throw new ClientComputeException("MissingParameter","Kernel ID must be specified");
+      if (request.getRamdiskId() == null && manifest.getRamdiskId() == null)       throw new ClientComputeException("MissingParameter","Ramdisk ID must be specified");
+    }
+    Integer maxSize=ImageConfiguration.getInstance().getMaxImageSizeGb();
+    if (maxSize != null && maxSize > 0 && manifest.getSize() > (maxSize * GB)) {
+      throw new EucalyptusCloudException("Cannot register image of size " + manifest.getSize() + " bytes because it exceeds the configured maximum instance-store image size of "+ maxSize+ " GB. Please contact your administrator ");
+    }
+    List<DeviceMapping> vbr=Lists.transform(request.getBlockDeviceMappings(),Images.deviceMappingGenerator(imageInfo,null));
+    final ImageMetadata.Architecture arch=(request.getArchitecture() == null ? null : ImageMetadata.Architecture.valueOf(request.getArchitecture()));
+    final String amiFromManifest=manifest.getAmi();
+    Supplier<ImageInfo> allocator=new Supplier<ImageInfo>(){
+      @Override public ImageInfo get(){
+        try {
+          if (ImageMetadata.Type.machine.equals(manifest.getImageType()) && ImageMetadata.VirtualizationType.paravirtualized.equals(virtualizationType) && (amiFromManifest.isEmpty() || isPathAPartition(amiFromManifest)))           return Images.createPendingAvailableFromManifest(ctx.getUserFullName(),request.getName(),request.getDescription(),arch,virtualizationType,ImageMetadata.Platform.linux,ImageMetadata.ImageFormat.partitioned,eki,eri,manifest);
+ else           return Images.registerFromManifest(ctx.getUserFullName(),request.getName(),request.getDescription(),arch,virtualizationType,imagePlatform,ImageMetadata.ImageFormat.fulldisk,eki,eri,manifest);
+        }
+ catch (        Exception ex) {
+          LOG.error(ex);
+          Logs.extreme().error(ex,ex);
+          throw Exceptions.toUndeclared(ex);
+        }
+      }
+    }
+;
+    imageInfo=RestrictedTypes.allocateUnitlessResource(allocator);
+    imageInfo.getDeviceMappings().addAll(vbr);
+  }
+ else   if (rootDevName != null && Iterables.any(request.getBlockDeviceMappings(),Images.findEbsRoot(rootDevName))) {
+    Supplier<ImageInfo> allocator=null;
+    bdmBfebsImageVerifier().apply(request);
+    ImageMetadata.Platform platform=ImageMetadata.Platform.linux;
+    if (request.getPlatform() != null)     platform=ImageMetadata.Platform.valueOf(request.getPlatform());
+ else     if (ImageMetadata.Platform.windows.name().equals(eki))     platform=ImageMetadata.Platform.windows;
+    final ImageMetadata.Platform imagePlatform=platform;
+    final ImageMetadata.Architecture arch=(request.getArchitecture() == null ? ImageMetadata.Architecture.i386 : ImageMetadata.Architecture.valueOf(request.getArchitecture()));
+    allocator=new Supplier<ImageInfo>(){
+      @Override public ImageInfo get(){
+        try {
+          return Images.createFromDeviceMapping(ctx.getUserFullName(),request.getName(),request.getDescription(),imagePlatform,eki,eri,rootDevName,request.getBlockDeviceMappings(),arch);
+        }
+ catch (        EucalyptusCloudException ex) {
+          throw new RuntimeException(ex);
+        }
+      }
+    }
+;
+    imageInfo=RestrictedTypes.allocateUnitlessResource(allocator);
+  }
+ else {
+    throw new EucalyptusCloudException("Invalid request:  the request must specify either ImageLocation for an " + "instance-store image or a snapshot for the root device for an EBS image.  " + "Provided values were: ImageLocation=" + request.getImageLocation() + " BlockDeviceMappings="+ request.getBlockDeviceMappings());
+  }
+  RegisterImageResponseType reply=(RegisterImageResponseType)request.getReply();
+  reply.setImageId(imageInfo.getDisplayName());
+  return reply;
 }

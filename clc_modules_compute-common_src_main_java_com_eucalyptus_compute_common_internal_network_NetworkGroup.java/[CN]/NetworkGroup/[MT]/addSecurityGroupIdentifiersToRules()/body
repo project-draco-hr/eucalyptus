@@ -1,0 +1,41 @@
+{
+  final EntityTransaction db=Entities.get(NetworkRule.class);
+  try {
+    final List<NetworkRule> networkRuleList=Entities.query(NetworkRule.named());
+    for (    final NetworkRule networkRule : networkRuleList) {
+      LOG.debug("Upgrading " + networkRule);
+      if (networkRule.getNetworkPeers() != null && networkRule.getNetworkPeers().size() > 0) {
+        final Set<NetworkPeer> updatedPeers=Sets.newHashSet();
+        for (        final NetworkPeer networkPeer : networkRule.getNetworkPeers()) {
+          if (networkPeer.getGroupId() == null) {
+            String groupId=null;
+            try {
+              final NetworkGroup networkGroup=Entities.uniqueResult(NetworkGroup.named(AccountFullName.getInstance(networkPeer.getUserQueryKey()),networkPeer.getGroupName()));
+              groupId=networkGroup.getGroupId();
+            }
+ catch (            final NoSuchElementException ex) {
+              LOG.error(String.format("unable to find the network group (%s-%s)",networkPeer.getUserQueryKey(),networkPeer.getGroupName()));
+            }
+catch (            final Exception ex) {
+              LOG.error("failed to query network group",ex);
+            }
+            if (groupId != null) {
+              networkPeer.setGroupId(groupId);
+              LOG.debug("network peer upgraded: " + networkPeer);
+            }
+          }
+          updatedPeers.add(networkPeer);
+        }
+        networkRule.getNetworkPeers().clear();
+        networkRule.setNetworkPeers(updatedPeers);
+      }
+    }
+    db.commit();
+  }
+ catch (  Exception ex) {
+    throw Exceptions.toUndeclared(ex);
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+}

@@ -1,0 +1,37 @@
+{
+  final Map<String,String> m=Maps.newHashMap();
+  if (vm.getBootRecord().getMachine() instanceof BlockStorageImageInfo) {
+    Set<VmVolumeAttachment> volAttachments=new TreeSet<VmVolumeAttachment>(VolumeAttachmentComparator.INSTANCE);
+    volAttachments.addAll(vm.getBootRecord().getPersistentVolumes());
+    int ebsCount=0;
+    for (    VmVolumeAttachment attachment : volAttachments) {
+      if (attachment.getIsRootDevice()) {
+        m.put("block-device-mapping/ami",attachment.getShortDeviceName());
+        m.put("block-device-mapping/emi",attachment.getShortDeviceName());
+        m.put("block-device-mapping/root",attachment.getDevice());
+      }
+      if (attachment.getAttachedAtStartup() && !attachment.getIsRootDevice())       m.put("block-device-mapping/ebs" + String.valueOf(++ebsCount),attachment.getShortDeviceName());
+    }
+    Set<VmEphemeralAttachment> ephemeralAttachments=new TreeSet<VmEphemeralAttachment>(vm.getBootRecord().getEphemeralStorage());
+    if (!ephemeralAttachments.isEmpty()) {
+      for (      VmEphemeralAttachment attachment : ephemeralAttachments) {
+        m.put("block-device-mapping/" + attachment.getEphemeralId(),attachment.getShortDeviceName());
+      }
+    }
+  }
+ else   if (vm.getBootRecord().getMachine() instanceof MachineImageInfo) {
+    MachineImageInfo mii=(MachineImageInfo)vm.getBootRecord().getMachine();
+    String s=mii.getRootDeviceName();
+    m.put("block-device-mapping/emi",mii.getShortRootDeviceName());
+    m.put("block-device-mapping/ami",mii.getShortRootDeviceName());
+    m.put("block-device-mapping/root",s);
+    if (ImageManager.isPathAPartition(s)) {
+      m.put("block-device-mapping/ephemeral0","sda2");
+      m.put("block-device-mapping/swap","sda3");
+    }
+ else {
+      m.put("block-device-mapping/ephemeral0","sdb");
+    }
+  }
+  return m;
+}

@@ -1,0 +1,47 @@
+{
+  Callable<Boolean> action=null;
+  LOG.info(String.format("%s state change: %s -> %s (previously %s)",vm.getInstanceId(),oldState,newState,olderState));
+  if (VmStateSet.RUN.contains(oldState) && VmStateSet.NOT_RUNNING.contains(newState)) {
+    vm.setState(newState);
+    action=VmStateSet.EXPECTING_TEARDOWN.contains(newState) ? tryCleanUpRunnable(vm) : cleanUpRunnable(vm);
+  }
+ else   if (VmState.PENDING.equals(oldState) && VmState.RUNNING.equals(newState)) {
+    vm.setState(newState);
+    if (VmState.STOPPED.equals(olderState)) {
+      restoreVolumeState(vm);
+    }
+  }
+ else   if (VmState.PENDING.equals(oldState) && VmState.TERMINATED.equals(newState) && VmState.STOPPED.equals(olderState)) {
+    vm.setState(VmState.STOPPED);
+    action=cleanUpRunnable(vm);
+  }
+ else   if (VmState.STOPPED.equals(oldState) && VmState.TERMINATED.equals(newState)) {
+    vm.setState(VmState.TERMINATED);
+    action=cleanUpRunnable(vm);
+  }
+ else   if (VmStateSet.EXPECTING_TEARDOWN.contains(oldState) && VmStateSet.RUN.contains(newState)) {
+    vm.setState(oldState);
+  }
+ else   if (VmStateSet.EXPECTING_TEARDOWN.contains(oldState) && VmStateSet.TORNDOWN.contains(newState)) {
+    if (VmState.SHUTTING_DOWN.equals(oldState)) {
+      vm.setState(VmState.TERMINATED);
+    }
+ else {
+      vm.setState(VmState.STOPPED);
+    }
+    action=cleanUpRunnable(vm);
+  }
+ else   if (VmState.STOPPED.equals(oldState) && VmState.PENDING.equals(newState)) {
+    vm.setState(VmState.PENDING);
+  }
+ else {
+    vm.setState(newState);
+  }
+  try {
+    vm.store();
+  }
+ catch (  final Exception ex1) {
+    LOG.error(ex1,ex1);
+  }
+  return action;
+}
