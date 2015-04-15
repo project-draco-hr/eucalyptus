@@ -5,16 +5,17 @@
     final RegionConfiguration configuration=configurationOptional.get();
     for (    final Region region : configuration) {
       try {
-        final X509Certificate regionCertificate=certificateCache.get(region.getCertificate(),new Callable<X509Certificate>(){
-          @Override public X509Certificate call() throws Exception {
-            return PEMFiles.getCert(region.getCertificate().getBytes(StandardCharsets.UTF_8));
+        final Digest digest=Digest.forAlgorithm(region.getCertificateFingerprintDigest()).or(Digest.SHA256);
+        final byte[] regionCertificateFingerprint=certificateDigestCache.get(region.getCertificateFingerprint(),new Callable<byte[]>(){
+          @Override public byte[] call() throws Exception {
+            return BaseEncoding.base16().withSeparator(":",2).decode(region.getCertificateFingerprint());
           }
         }
 );
-        found=regionCertificate.equals(certificate);
+        found=MessageDigest.isEqual(regionCertificateFingerprint,digest.digestBinary(certificate.getEncoded()));
         if (found)         break;
       }
- catch (      ExecutionException e) {
+ catch (      ExecutionException|CertificateEncodingException e) {
       }
     }
   }
