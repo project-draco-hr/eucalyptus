@@ -1,0 +1,70 @@
+{
+  try {
+    if (!Topology.isEnabled(CloudFormation.class))     throw new EventHandlerException("CloudFormation is not enabled");
+    this.dbName=evt.getDbName();
+    final String accountId=getAccountByUser(evt.getUserId());
+    final String certificateName=getCertificateName(accountId);
+    X509Certificate kpCert=null;
+    ServerCertificateMetadataType certMetadata=findCertificate(evt.getUserId());
+    if (certMetadata != null) {
+      LOG.debug("Certificate already exists, there is no reason to create new one");
+      ServerCertificateType sType=EuareClient.getInstance().getServerCertificate(evt.getUserId(),certificateName);
+      kpCert=X509CertHelper.pemToCertificate(sType.getCertificateBody());
+    }
+ else {
+      String certPem=null;
+      String pkPem=null;
+      try {
+        final KeyPair kp=Certs.generateKeyPair();
+        kpCert=Certs.generateCertificate(kp,String.format("Certificate for (%s)",certificateName));
+        certPem=new String(PEMFiles.getBytes(kpCert));
+        pkPem=new String(PEMFiles.getBytes(kp));
+      }
+ catch (      final Exception ex) {
+        throw new EventHandlerException("failed generating server cert",ex);
+      }
+      try {
+        certMetadata=EuareClient.getInstance().uploadServerCertificate(evt.getUserId(),certificateName,DEFAULT_SERVER_CERT_PATH,certPem,pkPem,null);
+      }
+ catch (      final Exception ex) {
+        throw new EventHandlerException("failed to upload server cert",ex);
+      }
+      LOG.debug("Created new certificate " + certMetadata.getServerCertificateName());
+    }
+    String encryptedPassword=null;
+    try {
+      final Cipher cipher=Ciphers.RSA_PKCS1.get();
+      cipher.init(Cipher.ENCRYPT_MODE,kpCert.getPublicKey(),Crypto.getSecureRandomSupplier().get());
+      byte[] bencPassword=cipher.doFinal(evt.getMasterUserPassword().getBytes());
+      encryptedPassword=new String(Base64.encode(bencPassword));
+    }
+ catch (    final Exception ex) {
+      LOG.error("Failed to encrypt DB password");
+      throw new EventHandlerException("Failed to encrypt the password");
+    }
+    String template=loadTemplate("database-cf-template.json");
+    ArrayList<Parameter> params=new ArrayList<Parameter>();
+    params.add(new Parameter("KeyName",DatabaseServerProperties.KEYNAME));
+    params.add(new Parameter("CERTARN",certMetadata.getArn()));
+    params.add(new Parameter("ImageId",DatabaseServerProperties.IMAGE));
+    params.add(new Parameter("VmExpirationDays",DatabaseServerProperties.EXPIRATION_DAYS));
+    params.add(new Parameter("InstanceType",DatabaseServerProperties.INSTANCE_TYPE));
+    params.add(new Parameter("NtpServer",DatabaseServerProperties.NTP_SERVER));
+    params.add(new Parameter("PasswordEncrypted",encryptedPassword));
+    params.add(new Parameter("VolumeId",DatabaseServerProperties.VOLUME));
+    if (DatabaseInfo.getDatabaseInfo().getAppendOnlyPort() != null && !DatabaseInfo.getDatabaseInfo().getAppendOnlyPort().isEmpty())     params.add(new Parameter("DBPort",Integer.toString(evt.getPort())));
+    List<String> zones=DatabaseServerProperties.listConfiguredZones();
+    params.add(new Parameter("AvailabilityZones",Joiner.on(",").join(zones)));
+    params.add(new Parameter("EuareServiceUrl",String.format("euare.%s",DNSProperties.DOMAIN)));
+    params.add(new Parameter("ComputeServiceUrl",String.format("compute.%s",DNSProperties.DOMAIN)));
+    LOG.debug("Creating CF stack for the database worker acct: " + accountId);
+    CloudFormationClient.getInstance().createStack(evt.getUserId(),getStackName(accountId),template,params);
+    LOG.debug("Done creating CF stack for the database worker acct: " + accountId);
+  }
+ catch (  EventHandlerException ex) {
+    throw ex;
+  }
+catch (  final Exception ex) {
+    throw new EventHandlerException(ex.getMessage());
+  }
+}
