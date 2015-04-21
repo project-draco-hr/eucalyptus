@@ -1,23 +1,13 @@
 {
-  EventHandlerChain<NewDBInstanceEvent> createChain=new EventHandlerChainCreateDbInstance();
-  createChain.append(new SecurityGroupSetup(createChain));
-  createChain.append(new AuthorizePort(createChain));
-  createChain.append(new IamRoleSetup(createChain));
-  createChain.append(new IamInstanceProfileSetup(createChain));
-  createChain.append(new UploadServerCertificate(createChain));
-  createChain.append(new AuthorizeServerCertificate(createChain));
-  createChain.append(new AuthorizeVolumeOperations(createChain));
-  createChain.append(new UserDataSetup(createChain));
-  createChain.append(new CreateLaunchConfiguration(createChain,DatabaseServerProperties.IMAGE,DatabaseServerProperties.INSTANCE_TYPE,(DatabaseServerProperties.KEYNAME != null && DatabaseServerProperties.KEYNAME.length() > 0) ? DatabaseServerProperties.KEYNAME : null));
-  createChain.append(new CreateAutoScalingGroup(createChain));
-  createChain.append(new CreateTags(createChain));
-  createChain.append(new ExceptionThrower(createChain));
+  if (!Topology.isEnabled(CloudFormation.class))   throw new EventHandlerException("CloudFormation is not enabled");
+  final String accountId=EventHandlerChainCreateDbInstance.getAccountByUser(evt.getUserId());
+  final String stackName=EventHandlerChainCreateDbInstance.getStackName(accountId);
   try {
-    NewDBInstanceEvent createEvent=new NewDBInstanceEvent(Accounts.lookupSystemAdmin().getUserId());
-    createEvent.setDbInstanceIdentifier(evt.getDbInstanceIdentifier());
-    createChain.execute(createEvent);
+    LOG.info("Removing " + stackName + " stack");
+    CloudFormationClient.getInstance().deleteStack(evt.getUserId(),stackName);
+    EuareClient.getInstance().deleteServerCertificate(evt.getUserId(),EventHandlerChainCreateDbInstance.getCertificateName(accountId));
   }
  catch (  final Exception ex) {
-    LOG.debug(ex,ex);
+    throw new EventHandlerException(ex.getMessage());
   }
 }
