@@ -8,20 +8,32 @@
   if (Strings.isNullOrEmpty(certBody)) {
     throw new AuthException(AuthException.EMPTY_CERT);
   }
-  String encodedPem=B64.url.encString(certBody);
+  final String encodedPem=B64.url.encString(certBody);
+  final X509Certificate x509=X509CertHelper.toCertificate(encodedPem);
+  if (x509 == null) {
+    throw new AuthException(AuthException.INVALID_CERT);
+  }
+  String certificateId;
+  try {
+    certificateId=Identifiers.generateCertificateIdentifier(x509);
+  }
+ catch (  CertificateEncodingException e) {
+    throw new AuthException("Invalid X509 Certificate",e);
+  }
+  Accounts.reserveGlobalName(GlobalNamespace.Signing_Certificate_Id,certificateId);
   for (  Certificate c : user.getCertificates()) {
     if (c.getPem().equals(encodedPem)) {
       if (!c.isRevoked()) {
         throw new AuthException(AuthException.CONFLICT);
+      }
+ else       if (certificateId.equals(c.getCertificateId())) {
+        c.setRevoked(false);
+        return c;
       }
  else {
         user.removeCertificate(c.getCertificateId());
       }
     }
   }
-  X509Certificate x509=X509CertHelper.toCertificate(encodedPem);
-  if (x509 == null) {
-    throw new AuthException(AuthException.INVALID_CERT);
-  }
-  return user.addCertificate(x509);
+  return user.addCertificate(certificateId,x509);
 }
