@@ -1,0 +1,36 @@
+def edit_interactively(self, prop):
+    formatter = self._get_formatter()
+    (temp_fd, temp_name) = tempfile.mkstemp()
+    temp_fd = os.fdopen(temp_fd, 'w')
+    try:
+        formatter.dump(prop.value, temp_fd)
+        editor = (os.getenv('VISUAL') or os.getenv('EDITOR') or 'vi')
+        while True:
+            temp_fd.close()
+            subprocess.check_call((editor, temp_name))
+            temp_fd = open(temp_name)
+            try:
+                new_value = formatter.load(temp_fd)
+            except yaml.error.MarkedYAMLError as err:
+                self.log.debug('YAML parse failed', exc_info=True)
+                msg = 'Parsing of new value failed on line {0}: {1}\n{2}'.format(err.problem_mark.line, err.problem, err.problem_mark.get_snippet())
+                print  >> sys.stderr, msg
+                yesno = raw_input('Edit again? [y/N] ')
+                if (not yesno.lower().startswith('y')):
+                    raise
+            except ValueError as err:
+                self.log.debug('New value parse failed', exc_info=True)
+                msg = 'Parsing of new value failed: {0}'.format(err.args[0])
+                print  >> sys.stderr, msg
+                yesno = raw_input('Edit again? [y/N] ')
+                if (not yesno.lower().startswith('y')):
+                    raise
+            else:
+                break
+    finally:
+        temp_fd.close()
+        os.remove(temp_name)
+    if (new_value == prop.value):
+        return False
+    prop.value = new_value
+    return True

@@ -15,6 +15,9 @@
  else     if (request.getRoleId() != null) {
       user=identityProvider.lookupPrincipalByRoleId(request.getRoleId(),request.getNonce());
     }
+ else     if (request.getAccountId() != null && request.getUsername() != null) {
+      user=identityProvider.lookupPrincipalByAccountNumberAndUsername(request.getAccountId(),request.getUsername());
+    }
  else     if (request.getAccountId() != null) {
       user=identityProvider.lookupPrincipalByAccountNumber(request.getAccountId());
     }
@@ -32,6 +35,8 @@
       principal.setRoleId(Accounts.isRoleIdentifier(user.getAuthenticatedId()) ? user.getAuthenticatedId() : null);
       principal.setCanonicalId(user.getCanonicalId());
       principal.setAccountAlias(user.getAccountAlias());
+      principal.setPasswordHash(user.getPassword());
+      principal.setPasswordExpiry(user.getPasswordExpires());
       final ArrayList<com.eucalyptus.auth.euare.common.identity.AccessKey> accessKeys=Lists.newArrayList();
       for (      final AccessKey accessKey : user.getKeys()) {
         final com.eucalyptus.auth.euare.common.identity.AccessKey key=new com.eucalyptus.auth.euare.common.identity.AccessKey();
@@ -49,14 +54,8 @@
       }
       principal.setCertificates(certificates);
       final ArrayList<Policy> policies=Lists.newArrayList();
-      if (user.isEnabled())       for (      final PolicyVersion policyVersion : user.getPrincipalPolicies()) {
-        final Policy policy=new Policy();
-        policy.setVersionId(policyVersion.getPolicyVersionId());
-        policy.setName(policyVersion.getPolicyName());
-        policy.setScope(policyVersion.getPolicyScope().toString());
-        policy.setPolicy(policyVersion.getPolicy());
-        policy.setHash(PolicyVersions.hash(policyVersion.getPolicy()));
-        policies.add(policy);
+      if (user.isEnabled()) {
+        Iterables.addAll(policies,Iterables.transform(user.getPrincipalPolicies(),TypeMappers.lookup(PolicyVersion.class,Policy.class)));
       }
       principal.setPolicies(policies);
       result.setPrincipal(principal);

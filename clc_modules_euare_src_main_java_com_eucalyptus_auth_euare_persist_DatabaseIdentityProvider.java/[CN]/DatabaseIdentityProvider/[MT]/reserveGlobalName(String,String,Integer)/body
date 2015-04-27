@@ -1,0 +1,50 @@
+{
+  final GlobalNamespace globalNamespace;
+  try {
+    globalNamespace=GlobalNamespace.forNamespace(namespace);
+  }
+ catch (  IllegalArgumentException e) {
+    throw new AuthException(e);
+  }
+  if (duration == null || duration < 1 || duration > TimeUnit.DAYS.toSeconds(1)) {
+    throw new AuthException("Requested duration not supported: " + duration);
+  }
+  try (final TransactionResource tx=Entities.transactionFor(ReservedNameEntity.class)){
+    Entities.persist(ReservedNameEntity.create(namespace,name,duration));
+    tx.commit();
+  }
+ catch (  ConstraintViolationException e) {
+    throw new AuthException(AuthException.CONFLICT);
+  }
+catch (  final Exception e) {
+    throw new AuthException(e);
+  }
+switch (globalNamespace) {
+case Account_Alias:
+    try {
+      Accounts.lookupAccountByName(name);
+      throw new AuthException(AuthException.CONFLICT);
+    }
+ catch (    AuthException e) {
+      if (!AuthException.NO_SUCH_ACCOUNT.equals(e.getMessage())) {
+        throw new AuthException(AuthException.CONFLICT);
+      }
+    }
+  break;
+case Signing_Certificate_Id:
+try {
+  final Certificate certificate=Accounts.lookupCertificateById(name);
+  if (!certificate.isRevoked()) {
+    throw new AuthException(AuthException.CONFLICT);
+  }
+}
+ catch (AuthException e) {
+  if (!AuthException.NO_SUCH_CERTIFICATE.equals(e.getMessage())) {
+    throw new AuthException(AuthException.CONFLICT);
+  }
+}
+break;
+default :
+throw new AuthException(AuthException.CONFLICT);
+}
+}

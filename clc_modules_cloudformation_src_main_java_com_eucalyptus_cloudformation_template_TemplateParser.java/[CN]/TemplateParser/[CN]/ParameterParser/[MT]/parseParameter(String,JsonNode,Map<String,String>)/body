@@ -1,42 +1,85 @@
 {
   validateParameterKeys(parameterJsonNode);
-  ParameterType type=parseType(parameterJsonNode);
-  String[] allowedValues=parseAllowedValues(parameterJsonNode);
-  String allowedPattern=parseAllowedPattern(parameterName,parameterJsonNode,type);
-  String constraintDescription=parseConstraintDescription(parameterName,parameterJsonNode);
-  String description=parseDescription(parameterName,parameterJsonNode);
-  Double maxLength=parseMaxLength(parameterName,parameterJsonNode,type);
-  Double minLength=parseMinLength(parameterName,parameterJsonNode,type);
-  if (maxLength != null && minLength != null && maxLength < minLength) {
-    throw new ValidationErrorException("Template error: Parameter '" + parameterName + "' "+ ParameterKey.MinLength+ " must be less than "+ ParameterKey.MaxLength+ ".");
-  }
-  Double maxValue=parseMaxValue(parameterName,parameterJsonNode,type);
-  Double minValue=parseMinValue(parameterName,parameterJsonNode,type);
-  if (maxValue != null && minValue != null && maxValue < minValue) {
-    throw new ValidationErrorException("Template error: Parameter '" + parameterName + "' "+ ParameterKey.MinValue+ " must be less than "+ ParameterKey.MaxValue+ ".");
-  }
-  String defaultValue=JsonHelper.getString(parameterJsonNode,ParameterKey.Default.toString());
-  String userDefinedValue=userParameterMap.get(parameterName);
-  boolean noEcho="true".equalsIgnoreCase(JsonHelper.getString(parameterJsonNode,ParameterKey.NoEcho.toString()));
-  for (  String value : Lists.newArrayList(defaultValue,userDefinedValue)) {
-    if (value != null) {
-      checkAllowedValues(parameterName,value,allowedValues,constraintDescription);
-    }
-switch (type) {
+  ParameterType actualParameterType=parseType(parameterJsonNode);
+  ParameterType parsedIndividualType=null;
+  boolean isList=false;
+switch (actualParameterType) {
 case String:
-      if (value != null) {
-        parseStringParameter(parameterName,value,allowedPattern,minLength,maxLength,constraintDescription);
-      }
-    break;
+case AWS_EC2_KeyPair_KeyName:
+case AWS_EC2_SecurityGroup_Id:
+case AWS_EC2_Subnet_Id:
+case AWS_EC2_VPC_Id:
+    parsedIndividualType=ParameterType.String;
+  isList=false;
+break;
 case Number:
-  if (value != null) {
-    parseNumberParameter(parameterName,value,minValue,maxValue,constraintDescription);
-  }
+parsedIndividualType=ParameterType.Number;
+isList=false;
+break;
+case List_Number:
+parsedIndividualType=ParameterType.Number;
+isList=true;
+break;
+case List_String:
+case List_AWS_EC2_KeyPair_KeyName:
+case List_AWS_EC2_SecurityGroup_Id:
+case List_AWS_EC2_Subnet_Id:
+case List_AWS_EC2_VPC_Id:
+parsedIndividualType=ParameterType.String;
+isList=true;
+break;
+case CommaDelimitedList:
+parsedIndividualType=ParameterType.CommaDelimitedList;
+isList=false;
+break;
+default :
+throw new ValidationErrorException("Template format error: Unrecognized parameter type: " + actualParameterType + ".  Valid values are "+ Arrays.toString(ParameterType.displayValues()));
+}
+String[] allowedValues=parseAllowedValues(parameterJsonNode);
+String allowedPattern=parseAllowedPattern(parameterName,parameterJsonNode,parsedIndividualType);
+String constraintDescription=parseConstraintDescription(parameterName,parameterJsonNode);
+String description=parseDescription(parameterName,parameterJsonNode);
+Double maxLength=parseMaxLength(parameterName,parameterJsonNode,parsedIndividualType);
+Double minLength=parseMinLength(parameterName,parameterJsonNode,parsedIndividualType);
+if (maxLength != null && minLength != null && maxLength < minLength) {
+throw new ValidationErrorException("Template error: Parameter '" + parameterName + "' "+ ParameterKey.MinLength+ " must be less than "+ ParameterKey.MaxLength+ ".");
+}
+Double maxValue=parseMaxValue(parameterName,parameterJsonNode,parsedIndividualType);
+Double minValue=parseMinValue(parameterName,parameterJsonNode,parsedIndividualType);
+if (maxValue != null && minValue != null && maxValue < minValue) {
+throw new ValidationErrorException("Template error: Parameter '" + parameterName + "' "+ ParameterKey.MinValue+ " must be less than "+ ParameterKey.MaxValue+ ".");
+}
+List<String> valuesToCheck=Lists.newArrayList();
+String defaultValue=JsonHelper.getString(parameterJsonNode,ParameterKey.Default.toString());
+String userDefinedValue=userParameterMap.get(parameterName);
+if (isList) {
+valuesToCheck.addAll(splitAndTrimCSVString(defaultValue));
+valuesToCheck.addAll(splitAndTrimCSVString(userDefinedValue));
+}
+ else {
+valuesToCheck.add(defaultValue);
+valuesToCheck.add(userDefinedValue);
+}
+boolean noEcho="true".equalsIgnoreCase(JsonHelper.getString(parameterJsonNode,ParameterKey.NoEcho.toString()));
+for (String value : valuesToCheck) {
+if (value != null) {
+checkAllowedValues(parameterName,value,allowedValues,constraintDescription);
+}
+switch (parsedIndividualType) {
+case String:
+if (value != null) {
+parseStringParameter(parameterName,value,allowedPattern,minLength,maxLength,constraintDescription);
+}
+break;
+case Number:
+if (value != null) {
+parseNumberParameter(parameterName,value,minValue,maxValue,constraintDescription);
+}
 break;
 case CommaDelimitedList:
 break;
 default :
-throw new ValidationErrorException("Template format error: Unrecognized parameter type: " + type);
+throw new ValidationErrorException("Template format error: Unrecognized parameter type: " + parsedIndividualType);
 }
 }
 String stringValue=null;
@@ -44,23 +87,15 @@ if (defaultValue != null) stringValue=defaultValue;
 if (userDefinedValue != null) stringValue=userDefinedValue;
 JsonNode jsonValueNode=null;
 if (stringValue != null) {
-switch (type) {
-case String:
-jsonValueNode=new TextNode(stringValue);
-break;
-case Number:
-jsonValueNode=new TextNode(stringValue);
-break;
-case CommaDelimitedList:
+if (isList || actualParameterType == ParameterType.CommaDelimitedList) {
 ArrayNode arrayNode=new ObjectMapper().createArrayNode();
-StringTokenizer stok=new StringTokenizer(stringValue,",");
-while (stok.hasMoreTokens()) {
-arrayNode.add(stok.nextToken());
+for (String s : splitAndTrimCSVString(stringValue)) {
+arrayNode.add(s);
 }
 jsonValueNode=arrayNode;
-break;
-default :
-throw new ValidationErrorException("Template format error: Unrecognized parameter type: " + type);
+}
+ else {
+jsonValueNode=new TextNode(stringValue);
 }
 }
 StackEntity.Parameter parameter=new StackEntity.Parameter();

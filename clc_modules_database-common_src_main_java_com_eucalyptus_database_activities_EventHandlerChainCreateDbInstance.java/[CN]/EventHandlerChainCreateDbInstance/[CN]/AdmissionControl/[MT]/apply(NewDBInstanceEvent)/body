@@ -1,33 +1,23 @@
 {
-  boolean asgFound=false;
+  boolean stackFound=false;
   final String userId=evt.getUserId();
-  String systemUserId=getSystemUserId();
-  String acctNumber=null;
+  final String accountId=getAccountByUser(userId);
+  String stackName=getStackName(accountId);
+  this.dbName=evt.getDbName();
   try {
-    acctNumber=Accounts.lookupUserById(userId).getAccountNumber();
-  }
- catch (  final AuthException ex) {
-    throw new EventHandlerException("Failed to lookup system user",ex);
-  }
-  final String asgName=CreateAutoScalingGroup.getAutoscalingGroupName(acctNumber,evt.getDbInstanceIdentifier());
-  try {
-    final DescribeAutoScalingGroupsResponseType resp=AutoScalingClient.getInstance().describeAutoScalingGroups(null,Lists.newArrayList(asgName));
-    final List<AutoScalingGroupType> groups=resp.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember();
-    for (    final AutoScalingGroupType asg : groups) {
-      if (asg.getAutoScalingGroupName().contains(asgName)) {
-        asgFound=true;
-        break;
-      }
+    Stack stack=CloudFormationClient.getInstance().describeStack(userId,stackName);
+    if (stack != null) {
+      stackFound=true;
     }
   }
  catch (  final Exception ex) {
-    asgFound=false;
+    stackFound=false;
   }
-  if (asgFound)   throw new EventHandlerException("Existing autoscaling group (" + asgName + ") found");
+  if (stackFound)   throw new EventHandlerException("Existing stack (" + stackName + ") found");
   final String emi=DatabaseServerProperties.IMAGE;
   List<ImageDetails> images=null;
   try {
-    images=Ec2Client.getInstance().describeImages(systemUserId,Lists.newArrayList(emi));
+    images=Ec2Client.getInstance().describeImages(null,Lists.newArrayList(emi));
     if (images == null || images.size() <= 0 || !images.get(0).getImageId().toLowerCase().equals(emi.toLowerCase()))     throw new EventHandlerException("No such EMI is found: " + emi);
   }
  catch (  final EventHandlerException ex) {
@@ -37,11 +27,12 @@ catch (  final Exception ex) {
     throw new EventHandlerException("failed to validate the db server EMI",ex);
   }
   final String volumeId=DatabaseServerProperties.VOLUME;
-  List<Volume> volumes=null;
+  Volume volumeToUse=null;
   try {
-    volumes=Ec2Client.getInstance().describeVolumes(systemUserId,Lists.newArrayList(volumeId));
+    List<Volume> volumes=Ec2Client.getInstance().describeVolumes(null,Lists.newArrayList(volumeId));
     if (volumes == null || volumes.size() <= 0 || !volumes.get(0).getVolumeId().toLowerCase().equals(volumeId.toLowerCase()))     throw new EventHandlerException("No such volume id is found: " + volumeId);
     if (!"available".equals(volumes.get(0).getStatus()))     throw new EventHandlerException("Volume is not available");
+ else     volumeToUse=volumes.get(0);
   }
  catch (  final EventHandlerException ex) {
     throw ex;
@@ -49,6 +40,14 @@ catch (  final Exception ex) {
 catch (  final Exception ex) {
     throw new EventHandlerException("failed to validate the db server volume ID",ex);
   }
+  List<String> configuredZones=null;
+  try {
+    configuredZones=DatabaseServerProperties.listConfiguredZones();
+  }
+ catch (  Exception e) {
+    LOG.error("Can't validate AZ for volume due to: " + e.getMessage());
+  }
+  if (configuredZones != null && !configuredZones.contains(volumeToUse.getAvailabilityZone()))   throw new EventHandlerException("Volume is in an AZ that is not configured for database service");
   List<ClusterInfoType> clusters=null;
   try {
     clusters=Ec2Client.getInstance().describeAvailabilityZones(null,true);
@@ -58,19 +57,12 @@ catch (  final Exception ex) {
   }
   final String instanceType=DatabaseServerProperties.INSTANCE_TYPE;
   int numVm=1;
-  boolean resourceAvailable=false;
-  for (  final ClusterInfoType cluster : clusters) {
-    final int capacity=findAvailableResources(clusters,cluster.getZoneName(),instanceType);
-    if (numVm <= capacity) {
-      resourceAvailable=true;
-      break;
-    }
-  }
-  if (!resourceAvailable)   throw new EventHandlerException("not enough resource in the cloud");
+  final int capacity=findAvailableResources(clusters,volumeToUse.getAvailabilityZone(),instanceType);
+  if (capacity < numVm)   throw new EventHandlerException("not enough resource in the zone " + volumeToUse.getAvailabilityZone());
   final String keyName=DatabaseServerProperties.KEYNAME;
   if (keyName != null && keyName.length() > 0) {
     try {
-      final List<DescribeKeyPairsResponseItemType> keypairs=Ec2Client.getInstance().describeKeyPairs(systemUserId,Lists.newArrayList(keyName));
+      final List<DescribeKeyPairsResponseItemType> keypairs=Ec2Client.getInstance().describeKeyPairs(null,Lists.newArrayList(keyName));
       if (keypairs == null || keypairs.size() <= 0 || !keypairs.get(0).getKeyName().equals(keyName))       throw new Exception();
     }
  catch (    Exception ex) {

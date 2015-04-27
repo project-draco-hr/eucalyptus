@@ -1,20 +1,19 @@
 {
-  List<StackResourceEntity> returnValue=null;
-  String stackId=null;
-  try (TransactionResource db=Entities.transactionFor(StackResourceEntity.class)){
-    Criteria criteria=Entities.createCriteria(StackResourceEntity.class).add(accountId != null ? Restrictions.eq("accountId",accountId) : Restrictions.conjunction());
+  if (stackNameOrId == null && physicalResourceId == null) {
+    throw new IllegalArgumentException("stackNameOrId or physicalResourceId required");
+  }
+  try (final TransactionResource db=Entities.transactionFor(StackResourceEntity.class)){
+    final Criteria criteria=Entities.createCriteria(StackResourceEntity.class).add(accountId != null ? Restrictions.eq("accountId",accountId) : Restrictions.conjunction());
     if (stackNameOrId != null) {
       criteria.add(Restrictions.or(Restrictions.and(Restrictions.eq("recordDeleted",Boolean.FALSE),Restrictions.eq("stackName",stackNameOrId)),Restrictions.eq("stackId",stackNameOrId)));
+    }
+    if (physicalResourceId != null) {
+      criteria.add(Subqueries.propertyIn("stackId",DetachedCriteria.forClass(StackResourceEntity.class,"subres").add(Restrictions.eq("subres.physicalResourceId",physicalResourceId)).add(Restrictions.eq("subres.recordDeleted",Boolean.FALSE)).setProjection(Projections.property("subres.stackId"))));
     }
     if (logicalResourceId != null) {
       criteria.add(Restrictions.eq("logicalResourceId",logicalResourceId));
     }
-    if (physicalResourceId != null) {
-      criteria.add(Restrictions.eq("physicalResourceId",logicalResourceId));
-    }
     criteria.add(Restrictions.ne("resourceStatus",StackResourceEntity.Status.NOT_STARTED));
-    returnValue=criteria.list();
-    db.commit();
+    return (List<StackResourceEntity>)criteria.list();
   }
-   return returnValue;
-}
+ }

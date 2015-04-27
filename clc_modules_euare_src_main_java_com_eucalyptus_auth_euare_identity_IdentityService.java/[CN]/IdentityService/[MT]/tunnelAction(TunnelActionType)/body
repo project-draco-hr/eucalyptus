@@ -1,0 +1,29 @@
+{
+  final TunnelActionResponseType response=request.getReply();
+  final TunnelActionResult result=new TunnelActionResult();
+  try {
+    final String content=request.getContent();
+    final Binding binding=BindingManager.getDefaultBinding();
+    final BaseMessage euareRequest;
+    try (final LockResource lock=LockResource.lock(HoldMe.canHas)){
+      final StAXOMBuilder omBuilder=HoldMe.getStAXOMBuilder(HoldMe.getXMLStreamReader(content));
+      final OMElement message=omBuilder.getDocumentElement();
+      final Class<?> messageType=binding.getElementClass(message.getLocalName());
+      euareRequest=(BaseMessage)binding.fromOM(message,messageType);
+    }
+     final BaseMessage euareResponse=AsyncRequests.sendSync(Euare.class,euareRequest);
+    final StringWriter writer=new StringWriter();
+    try (final LockResource lock=LockResource.lock(HoldMe.canHas)){
+      final OMElement message=binding.toOM(euareResponse);
+      final OMOutputFormat format=new OMOutputFormat();
+      format.setIgnoreXMLDeclaration(true);
+      message.serialize(writer);
+    }
+     result.setContent(writer.toString());
+  }
+ catch (  Exception e) {
+    throw handleException(e);
+  }
+  response.setTunnelActionResult(result);
+  return response;
+}

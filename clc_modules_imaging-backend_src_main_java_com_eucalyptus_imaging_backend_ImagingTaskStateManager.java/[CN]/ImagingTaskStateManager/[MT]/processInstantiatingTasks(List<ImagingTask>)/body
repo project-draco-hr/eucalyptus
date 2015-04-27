@@ -32,14 +32,16 @@
         final String keyName=Strings.emptyToNull(instanceTask.getLaunchSpecKeyName());
         final String subnetId=Strings.emptyToNull(instanceTask.getLaunchSpecSubnetId());
         final String privateIp=subnetId == null ? null : Strings.emptyToNull(instanceTask.getLaunchSpecPrivateIpAddress());
-        final Set<String> groupNames=Sets.newLinkedHashSet();
+        final ArrayList<String> groupNames=new ArrayList<String>();
         if (subnetId == null && instanceTask.getLaunchSpecGroupNames() != null) {
           groupNames.addAll(instanceTask.getLaunchSpecGroupNames());
         }
         final String availabilityZone=subnetId == null ? instanceTask.getLaunchSpecAvailabilityZone() : null;
         final Boolean monitoringEnabled=instanceTask.getLaunchSpecMonitoringEnabled();
         final boolean monitoring=monitoringEnabled != null && monitoringEnabled;
-        instanceId=EucalyptusActivityTasks.getInstance().runInstancesAsUser(instanceTask.getOwnerUserId(),imageId,groupNames,userData,instanceType,availabilityZone,subnetId,privateIp,monitoring,keyName);
+        List<String> instances=Ec2Client.getInstance().runInstances(instanceTask.getOwnerUserId(),imageId,groupNames,userData,instanceType,availabilityZone,subnetId,privateIp,monitoring,keyName,1);
+        if (instances.isEmpty())         throw new Exception("Failed to run instances after conversion task");
+        instanceId=instances.get(0);
         conversionTask.getImportInstance().setInstanceId(instanceId);
         ImagingTasks.updateTaskInJson(instanceTask);
       }
@@ -57,7 +59,7 @@
     final List<String> snapshotIds=instanceTask.getSnapshotIds();
     if (snapshotIds != null && snapshotIds.size() > 0) {
       try {
-        final List<Snapshot> snapshots=EucalyptusActivityTasks.getInstance().describeSnapshotsAsUser(instanceTask.getOwnerUserId(),snapshotIds);
+        final List<Snapshot> snapshots=Ec2Client.getInstance().describeSnapshots(instanceTask.getOwnerUserId(),snapshotIds);
         int numCompleted=0;
         int numError=0;
         for (        final Snapshot snapshot : snapshots) {
@@ -79,7 +81,7 @@
           String platform=null;
           if (conversionTask.getImportInstance().getPlatform() != null && conversionTask.getImportInstance().getPlatform().length() > 0)           platform=conversionTask.getImportInstance().getPlatform().toLowerCase();
           try {
-            imageId=EucalyptusActivityTasks.getInstance().registerEBSImageAsUser(instanceTask.getOwnerUserId(),snapshotId,imageName,architecture,platform,description,false);
+            imageId=Ec2Client.getInstance().registerEBSImage(instanceTask.getOwnerUserId(),snapshotId,imageName,architecture,platform,description,false);
             if (imageId == null)             throw new Exception("Null image id");
             ImagingTasks.setImageId(instanceTask,imageId);
           }
@@ -107,7 +109,7 @@
     }
     for (    final String volumeId : volumeIds) {
       try {
-        final String snapshotId=EucalyptusActivityTasks.getInstance().createSnapshotAsUser(instanceTask.getOwnerUserId(),volumeId);
+        final String snapshotId=Ec2Client.getInstance().createSnapshot(instanceTask.getOwnerUserId(),volumeId);
         ImagingTasks.addSnapshotId(instanceTask,snapshotId);
       }
  catch (      final Exception ex) {

@@ -1,5 +1,5 @@
 {
-  SetResponse sr;
+  SetResponse sr=null;
   byte rcode=Rcode.NOERROR;
   if (iterations > 6)   return Rcode.NOERROR;
   if (type == Type.SIG || type == Type.RRSIG) {
@@ -31,32 +31,15 @@
  catch (  Exception ex) {
     Logger.getLogger(DnsResolvers.class).error(ex);
   }
-  Zone zone=findBestZone(name);
-  if (zone != null) {
-    if (type == Type.AAAA) {
-      response.getHeader().setFlag(Flags.AA);
-      return (Rcode.NOERROR);
-    }
-    sr=zone.findRecords(name,type,getLocalInetAddress());
-  }
- else {
-    Cache cache=getCache(dclass);
-    sr=cache.lookupRecords(name,type,Credibility.NORMAL);
-  }
-  if (sr.isUnknown()) {
+  if (sr == null || sr.isUnknown()) {
     return (Rcode.SERVFAIL);
   }
   if (sr.isNXDOMAIN()) {
     response.getHeader().setRcode(Rcode.NXDOMAIN);
-    if (zone != null) {
-      if (iterations == 0)       response.getHeader().setFlag(Flags.AA);
-    }
     rcode=Rcode.NXDOMAIN;
   }
  else   if (sr.isNXRRSET()) {
-    if (zone != null) {
-      if (iterations == 0)       response.getHeader().setFlag(Flags.AA);
-    }
+    ;
   }
  else   if (sr.isDelegation()) {
     RRset nsRecords=sr.getNS();
@@ -66,8 +49,6 @@
     CNAMERecord cname=sr.getCNAME();
     RRset rrset=new RRset(cname);
     addRRset(name,response,rrset,Section.ANSWER,flags);
-    if (zone != null && iterations == 0)     response.getHeader().setFlag(Flags.AA);
-    rcode=addAnswer(response,cname.getTarget(),type,dclass,iterations + 1,flags);
   }
  else   if (sr.isDNAME()) {
     DNAMERecord dname=sr.getDNAME();
@@ -83,8 +64,6 @@
     if (newname != null) {
       rrset=new RRset(new CNAMERecord(name,dclass,0,newname));
       addRRset(name,response,rrset,Section.ANSWER,flags);
-      if (zone != null && iterations == 0)       response.getHeader().setFlag(Flags.AA);
-      rcode=addAnswer(response,newname,type,dclass,iterations + 1,flags);
     }
   }
  else   if (sr.isSuccessful()) {
@@ -92,10 +71,7 @@
     if (rrsets != null) {
       for (int i=0; i < rrsets.length; i++)       addRRset(name,response,rrsets[i],Section.ANSWER,flags);
     }
-    if (zone != null) {
-      if (iterations == 0)       response.getHeader().setFlag(Flags.AA);
-    }
- else     addCacheNS(response,getCache(dclass),name);
+    addCacheNS(response,getCache(dclass),name);
   }
   return rcode;
 }

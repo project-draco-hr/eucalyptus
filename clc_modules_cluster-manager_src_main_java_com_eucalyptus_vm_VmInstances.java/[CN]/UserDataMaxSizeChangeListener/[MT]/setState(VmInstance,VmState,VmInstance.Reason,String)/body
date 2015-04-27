@@ -1,0 +1,40 @@
+{
+  try (TransactionResource db=Entities.transactionFor(VmInstance.class)){
+    final VmInstance entity=Entities.merge(vm);
+    final VmState olderState=entity.getLastState();
+    final VmState oldState=entity.getState();
+    final Callable<Boolean> action;
+    if (!oldState.equals(newState)) {
+      action=handleStateTransition(entity,newState,oldState,olderState);
+    }
+ else {
+      action=null;
+    }
+    if (action != null) {
+      if (VmInstance.Reason.APPEND.equals(reason)) {
+        reason=entity.getRuntimeState().getReason();
+      }
+      entity.getRuntimeState().addReasonDetail(extra);
+      entity.getRuntimeState().setReason(reason);
+      Entities.registerSynchronization(VmInstance.class,new Synchronization(){
+        @Override public void beforeCompletion(){
+        }
+        @Override public void afterCompletion(        final int status){
+          if (Status.STATUS_COMMITTED == status)           try {
+            Threads.enqueue(Eucalyptus.class,VmInstance.class,VmInstances.MAX_STATE_THREADS,action);
+          }
+ catch (          final Exception ex) {
+            LOG.error(ex);
+            Logs.extreme().error(ex,ex);
+          }
+        }
+      }
+);
+    }
+    db.commit();
+  }
+ catch (  final Exception ex) {
+    Logs.extreme().error(ex,ex);
+    throw Exceptions.toUndeclared(ex);
+  }
+}
