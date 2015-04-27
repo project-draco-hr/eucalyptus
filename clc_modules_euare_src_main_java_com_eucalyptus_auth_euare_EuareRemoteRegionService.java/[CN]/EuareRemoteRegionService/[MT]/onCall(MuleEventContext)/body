@@ -1,0 +1,35 @@
+{
+  final EuareMessage euareRequest=(EuareMessage)muleEventContext.getMessage().getPayload();
+  final Optional<RegionInfo> regionInfo=EuareRemoteRegionFilter.getRegion(euareRequest);
+  final String previousUserId=euareRequest.getUserId();
+  final Binding binding=BindingManager.getDefaultBinding();
+  try {
+    euareRequest.setUserId(Contexts.lookup().getUser().getUserId());
+    final StringWriter writer=new StringWriter();
+    try (final LockResource lock=LockResource.lock(HoldMe.canHas)){
+      final OMElement message=binding.toOM(euareRequest);
+      final OMOutputFormat format=new OMOutputFormat();
+      format.setIgnoreXMLDeclaration(true);
+      message.serialize(writer);
+    }
+     final TunnelActionType tunnelAction=new TunnelActionType();
+    tunnelAction.setContent(writer.toString());
+    final TunnelActionResponseType tunnelActionResponse=send(regionInfo,tunnelAction);
+    final String responseContent=tunnelActionResponse.getTunnelActionResult().getContent();
+    final EuareMessage euareResponse;
+    try (final LockResource lock=LockResource.lock(HoldMe.canHas)){
+      final StAXOMBuilder omBuilder=HoldMe.getStAXOMBuilder(HoldMe.getXMLStreamReader(responseContent));
+      final OMElement message=omBuilder.getDocumentElement();
+      final Class<?> messageType=binding.getElementClass(message.getLocalName());
+      euareResponse=(EuareMessage)binding.fromOM(message,messageType);
+    }
+     euareResponse.setCorrelationId(euareRequest.getCorrelationId());
+    return euareResponse;
+  }
+ catch (  Exception e) {
+    throw new EucalyptusCloudException(e);
+  }
+ finally {
+    euareRequest.setUserId(previousUserId);
+  }
+}
