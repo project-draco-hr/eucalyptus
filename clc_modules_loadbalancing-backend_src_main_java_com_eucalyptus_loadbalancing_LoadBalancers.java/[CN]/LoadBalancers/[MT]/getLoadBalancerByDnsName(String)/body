@@ -1,18 +1,27 @@
 {
-  try (final TransactionResource db=Entities.transactionFor(LoadBalancerDnsRecord.class)){
-    final List<LoadBalancerDnsRecord> dnsList=Entities.query(LoadBalancerDnsRecord.named());
-    db.commit();
-    LoadBalancerCoreView lbView=null;
-    for (    final LoadBalancerDnsRecord dns : dnsList) {
-      if (dns.getDnsName() != null && dns.getDnsName().equals(dnsName))       lbView=dns.getLoadbalancer();
+  try {
+    final Name hostName=Name.fromString(dnsName,Name.root).relativize(LoadBalancerDomainName.getLoadBalancerSubdomain());
+    final Optional<LoadBalancerDomainName> domainName=LoadBalancerDomainName.findMatching(hostName);
+    if (domainName.isPresent()) {
+      final Pair<String,String> accountNamePair=domainName.get().toScopedLoadBalancerName(hostName);
+      try {
+        return LoadBalancers.getLoadbalancer(accountNamePair.getLeft(),accountNamePair.getRight());
+      }
+ catch (      NoSuchElementException e) {
+        if (domainName.get() == LoadBalancerDomainName.INTERNAL) {
+          final Pair<String,String> externalAccountNamePair=LoadBalancerDomainName.EXTERNAL.toScopedLoadBalancerName(hostName);
+          return LoadBalancers.getLoadbalancer(externalAccountNamePair.getLeft(),externalAccountNamePair.getRight());
+        }
+ else {
+          throw e;
+        }
+      }
     }
-    if (lbView == null)     throw new NoSuchElementException();
-    return LoadBalancerEntityTransform.INSTANCE.apply(lbView);
+ else {
+      throw new NoSuchElementException();
+    }
   }
- catch (  NoSuchElementException ex) {
-    throw ex;
-  }
-catch (  Exception ex) {
-    throw Exceptions.toUndeclared(ex);
+ catch (  TextParseException e) {
+    throw new NoSuchElementException();
   }
 }
