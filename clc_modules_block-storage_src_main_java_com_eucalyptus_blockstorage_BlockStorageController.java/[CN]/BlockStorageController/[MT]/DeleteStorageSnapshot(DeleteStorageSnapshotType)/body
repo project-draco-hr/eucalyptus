@@ -8,26 +8,27 @@
   String snapshotId=request.getSnapshotId();
   LOG.info("Processing DeleteStorageSnapshot request for snapshot " + snapshotId);
   try (TransactionResource tran=Entities.transactionFor(SnapshotInfo.class)){
-    SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
-    List<SnapshotInfo> snapshotInfos=Entities.query(snapshotInfo);
-    reply.set_return(false);
-    if (snapshotInfos.size() > 0) {
-      SnapshotInfo foundSnapshotInfo=snapshotInfos.get(0);
-      String status=foundSnapshotInfo.getStatus();
-      if (status.equals(StorageProperties.Status.available.toString()) || status.equals(StorageProperties.Status.failed.toString())) {
-        foundSnapshotInfo.setStatus(StorageProperties.Status.deleting.toString());
-        tran.commit();
-        reply.set_return(true);
-      }
- else {
-        tran.rollback();
-        throw new SnapshotInUseException(snapshotId);
-      }
+    SnapshotInfo snapshotInfo=Entities.uniqueResult(new SnapshotInfo(snapshotId));
+    String status=snapshotInfo.getStatus();
+    if (status.equals(StorageProperties.Status.available.toString())) {
+      snapshotInfo.setStatus(StorageProperties.Status.deleting.toString());
+    }
+ else     if (status.equals(StorageProperties.Status.deleting.toString()) || status.equals(StorageProperties.Status.deleted.toString()) || status.equals(StorageProperties.Status.failed.toString())) {
+      LOG.debug("Snapshot " + snapshotId + " already in deleting/deleted/failed. No-op for delete request.");
     }
  else {
-      reply.set_return(true);
-      tran.rollback();
+      throw new SnapshotInUseException("Cannot delete snapshot in state: " + status + ". Please retry later");
     }
+    reply.set_return(Boolean.TRUE);
+    tran.commit();
   }
-   return reply;
+ catch (  NoSuchElementException e) {
+    LOG.warn("Got delete request, but unable to find snapshot in SC database: " + snapshotId);
+    reply.set_return(Boolean.TRUE);
+  }
+catch (  TransactionException e) {
+    LOG.error("Exception looking up snapshot: " + snapshotId,e);
+    throw new EucalyptusCloudException(e);
+  }
+  return reply;
 }

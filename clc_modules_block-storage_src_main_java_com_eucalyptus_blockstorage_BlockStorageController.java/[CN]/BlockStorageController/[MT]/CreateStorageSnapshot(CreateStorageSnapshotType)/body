@@ -48,7 +48,7 @@ catch (  final Throwable e) {
           throw new SnapshotTooLargeException(maxSize);
         }
       }
-      Snapshotter snapshotter=null;
+      SnapshotCreator snapshotter=null;
       SnapshotInfo snapshotInfo=new SnapshotInfo(snapshotId);
       Date startTime=new Date();
       try (TransactionResource tran=Entities.transactionFor(SnapshotInfo.class)){
@@ -95,7 +95,7 @@ catch (  final Throwable e) {
           Entities.persist(snapshotInfo);
           tran.commit();
         }
-        snapshotter=new Snapshotter(volumeId,snapshotId,snapPointId);
+        snapshotter=new SnapshotCreator(volumeId,snapshotId,snapPointId,blockManager);
         reply.setSnapshotId(snapshotId);
         reply.setVolumeId(volumeId);
         reply.setStartTime(DateUtils.format(startTime.getTime(),DateUtils.ISO8601_DATETIME_PATTERN) + ".000Z");
@@ -113,7 +113,35 @@ catch (      final Throwable e) {
       }
       reply.setStatus(snapshotInfo.getStatus());
       if (snapshotter != null) {
-        snapshotService.add(snapshotter);
+        try {
+          SnapshotThreadPool.add(snapshotter);
+        }
+ catch (        Exception e) {
+          LOG.warn("Failed to add creation task for " + snapshotId + " to asynchronous thread pool",e);
+          try {
+            Function<String,SnapshotInfo> updateFunction=new Function<String,SnapshotInfo>(){
+              @Override public SnapshotInfo apply(              String arg0){
+                SnapshotInfo snap;
+                try {
+                  snap=Entities.uniqueResult(new SnapshotInfo(arg0));
+                  snap.setStatus(StorageProperties.Status.failed.toString());
+                  snap.setProgress("0");
+                  return snap;
+                }
+ catch (                TransactionException|NoSuchElementException e) {
+                  LOG.warn("Failed to retrieve DB entity for " + arg0,e);
+                }
+                return null;
+              }
+            }
+;
+            Entities.asTransaction(SnapshotInfo.class,updateFunction).apply(snapshotId);
+          }
+ catch (          Exception e1) {
+            LOG.warn("Unable to update status for " + snapshotId + " after failure to add creation task to asynchronous thread pool",e);
+          }
+          throw new EucalyptusCloudException("Failed to add creation task for " + snapshotId + " to asynchronous thread pool",e);
+        }
       }
     }
   }

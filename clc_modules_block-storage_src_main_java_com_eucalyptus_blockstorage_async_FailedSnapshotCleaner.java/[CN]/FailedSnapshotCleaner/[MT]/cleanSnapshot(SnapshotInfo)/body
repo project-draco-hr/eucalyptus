@@ -1,0 +1,44 @@
+{
+  String snapshotId=snapInfo.getSnapshotId();
+  LOG.debug("Cleaning up failed snapshot " + snapshotId);
+  try {
+    LOG.trace("Disconnecting snapshot " + snapshotId + " from the Storage Controller");
+    blockManager.finishVolume(snapshotId);
+  }
+ catch (  Exception e) {
+    LOG.debug("Attempt to disconnect snapshot " + snapshotId + " from Storage Controller failed because: "+ e.getMessage());
+  }
+  try {
+    LOG.trace("Cleaning snapshot " + snapshotId + " on storage backend");
+    blockManager.cleanSnapshot(snapshotId);
+  }
+ catch (  Exception e) {
+    LOG.debug("Attempt to clean snapshot " + snapshotId + " on storage backend failed because: "+ e.getMessage());
+  }
+  try {
+    LOG.trace("Deleting snapshot " + snapshotId + " from objectsotrage");
+    if (snapshotTransfer == null) {
+      snapshotTransfer=new S3SnapshotTransfer();
+    }
+    String[] names=SnapshotInfo.getSnapshotBucketKeyNames(snapInfo.getSnapshotLocation());
+    snapshotTransfer.setSnapshotId(snapshotId);
+    snapshotTransfer.setBucketName(names[0]);
+    snapshotTransfer.setKeyName(names[1]);
+    snapshotTransfer.cancelUpload();
+  }
+ catch (  Exception e) {
+    LOG.debug("Attempt to delete uploaded snapshot " + snapshotId + " from objectstorage failed because: "+ e.getMessage());
+  }
+  try (TransactionResource tr=Entities.transactionFor(SnapshotInfo.class)){
+    try {
+      SnapshotInfo lookup=Entities.uniqueResult(snapInfo);
+      if (lookup.getDeletionTime() == null) {
+        lookup.setDeletionTime(new Date());
+      }
+      tr.commit();
+    }
+ catch (    TransactionException|NoSuchElementException e) {
+      LOG.debug("Failed to update deletion time for " + snapshotId,e);
+    }
+  }
+ }

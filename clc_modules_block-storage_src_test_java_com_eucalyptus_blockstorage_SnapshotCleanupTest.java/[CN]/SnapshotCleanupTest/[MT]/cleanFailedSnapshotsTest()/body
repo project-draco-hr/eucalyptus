@@ -1,0 +1,90 @@
+{
+  Calendar twoHoursAgo=Calendar.getInstance();
+  twoHoursAgo.add(Calendar.HOUR,-2);
+  SnapshotInfo good=new SnapshotInfo();
+  good.setStatus(StorageProperties.Status.available.toString());
+  good.setProgress("100");
+  good.setSizeGb(new Integer(1));
+  good.setShouldTransfer(Boolean.FALSE);
+  good.setSnapPointId(null);
+  good.setStartTime(new Date());
+  good.setUserName("unittestuser0");
+  good.setSnapshotLocation("http://osg.host/snaps/good");
+  good.setVolumeId("vol-0000");
+  good.setSnapshotId("snap-0000");
+  SnapshotInfo failOne=new SnapshotInfo();
+  failOne.setStatus(StorageProperties.Status.failed.toString());
+  failOne.setProgress("0");
+  failOne.setSizeGb(new Integer(1));
+  failOne.setShouldTransfer(Boolean.FALSE);
+  failOne.setSnapPointId(null);
+  failOne.setStartTime(new Date());
+  failOne.setUserName("unittestuser0");
+  failOne.setSnapshotLocation("http://osg.host/snaps/failOne");
+  failOne.setVolumeId("vol-0001");
+  failOne.setSnapshotId("snap-0001");
+  SnapshotInfo failTwo=new SnapshotInfo();
+  failTwo.setStatus(StorageProperties.Status.failed.toString());
+  failTwo.setProgress("0");
+  failTwo.setSizeGb(new Integer(1));
+  failTwo.setShouldTransfer(Boolean.FALSE);
+  failTwo.setSnapPointId(null);
+  failTwo.setStartTime(new Date());
+  failTwo.setUserName("unittestuser0");
+  failTwo.setSnapshotLocation("http://osg.host/snaps/failTwo");
+  failTwo.setVolumeId("vol-0002");
+  failTwo.setSnapshotId("snap-0002");
+  failTwo.setDeletionTime(twoHoursAgo.getTime());
+  try (TransactionResource tran=Entities.transactionFor(SnapshotInfo.class)){
+    good=Entities.persist(good);
+    failOne=Entities.persist(failOne);
+    failTwo=Entities.persist(failTwo);
+    tran.commit();
+  }
+   final LogicalStorageManager storageManager=context.mock(LogicalStorageManager.class);
+  context.checking(new Expectations(){
+{
+      oneOf(storageManager).finishVolume(with(any(String.class)));
+    }
+{
+      oneOf(storageManager).cleanSnapshot(with(any(String.class)));
+    }
+  }
+);
+  FailedSnapshotCleaner sct=new FailedSnapshotCleaner(storageManager,BlockStorageUnitTestSupport.createMockS3SnapshotTransfer());
+  sct.run();
+  List<SnapshotInfo> remaining;
+  try (TransactionResource tran=Entities.transactionFor(SnapshotInfo.class)){
+    remaining=Entities.query(new SnapshotInfo());
+    tran.commit();
+  }
+   assertTrue("expected to have a result set querying the eucalyptus_storage persistence context",remaining != null);
+  assertTrue("expected 3 SnapshotInfos to still exist but found " + remaining.size(),remaining.size() == 3);
+  try (TransactionResource tran=Entities.transactionFor(SnapshotInfo.class)){
+    SnapshotInfo example=new SnapshotInfo();
+    example.setStatus(StorageProperties.Status.failed.toString());
+    remaining=Entities.query(example);
+    tran.commit();
+  }
+   assertTrue("expected to have a result set querying the eucalyptus_storage persistence context for deleted snapshotinfos",remaining != null);
+  assertTrue("expected 2 SnapshotInfo with failed status to exist but found " + remaining.size(),remaining.size() == 2);
+  assertTrue("expected a valid deletionTime but got null",remaining.get(0).getDeletionTime() != null);
+  assertTrue("expected a valid deletionTime but got null",remaining.get(1).getDeletionTime() != null);
+  ExpiredSnapshotCleaner esc=new ExpiredSnapshotCleaner();
+  esc.run();
+  try (TransactionResource tran=Entities.transactionFor(SnapshotInfo.class)){
+    remaining=Entities.query(new SnapshotInfo());
+    tran.commit();
+  }
+   assertTrue("expected to have a result set querying the eucalyptus_storage persistence context",remaining != null);
+  assertTrue("expected two SnapshotInfos to still exist but found " + remaining.size(),remaining.size() == 2);
+  try (TransactionResource tran=Entities.transactionFor(SnapshotInfo.class)){
+    SnapshotInfo example=new SnapshotInfo();
+    example.setStatus(StorageProperties.Status.failed.toString());
+    remaining=Entities.query(example);
+    tran.commit();
+  }
+   assertTrue("expected to have a result set querying the eucalyptus_storage persistence context for deleted snapshotinfos",remaining != null);
+  assertTrue("expected one SnapshotInfo with failed status to exist but found " + remaining.size(),remaining.size() == 1);
+  assertTrue("expected a valid deletionTime and snapshot ID snap-0001",remaining.get(0).getDeletionTime() != null && remaining.get(0).getSnapshotId().equals("snap-0001"));
+}

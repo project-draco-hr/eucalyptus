@@ -64,7 +64,34 @@
     reply.setStatus(volumeInfo.getStatus());
     tran.commit();
   }
-   VolumeCreator volumeCreator=new VolumeCreator(volumeId,"snapset",snapshotId,parentVolumeId,sizeAsInt);
-  volumeService.add(volumeCreator);
+   try {
+    VolumeCreator volumeCreator=new VolumeCreator(volumeId,"snapset",snapshotId,parentVolumeId,sizeAsInt,blockManager);
+    VolumeThreadPool.add(volumeCreator);
+  }
+ catch (  Exception e) {
+    LOG.warn("Failed to add creation task for " + volumeId + " to asynchronous thread pool",e);
+    try {
+      Function<String,VolumeInfo> updateFunction=new Function<String,VolumeInfo>(){
+        @Override public VolumeInfo apply(        String arg0){
+          VolumeInfo vol;
+          try {
+            vol=Entities.uniqueResult(new VolumeInfo(arg0));
+            vol.setStatus(StorageProperties.Status.failed.toString());
+            return vol;
+          }
+ catch (          TransactionException|NoSuchElementException e) {
+            LOG.warn("Failed to retrieve DB entity for " + arg0,e);
+          }
+          return null;
+        }
+      }
+;
+      Entities.asTransaction(VolumeInfo.class,updateFunction).apply(volumeId);
+    }
+ catch (    Exception e1) {
+      LOG.warn("Unable to update status for " + volumeId + " after failure to add creation task to asynchronous thread pool",e);
+    }
+    throw new EucalyptusCloudException("Failed to add creation task for " + volumeId + " to asynchronous thread pool",e);
+  }
   return reply;
 }

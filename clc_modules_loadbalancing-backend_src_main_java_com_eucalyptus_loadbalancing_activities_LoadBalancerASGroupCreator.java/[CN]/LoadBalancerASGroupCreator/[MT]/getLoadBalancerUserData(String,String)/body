@@ -1,0 +1,45 @@
+{
+  Map<String,String> kvMap=new HashMap<String,String>();
+  if (NTP_SERVER != null) {
+    kvMap.put("ntp_server",NTP_SERVER);
+  }
+  if (APP_COOKIE_DURATION != null) {
+    kvMap.put("app-cookie-duration",APP_COOKIE_DURATION);
+  }
+  kvMap.put("elb_service_url",String.format("loadbalancing.%s",DNSProperties.DOMAIN));
+  kvMap.put("euare_service_url",String.format("euare.%s",DNSProperties.DOMAIN));
+  kvMap.put("objectstorage_service_url",String.format("objectstorage.%s",DNSProperties.DOMAIN));
+  if (ownerAccountNumber != null)   kvMap.put("loadbalancer_owner_account",ownerAccountNumber);
+  try {
+    List<ServiceStatusType> services=EucalyptusActivityTasks.getInstance().describeServices("eucalyptus");
+    if (services == null || services.size() <= 0)     throw new EucalyptusActivityException("failed to describe eucalyptus services");
+    ServiceStatusType service=services.get(0);
+    String serviceUrl=service.getServiceId().getUri();
+    String tmp=serviceUrl.replace("http://","").replace("https://","");
+    String host=tmp.substring(0,tmp.indexOf(":"));
+    tmp=tmp.replace(host + ":","");
+    String port=tmp.substring(0,tmp.indexOf("/"));
+    String path=tmp.replace(port + "/","");
+    kvMap.put("eucalyptus_host",host);
+    kvMap.put("eucalyptus_port",port);
+    kvMap.put("eucalyptus_path",path);
+  }
+ catch (  Exception ex) {
+    throw Exceptions.toUndeclared(ex);
+  }
+  final StringBuilder sb=new StringBuilder("#!/bin/bash").append("\n");
+  if (initScript != null && initScript.length() > 0)   sb.append(initScript);
+  sb.append("\n#System generated Load Balancer Servo config\n");
+  sb.append("mkdir -p /etc/load-balancer-servo/\n");
+  sb.append("yum -y --disablerepo \\* --enablerepo eucalyptus-service-image install load-balancer-servo\n");
+  sb.append("echo \"");
+  for (  String key : kvMap.keySet()) {
+    String value=kvMap.get(key);
+    sb.append(String.format("\n%s=%s",key,value));
+  }
+  sb.append("\" > /etc/load-balancer-servo/servo.conf");
+  sb.append("\ntouch /var/lib/load-balancer-servo/ntp.lock");
+  sb.append("\nchown -R servo:servo /etc/load-balancer-servo");
+  sb.append("\nservice load-balancer-servo start");
+  return sb.toString();
+}
