@@ -1,22 +1,14 @@
 {
   final DescribeRegionsResponseType reply=request.getReply();
-  for (  final Class<? extends ComponentId> componentIdClass : ImmutableList.of(Eucalyptus.class)) {
-    try {
-      final Component component=Components.lookup(componentIdClass);
-      final String region=component.getComponentId().name();
-      final List<Region> regions=Lists.newArrayList();
-      final NavigableSet<ServiceConfiguration> configs=component.services();
-      if (!configs.isEmpty() && Component.State.ENABLED.equals(configs.first().lookupState())) {
-        regions.add(new Region(region,ServiceUris.remotePublicify(configs.first()).toASCIIString()));
-      }
-      final Predicate<Object> filterPredicate=Filters.generateFor(request.getFilterSet(),Region.class).withOptionalInternalFilter("region-name",request.getRegions()).generate().asPredicate();
-      for (      final Region item : Iterables.filter(regions,filterPredicate)) {
-        reply.getRegionInfo().add(new RegionInfoType(item.getDisplayName(),item.getEndpointUrl()));
-      }
+  try {
+    final List<com.eucalyptus.auth.RegionService> regions=Regions.getRegionServicesByType(ComponentIds.lookup(Compute.class).name());
+    final Predicate<Object> filterPredicate=Filters.generateFor(request.getFilterSet(),com.eucalyptus.auth.RegionService.class).withOptionalInternalFilter("region-name",request.getRegions()).generate().asPredicate();
+    for (    final com.eucalyptus.auth.RegionService item : Iterables.filter(regions,filterPredicate)) {
+      reply.getRegionInfo().add(new RegionInfoType(item.getRegionName(),item.getServiceEndpoint()));
     }
- catch (    NoSuchElementException ex) {
-      LOG.error(ex,ex);
-    }
+  }
+ catch (  Exception ex) {
+    LOG.error("Error describing regions: " + ex.getMessage(),ex);
   }
   return reply;
 }
