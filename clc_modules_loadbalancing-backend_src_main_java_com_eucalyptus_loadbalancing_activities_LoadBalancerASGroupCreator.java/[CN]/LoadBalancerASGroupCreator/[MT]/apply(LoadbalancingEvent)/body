@@ -1,5 +1,6 @@
 {
   if (IMAGE == null)   throw new EventHandlerException("Loadbalancer's EMI is not configured");
+  this.event=evt;
   Collection<String> eventZones=null;
   Collection<String> eventSecurityGroupIds=Collections.emptySet();
   Map<String,String> zoneToSubnetIdMap=null;
@@ -42,13 +43,13 @@ catch (  Exception ex) {
   boolean asgFound=false;
   boolean updateLaunchConfig=false;
   try {
-    final DescribeAutoScalingGroupsResponseType response=EucalyptusActivityTasks.getInstance().describeAutoScalingGroups(Lists.newArrayList(groupName));
+    final DescribeAutoScalingGroupsResponseType response=EucalyptusActivityTasks.getInstance().describeAutoScalingGroups(Lists.newArrayList(groupName),lb.useSystemAccount());
     final List<AutoScalingGroupType> groups=response.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember();
     if (groups.size() > 0 && groups.get(0).getAutoScalingGroupName().equals(groupName)) {
       asgFound=true;
       launchConfigName=groups.get(0).getLaunchConfigurationName();
       if (!eventSecurityGroupIds.isEmpty()) {
-        final LaunchConfigurationType lc=EucalyptusActivityTasks.getInstance().describeLaunchConfiguration(launchConfigName);
+        final LaunchConfigurationType lc=EucalyptusActivityTasks.getInstance().describeLaunchConfiguration(launchConfigName,lb.useSystemAccount());
         updateLaunchConfig=lc == null || lc.getSecurityGroups() == null || !Sets.newHashSet(lc.getSecurityGroups().getMember()).equals(Sets.newHashSet(eventSecurityGroupIds));
         if (updateLaunchConfig) {
           launchConfigToDelete=launchConfigName;
@@ -77,7 +78,7 @@ catch (  Exception ex) {
       }
       final String keyName=KEYNAME != null && KEYNAME.length() > 0 ? KEYNAME : null;
       final String userData=B64.standard.encString(String.format("%s\n%s",getCredentialsString(),getLoadBalancerUserData(INIT_SCRIPT,lb.getOwnerAccountNumber())));
-      EucalyptusActivityTasks.getInstance().createLaunchConfiguration(IMAGE,INSTANCE_TYPE,instanceProfileName,launchConfigName,securityGroupNamesOrIds,keyName,userData,zoneToSubnetIdMap.isEmpty() ? null : lb.getScheme() != LoadBalancer.Scheme.Internal);
+      EucalyptusActivityTasks.getInstance().createLaunchConfiguration(IMAGE,INSTANCE_TYPE,instanceProfileName,launchConfigName,securityGroupNamesOrIds,keyName,userData,zoneToSubnetIdMap.isEmpty() ? null : lb.getScheme() != LoadBalancer.Scheme.Internal,lb.useSystemAccount());
       this.launchConfigName=launchConfigName;
     }
  catch (    Exception ex) {
@@ -93,7 +94,7 @@ catch (  Exception ex) {
       final List<String> availabilityZones=Lists.newArrayList(eventZones);
       final String vpcZoneIdentifier=zoneToSubnetIdMap.isEmpty() ? null : Strings.emptyToNull(Joiner.on(',').skipNulls().join(Iterables.transform(availabilityZones,Functions.forMap(zoneToSubnetIdMap))));
       capacity=availabilityZones.size() * this.capacityPerZone;
-      EucalyptusActivityTasks.getInstance().createAutoScalingGroup(groupName,availabilityZones,vpcZoneIdentifier,capacity,launchConfigName,TagCreator.TAG_KEY,TagCreator.TAG_VALUE);
+      EucalyptusActivityTasks.getInstance().createAutoScalingGroup(groupName,availabilityZones,vpcZoneIdentifier,capacity,launchConfigName,TagCreator.TAG_KEY,TagCreator.TAG_VALUE,lb.useSystemAccount());
       this.asgName=groupName;
     }
  catch (    Exception ex) {
@@ -104,13 +105,13 @@ catch (  Exception ex) {
     try {
       final List<String> availabilityZones=eventZones == null ? null : Lists.newArrayList(eventZones);
       capacity=availabilityZones == null ? null : availabilityZones.size() * this.capacityPerZone;
-      EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(groupName,availabilityZones,capacity,launchConfigName);
+      EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(groupName,availabilityZones,capacity,launchConfigName,lb.useSystemAccount());
     }
  catch (    Exception ex) {
       throw new EventHandlerException("Failed to update the autoscaling group",ex);
     }
     if (launchConfigToDelete != null)     try {
-      EucalyptusActivityTasks.getInstance().deleteLaunchConfiguration(launchConfigToDelete);
+      EucalyptusActivityTasks.getInstance().deleteLaunchConfiguration(launchConfigToDelete,lb.useSystemAccount());
     }
  catch (    final Exception ex) {
       LOG.warn("unable to delete launch configuration (" + launchConfigToDelete + ")",ex);

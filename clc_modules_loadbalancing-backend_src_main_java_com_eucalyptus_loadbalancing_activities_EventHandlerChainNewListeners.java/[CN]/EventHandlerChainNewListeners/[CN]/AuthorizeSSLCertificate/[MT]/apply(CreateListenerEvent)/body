@@ -1,4 +1,5 @@
 {
+  this.event=evt;
   final Collection<Listener> listeners=evt.getListeners();
   final Set<String> certArns=Sets.newHashSet();
   for (  final Listener listener : listeners) {
@@ -8,6 +9,13 @@
     }
   }
   if (certArns.size() <= 0)   return;
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(event.getContext(),event.getLoadBalancer());
+  }
+ catch (  Exception ex) {
+    throw new EventHandlerException("could not find the loadbalancer",ex);
+  }
   roleName=String.format("%s-%s-%s",EventHandlerChainNew.IAMRoleSetup.ROLE_NAME_PREFIX,evt.getContext().getAccount().getAccountNumber(),evt.getLoadBalancer());
   final String prefix=String.format("arn:aws:iam::%s:server-certificate",evt.getContext().getAccount().getAccountNumber());
   for (  final String arn : certArns) {
@@ -17,7 +25,7 @@
     String policyName=String.format("%s-%s-%s-%s",SERVER_CERT_ROLE_POLICY_NAME_PREFIX,evt.getContext().getAccount().getAccountNumber(),evt.getLoadBalancer(),certName);
     final String rolePolicyDoc=ROLE_SERVER_CERT_POLICY_DOCUMENT.replace("CERT_ARN_PLACEHOLDER",arn);
     try {
-      EucalyptusActivityTasks.getInstance().putRolePolicy(roleName,policyName,rolePolicyDoc);
+      EucalyptusActivityTasks.getInstance().putRolePolicy(roleName,policyName,rolePolicyDoc,lb.useSystemAccount());
       policyNames.add(policyName);
     }
  catch (    final Exception ex) {
