@@ -1,0 +1,26 @@
+{
+  if (accountCache.getIfPresent(accountNumber) == null) {
+    boolean initialized=false;
+synchronized (sync(accountNumber)) {
+      if (accountCache.getIfPresent(accountNumber) == null) {
+        try (final TransactionResource tx=Entities.transactionFor(ComputeAccount.class)){
+          try {
+            Entities.uniqueResult(ComputeAccount.exampleWithAccountNumber(accountNumber));
+          }
+ catch (          NoSuchElementException e) {
+            Entities.persist(ComputeAccount.create(accountNumber));
+            tx.commit();
+            initialized=true;
+          }
+          accountCache.put(accountNumber,accountNumber);
+        }
+ catch (        TransactionException e) {
+          logger.error("Error checking for account initialization " + accountNumber,e);
+        }
+      }
+    }
+    if (initialized) {
+      initialize(accountNumber);
+    }
+  }
+}
