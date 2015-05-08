@@ -28,7 +28,7 @@
       String lun=null;
       try {
         LOG.info("Exporting backend snapshot holder " + sanSnapshotId + " mapping to "+ snapshotId+ " to SC host IQN "+ scIqn);
-        lun=connectionManager.addInitiatorRule(sanSnapshotId,scIqn);
+        lun=connectionManager.exportResource(sanSnapshotId,scIqn);
       }
  catch (      EucalyptusCloudException attEx) {
         LOG.debug("Failed to setup attachment for snapshot " + snapshotId + " to SC",attEx);
@@ -37,24 +37,23 @@
       if (lun == null) {
         throw new EucalyptusCloudException("Failed to export backend snapshot holder " + sanSnapshotId + " mapping to "+ snapshotId+ " to SC host IQN "+ scIqn);
       }
-      iqn=iqn + ',' + lun;
       StorageResource storageResource=null;
       try {
-        storageResource=connectionManager.connectTarget(iqn);
+        storageResource=connectionManager.connectTarget(iqn,lun);
         storageResource.setId(snapshotId);
       }
  catch (      Exception connEx) {
         LOG.debug("Failed to connect SC to snapshot volume on SAN for snapshot " + snapshotId + ". Detaching and cleaning up.");
         try {
           LOG.info("Unexporting backend snapshot holder " + sanSnapshotId + " mapping to "+ snapshotId+ " from SC host IQN "+ scIqn);
-          connectionManager.removeInitiatorRule(sanSnapshotId,scIqn);
+          connectionManager.unexportResource(sanSnapshotId,scIqn);
         }
  catch (        EucalyptusCloudException detEx) {
           LOG.debug("Could not detach snapshot volume " + snapshotId + " during cleanup of failed connection");
         }
         throw new EucalyptusCloudException("Could not connect SC to target snapshot volume to prep for snapshot download from ObjectStorage",connEx);
       }
-      SANVolumeInfo snapInfo=new SANVolumeInfo(snapshotId,iqn,sizeExpected).withSanVolumeId(sanSnapshotId);
+      SANVolumeInfo snapInfo=new SANVolumeInfo(snapshotId,iqn + ',' + lun,sizeExpected).withSanVolumeId(sanSnapshotId);
       try {
         Transactions.save(snapInfo);
       }
