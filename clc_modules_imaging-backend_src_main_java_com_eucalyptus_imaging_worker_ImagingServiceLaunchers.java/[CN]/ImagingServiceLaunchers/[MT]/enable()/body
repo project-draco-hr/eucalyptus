@@ -2,6 +2,10 @@
   if (!this.shouldEnable())   throw new EucalyptusCloudException("Imaging service is active or still shutting down");
   this.lockLauncher(launcherId);
   try {
+    if (!Topology.isEnabled(ImagingBackend.class)) {
+      ImagingAdminSystemRoleProvider roleProvider=new ImagingAdminSystemRoleProvider();
+      roleProvider.ensureAccountAndRoleExists();
+    }
     if (!Topology.isEnabled(CloudFormation.class))     throw new EucalyptusCloudException("CloudFormation is not enabled");
     if ("NULL".equals(ImagingServiceProperties.IMAGE))     throw new EucalyptusCloudException("You need to set 'services.imaging.worker.image'" + "before enabling the service");
     ServerCertificateMetadataType metadata=createAndUploadCertificate();
@@ -23,7 +27,7 @@
     params.add(new Parameter("EuareServiceUrl",String.format("euare.%s",DNSProperties.DOMAIN)));
     params.add(new Parameter("ComputeServiceUrl",String.format("compute.%s",DNSProperties.DOMAIN)));
     LOG.debug("Creating CF stack for the imaging worker");
-    CloudFormationClient.getInstance().createStack(null,ImagingServiceProperties.IMAGING_WORKER_STACK_NAME,template,params);
+    CloudFormationClient.getInstance().createStack(Accounts.lookupImagingAccount().getUserId(),ImagingServiceProperties.IMAGING_WORKER_STACK_NAME,template,params);
     LOG.debug("Done creating CF stack for the imaging worker");
   }
  catch (  final Exception ex) {
