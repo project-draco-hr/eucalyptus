@@ -1,0 +1,52 @@
+{
+  Account systemAccount=null;
+  EuareRole role=null;
+  try {
+    systemAccount=Accounts.lookupAccountByName(getAccountName());
+  }
+ catch (  Exception e) {
+    LOG.warn("Could not find account " + getAccountName() + ". Account may not exist, trying to create it");
+    try {
+      systemAccount=Accounts.addSystemAccountWithAdmin(getAccountName());
+    }
+ catch (    Exception e1) {
+      LOG.warn("Failed to create account " + getAccountName());
+      throw new EucalyptusCloudException("Failed to create account " + getAccountName());
+    }
+  }
+  try {
+    role=systemAccount.lookupRoleByName(getName());
+  }
+ catch (  Exception e) {
+    LOG.warn("Could not find " + getName() + " role for "+ getAccountName()+ " account. The role may not exist, trying to add role to the account");
+    try {
+      role=systemAccount.addRole(getName(),getPath(),getAssumeRolePolicy());
+      role.addPolicy(getName(),getPolicy());
+    }
+ catch (    Exception e1) {
+      LOG.warn("Failed to create role " + getName());
+      throw new EucalyptusCloudException("Failed to create role " + getName(),e1);
+    }
+  }
+  boolean foundPolicy=false;
+  try {
+    List<Policy> policies=role.getPolicies();
+    for (    Policy policy : policies) {
+      if (getName().equals(policy.getName())) {
+        foundPolicy=true;
+        break;
+      }
+    }
+  }
+ catch (  Exception e) {
+    throw new EucalyptusCloudException("Failed to list policies ",e);
+  }
+  if (!foundPolicy) {
+    try {
+      role.addPolicy(getName(),getPolicy());
+    }
+ catch (    Exception e) {
+      throw new EucalyptusCloudException("Failed add policy ",e);
+    }
+  }
+}
