@@ -32,15 +32,10 @@
     }
   }
   try {
+    final String endUserAccountNumber=Objects.firstNonNull(Strings.emptyToNull(Optional.of(payload).transform(regexReplace(SERVER_CERT_ACCOUNT_PATTERN,"$1","")).orNull()),allocInfo.getOwnerFullName().getAccountNumber());
     final KeyPair kp=Certs.generateKeyPair();
-    final ServiceConfiguration euare=Topology.lookup(Euare.class);
-    final SignCertificateType req=new SignCertificateType();
-    final String pubkey=B64.standard.encString(kp.getPublic().getEncoded());
-    req.setKey(pubkey);
-    req.setInstance(allocInfo.getInstanceId(0));
-    req.setExpirationDays(expirationDays);
-    final SignCertificateResponseType resp=AsyncRequests.sendSync(euare,req);
-    final X509Certificate kpCert=PEMFiles.getCert(B64.standard.dec(resp.getSignCertificateResult().getCertificate()));
+    final String principal=String.format("CN=%s, OU=Eucalyptus, O=Cloud, C=US",allocInfo.getInstanceId(0));
+    final X509Certificate kpCert=Accounts.signCertificate(endUserAccountNumber,(RSAPublicKey)kp.getPublic(),principal,expirationDays);
     final String b64PubKey=B64.standard.encString(PEMFiles.getBytes(kpCert));
     final MessageDigest digest=Digest.SHA256.get();
     final byte[] salt=new byte[32];
@@ -63,7 +58,7 @@
     cipher.init(Cipher.ENCRYPT_MODE,nodeCert.getPublicKey(),Crypto.getSecureRandomSupplier().get());
     byte[] symmkey=cipher.doFinal(symmKey.getEncoded());
     final String encSymmKey=new String(Base64.encode(symmkey));
-    X509Certificate euareCert=SystemCredentials.lookup(Euare.class).getCertificate();
+    X509Certificate euareCert=Accounts.getEuareCertificate(endUserAccountNumber);
     final String b64EuarePubkey=B64.standard.encString(PEMFiles.getBytes(euareCert));
     X509Certificate eucalyptusCert=SystemCredentials.lookup(Eucalyptus.class).getCertificate();
     final String b64EucalyptusPubkey=B64.standard.encString(PEMFiles.getBytes(eucalyptusCert));
