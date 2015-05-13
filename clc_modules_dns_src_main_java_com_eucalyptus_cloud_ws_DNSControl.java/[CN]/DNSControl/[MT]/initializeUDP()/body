@@ -14,10 +14,26 @@
       b.setOption("tcpNoDelay",true);
       b.setOption("reuseAddress",true);
       b.setOption("connectTimeoutMillis",3000);
+      final Set<InetAddress> listenAddresses=Sets.newLinkedHashSet();
+      listenAddresses.add(Internets.localHostInetAddress());
+      if (addressMatchers.get().size() > 0) {
+        Iterables.addAll(listenAddresses,Iterables.filter(Internets.getAllInetAddresses(),Predicates.or(addressMatchers.get())));
+      }
+ else {
+        Iterables.addAll(listenAddresses,Internets.getAllInetAddresses());
+      }
       Capabilities.runWithCapabilities(new Callable<Boolean>(){
         @Override public Boolean call() throws Exception {
-          final Channel udpChannel=b.bind(new InetSocketAddress(53));
-          udpChannelGroup.add(udpChannel);
+          Channel udpChannel=null;
+          for (          final InetAddress listenAddr : listenAddresses) {
+            try {
+              udpChannel=b.bind(new InetSocketAddress(listenAddr,53));
+              udpChannelGroup.add(udpChannel);
+            }
+ catch (            final Exception ex) {
+              continue;
+            }
+          }
           return true;
         }
       }
