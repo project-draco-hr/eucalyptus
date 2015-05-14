@@ -1,15 +1,46 @@
 {
-  try (TransactionResource db=Entities.transactionFor(SnapshotInfo.class)){
-    SnapshotInfo snap=Entities.uniqueResult(new SnapshotInfo(this.snapshotId));
-    StorageProperties.Status snapStatus=StorageProperties.Status.valueOf(snap.getStatus());
-    if (StorageProperties.Status.pending.equals(snapStatus) || StorageProperties.Status.creating.equals(snapStatus)) {
-      snap.setProgress(String.valueOf(this.progress));
+  if (this.progress < 100) {
+    try {
+      Entities.asTransaction(SnapshotInfo.class,new Function<String,SnapshotInfo>(){
+        @Override public SnapshotInfo apply(        String arg0){
+          SnapshotInfo snap=null;
+          try {
+            snap=Entities.uniqueResult(new SnapshotInfo(snapshot));
+            if (StorageProperties.Status.pending.toString().equals(snap.getStatus()) || StorageProperties.Status.creating.toString().equals(snap.getStatus())) {
+              if (snap.getProgress() != null) {
+                try {
+                  if (progress > Integer.valueOf(snap.getProgress())) {
+                    snap.setProgress(String.valueOf(progress));
+                  }
+ else {
+                  }
+                }
+ catch (                NumberFormatException e) {
+                  LOG.debug("Encountered issue while parsing snapshot progress: " + snap.getProgress());
+                  snap.setProgress(String.valueOf(progress));
+                }
+              }
+ else {
+                snap.setProgress(String.valueOf(progress));
+              }
+            }
+ else {
+              snap.setProgress(String.valueOf(progress));
+            }
+          }
+ catch (          TransactionException|NoSuchElementException e) {
+            LOG.debug("Could not find the SC database entity for " + snapshot + ". Skipping progress update");
+          }
+          return snap;
+        }
+      }
+).apply(this.snapshot);
     }
-    db.commit();
-    return true;
+ catch (    Exception e) {
+      LOG.debug("Could not update snapshot progress in DB for " + snapshot + " to "+ lastProgress+ "% due to "+ e.getMessage());
+    }
   }
- catch (  Exception e) {
-    LOG.debug("Could not update snapshot progress in DB for " + snapshotId + " to "+ lastProgress+ "% due to "+ e.getMessage());
-    return false;
+ else {
   }
+  return true;
 }

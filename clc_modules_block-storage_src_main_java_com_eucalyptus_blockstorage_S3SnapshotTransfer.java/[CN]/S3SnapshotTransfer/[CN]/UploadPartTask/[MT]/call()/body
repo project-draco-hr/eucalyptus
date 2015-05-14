@@ -12,10 +12,25 @@
     isLast=part.getIsLast();
     if (part.getState().equals(SnapshotPartState.created) || part.getState().equals(SnapshotPartState.uploading) || part.getState().equals(SnapshotPartState.failed)) {
       try {
-        partETags.add(uploadPart(part,progressCallback));
+        PartETag partEtag=uploadPart(part);
+        partETags.add(partEtag);
+        progressCallback.updateUploadProgress(part.getInputFileBytesRead());
+        try {
+          part=part.updateStateUploaded(partEtag.getETag());
+        }
+ catch (        Exception e) {
+          LOG.debug("Failed to update part status in DB. Moving on. " + part);
+        }
+        LOG.debug("Uploaded " + part);
       }
  catch (      Exception e) {
-        LOG.error("Failed to upload a part for " + snapshotId + ". Aborting the part upload process");
+        LOG.warn("Failed to upload a part for " + snapshotId + ". Aborting the part upload process");
+        try {
+          part=part.updateStateFailed();
+        }
+ catch (        Exception ie) {
+          LOG.debug("Failed to update part status in DB. Moving on. " + part);
+        }
         return null;
       }
     }

@@ -44,22 +44,60 @@ catch (    NoSuchElementException ex) {
   LOG.info("Creating backend snapshot " + sanSnapshotId + " mapping to "+ snapshotId+ " from backend volume "+ sanVolumeId+ " mapping to "+ volumeId+ " using snapshot point "+ snapshotPointId);
   String iqn=connectionManager.createSnapshot(sanVolumeId,sanSnapshotId,snapshotPointId);
   if (iqn != null) {
-    try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
-      SANVolumeInfo existingSnap=Entities.uniqueResult(snapInfo);
-      existingSnap.setIqn(iqn);
-      Entities.merge(existingSnap);
-      tran.commit();
-    }
- catch (    Exception ex) {
-      LOG.error(snapshotId + ": Failed to update database entity with IQN post snapshot creation");
-      throw new EucalyptusCloudException("Failed to update database entity with IQN post snapshot creation for " + snapshotId,ex);
-    }
     if (shouldTransferSnapshots) {
-      storageResource=connectionManager.connectTarget(iqn);
-      storageResource.setId(snapshotId);
+      String scIqn=StorageProperties.getStorageIqn();
+      if (scIqn == null) {
+        throw new EucalyptusCloudException("Could not get the SC's initiator IQN, found null.");
+      }
+      String lun=null;
+      try {
+        LOG.info("Exporting backend snapshot holder " + sanSnapshotId + " mapping to "+ snapshotId+ " to SC host IQN "+ scIqn);
+        lun=connectionManager.exportResource(sanSnapshotId,scIqn);
+      }
+ catch (      EucalyptusCloudException attEx) {
+        LOG.debug("Failed to setup attachment for snapshot " + snapshotId + " to SC",attEx);
+        throw new EucalyptusCloudException("Could not setup snapshot volume " + snapshotId + " to SC because of error in attach prep",attEx);
+      }
+      if (lun == null) {
+        throw new EucalyptusCloudException("Failed to export backend snapshot holder " + sanSnapshotId + " mapping to "+ snapshotId+ " to SC host IQN "+ scIqn);
+      }
+      try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+        SANVolumeInfo existingSnap=Entities.uniqueResult(snapInfo);
+        existingSnap.setIqn(iqn + ',' + lun);
+        Entities.merge(existingSnap);
+        tran.commit();
+      }
+ catch (      Exception ex) {
+        LOG.error(snapshotId + ": Failed to update database entity with IQN and LUN post snapshot creation");
+        throw new EucalyptusCloudException("Failed to update database entity with IQN and LUN post snapshot creation for " + snapshotId,ex);
+      }
+      try {
+        storageResource=connectionManager.connectTarget(iqn,lun);
+        storageResource.setId(snapshotId);
+      }
+ catch (      Exception connEx) {
+        LOG.debug("Failed to connect SC to snapshot volume on SAN for snapshot " + snapshotId + ". Detaching and cleaning up.");
+        try {
+          LOG.info("Unexporting backend snapshot holder " + sanSnapshotId + " mapping to "+ snapshotId+ " from SC host IQN "+ scIqn);
+          connectionManager.unexportResource(sanSnapshotId,scIqn);
+        }
+ catch (        EucalyptusCloudException detEx) {
+          LOG.debug("Could not detach snapshot volume " + snapshotId + " during cleanup of failed connection");
+        }
+        throw new EucalyptusCloudException("Could not connect SC to target snapshot for snapshot upload",connEx);
+      }
     }
  else {
-      connectionManager.removeAllInitiatorRules(sanSnapshotId);
+      try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
+        SANVolumeInfo existingSnap=Entities.uniqueResult(snapInfo);
+        existingSnap.setIqn(iqn);
+        Entities.merge(existingSnap);
+        tran.commit();
+      }
+ catch (      Exception ex) {
+        LOG.error(snapshotId + ": Failed to update database entity with IQN post snapshot creation");
+        throw new EucalyptusCloudException("Failed to update database entity with IQN post snapshot creation for " + snapshotId,ex);
+      }
     }
   }
  else {

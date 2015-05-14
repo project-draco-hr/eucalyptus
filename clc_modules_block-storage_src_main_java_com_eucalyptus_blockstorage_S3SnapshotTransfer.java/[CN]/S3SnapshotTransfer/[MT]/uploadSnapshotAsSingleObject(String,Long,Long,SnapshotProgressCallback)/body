@@ -5,18 +5,29 @@
   userMetadataMap.put(UNCOMPRESSED_SIZE_KEY,String.valueOf(uncompressedSize));
   objectMetadata.setUserMetadata(userMetadataMap);
   objectMetadata.setContentLength(actualSize);
-  return retryAfterRefresh(new Function<PutObjectRequest,PutObjectResult>(){
-    @Override @Nullable public PutObjectResult apply(    @Nullable PutObjectRequest arg0){
-      eucaS3Client.refreshEndpoint();
-      try {
-        arg0.setInputStream(new FileInputStreamWithCallback(new File(compressedSnapFileName),callback));
+  try {
+    LOG.debug("Uploading " + compressedSnapFileName);
+    PutObjectResult putResult=retryAfterRefresh(new Function<PutObjectRequest,PutObjectResult>(){
+      @Override @Nullable public PutObjectResult apply(      @Nullable PutObjectRequest arg0){
+        eucaS3Client.refreshEndpoint();
+        try {
+          arg0.setInputStream(new FileInputStreamWithCallback(new File(compressedSnapFileName),callback));
+        }
+ catch (        Exception e) {
+          LOG.warn("Failed to upload snapshot to objectstorage: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName+ ", reason: unable to initialize FileInputStreamWithCallback for file "+ compressedSnapFileName,e);
+          Exceptions.toUndeclared(e);
+        }
+        return eucaS3Client.putObject(arg0);
       }
- catch (      Exception e) {
-        LOG.warn("Failed to upload snapshot to objectstorage: snapshotId=" + snapshotId + ", bucket="+ bucketName+ ", key="+ keyName+ ", reason: unable to initialize FileInputStreamWithCallback for file "+ compressedSnapFileName,e);
-        Exceptions.toUndeclared(e);
-      }
-      return eucaS3Client.putObject(arg0);
     }
-  }
 ,new PutObjectRequest(bucketName,keyName,null,objectMetadata),REFRESH_TOKEN_RETRIES);
+    return putResult.getETag();
+  }
+ catch (  Exception e) {
+    LOG.warn("Failed to upload object " + compressedSnapFileName,e);
+    throw new SnapshotUploadObjectException("Failed to upload object " + compressedSnapFileName,e);
+  }
+ finally {
+    deleteFile(compressedSnapFileName);
+  }
 }

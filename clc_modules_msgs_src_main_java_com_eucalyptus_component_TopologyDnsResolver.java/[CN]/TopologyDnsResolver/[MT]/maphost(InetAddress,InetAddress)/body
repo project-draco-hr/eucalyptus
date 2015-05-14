@@ -1,13 +1,22 @@
 {
-  final Map<Cidr,Cidr> mappings=hostMappings.apply(hostMapping);
   InetAddress result=hostAddress;
-  for (  final Map.Entry<Cidr,Cidr> mapping : mappings.entrySet()) {
-    if (mapping.getKey().apply(listenerAddress)) {
-      final Host host=Hosts.lookup(hostAddress);
-      if (host != null) {
-        result=Iterables.tryFind(host.getHostAddresses(),mapping.getValue()).or(result);
+  try {
+    final NetworkInterface networkInterface=NetworkInterface.getByInetAddress(listenerAddress);
+    short prefix=networkInterface.getInterfaceAddresses().get(0).getNetworkPrefixLength();
+    for (    final InterfaceAddress ifaddr : networkInterface.getInterfaceAddresses()) {
+      if (listenerAddress.equals(ifaddr.getAddress())) {
+        prefix=ifaddr.getNetworkPrefixLength();
+        break;
       }
     }
+    final Cidr listenerCidr=Cidr.fromAddress(listenerAddress,prefix);
+    final Host host=Hosts.lookup(hostAddress);
+    if (host != null) {
+      result=Iterables.tryFind(host.getHostAddresses(),listenerCidr).or(result);
+    }
+  }
+ catch (  final Exception ex) {
+    LOG.error("failed to map the host address: " + ex.getMessage());
   }
   return result;
 }

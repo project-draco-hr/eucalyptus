@@ -1,0 +1,26 @@
+{
+  try {
+    part=part.updateStateUploading();
+  }
+ catch (  Exception e) {
+    LOG.debug("Failed to update part status in DB. Moving on. " + part);
+  }
+  try {
+    LOG.debug("Uploading " + part);
+    UploadPartResult uploadPartResult=retryAfterRefresh(new Function<UploadPartRequest,UploadPartResult>(){
+      @Override @Nullable public UploadPartResult apply(      @Nullable UploadPartRequest arg0){
+        eucaS3Client.refreshEndpoint();
+        return eucaS3Client.uploadPart(arg0);
+      }
+    }
+,new UploadPartRequest().withBucketName(part.getBucketName()).withKey(part.getKeyName()).withUploadId(part.getUploadId()).withPartNumber(part.getPartNumber()).withPartSize(part.getSize()).withFile(new File(part.getFileName())),REFRESH_TOKEN_RETRIES);
+    return uploadPartResult.getPartETag();
+  }
+ catch (  Exception e) {
+    LOG.warn("Failed to upload part " + part,e);
+    throw new SnapshotUploadPartException("Failed to upload part " + part,e);
+  }
+ finally {
+    deleteFile(part.getFileName());
+  }
+}

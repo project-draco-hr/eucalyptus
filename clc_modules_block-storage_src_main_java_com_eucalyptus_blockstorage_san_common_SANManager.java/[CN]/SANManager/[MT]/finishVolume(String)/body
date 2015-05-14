@@ -1,16 +1,57 @@
 {
+  String iqnAndLun;
+  String sanVolumeId;
   try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
     SANVolumeInfo snapInfo=Entities.uniqueResult(new SANVolumeInfo(snapshotId));
-    String iqn=snapInfo.getIqn();
-    String sanVolumeId=snapInfo.getSanVolumeId();
+    iqnAndLun=snapInfo.getIqn();
+    sanVolumeId=snapInfo.getSanVolumeId();
     tran.commit();
-    connectionManager.disconnectTarget(sanVolumeId,iqn);
   }
  catch (  NoSuchElementException e) {
     LOG.debug("Blockstorage backend record for " + snapshotId + " not found, skipping finish up");
+    return;
   }
 catch (  TransactionException ex) {
     LOG.error(ex);
     throw new EucalyptusCloudException("Unable to finalize snapshot: " + snapshotId);
+  }
+  if (iqnAndLun != null && iqnAndLun.contains(",")) {
+    String[] parts=iqnAndLun.split(",");
+    if (parts.length == 2) {
+      try {
+        LOG.info("Disconnecting iscsi session between backend " + sanVolumeId + " mapping to "+ snapshotId+ " and SC");
+        connectionManager.disconnectTarget(sanVolumeId,parts[0],parts[1]);
+      }
+ catch (      Exception e) {
+        LOG.warn("Failed to disconnect iscsi session between " + sanVolumeId + " and SC",e);
+      }
+    }
+ else {
+      LOG.warn("Unable to disconnect " + sanVolumeId + " from SC due to invalid iqn format. Expected iqn to contain one ',' but got: "+ iqnAndLun);
+      throw new EucalyptusCloudException("Unable to disconnect " + sanVolumeId + " from SC due to invalid iqn format");
+    }
+    String scIqn=StorageProperties.getStorageIqn();
+    try {
+      LOG.info("Unexporting backend " + sanVolumeId + " mapping to "+ snapshotId+ " from SC host IQN "+ scIqn);
+      connectionManager.unexportResource(sanVolumeId,scIqn);
+    }
+ catch (    Exception e) {
+      LOG.warn("Failed to unexport " + sanVolumeId,e);
+    }
+  }
+ else {
+    LOG.debug("Skipping iscsi disconnect and unexport operations for " + sanVolumeId);
+  }
+  try {
+    LOG.info("Waiting for backend " + sanVolumeId + " mapping to "+ snapshotId+ " to complete");
+    connectionManager.waitAndComplete(sanVolumeId);
+  }
+ catch (  EucalyptusCloudException e) {
+    LOG.warn("Failed during wait for backend " + sanVolumeId + " to complete",e);
+    throw e;
+  }
+catch (  Exception e) {
+    LOG.warn("Failed during wait for backend " + sanVolumeId + " to complete",e);
+    throw new EucalyptusCloudException("Failed during wait for backend " + sanVolumeId + " to complete",e);
   }
 }
