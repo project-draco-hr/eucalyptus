@@ -1,0 +1,34 @@
+{
+  try {
+    Account account;
+    try {
+      account=Accounts.lookupAccountByName(provider.getAlias());
+    }
+ catch (    final AuthException e) {
+      LOG.info("Could not find system account '" + provider.getAlias() + "', creating.");
+      try {
+        account=Accounts.addSystemAccountWithAdmin(provider.getAlias());
+      }
+ catch (      final Exception e1) {
+        throw new EucalyptusCloudException("Error creating system account " + provider.getAlias());
+      }
+    }
+    EuareUser user=account.lookupAdmin();
+    if (provider.isCreateAdminAccessKey() && user.getKeys().isEmpty()) {
+      LOG.info("Creating system account '" + provider.getAlias() + "', admin access key");
+      account.lookupAdmin().createKey();
+    }
+    for (    final SystemAccountProvider.SystemAccountRole systemAccountRole : provider.getRoles()) {
+      try {
+        final EuareRole role=account.lookupRoleByName(systemAccountRole.getName());
+        ensureSystemRolePoliciesExist(role,systemAccountRole);
+      }
+ catch (      final AuthException e) {
+        addSystemRole(account,systemAccountRole);
+      }
+    }
+  }
+ catch (  Exception e) {
+    LOG.error("Error checking system account '" + provider.getAlias() + "'",e);
+  }
+}
