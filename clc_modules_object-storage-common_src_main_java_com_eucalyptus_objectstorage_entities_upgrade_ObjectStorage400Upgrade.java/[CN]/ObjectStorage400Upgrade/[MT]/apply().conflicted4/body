@@ -1,37 +1,41 @@
 {
-  EntityTransaction tran=Entities.get(BucketInfo.class);
+  EntityTransaction osgTran=Entities.get(ObjectEntity.class);
   try {
-    List<BucketInfo> walrusBuckets=Entities.query(new BucketInfo());
-    if (walrusBuckets != null && !walrusBuckets.isEmpty()) {
-      for (      BucketInfo walrusBucket : walrusBuckets) {
-        try {
-          walrusBucket.setOwnerId(getEucalyptusAccount().getAccountNumber());
-          walrusBucket.setUserId(getEucalyptusAdmin().getUserId());
-          walrusBucket.resetGlobalGrants();
-          List<GrantInfo> grantInfos=new ArrayList<GrantInfo>();
-          GrantInfo.setFullControl(walrusBucket.getOwnerId(),grantInfos);
-          walrusBucket.setGrants(grantInfos);
-          if (walrusBucket.getVersioning() != null && (WalrusProperties.VersioningStatus.Enabled.toString().equals(walrusBucket.getVersioning()) || WalrusProperties.VersioningStatus.Suspended.toString().equals(walrusBucket.getVersioning()))) {
-            walrusBucket.setVersioning(WalrusProperties.VersioningStatus.Disabled.toString());
+    List<ObjectEntity> osgObjects=Entities.query(new ObjectEntity());
+    if (osgObjects != null && osgObjects.isEmpty()) {
+      EntityTransaction walrusTran=Entities.get(ObjectInfo.class);
+      try {
+        List<ObjectInfo> walrusObjects=Entities.query(new ObjectInfo(),Boolean.TRUE);
+        if (walrusObjects != null && !walrusObjects.isEmpty()) {
+          for (          ObjectEntity osgObject : Lists.transform(walrusObjects,objectTransformationFunction())) {
+            Entities.persist(osgObject);
           }
         }
- catch (        Exception e) {
-          LOG.error("Failed to modify Walrus bucket " + walrusBucket.getBucketName(),e);
-          throw e;
+ else {
+        }
+        walrusTran.commit();
+      }
+ catch (      Exception e) {
+        walrusTran.rollback();
+        throw e;
+      }
+ finally {
+        if (walrusTran.isActive()) {
+          walrusTran.commit();
         }
       }
     }
  else {
     }
-    tran.commit();
+    osgTran.commit();
   }
  catch (  Exception e) {
-    tran.rollback();
+    osgTran.rollback();
     throw e;
   }
  finally {
-    if (tran.isActive()) {
-      tran.commit();
+    if (osgTran.isActive()) {
+      osgTran.commit();
     }
   }
 }
