@@ -1,17 +1,21 @@
 {
   final Record query=request.getQuery();
-  if (RequestType.A.apply(query)) {
-    try {
-      final Name name=query.getName();
-      final InetAddress requestIp=InstanceDomainNames.toInetAddress(name.relativize(InstanceDomainNames.EXTERNAL.get()));
-      final VmInstance vm=VmInstances.lookupByPublicIp(requestIp.getHostAddress());
-      final InetAddress instanceAddress=InetAddresses.forString(vm.getPrivateAddress());
-      final Record instanceARecord=DomainNameRecords.addressRecord(name,instanceAddress);
-      return DnsResponse.forName(name).answer(instanceARecord);
+  if (RequestType.PTR.apply(query))   return super.lookupRecords(request);
+  try {
+    final Name name=query.getName();
+    final InetAddress requestIp=InstanceDomainNames.toInetAddress(name.relativize(InstanceDomainNames.EXTERNAL.get()));
+    final VmInstance vm=VmInstances.lookupByPublicIp(requestIp.getHostAddress());
+    final InetAddress instanceAddress=InetAddresses.forString(vm.getPrivateAddress());
+    if (RequestType.A.apply(query)) {
+      final Record rec=DomainNameRecords.addressRecord(name,instanceAddress);
+      return DnsResponse.forName(name).answer(rec);
     }
- catch (    Exception ex) {
-      LOG.debug(ex);
+ else {
+      return DnsResponse.forName(name).answer(Lists.<Record>newArrayList());
     }
+  }
+ catch (  Exception ex) {
+    LOG.debug(ex);
   }
   return super.lookupRecords(request);
 }

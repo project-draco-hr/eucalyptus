@@ -3,7 +3,7 @@
     @Override @Nullable public Bucket apply(    @Nonnull BucketInfo walrusBucket){
       Bucket osgBucket=null;
       try {
-        Account owningAccount=null;
+        AccountIdentifiers owningAccount=null;
         User owningUser=null;
         if (walrusSnapshotBuckets.contains(walrusBucket.getBucketName())) {
           LOG.warn("Changing the ownership of snapshot bucket " + walrusBucket.getBucketName() + " to blockstorage system account");
@@ -25,7 +25,7 @@
         }
  else {
           try {
-            owningAccount=Accounts.lookupAccountById(walrusBucket.getOwnerId());
+            owningAccount=Accounts.lookupAccountIdentifiersById(walrusBucket.getOwnerId());
             if (StringUtils.isBlank(owningAccount.getCanonicalId())) {
               LOG.warn("Account ID " + walrusBucket.getOwnerId() + " does not have a canonical ID. Changing the ownership of bucket "+ walrusBucket.getBucketName()+ " to eucalyptus admin account");
               owningAccount=getEucalyptusAccount();
@@ -59,13 +59,13 @@
  else {
             if (walrusBucket.getUserId() != null) {
               try {
-                owningUser=Accounts.lookupUserById(walrusBucket.getUserId());
+                owningUser=Accounts.lookupPrincipalByUserId(walrusBucket.getUserId(),null);
                 userIdUserMap.put(walrusBucket.getUserId(),owningUser);
               }
  catch (              AuthException e) {
                 deletedUserIds.add(walrusBucket.getUserId());
                 try {
-                  owningUser=owningAccount.lookupAdmin();
+                  owningUser=Accounts.lookupPrincipalByAccountNumber(owningAccount.getAccountNumber());
                   accountIdAdminMap.put(walrusBucket.getOwnerId(),owningUser);
                   LOG.warn("User ID " + walrusBucket.getUserId() + " does not exist. Changing the IAM ownership of bucket "+ walrusBucket.getBucketName()+ " to the account admin");
                 }
@@ -83,7 +83,7 @@
               }
  else {
                 try {
-                  owningUser=owningAccount.lookupAdmin();
+                  owningUser=Accounts.lookupPrincipalByAccountNumber(owningAccount.getAccountNumber());
                   accountIdAdminMap.put(walrusBucket.getOwnerId(),owningUser);
                   LOG.warn("No user ID listed for bucket " + walrusBucket.getBucketName() + ". Changing the IAM ownership of bucket to the account admin");
                 }
@@ -107,7 +107,7 @@
         osgBucket.setTargetPrefix(walrusBucket.getTargetPrefix());
         osgBucket.setVersioning(VersioningStatus.valueOf(walrusBucket.getVersioning()));
         osgBucket.setOwnerCanonicalId(owningAccount.getCanonicalId());
-        osgBucket.setOwnerDisplayName(owningAccount.getName());
+        osgBucket.setOwnerDisplayName(owningAccount.getAccountAlias());
         osgBucket.setOwnerIamUserId(owningUser.getUserId());
         osgBucket.setOwnerIamUserDisplayName(owningUser.getName());
         AccessControlList acl=new AccessControlList();
@@ -117,7 +117,7 @@
  else {
           acl.setGrants(getBucketGrants(walrusBucket));
         }
-        AccessControlPolicy acp=new AccessControlPolicy(new CanonicalUser(owningAccount.getCanonicalId(),owningAccount.getName()),acl);
+        AccessControlPolicy acp=new AccessControlPolicy(new CanonicalUser(owningAccount.getCanonicalId(),owningAccount.getAccountAlias()),acl);
         osgBucket.setAcl(acp);
       }
  catch (      Exception e) {
