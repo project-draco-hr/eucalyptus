@@ -1,52 +1,40 @@
 {
-  String sanSnapshotId=null;
   String sanVolumeId=resourceIdOnSan(volumeId);
   SANVolumeInfo volumeInfo=new SANVolumeInfo(volumeId);
-  int snapSize=-1;
+  SANVolumeInfo snapInfo=lookup(snapshotId);
+  String sanSnapshotId=snapInfo.getSanVolumeId();
+  int snapSize=snapInfo.getSize();
+  if (size <= 0) {
+    size=snapSize;
+  }
   try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
-    try {
-      SANVolumeInfo snapInfo=Entities.uniqueResult(new SANVolumeInfo(snapshotId));
-      if (snapInfo == null || StringUtils.isBlank(snapInfo.getSanVolumeId())) {
-        throw new EucalyptusCloudException("Backend ID not found for " + snapshotId);
-      }
-      sanSnapshotId=snapInfo.getSanVolumeId();
-      snapSize=snapInfo.getSize();
-      if (size <= 0) {
-        size=snapSize;
-      }
+    SANVolumeInfo existingVol=Entities.uniqueResult(volumeInfo);
+    LOG.info("Checking for " + existingVol.getSanVolumeId() + " on backend");
+    if (connectionManager.volumeExists(existingVol.getSanVolumeId())) {
+      throw new VolumeAlreadyExistsException("Existing resource found on backend for " + existingVol.getSanVolumeId());
     }
- catch (    TransactionException|NoSuchElementException ex) {
-      LOG.error(snapshotId + ": Failed to lookup source snapshot entity",ex);
-      throw new EucalyptusCloudException("Failed to lookup source snapshot entity for " + snapshotId,ex);
-    }
-    try {
-      SANVolumeInfo existingVol=Entities.uniqueResult(volumeInfo);
-      if (connectionManager.volumeExists(existingVol.getSanVolumeId())) {
-        throw new VolumeAlreadyExistsException("Volume already exists on storage backend for " + volumeId);
-      }
  else {
-        LOG.debug(volumeId + ": Found the database entity but the volume does not exist on SAN. Deleting the database entity");
-        Entities.delete(existingVol);
-        tran.commit();
-      }
-    }
- catch (    VolumeAlreadyExistsException ex) {
-      throw ex;
-    }
-catch (    NoSuchElementException ex) {
-    }
-catch (    Exception ex) {
-      throw new EucalyptusCloudException(ex);
+      LOG.debug("Found database record but resource does not exist on backend. Deleting database record for " + volumeId);
+      Entities.delete(existingVol);
+      tran.commit();
     }
   }
-   try {
+ catch (  NoSuchElementException ex) {
+  }
+catch (  VolumeAlreadyExistsException ex) {
+    throw ex;
+  }
+catch (  Exception ex) {
+    throw new EucalyptusCloudException(ex);
+  }
+  try {
     Transactions.save(volumeInfo.withSanVolumeId(sanVolumeId).withSize(size));
   }
  catch (  Exception ex) {
-    LOG.error(volumeId + ": Failed to add database entity",ex);
-    throw new EucalyptusCloudException("Failed to add database entity for " + volumeId,ex);
+    LOG.warn("Failed to persist database record for " + volumeId,ex);
+    throw new EucalyptusCloudException("Failed to persist database record for " + volumeId,ex);
   }
-  LOG.info("Creating backend volume " + sanVolumeId + " mapping to "+ volumeId+ " from backend snapshot "+ sanSnapshotId+ " mapping to "+ snapshotId);
+  LOG.info("Creating " + sanVolumeId + " from "+ sanSnapshotId+ " on backend");
   String iqn=connectionManager.createVolume(sanVolumeId,sanSnapshotId,snapSize,size);
   if (iqn != null) {
     try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
@@ -56,12 +44,13 @@ catch (    Exception ex) {
       tran.commit();
     }
  catch (    Exception ex) {
-      LOG.error(volumeId + ": Failed to update database entity with IQN post volume creation");
-      throw new EucalyptusCloudException("Failed to update database entity with IQN post volume creation for " + volumeId,ex);
+      LOG.warn("Failed to update database record with IQN post creation for " + volumeId);
+      throw new EucalyptusCloudException("Failed to update database record with IQN post creation for " + volumeId,ex);
     }
   }
  else {
-    throw new EucalyptusCloudException("Unable to create volume: " + volumeId + " from snapshot: "+ snapshotId);
+    LOG.warn("Invalid IQN from backend for " + sanVolumeId);
+    throw new EucalyptusCloudException("Failed to create " + volumeId + " due to invalid IQN from backend for "+ sanVolumeId);
   }
   return size;
 }
