@@ -3,14 +3,18 @@
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
   if (volumeDeleted(action,configuration))   return action;
   if (!("Snapshot".equals(action.info.getDeletionPolicy())))   return action;
-  CreateSnapshotType createSnapshotType=MessageHelper.createMessage(CreateSnapshotType.class,action.info.getEffectiveUserId());
-  createSnapshotType.setVolumeId(action.info.getPhysicalResourceId());
-  CreateSnapshotResponseType createSnapshotResponseType=AsyncRequests.<CreateSnapshotType,CreateSnapshotResponseType>sendSync(configuration,createSnapshotType);
-  if (createSnapshotResponseType.getSnapshot() == null || createSnapshotResponseType.getSnapshot().getSnapshotId() == null) {
-    throw new ResourceFailureException("Unable to create snapshot on delete for volume " + action.info.getPhysicalResourceId());
+  DescribeSnapshotsType describeSnapshotsType=MessageHelper.createMessage(DescribeSnapshotsType.class,action.info.getEffectiveUserId());
+  String snapshotId=JsonHelper.getJsonNodeFromString(action.info.getSnapshotIdForDelete()).asText();
+  describeSnapshotsType.setSnapshotSet(Lists.newArrayList(snapshotId));
+  DescribeSnapshotsResponseType describeSnapshotsResponseType=AsyncRequests.<DescribeSnapshotsType,DescribeSnapshotsResponseType>sendSync(configuration,describeSnapshotsType);
+  if (describeSnapshotsResponseType.getSnapshotSet() == null || describeSnapshotsResponseType.getSnapshotSet().isEmpty()) {
+    throw new ValidationFailedException("Snapshot " + snapshotId + " not yet complete");
   }
- else {
-    action.info.setSnapshotIdForDelete(JsonHelper.getStringFromJsonNode(new TextNode(createSnapshotResponseType.getSnapshot().getSnapshotId())));
+  if ("error".equals(describeSnapshotsResponseType.getSnapshotSet().get(0).getStatus())) {
+    throw new ResourceFailureException("Error creating snapshot " + snapshotId + ", while deleting volume "+ action.info.getPhysicalResourceId());
+  }
+ else   if (!"completed".equals(describeSnapshotsResponseType.getSnapshotSet().get(0).getStatus())) {
+    throw new ValidationFailedException("Snapshot " + snapshotId + " not yet complete");
   }
   return action;
 }
