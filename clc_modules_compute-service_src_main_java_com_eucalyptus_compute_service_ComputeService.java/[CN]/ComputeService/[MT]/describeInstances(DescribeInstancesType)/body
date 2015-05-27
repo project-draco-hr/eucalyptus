@@ -11,6 +11,9 @@
   final OwnerFullName ownerFullName=(ctx.isAdministrator() && showAll) ? null : ctx.getUserFullName().asAccountFullName();
   try (final TransactionResource db=Entities.readOnlyDistinctTransactionFor(VmInstance.class)){
     final List<VmInstance> instances=VmInstances.list(ownerFullName,criterion,filter.getAliases(),requestedAndAccessible);
+    if (instances.isEmpty() && !identifiers.isEmpty()) {
+      throw new ComputeServiceClientException("InvalidInstanceID.NotFound","The instance '" + Iterables.get(identifiers,0) + "' was not found");
+    }
     final Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(VmInstance.class).getResourceTagMap(AccountFullName.getInstance(ctx.getAccountNumber()),Iterables.transform(instances,CloudMetadatas.toDisplayName()));
     for (    final VmInstance vm : instances) {
       if (instanceMap.put(vm.getReservationId(),VmInstance.transform(vm)) && !reservations.containsKey(vm.getReservationId())) {
@@ -30,6 +33,7 @@
     }
   }
  catch (  final Exception e) {
+    Exceptions.findAndRethrow(e,ComputeServiceException.class);
     LOG.error(e);
     LOG.debug(e,e);
     throw new EucalyptusCloudException(e.getMessage());
