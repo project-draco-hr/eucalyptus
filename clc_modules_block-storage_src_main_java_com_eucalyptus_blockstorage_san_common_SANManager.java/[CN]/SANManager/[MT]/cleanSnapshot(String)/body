@@ -1,18 +1,13 @@
 {
   String sanSnapshotId=null;
-  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
-    SANVolumeInfo volumeInfo=Entities.uniqueResult(new SANVolumeInfo(snapshotId));
-    if (volumeInfo == null || StringUtils.isBlank(volumeInfo.getSanVolumeId())) {
-      throw new EucalyptusCloudException(snapshotId + ": Backend ID not found");
-    }
-    sanSnapshotId=volumeInfo.getSanVolumeId();
-    tran.commit();
+  try {
+    sanSnapshotId=lookup(snapshotId).getSanVolumeId();
   }
- catch (  TransactionException|NoSuchElementException|EucalyptusCloudException ex) {
-    LOG.debug("Blockstorage backend record for " + snapshotId + " not found, skipping clean up");
+ catch (  Exception e) {
+    LOG.debug("Skipping clean up for " + snapshotId);
     return;
   }
-  LOG.info("Deleting backend snapshot " + sanSnapshotId + " mapping to "+ snapshotId);
+  LOG.info("Deleting " + sanSnapshotId + " on backend");
   if (connectionManager.deleteVolume(sanSnapshotId)) {
     try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
       SANVolumeInfo snapInfo=Entities.uniqueResult(new SANVolumeInfo(snapshotId).withSanVolumeId(sanSnapshotId));
@@ -20,7 +15,7 @@
       tran.commit();
     }
  catch (    TransactionException|NoSuchElementException ex) {
-      LOG.error(snapshotId + ": Unable to clean failed snapshot",ex);
+      LOG.warn("Unable to clean failed backend resource " + snapshotId,ex);
       return;
     }
   }

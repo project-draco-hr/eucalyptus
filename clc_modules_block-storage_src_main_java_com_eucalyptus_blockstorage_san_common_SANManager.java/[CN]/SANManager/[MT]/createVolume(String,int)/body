@@ -3,29 +3,32 @@
   SANVolumeInfo volumeInfo=new SANVolumeInfo(volumeId);
   try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
     SANVolumeInfo existingVol=Entities.uniqueResult(volumeInfo);
+    LOG.info("Checking for " + existingVol.getSanVolumeId() + " on backend");
     if (connectionManager.volumeExists(existingVol.getSanVolumeId())) {
-      throw new VolumeAlreadyExistsException("Volume already exists on storage backend for " + volumeId);
+      throw new VolumeAlreadyExistsException("Existing resource found on backend for " + existingVol.getSanVolumeId());
     }
  else {
-      LOG.debug(volumeId + ": Found the database entity but the volume does not exist on SAN. Deleting the database entity");
+      LOG.debug("Found database record but resource does not exist on backend. Deleting database record for " + volumeId);
       Entities.delete(existingVol);
       tran.commit();
     }
   }
- catch (  VolumeAlreadyExistsException ex) {
+ catch (  NoSuchElementException ex) {
+  }
+catch (  VolumeAlreadyExistsException ex) {
     throw ex;
   }
 catch (  Exception ex) {
+    throw new EucalyptusCloudException(ex);
   }
-  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
-    Entities.persist(volumeInfo.withSanVolumeId(sanVolumeId).withSize(size));
-    tran.commit();
+  try {
+    Transactions.save(volumeInfo.withSanVolumeId(sanVolumeId).withSize(size));
   }
  catch (  Exception ex) {
-    LOG.error(volumeId + ": Failed to add database entity",ex);
-    throw new EucalyptusCloudException("Failed to add database entity for " + volumeId,ex);
+    LOG.warn("Failed to persist database record for " + volumeId,ex);
+    throw new EucalyptusCloudException("Failed to persist database record for " + volumeId,ex);
   }
-  LOG.info("Creating backend volume " + sanVolumeId + " mapping to "+ volumeId);
+  LOG.info("Creating " + sanVolumeId + " on backend");
   String iqn=connectionManager.createVolume(sanVolumeId,size);
   if (iqn != null) {
     try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
@@ -34,11 +37,12 @@ catch (  Exception ex) {
       tran.commit();
     }
  catch (    Exception ex) {
-      LOG.error(volumeId + ": Failed to update database entity with IQN post volume creation");
-      throw new EucalyptusCloudException("Failed to update database entity with IQN post volume creation for " + volumeId,ex);
+      LOG.warn("Failed to update database record with IQN post creation for " + volumeId);
+      throw new EucalyptusCloudException("Failed to update database record with IQN post creation for " + volumeId,ex);
     }
   }
  else {
-    throw new EucalyptusCloudException("Unable to create volume: " + volumeId);
+    LOG.warn("Invalid IQN from backend for " + sanVolumeId);
+    throw new EucalyptusCloudException("Failed to create " + volumeId + " due to invalid IQN from backend for "+ sanVolumeId);
   }
 }

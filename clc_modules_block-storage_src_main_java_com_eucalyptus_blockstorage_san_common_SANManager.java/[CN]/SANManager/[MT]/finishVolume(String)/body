@@ -1,25 +1,20 @@
 {
-  String iqnAndLun;
-  String sanVolumeId;
-  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
-    SANVolumeInfo snapInfo=Entities.uniqueResult(new SANVolumeInfo(snapshotId));
+  String iqnAndLun=null;
+  String sanVolumeId=null;
+  try {
+    SANVolumeInfo snapInfo=lookup(snapshotId);
     iqnAndLun=snapInfo.getIqn();
     sanVolumeId=snapInfo.getSanVolumeId();
-    tran.commit();
   }
- catch (  NoSuchElementException e) {
-    LOG.debug("Blockstorage backend record for " + snapshotId + " not found, skipping finish up");
+ catch (  NoSuchRecordException e) {
+    LOG.debug("Skipping finish up for " + snapshotId);
     return;
-  }
-catch (  TransactionException ex) {
-    LOG.error(ex);
-    throw new EucalyptusCloudException("Unable to finalize snapshot: " + snapshotId);
   }
   if (iqnAndLun != null && iqnAndLun.contains(",")) {
     String[] parts=iqnAndLun.split(",");
     if (parts.length == 2) {
       try {
-        LOG.info("Disconnecting iscsi session between backend " + sanVolumeId + " mapping to "+ snapshotId+ " and SC");
+        LOG.info("Disconnecting " + sanVolumeId + " on backend from Storage Controller");
         connectionManager.disconnectTarget(sanVolumeId,parts[0],parts[1]);
       }
  catch (      Exception e) {
@@ -27,31 +22,31 @@ catch (  TransactionException ex) {
       }
     }
  else {
-      LOG.warn("Unable to disconnect " + sanVolumeId + " from SC due to invalid iqn format. Expected iqn to contain one ',' but got: "+ iqnAndLun);
-      throw new EucalyptusCloudException("Unable to disconnect " + sanVolumeId + " from SC due to invalid iqn format");
+      LOG.warn("Unable to disconnect " + sanVolumeId + " from Storage Controller due to invalid iqn format. Expected iqn to contain one ',' but got: "+ iqnAndLun);
+      throw new EucalyptusCloudException("Unable to disconnect " + sanVolumeId + " from Storage Controller due to invalid iqn format");
     }
     String scIqn=StorageProperties.getStorageIqn();
     try {
-      LOG.info("Unexporting backend " + sanVolumeId + " mapping to "+ snapshotId+ " from SC host IQN "+ scIqn);
+      LOG.info("Unexporting " + sanVolumeId + " on backend from Storage Controller host IQN "+ scIqn);
       connectionManager.unexportResource(sanVolumeId,scIqn);
     }
  catch (    Exception e) {
-      LOG.warn("Failed to unexport " + sanVolumeId,e);
+      LOG.warn("Could not unexport " + sanVolumeId + " on backend from Storage Controller");
     }
   }
  else {
-    LOG.debug("Skipping iscsi disconnect and unexport operations for " + sanVolumeId);
+    LOG.debug("Skipping disconnect and unexport operations for " + sanVolumeId);
   }
   try {
-    LOG.info("Waiting for backend " + sanVolumeId + " mapping to "+ snapshotId+ " to complete");
+    LOG.info("Waiting for " + sanVolumeId + " to complete on backend");
     connectionManager.waitAndComplete(sanVolumeId);
   }
  catch (  EucalyptusCloudException e) {
-    LOG.warn("Failed during wait for backend " + sanVolumeId + " to complete",e);
+    LOG.warn("Failed during wait for " + sanVolumeId + " to complete on backend",e);
     throw e;
   }
 catch (  Exception e) {
-    LOG.warn("Failed during wait for backend " + sanVolumeId + " to complete",e);
-    throw new EucalyptusCloudException("Failed during wait for backend " + sanVolumeId + " to complete",e);
+    LOG.warn("Failed during wait for " + sanVolumeId + " to complete on backend",e);
+    throw new EucalyptusCloudException("Failed during wait for " + sanVolumeId + " to complete on backend",e);
   }
 }

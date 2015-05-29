@@ -1,28 +1,24 @@
 {
   String sanVolumeId=null;
-  try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
-    SANVolumeInfo volumeInfo=Entities.uniqueResult(new SANVolumeInfo(volumeId));
-    if (volumeInfo == null || StringUtils.isBlank(volumeInfo.getSanVolumeId())) {
-      throw new EucalyptusCloudException(volumeId + ": Backend ID not found");
-    }
-    sanVolumeId=volumeInfo.getSanVolumeId();
+  try {
+    sanVolumeId=lookup(volumeId).getSanVolumeId();
   }
- catch (  TransactionException|NoSuchElementException ex) {
-    throw new EucalyptusCloudException(ex);
+ catch (  Exception ex) {
+    LOG.debug("Skipping deletion for " + volumeId);
+    return;
   }
-  LOG.info("Deleting backend volume " + sanVolumeId + " mapping to "+ volumeId);
+  LOG.info("Deleting " + sanVolumeId + " on backend");
   if (connectionManager.deleteVolume(sanVolumeId)) {
-    try (TransactionResource tran=Entities.transactionFor(SANVolumeInfo.class)){
-      SANVolumeInfo snapInfo=Entities.uniqueResult(new SANVolumeInfo(volumeId).withSanVolumeId(sanVolumeId));
-      Entities.delete(snapInfo);
-      tran.commit();
+    try {
+      Transactions.delete(new SANVolumeInfo(volumeId).withSanVolumeId(sanVolumeId));
     }
- catch (    TransactionException|NoSuchElementException ex) {
-      LOG.error("Failed to delete database entity post deletion for " + volumeId,ex);
-      throw new EucalyptusCloudException("Failed to delete database entity post deletion for " + volumeId,ex);
+ catch (    Exception e) {
+      LOG.warn("Failed to remove database record post deletion for " + volumeId,e);
+      throw new EucalyptusCloudException("Failed to remove database record post deletion for " + volumeId,e);
     }
   }
  else {
-    throw new EucalyptusCloudException("Failed to delete " + volumeId + " on storage backend");
+    LOG.warn("Failed to delete backend resource " + sanVolumeId);
+    throw new EucalyptusCloudException("Failed to delete backend resource " + sanVolumeId);
   }
 }

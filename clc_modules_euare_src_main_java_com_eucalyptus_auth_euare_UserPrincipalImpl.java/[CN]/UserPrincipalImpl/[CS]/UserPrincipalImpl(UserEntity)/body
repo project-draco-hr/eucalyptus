@@ -1,0 +1,53 @@
+{
+  final List<GroupEntity> groups=user.getGroups();
+  final AccountEntity account=groups.get(0).getAccount();
+  final List<PolicyVersion> policies=Lists.newArrayList();
+  if (user.isEnabled()) {
+    if (DatabaseAuthUtils.isAccountAdmin(user.getName())) {
+      policies.add(PolicyVersions.getAdministratorPolicy());
+    }
+ else {
+      for (      final GroupEntity group : groups) {
+        if (group.isUserGroup()) {
+          Iterables.addAll(policies,Iterables.transform(group.getPolicies(),Functions.compose(PolicyVersions.policyVersion(PolicyScope.User,new EuareResourceName(account.getAccountNumber(),PolicySpec.IAM_RESOURCE_USER,user.getPath(),user.getName()).toString()),PolicyTransform.INSTANCE)));
+        }
+      }
+      for (      final GroupEntity group : groups) {
+        if (!group.isUserGroup()) {
+          Iterables.addAll(policies,Iterables.transform(group.getPolicies(),Functions.compose(PolicyVersions.policyVersion(PolicyScope.Group,new EuareResourceName(account.getAccountNumber(),PolicySpec.IAM_RESOURCE_GROUP,group.getPath(),group.getName()).toString()),PolicyTransform.INSTANCE)));
+        }
+      }
+    }
+    UserEntity admin;
+    try {
+      admin=DatabaseAuthUtils.getUniqueUser(User.ACCOUNT_ADMIN,account.getName());
+    }
+ catch (    Exception e) {
+      throw new AuthException(e);
+    }
+    if (admin != null) {
+      for (      final GroupEntity group : admin.getGroups()) {
+        if (group.isUserGroup()) {
+          Iterables.addAll(policies,Iterables.transform(group.getPolicies(),Functions.compose(PolicyVersions.policyVersion(PolicyScope.Account,account.getAccountNumber()),PolicyTransform.INSTANCE)));
+        }
+      }
+    }
+  }
+  this.name=user.getName();
+  this.path=user.getPath();
+  this.userId=user.getUserId();
+  this.authenticatedId=user.getUserId();
+  this.canonicalId=account.getCanonicalId();
+  this.token=user.getToken();
+  this.accountAlias=account.getName();
+  this.accountNumber=account.getAccountNumber();
+  this.enabled=user.isEnabled();
+  this.accountAdmin=DatabaseAuthUtils.isAccountAdmin(user.getName());
+  this.systemAdmin=com.eucalyptus.auth.Accounts.isSystemAccount(account.getName());
+  this.systemUser=systemAdmin;
+  this.password=user.getPassword();
+  this.passwordExpires=password == null ? null : Objects.firstNonNull(user.getPasswordExpires(),Long.MAX_VALUE);
+  this.keys=ImmutableList.copyOf(Iterables.transform(user.getKeys(),ekeyWrapper(this)));
+  this.certificates=ImmutableList.copyOf(Iterables.filter(Iterables.transform(user.getCertificates(),ecertWrapper(this)),propertyPredicate(false,revoked())));
+  this.principalPolicies=ImmutableList.copyOf(policies);
+}
