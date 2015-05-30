@@ -2,19 +2,22 @@
 synchronized (AWSEC2InstanceResourceAction.class) {
     AWSEC2InstanceResourceAction action=(AWSEC2InstanceResourceAction)resourceAction;
     ServiceConfiguration configuration=Topology.lookup(Compute.class);
-    if (action.properties.getVolumes() != null && !action.properties.getVolumes().isEmpty()) {
-      ArrayList<String> volumeIds=Lists.newArrayList();
-      Map<String,String> deviceMap=Maps.newHashMap();
-      for (      EC2MountPoint ec2MountPoint : action.properties.getVolumes()) {
-        volumeIds.add(ec2MountPoint.getVolumeId());
-        deviceMap.put(ec2MountPoint.getVolumeId(),ec2MountPoint.getDevice());
-        AttachVolumeType attachVolumeType=MessageHelper.createMessage(AttachVolumeType.class,action.info.getEffectiveUserId());
-        attachVolumeType.setInstanceId(action.info.getPhysicalResourceId());
-        attachVolumeType.setVolumeId(ec2MountPoint.getVolumeId());
-        attachVolumeType.setDevice(ec2MountPoint.getDevice());
-        AsyncRequests.<AttachVolumeType,AttachVolumeResponseType>sendSync(configuration,attachVolumeType);
-      }
+    DescribeInstancesType describeInstancesType=MessageHelper.createMessage(DescribeInstancesType.class,action.info.getEffectiveUserId());
+    describeInstancesType.setInstancesSet(Lists.newArrayList(action.info.getPhysicalResourceId()));
+    DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.<DescribeInstancesType,DescribeInstancesResponseType>sendSync(configuration,describeInstancesType);
+    if (describeInstancesResponseType.getReservationSet().size() == 0) {
+      throw new ValidationFailedException("Instance " + action.info.getAccountId() + " does not yet exist");
     }
-    return action;
+    RunningInstancesItemType runningInstancesItemType=describeInstancesResponseType.getReservationSet().get(0).getInstancesSet().get(0);
+    if ("running".equals(runningInstancesItemType.getStateName())) {
+      action.info.setPrivateIp(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getPrivateIpAddress())));
+      action.info.setPublicIp(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getIpAddress())));
+      action.info.setAvailabilityZone(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getPlacement())));
+      action.info.setPrivateDnsName(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getPrivateDnsName())));
+      action.info.setPublicDnsName(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getDnsName())));
+      action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
+      return action;
+    }
+    throw new ValidationFailedException(("Instance " + action.info.getPhysicalResourceId() + " is not yet running, currently "+ runningInstancesItemType.getStateName()));
   }
 }
