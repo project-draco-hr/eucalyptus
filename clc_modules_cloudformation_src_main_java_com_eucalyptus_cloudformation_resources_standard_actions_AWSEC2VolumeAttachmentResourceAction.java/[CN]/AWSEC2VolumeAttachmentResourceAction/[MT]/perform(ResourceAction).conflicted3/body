@@ -1,29 +1,11 @@
 {
   AWSEC2VolumeAttachmentResourceAction action=(AWSEC2VolumeAttachmentResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  DescribeInstancesType describeInstancesType=MessageHelper.createMessage(DescribeInstancesType.class,action.info.getEffectiveUserId());
-  describeInstancesType.setInstancesSet(Lists.newArrayList(action.properties.getInstanceId()));
-  DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.<DescribeInstancesType,DescribeInstancesResponseType>sendSync(configuration,describeInstancesType);
-  if (describeInstancesResponseType.getReservationSet() == null || describeInstancesResponseType.getReservationSet().isEmpty()) {
-    throw new ValidationErrorException("No such instance " + action.properties.getInstanceId());
-  }
-  DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,action.info.getEffectiveUserId());
-  describeVolumesType.setVolumeSet(Lists.newArrayList(action.properties.getVolumeId()));
-  DescribeVolumesResponseType describeVolumesResponseType;
-  try {
-    describeVolumesResponseType=AsyncRequests.sendSync(configuration,describeVolumesType);
-  }
- catch (  Exception e) {
-    throw new ValidationErrorException("Error describing volume " + action.properties.getVolumeId() + ":"+ asWebServiceErrorMessage(e,e.getMessage()));
-  }
-  if (describeVolumesResponseType.getVolumeSet().size() == 0)   throw new ValidationErrorException("No such volume " + action.properties.getVolumeId());
-  if (!"available".equals(describeVolumesResponseType.getVolumeSet().get(0).getStatus())) {
-    throw new ValidationErrorException("Volume " + action.properties.getVolumeId() + " not available");
-  }
-  AttachVolumeType attachVolumeType=MessageHelper.createMessage(AttachVolumeType.class,action.info.getEffectiveUserId());
-  attachVolumeType.setInstanceId(action.properties.getInstanceId());
-  attachVolumeType.setVolumeId(action.properties.getVolumeId());
-  attachVolumeType.setDevice(action.properties.getDevice());
-  AsyncRequests.<AttachVolumeType,AttachVolumeResponseType>sendSync(configuration,attachVolumeType);
+  if (notCreatedOrNoInstanceOrNoVolume(action,configuration))   return action;
+  DetachVolumeType detachVolumeType=MessageHelper.createMessage(DetachVolumeType.class,action.info.getEffectiveUserId());
+  detachVolumeType.setInstanceId(action.properties.getInstanceId());
+  detachVolumeType.setVolumeId(action.properties.getVolumeId());
+  detachVolumeType.setDevice(action.properties.getDevice());
+  AsyncRequests.<DetachVolumeType,DetachVolumeResponseType>sendSync(configuration,detachVolumeType);
   return action;
 }
