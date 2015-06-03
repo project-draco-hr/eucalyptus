@@ -1,33 +1,35 @@
 {
-  try {
-    USER_GROUP_NAME_CHECKER.check(groupName);
-  }
- catch (  InvalidValueException e) {
-    Debugging.logError(LOG,e,"Invalid group name " + groupName);
-    throw new AuthException(AuthException.INVALID_NAME,e);
-  }
-  try {
-    PATH_CHECKER.check(path);
-  }
- catch (  InvalidValueException e) {
-    Debugging.logError(LOG,e,"Invalid path " + path);
-    throw new AuthException(AuthException.INVALID_PATH,e);
-  }
-  if (DatabaseAuthUtils.checkGroupExists(groupName,this.delegate.getName())) {
-    throw new AuthException(AuthException.GROUP_ALREADY_EXISTS);
-  }
-  try (final TransactionResource db=Entities.transactionFor(AccountEntity.class)){
-    AccountEntity account=DatabaseAuthUtils.getUnique(AccountEntity.class,"name",this.delegate.getName());
-    GroupEntity group=new GroupEntity(groupName);
-    group.setPath(path);
-    group.setUserGroup(false);
-    group.setAccount(account);
-    Entities.persist(group);
-    db.commit();
-    return new DatabaseGroupProxy(group,Suppliers.ofInstance(getAccountNumber()));
-  }
- catch (  Exception e) {
-    Debugging.logError(LOG,e,"Failed to add group " + groupName + " in "+ this.delegate.getName());
-    throw new AuthException(AuthException.GROUP_CREATE_FAILURE,e);
+synchronized (getLock()) {
+    try {
+      USER_GROUP_NAME_CHECKER.check(groupName);
+    }
+ catch (    InvalidValueException e) {
+      Debugging.logError(LOG,e,"Invalid group name " + groupName);
+      throw new AuthException(AuthException.INVALID_NAME,e);
+    }
+    try {
+      PATH_CHECKER.check(path);
+    }
+ catch (    InvalidValueException e) {
+      Debugging.logError(LOG,e,"Invalid path " + path);
+      throw new AuthException(AuthException.INVALID_PATH,e);
+    }
+    if (DatabaseAuthUtils.checkGroupExists(groupName,this.delegate.getName())) {
+      throw new AuthException(AuthException.GROUP_ALREADY_EXISTS);
+    }
+    try (final TransactionResource db=Entities.transactionFor(AccountEntity.class)){
+      AccountEntity account=DatabaseAuthUtils.getUnique(AccountEntity.class,"name",this.delegate.getName());
+      GroupEntity group=new GroupEntity(groupName);
+      group.setPath(path);
+      group.setUserGroup(false);
+      group.setAccount(account);
+      Entities.persist(group);
+      db.commit();
+      return new DatabaseGroupProxy(group,Suppliers.ofInstance(getAccountNumber()));
+    }
+ catch (    Exception e) {
+      Debugging.logError(LOG,e,"Failed to add group " + groupName + " in "+ this.delegate.getName());
+      throw new AuthException(AuthException.GROUP_CREATE_FAILURE,e);
+    }
   }
 }
