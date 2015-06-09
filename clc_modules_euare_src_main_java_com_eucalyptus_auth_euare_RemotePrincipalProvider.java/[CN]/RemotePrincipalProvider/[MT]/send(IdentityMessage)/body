@@ -1,4 +1,19 @@
 {
-  final ServiceConfiguration config=new EphemeralConfiguration(ComponentIds.lookup(Identity.class),"identity","identity",URI.create(endpoints.iterator().next()));
-  return AsyncRequests.sendSync(config,request);
+  final URI endpoint=URI.create(endpoints.iterator().next());
+  final ServiceConfiguration config=new EphemeralConfiguration(ComponentIds.lookup(Identity.class),"identity","identity",endpoint);
+  try {
+    return AsyncRequests.sendSync(config,request);
+  }
+ catch (  Exception e) {
+    if (Exceptions.isCausedBy(e,SSLHandshakeException.class)) {
+      throw new AuthException("HTTPS connection failed for region host " + endpoint.getHost());
+    }
+    if (Exceptions.isCausedBy(e,SSLException.class)) {
+      throw new AuthException("HTTPS error for region host " + endpoint.getHost() + ": "+ String.valueOf(e.getMessage()));
+    }
+    if (Exceptions.isCausedBy(e,ConnectException.class)) {
+      throw new AuthException("Error connecting to region host " + endpoint.getHost());
+    }
+    throw e;
+  }
 }
