@@ -1,3 +1,34 @@
 {
-  return request.getReply();
+  final DescribeVolumeStatusResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final boolean showAll=request.getVolumeId().remove("verbose");
+  final Set<String> volumeIds=Sets.newLinkedHashSet(normalizeVolumeIdentifiers(request.getVolumeId()));
+  final AccountFullName ownerFullName=(ctx.isAdministrator() && (showAll || !volumeIds.isEmpty())) ? null : ctx.getUserFullName().asAccountFullName();
+  final Filters.FiltersBuilder filtersBuilder=Filters.generateFor(request.getFilterSet(),Volume.class,"status");
+  if (!ctx.isAdministrator()) {
+    filtersBuilder.withOptionalInternalFilter("system-managed",Collections.singleton("false"));
+  }
+  final Filter filter=filtersBuilder.generate();
+  final Filter persistenceFilter=getPersistenceFilter(Volume.class,"status",volumeIds,"volume-id",filter);
+  final Predicate<? super Volume> requestedAndAccessible=CloudMetadatas.filteringFor(Volume.class).byId(volumeIds).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
+  final Function<Volume,VolumeStatusItemType> volumeTransform=TypeMappers.lookup(Volume.class,VolumeStatusItemType.class);
+  final Function<Set<String>,ArrayList<VolumeStatusItemType>> populateVolumeSet=new Function<Set<String>,ArrayList<VolumeStatusItemType>>(){
+    public ArrayList<VolumeStatusItemType> apply(    final Set<String> input){
+      final ArrayList<VolumeStatusItemType> replyVolumes=Lists.newArrayList();
+      final List<Volume> volumes=Entities.query(Volume.named(ownerFullName,null),true,persistenceFilter.asCriterion(),persistenceFilter.getAliases());
+      final Iterable<Volume> filteredVolumes=Iterables.filter(volumes,Predicates.and(new TrackingPredicate<Volume>(volumeIds),requestedAndAccessible));
+      for (      final Volume foundVol : filteredVolumes) {
+        if (State.ANNIHILATED.equals(foundVol.getState())) {
+          Entities.delete(foundVol);
+        }
+        replyVolumes.add(volumeTransform.apply(foundVol));
+      }
+      return replyVolumes;
+    }
+  }
+;
+  final ArrayList<VolumeStatusItemType> volumeStatusItemTypes=Entities.asTransaction(Volume.class,populateVolumeSet).apply(volumeIds);
+  errorIfNotFound("InvalidVolume.NotFound","volume",volumeIds);
+  reply.setVolumeStatusSet(volumeStatusItemTypes);
+  return reply;
 }

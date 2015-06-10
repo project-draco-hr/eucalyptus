@@ -1,22 +1,16 @@
 {
   final DescribeKeyPairsResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
-  final boolean showAll=request.getKeySet().remove("verbose");
+  final List<String> keyNames=request.getKeySet();
+  final boolean showAll=keyNames.remove("verbose");
   final OwnerFullName ownerFullName=ctx.isAdministrator() && showAll ? null : Contexts.lookup().getUserFullName().asAccountFullName();
   final Filter filter=Filters.generate(request.getFilterSet(),SshKeyPair.class);
-  final Predicate<? super SshKeyPair> requestedAndAccessible=CloudMetadatas.filteringFor(SshKeyPair.class).byId(request.getKeySet()).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
-  final List<String> foundKeyNameList=new ArrayList<>();
-  for (  final SshKeyPair kp : KeyPairs.list(ownerFullName,requestedAndAccessible,filter.asCriterion(),filter.getAliases())) {
+  final Filter persistenceFilter=getPersistenceFilter(SshKeyPair.class,keyNames,"key-name",filter);
+  final Predicate<? super SshKeyPair> requestedAndAccessible=CloudMetadatas.filteringFor(SshKeyPair.class).byId(keyNames).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
+  final Iterable<SshKeyPair> keyPairs=KeyPairs.list(ownerFullName,Predicates.and(new TrackingPredicate<SshKeyPair>(keyNames),requestedAndAccessible),persistenceFilter.asCriterion(),persistenceFilter.getAliases());
+  for (  final SshKeyPair kp : keyPairs) {
     reply.getKeySet().add(new DescribeKeyPairsResponseItemType(kp.getDisplayName(),kp.getFingerPrint()));
-    foundKeyNameList.add(kp.getDisplayName());
   }
-  if (!request.getKeySet().isEmpty() && request.getKeySet().size() != reply.getKeySet().size()) {
-    List<String> reverseRequestedKeySet=ImmutableList.copyOf(request.getKeySet()).reverse();
-    for (    String requestedKey : reverseRequestedKeySet) {
-      if (!foundKeyNameList.contains(requestedKey)) {
-        throw new ComputeServiceClientException("InvalidKeyPair.NotFound","The key pair '" + requestedKey + "' does not exist");
-      }
-    }
-  }
+  errorIfNotFound("InvalidKeyPair.NotFound","key pair",keyNames);
   return reply;
 }

@@ -1,12 +1,15 @@
 {
   final boolean showAll=ids.remove("verbose");
+  final List<String> normalizedIds=identifier.normalize(ids);
   final Context ctx=Contexts.lookup();
   final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
-  final OwnerFullName ownerFullName=ctx.isAdministrator() && showAll ? null : accountFullName;
+  final OwnerFullName ownerFullName=ctx.isAdministrator() && (showAll || !normalizedIds.isEmpty()) ? null : accountFullName;
   final Filter filter=Filters.generate(filters,persistent);
-  final Predicate<? super AP> requestedAndAccessible=CloudMetadatas.filteringFor(persistent).byId(identifier.normalize(ids)).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
+  final Filter persistenceFilter=getPersistenceFilter(persistent,normalizedIds,identifier.getFilterName(),filter);
+  final Predicate<? super AP> requestedAndAccessible=CloudMetadatas.filteringFor(persistent).byId(normalizedIds).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
   try (final TransactionResource tx=Entities.readOnlyDistinctTransactionFor(persistent)){
-    results.addAll(lister.list(ownerFullName,filter.asCriterion(),filter.getAliases(),requestedAndAccessible,TypeMappers.lookup(persistent,api)));
+    results.addAll(lister.list(ownerFullName,persistenceFilter.asCriterion(),persistenceFilter.getAliases(),Predicates.and(new TrackingPredicate<>(normalizedIds),requestedAndAccessible),TypeMappers.lookup(persistent,api)));
+    identifier.errorIfNotFound(normalizedIds);
     populateTags(accountFullName,persistent,results,idFunction);
   }
  catch (  Exception e) {
