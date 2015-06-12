@@ -9,10 +9,12 @@
     ownersSet.add(requestAccountId);
   }
   final Filter filter=Filters.generate(request.getFilterSet(),Snapshot.class);
-  try (final TransactionResource tx=Entities.transactionFor(Snapshot.class)){
-    final List<Snapshot> unfilteredSnapshots=Entities.query(Snapshot.named(null,null),true,filter.asCriterion(),filter.getAliases());
+  final Filter persistenceFilter=getPersistenceFilter(Snapshot.class,snapshotIds,"snapshot-id",filter);
+  try (final TransactionResource tx=Entities.readOnlyDistinctTransactionFor(Snapshot.class)){
+    final List<Snapshot> unfilteredSnapshots=Entities.query(Snapshot.named(null,null),true,persistenceFilter.asCriterion(),persistenceFilter.getAliases());
     final Predicate<? super Snapshot> requestedAndAccessible=CloudMetadatas.filteringFor(Snapshot.class).byId(snapshotIds).byOwningAccount(request.getOwnersSet()).byPredicate(Snapshots.filterRestorableBy(request.getRestorableBySet(),requestAccountId)).byPredicate(filter.asPredicate()).byPredicate(Snapshots.FilterPermissions.INSTANCE).byPrivilegesWithoutOwner().buildPredicate();
-    final Iterable<Snapshot> snapshots=Iterables.filter(unfilteredSnapshots,requestedAndAccessible);
+    final List<Snapshot> snapshots=Lists.newArrayList(Iterables.filter(unfilteredSnapshots,Predicates.and(new TrackingPredicate<>(snapshotIds),requestedAndAccessible)));
+    errorIfNotFound("InvalidSnapshot.NotFound","snapshot",snapshotIds);
     final Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(Snapshot.class).getResourceTagMap(AccountFullName.getInstance(ctx.getAccountNumber()),Iterables.transform(snapshots,CloudMetadatas.toDisplayName()));
     for (    final Snapshot snap : snapshots) {
       try {

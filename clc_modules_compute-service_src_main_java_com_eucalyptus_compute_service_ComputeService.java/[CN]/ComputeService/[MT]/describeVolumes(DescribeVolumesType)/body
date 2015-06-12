@@ -2,18 +2,23 @@
   final DescribeVolumesResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
   final boolean showAll=request.getVolumeSet().remove("verbose");
-  final AccountFullName ownerFullName=(ctx.isAdministrator() && showAll) ? null : ctx.getUserFullName().asAccountFullName();
   final Set<String> volumeIds=Sets.newLinkedHashSet(normalizeVolumeIdentifiers(request.getVolumeSet()));
-  final Filter filter=Filters.generate(request.getFilterSet(),Volume.class);
+  final AccountFullName ownerFullName=(ctx.isAdministrator() && (showAll || !volumeIds.isEmpty())) ? null : ctx.getUserFullName().asAccountFullName();
+  final Filters.FiltersBuilder filtersBuilder=Filters.generateFor(request.getFilterSet(),Volume.class);
+  if (!ctx.isAdministrator()) {
+    filtersBuilder.withOptionalInternalFilter("system-managed",Collections.singleton("false"));
+  }
+  final Filter filter=filtersBuilder.generate();
+  final Filter persistenceFilter=getPersistenceFilter(Volume.class,volumeIds,"volume-id",filter);
   final Predicate<? super Volume> requestedAndAccessible=CloudMetadatas.filteringFor(Volume.class).byId(volumeIds).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
   final Function<Set<String>,Pair<Set<String>,ArrayList<com.eucalyptus.compute.common.Volume>>> populateVolumeSet=new Function<Set<String>,Pair<Set<String>,ArrayList<com.eucalyptus.compute.common.Volume>>>(){
     public Pair<Set<String>,ArrayList<com.eucalyptus.compute.common.Volume>> apply(    final Set<String> input){
       final Set<String> allowedVolumeIds=Sets.newHashSet();
       final ArrayList<com.eucalyptus.compute.common.Volume> replyVolumes=Lists.newArrayList();
       final List<VmInstance> vms=VmInstances.list(ownerFullName,Predicates.alwaysTrue());
-      final List<Volume> volumes=Entities.query(Volume.named(ownerFullName,null),true,filter.asCriterion(),filter.getAliases());
-      for (      final Volume foundVol : Iterables.filter(volumes,requestedAndAccessible)) {
-        if (foundVol.getSystemManaged() && !ctx.isAdministrator())         continue;
+      final List<Volume> volumes=Entities.query(Volume.named(ownerFullName,null),true,persistenceFilter.asCriterion(),persistenceFilter.getAliases());
+      final Iterable<Volume> filteredVolumes=Iterables.filter(volumes,Predicates.and(new TrackingPredicate<Volume>(volumeIds),requestedAndAccessible));
+      for (      final Volume foundVol : filteredVolumes) {
         allowedVolumeIds.add(foundVol.getDisplayName());
         if (State.ANNIHILATED.equals(foundVol.getState())) {
           Entities.delete(foundVol);
@@ -43,10 +48,8 @@
   }
 ;
   final Pair<Set<String>,ArrayList<com.eucalyptus.compute.common.Volume>> volumeIdsAndVolumes=Entities.asTransaction(Volume.class,populateVolumeSet).apply(volumeIds);
+  errorIfNotFound("InvalidVolume.NotFound","volume",volumeIds);
   @SuppressWarnings("ConstantConditions") final Set<String> allowedVolumeIds=volumeIdsAndVolumes.getLeft();
-  if (allowedVolumeIds.isEmpty() && !volumeIds.isEmpty()) {
-    throw new ComputeServiceClientException("InvalidVolume.NotFound","The volume '" + Iterables.get(volumeIds,0) + "' does not exist.");
-  }
   reply.setVolumeSet(volumeIdsAndVolumes.getRight());
   Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(Volume.class).getResourceTagMap(AccountFullName.getInstance(ctx.getAccountNumber()),allowedVolumeIds);
   for (  final com.eucalyptus.compute.common.Volume volume : reply.getVolumeSet()) {

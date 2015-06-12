@@ -5,14 +5,12 @@
   final boolean includeAllInstances=Objects.firstNonNull(msg.getIncludeAllInstances(),Boolean.FALSE);
   final Collection<String> identifiers=normalizeInstanceIdentifiers(msg.getInstancesSet());
   final Filter filter=Filters.generateFor(msg.getFilterSet(),VmInstance.class,"status").withOptionalInternalFilter("instance-id",identifiers).generate();
+  final Filter persistenceFilter=getPersistenceFilter(VmInstance.class,"status",identifiers,"instance-id",filter);
   final Predicate<? super VmInstance> requestedAndAccessible=CloudMetadatas.filteringFor(VmInstance.class).byId(identifiers).byPredicate(includeAllInstances ? Predicates.<VmInstance>alwaysTrue() : VmInstance.VmState.RUNNING).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
-  final Criterion criterion=filter.asCriterionWithConjunction(Restrictions.not(VmInstance.criterion(VmInstance.VmState.BURIED)));
   final OwnerFullName ownerFullName=(ctx.isAdministrator() && showAll) ? null : ctx.getUserFullName().asAccountFullName();
   try {
-    final List<VmInstance> instances=VmInstances.list(ownerFullName,criterion,filter.getAliases(),requestedAndAccessible);
-    if (instances.isEmpty() && !identifiers.isEmpty()) {
-      throw new ComputeServiceClientException("InvalidInstanceID.NotFound","The instance '" + Iterables.get(identifiers,0) + "' was not found");
-    }
+    final List<VmInstance> instances=VmInstances.list(ownerFullName,persistenceFilter.asCriterionWithConjunction(Restrictions.not(VmInstance.criterion(VmInstance.VmState.BURIED))),persistenceFilter.getAliases(),Predicates.and(new TrackingPredicate<VmInstance>(identifiers),requestedAndAccessible));
+    errorIfNotFound("InvalidInstanceID.NotFound","instance ID",identifiers);
     Iterables.addAll(reply.getInstanceStatusSet().getItem(),Iterables.transform(instances,TypeMappers.lookup(VmInstance.class,InstanceStatusItemType.class)));
   }
  catch (  final Exception e) {
