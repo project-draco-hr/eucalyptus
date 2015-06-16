@@ -1,12 +1,18 @@
 {
   try (final TransactionResource tx=Entities.transactionFor(CertificateEntity.class)){
-    final List<CertificateEntity> entities=(List<CertificateEntity>)Entities.createCriteria(CertificateEntity.class).add(Restrictions.isNull("certificateHashId")).list();
+    final List<CertificateEntity> entities=(List<CertificateEntity>)Entities.createCriteria(CertificateEntity.class).add(Restrictions.or(Restrictions.isNull("certificateHashId"),Restrictions.eq("revoked",true))).list();
     for (    final CertificateEntity entity : entities) {
-      try {
-        entity.certificateHashId=Identifiers.generateCertificateIdentifier(X509CertHelper.toCertificate(entity.getPem()));
+      if (entity.revoked) {
+        logger.info("Deleting revoked certificate: " + entity.getCertificateId());
+        Entities.delete(entity);
       }
- catch (      Exception e) {
-        logger.error("Error generating fingerprint identifier for certificate",e);
+ else {
+        try {
+          entity.certificateHashId=Identifiers.generateCertificateIdentifier(X509CertHelper.toCertificate(entity.getPem()));
+        }
+ catch (        Exception e) {
+          logger.error("Error generating fingerprint identifier for certificate",e);
+        }
       }
     }
     tx.commit();
