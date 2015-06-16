@@ -2,8 +2,23 @@
   AWSEC2VolumeResourceAction action=(AWSEC2VolumeResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
   if (volumeDeleted(action,configuration))   return action;
-  DeleteVolumeType deleteVolumeType=MessageHelper.createMessage(DeleteVolumeType.class,action.info.getEffectiveUserId());
-  deleteVolumeType.setVolumeId(action.info.getPhysicalResourceId());
-  AsyncRequests.<DeleteVolumeType,DeleteVolumeResponseType>sendSync(configuration,deleteVolumeType);
+  if (!("Snapshot".equals(action.info.getDeletionPolicy())))   return action;
+  String snapshotId=JsonHelper.getJsonNodeFromString(action.info.getSnapshotIdForDelete()).asText();
+  String effectiveAdminUserId=Accounts.lookupPrincipalByAccountNumber(Accounts.lookupPrincipalByUserId(action.info.getEffectiveUserId()).getAccountNumber()).getUserId();
+  CreateTagsType createSystemTagsType=MessageHelper.createPrivilegedMessage(CreateTagsType.class,effectiveAdminUserId);
+  createSystemTagsType.setResourcesSet(Lists.newArrayList(snapshotId));
+  createSystemTagsType.setTagSet(EC2Helper.createTagSet(TagHelper.getEC2SystemTags(action.info,action.getStackEntity())));
+  AsyncRequests.<CreateTagsType,CreateTagsResponseType>sendSync(configuration,createSystemTagsType);
+  List<EC2Tag> tags=TagHelper.getEC2StackTags(action.getStackEntity());
+  if (action.properties.getTags() != null && !action.properties.getTags().isEmpty()) {
+    TagHelper.checkReservedEC2TemplateTags(action.properties.getTags());
+    tags.addAll(action.properties.getTags());
+  }
+  if (!tags.isEmpty()) {
+    CreateTagsType createTagsType=MessageHelper.createMessage(CreateTagsType.class,action.info.getEffectiveUserId());
+    createTagsType.setResourcesSet(Lists.newArrayList(snapshotId));
+    createTagsType.setTagSet(EC2Helper.createTagSet(tags));
+    AsyncRequests.<CreateTagsType,CreateTagsResponseType>sendSync(configuration,createTagsType);
+  }
   return action;
 }

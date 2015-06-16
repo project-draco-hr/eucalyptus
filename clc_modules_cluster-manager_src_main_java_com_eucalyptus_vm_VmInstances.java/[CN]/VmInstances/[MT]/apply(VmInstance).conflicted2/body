@@ -2,15 +2,20 @@
   try {
     final VmInstance vm=Entities.uniqueResult(VmInstance.named(null,v.getInstanceId()));
     if (VmStateSet.RUN.apply(vm)) {
-      setState(vm,VmState.STOPPING,VmInstance.Reason.USER_STOPPED);
+      VmInstance.Reason reason=Timeout.UNREPORTED.apply(vm) ? VmInstance.Reason.EXPIRED : VmInstance.Reason.USER_TERMINATED;
+      setState(vm,VmState.SHUTTING_DOWN,reason);
     }
- else     if (VmState.STOPPING.equals(vm.getState())) {
-      setState(vm,VmState.STOPPED,VmInstance.Reason.USER_STOPPED);
+ else     if (VmState.SHUTTING_DOWN.equals(vm.getState())) {
+      VmInstance.Reason reason=Timeout.SHUTTING_DOWN.apply(vm) || VmInstance.Reason.EXPIRED.apply(vm) ? VmInstance.Reason.EXPIRED : VmInstance.Reason.USER_TERMINATED;
+      setState(vm,VmState.TERMINATED,reason);
+    }
+ else     if (VmState.STOPPED.equals(vm.getState())) {
+      setState(vm,VmState.TERMINATED,VmInstance.Reason.USER_TERMINATED);
     }
     return vm;
   }
  catch (  final Exception ex) {
-    Logs.extreme().debug(ex,ex);
+    Logs.extreme().trace(ex,ex);
     throw new NoSuchElementException("Failed to lookup instance: " + v);
   }
 }

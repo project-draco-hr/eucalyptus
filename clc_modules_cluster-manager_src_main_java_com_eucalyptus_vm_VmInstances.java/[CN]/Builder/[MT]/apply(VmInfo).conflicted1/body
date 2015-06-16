@@ -1,5 +1,5 @@
 {
-  if (Networking.getInstance().supports(NetworkingFeature.Vpc)) {
+  if (!Networking.getInstance().supports(NetworkingFeature.Consistent)) {
     return false;
   }
   final VmState inputState=VmState.Mapper.get(input.getStateName());
@@ -17,13 +17,9 @@
       final String kernelId=RestoreHandler.restoreKernel(input);
       final String ramdiskId=RestoreHandler.restoreRamdisk(input);
       allocation=Allocations.restore(input,RestoreHandler.restoreLaunchIndex(input),RestoreHandler.restoreVmType(input),RestoreHandler.restoreBootSet(input,imageId,kernelId,ramdiskId),RestoreHandler.restorePartition(input),RestoreHandler.restoreSshKeyPair(input,userFullName),RestoreHandler.restoreUserData(input),userFullName);
-      final List<NetworkGroup> networks=RestoreHandler.restoreNetworks(input,userFullName);
-      allocation.setNetworkRules(CollectionUtils.putAll(networks,Maps.<String,NetworkGroup>newLinkedHashMap(),RestrictedTypes.toDisplayName(),Functions.<NetworkGroup>identity()));
-      VmInstanceLifecycleHelpers.get().prepareAllocation(input,allocation);
-      AdmissionControl.restore().apply(allocation);
-      allocation.commit();
       final ResourceToken token=Iterables.getOnlyElement(allocation.getAllocationTokens());
-      VmInstanceLifecycleHelpers.get().restoreInstanceResources(token,input);
+      token.setZombie(true);
+      allocation.commit();
       return true;
     }
  catch (    final Exception ex) {

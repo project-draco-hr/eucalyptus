@@ -9,11 +9,10 @@
     ownersSet.add(requestAccountId);
   }
   final Filter filter=Filters.generate(request.getFilterSet(),ImageInfo.class);
+  final Filter persistenceFilter=getPersistenceFilter(ImageInfo.class,imageIds,"image-id",filter);
   final Predicate<? super ImageInfo> requestedAndAccessible=CloudMetadatas.filteringFor(ImageInfo.class).byId(imageIds).byOwningAccount(request.getOwnersSet()).byPredicate(showAllStates ? Predicates.<ImageInfo>alwaysTrue() : Images.standardStatePredicate()).byPredicate(Images.filterExecutableBy(request.getExecutableBySet())).byPredicate(filter.asPredicate()).byPredicate(Images.FilterPermissions.INSTANCE).byPrivilegesWithoutOwner().buildPredicate();
-  final List<ImageDetails> imageDetailsList=Transactions.filteredTransform(new ImageInfo(),filter.asCriterion(),filter.getAliases(),requestedAndAccessible,Images.TO_IMAGE_DETAILS);
-  if (imageDetailsList.isEmpty() && !imageIds.isEmpty()) {
-    throw new ComputeServiceClientException("InvalidAMIID.NotFound","The image '" + Iterables.get(imageIds,0) + "' was not found");
-  }
+  final List<ImageDetails> imageDetailsList=Transactions.filteredTransform(new ImageInfo(),persistenceFilter.asCriterion(),persistenceFilter.getAliases(),Predicates.and(new TrackingPredicate<ImageInfo>(imageIds),requestedAndAccessible),Images.TO_IMAGE_DETAILS);
+  errorIfNotFound("InvalidAMIID.NotFound","image",imageIds);
   final Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(ImageInfo.class).getResourceTagMap(AccountFullName.getInstance(ctx.getAccountNumber()),Iterables.transform(imageDetailsList,ImageDetails.imageId()));
   for (  final ImageDetails details : imageDetailsList) {
     Tags.addFromTags(details.getTagSet(),ResourceTag.class,tagsMap.get(details.getImageId()));

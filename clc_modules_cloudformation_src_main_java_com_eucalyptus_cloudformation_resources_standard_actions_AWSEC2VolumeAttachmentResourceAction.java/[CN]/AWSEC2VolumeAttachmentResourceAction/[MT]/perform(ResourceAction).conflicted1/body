@@ -1,30 +1,11 @@
 {
   AWSEC2VolumeAttachmentResourceAction action=(AWSEC2VolumeAttachmentResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  boolean attached=false;
-  DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,action.info.getEffectiveUserId());
-  describeVolumesType.setVolumeSet(Lists.newArrayList(action.properties.getVolumeId()));
-  DescribeVolumesResponseType describeVolumesResponseType;
-  try {
-    describeVolumesResponseType=AsyncRequests.sendSync(configuration,describeVolumesType);
-  }
- catch (  Exception e) {
-    throw new ValidationErrorException("Error describing volume " + action.properties.getVolumeId() + ":"+ asWebServiceErrorMessage(e,e.getMessage()));
-  }
-  if (describeVolumesResponseType.getVolumeSet().size() == 0) {
-    throwNotAttachedMessage(action.properties.getVolumeId(),action.properties.getInstanceId());
-  }
-  if (describeVolumesResponseType.getVolumeSet().get(0).getAttachmentSet() == null || describeVolumesResponseType.getVolumeSet().get(0).getAttachmentSet().isEmpty()) {
-    throwNotAttachedMessage(action.properties.getVolumeId(),action.properties.getInstanceId());
-  }
-  for (  AttachedVolume attachedVolume : describeVolumesResponseType.getVolumeSet().get(0).getAttachmentSet()) {
-    if (attachedVolume.getInstanceId().equals(action.properties.getInstanceId()) && attachedVolume.getDevice().equals(action.properties.getDevice()) && attachedVolume.getStatus().equals("attached")) {
-      attached=true;
-      break;
-    }
-  }
-  if (!attached) {
-    throwNotAttachedMessage(action.properties.getVolumeId(),action.properties.getInstanceId());
-  }
+  if (notCreatedOrNoInstanceOrNoVolume(action,configuration))   return action;
+  DetachVolumeType detachVolumeType=MessageHelper.createMessage(DetachVolumeType.class,action.info.getEffectiveUserId());
+  detachVolumeType.setInstanceId(action.properties.getInstanceId());
+  detachVolumeType.setVolumeId(action.properties.getVolumeId());
+  detachVolumeType.setDevice(action.properties.getDevice());
+  AsyncRequests.<DetachVolumeType,DetachVolumeResponseType>sendSync(configuration,detachVolumeType);
   return action;
 }
