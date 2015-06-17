@@ -1,0 +1,29 @@
+{
+  Optional<AsyncWebServiceError> error=Optional.absent();
+  final EucalyptusWebServiceException serviceException=Exceptions.findCause(throwable,EucalyptusWebServiceException.class);
+  if (serviceException != null) {
+    final QueryBindingInfo info=Ats.inClassHierarchy(serviceException.getClass()).get(QueryBindingInfo.class);
+    error=Optional.of(new AsyncWebServiceError(info == null ? 500 : info.statusCode(),serviceException.getCode(),serviceException.getMessage()));
+  }
+  if (!error.isPresent()) {
+    final EucalyptusRemoteFault remoteFault=Exceptions.findCause(throwable,EucalyptusRemoteFault.class);
+    if (remoteFault != null) {
+      final HttpResponseStatus status=Objects.firstNonNull(remoteFault.getStatus(),HttpResponseStatus.INTERNAL_SERVER_ERROR);
+      final String code=remoteFault.getFaultCode();
+      final String message=remoteFault.getFaultDetail();
+      error=Optional.of(new AsyncWebServiceError(status.getCode(),code,message));
+    }
+  }
+  if (!error.isPresent()) {
+    final FailedRequestException failedRequestException=Exceptions.findCause(throwable,FailedRequestException.class);
+    if (failedRequestException != null && failedRequestException.getRequest() instanceof WebServiceError) {
+      final WebServiceError webServiceError=failedRequestException.getRequest();
+      final String code=webServiceError.getWebServiceErrorCode();
+      final String message=webServiceError.getWebServiceErrorMessage();
+      if (code != null && message != null) {
+        error=Optional.of(new AsyncWebServiceError(0,code,message));
+      }
+    }
+  }
+  return error;
+}

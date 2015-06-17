@@ -6,11 +6,12 @@
   final Map<String,ReservationInfoType> reservations=Maps.newHashMap();
   final Collection<String> identifiers=normalizeInstanceIdentifiers(msg.getInstancesSet());
   final Filter filter=Filters.generateFor(msg.getFilterSet(),VmInstance.class).withOptionalInternalFilter("instance-id",identifiers).generate();
+  final Filter persistenceFilter=getPersistenceFilter(VmInstance.class,identifiers,"instance-id",filter);
   final Predicate<? super VmInstance> requestedAndAccessible=CloudMetadatas.filteringFor(VmInstance.class).byId(identifiers).byPredicate(filter.asPredicate()).byPrivileges().buildPredicate();
-  final Criterion criterion=filter.asCriterionWithConjunction(Restrictions.not(VmInstance.criterion(VmInstance.VmState.BURIED)));
   final OwnerFullName ownerFullName=(ctx.isAdministrator() && showAll) ? null : ctx.getUserFullName().asAccountFullName();
   try (final TransactionResource db=Entities.readOnlyDistinctTransactionFor(VmInstance.class)){
-    final List<VmInstance> instances=VmInstances.list(ownerFullName,criterion,filter.getAliases(),requestedAndAccessible);
+    final List<VmInstance> instances=VmInstances.list(ownerFullName,persistenceFilter.asCriterionWithConjunction(Restrictions.not(VmInstance.criterion(VmInstance.VmState.BURIED))),persistenceFilter.getAliases(),Predicates.and(new TrackingPredicate<VmInstance>(identifiers),requestedAndAccessible));
+    errorIfNotFound("InvalidInstanceID.NotFound","instance ID",identifiers);
     final Map<String,List<Tag>> tagsMap=TagSupport.forResourceClass(VmInstance.class).getResourceTagMap(AccountFullName.getInstance(ctx.getAccountNumber()),Iterables.transform(instances,CloudMetadatas.toDisplayName()));
     for (    final VmInstance vm : instances) {
       if (instanceMap.put(vm.getReservationId(),VmInstance.transform(vm)) && !reservations.containsKey(vm.getReservationId())) {
@@ -30,6 +31,7 @@
     }
   }
  catch (  final Exception e) {
+    Exceptions.findAndRethrow(e,ComputeServiceException.class);
     LOG.error(e);
     LOG.debug(e,e);
     throw new EucalyptusCloudException(e.getMessage());

@@ -1,29 +1,31 @@
 {
-  String accountName=this.delegate.getName();
-  if (userName == null) {
-    throw new AuthException(AuthException.EMPTY_USER_NAME);
-  }
-  if (!forceDeleteAdmin && DatabaseAuthUtils.isAccountAdmin(userName)) {
-    throw new AuthException(AuthException.DELETE_ACCOUNT_ADMIN);
-  }
-  if (!recursive && userHasResourceAttached(userName,accountName)) {
-    throw new AuthException(AuthException.USER_DELETE_CONFLICT);
-  }
-  try (final TransactionResource db=Entities.transactionFor(UserEntity.class)){
-    UserEntity user=DatabaseAuthUtils.getUniqueUser(userName,accountName);
-    for (    GroupEntity ge : user.getGroups()) {
-      if (ge.isUserGroup()) {
-        Entities.delete(ge);
-      }
- else {
-        ge.getUsers().remove(user);
-      }
+synchronized (getLock()) {
+    String accountName=this.delegate.getName();
+    if (userName == null) {
+      throw new AuthException(AuthException.EMPTY_USER_NAME);
     }
-    Entities.delete(user);
-    db.commit();
-  }
- catch (  Exception e) {
-    Debugging.logError(LOG,e,"Failed to delete user: " + userName + " in "+ accountName);
-    throw new AuthException(AuthException.NO_SUCH_USER,e);
+    if (!forceDeleteAdmin && DatabaseAuthUtils.isAccountAdmin(userName)) {
+      throw new AuthException(AuthException.DELETE_ACCOUNT_ADMIN);
+    }
+    if (!recursive && userHasResourceAttached(userName,accountName)) {
+      throw new AuthException(AuthException.USER_DELETE_CONFLICT);
+    }
+    try (final TransactionResource db=Entities.transactionFor(UserEntity.class)){
+      UserEntity user=DatabaseAuthUtils.getUniqueUser(userName,accountName);
+      for (      GroupEntity ge : user.getGroups()) {
+        if (ge.isUserGroup()) {
+          Entities.delete(ge);
+        }
+ else {
+          ge.getUsers().remove(user);
+        }
+      }
+      Entities.delete(user);
+      db.commit();
+    }
+ catch (    Exception e) {
+      Debugging.logError(LOG,e,"Failed to delete user: " + userName + " in "+ accountName);
+      throw new AuthException(AuthException.NO_SUCH_USER,e);
+    }
   }
 }

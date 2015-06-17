@@ -77,6 +77,7 @@ case DONE:
     if (imagingTask instanceof VolumeImagingTask) {
       try {
         ImagingTasks.updateVolumeStatus((VolumeImagingTask)imagingTask,volumeId,ImportTaskState.COMPLETED,null);
+        Volumes.setSystemManagedFlag(null,volumeId,false);
       }
  catch (      final Exception ex) {
         ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.FAILED,ImportTaskState.STATE_MSG_FAILED_UNEXPECTED);
@@ -101,7 +102,7 @@ case DONE:
   break;
 case FAILED:
 String stateMsg=ImportTaskState.STATE_MSG_CONVERSION_FAILED;
-if (request.getStatusMessage() != null) stateMsg=request.getStatusMessage();
+if (request.getMessage() != null) stateMsg=request.getMessage();
 ImagingTasks.setState(imagingTask,ImportTaskState.FAILED,stateMsg);
 LOG.warn(String.format("Worker reported failed conversion: %s-%s",stateMsg,request.getErrorCode() != null ? request.getErrorCode() : "no error code"));
 final String errorCode=request.getErrorCode();
@@ -120,13 +121,7 @@ break;
 }
 }
 }
-LOG.debug("Image that failed conversion: " + imageId);
-if (imageId != null) {
-for (VmInstance vm : VmInstances.list(new InstanceByImageId(imageId))) {
-LOG.debug("Shutting down instance: " + vm.getInstanceId());
-VmInstances.setState(vm,VmState.SHUTTING_DOWN,Reason.FAILED);
-}
-}
+ImagingSupport.terminateInstancesWaitingImageConversion(imageId);
 }
 break;
 }

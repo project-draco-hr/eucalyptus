@@ -1,8 +1,36 @@
 {
   try {
-    if (t.getValue() != null && !t.getValue().equals(newValue))     onPropertyChange(null,null,newValue,null);
+    if (t.getValue() != null && !t.getValue().equals(keyname)) {
+      if (keyname != null && !keyname.isEmpty()) {
+        boolean oldElbExist=false;
+        for (        LoadBalancer lb : LoadBalancers.listLoadbalancers()) {
+          if (!lb.useSystemAccount()) {
+            oldElbExist=true;
+            break;
+          }
+        }
+        try {
+          Ec2Client.getInstance().describeKeyPairs(Accounts.lookupSystemAccountByAlias(AccountIdentifiers.ELB_SYSTEM_ACCOUNT).getUserId(),Lists.newArrayList(keyname));
+        }
+ catch (        Exception ex) {
+          throw new ConfigurablePropertyException("Could not change key name due to: " + ex.getMessage() + ". Do you have keypair "+ keyname+ " that belongs to "+ AccountIdentifiers.ELB_SYSTEM_ACCOUNT+ " account?");
+        }
+        if (oldElbExist) {
+          try {
+            Ec2Client.getInstance().describeKeyPairs(null,Lists.newArrayList(keyname));
+          }
+ catch (          Exception ex) {
+            throw new ConfigurablePropertyException("Could not change key name due to: " + ex.getMessage() + ". Do you have keypair "+ keyname+ " that belongs to system account?");
+          }
+        }
+      }
+      onPropertyChange(null,null,keyname,null);
+    }
   }
- catch (  final Exception e) {
+ catch (  final ConfigurablePropertyException e) {
+    throw e;
+  }
+catch (  final Exception e) {
     throw new ConfigurablePropertyException("Could not change key name due to: " + e.getMessage());
   }
 }

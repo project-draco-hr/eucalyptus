@@ -3,6 +3,22 @@
   for (  final LoadBalancer lb : accountLbs) {
     if (lbName.toLowerCase().equals(lb.getDisplayName().toLowerCase()))     throw new DuplicateAccessPointName();
   }
+  if (vpcId == null) {
+    final String securityGroupName=SecurityGroupSetup.getSecurityGroupName(user.getAccountNumber(),lbName);
+    try (final TransactionResource db=Entities.transactionFor(LoadBalancerSecurityGroup.class)){
+      try {
+        final List<LoadBalancerSecurityGroup> groups=Entities.query(LoadBalancerSecurityGroup.withState(STATE.OutOfService));
+        for (        final LoadBalancerSecurityGroup group : groups) {
+          if (securityGroupName.equals(group.getName())) {
+            throw new InternalFailureException("Cleaning up the previous ELB with the same name. Retry in a few minutes.");
+          }
+        }
+      }
+ catch (      final NoSuchElementException e) {
+        ;
+      }
+    }
+   }
   try (final TransactionResource db=Entities.transactionFor(LoadBalancer.class)){
     try {
       if (Entities.uniqueResult(LoadBalancer.namedByAccountId(user.getAccountNumber(),lbName)) != null)       throw new DuplicateAccessPointName();
