@@ -1,0 +1,57 @@
+{
+  if (cloudWatchSupplier == null)   return;
+  final InstanceUsageEvent event=cloudWatchSupplier.get();
+  LOG.trace(event);
+  if (!instanceInfoProvider.getInstanceId(event.getInstanceId()).equals(event.getInstanceId()) || !instanceInfoProvider.getMonitoring(event.getInstanceId())) {
+    LOG.trace("Instance : " + event.getInstanceId() + " monitoring is not enabled");
+    return;
+  }
+  if (instanceInfoProvider.getInstanceId(event.getInstanceId()).equals(event.getInstanceId()) && instanceInfoProvider.getMonitoring(event.getInstanceId())) {
+    AbsoluteMetricQueueItem newQueueItem=new AbsoluteMetricQueueItem();
+    MetricDatum metricDatum=new MetricDatum();
+    ArrayList<Dimension> dimArray=Lists.newArrayList();
+    if (event.getDimension() != null && event.getValue() != null) {
+      if (event.getDimension().startsWith("vol-")) {
+        newQueueItem.setNamespace("AWS/EBS");
+        Dimension volDim=new Dimension();
+        volDim.setName("VolumeId");
+        volDim.setValue(event.getDimension());
+        dimArray.add(volDim);
+        if (event.getMetric().startsWith("Disk")) {
+          final String convertedEBSMetricName=event.getMetric().replace("Disk","Volume");
+          metricDatum.setMetricName(convertedEBSMetricName);
+        }
+ else {
+          metricDatum.setMetricName(event.getMetric());
+        }
+      }
+ else {
+        newQueueItem.setNamespace("AWS/EC2");
+        populateInstanceDimensions(event.getInstanceId(),dimArray);
+        if (UNSUPPORTED_EC2_METRICS.contains(event.getMetric())) {
+          return;
+        }
+ else {
+          metricDatum.setMetricName(event.getMetric());
+        }
+      }
+    }
+ else {
+      LOG.debug("Event does not contain a dimension");
+      return;
+    }
+    Dimensions dims=new Dimensions();
+    dims.setMember(dimArray);
+    metricDatum.setTimestamp(new Date(event.getValueTimestamp()));
+    metricDatum.setDimensions(dims);
+    metricDatum.setValue(event.getValue());
+    final String unitType=containsUnitType(metricDatum.getMetricName());
+    metricDatum.setUnit(unitType);
+    if (ABSOLUTE_METRICS.containsKey(metricDatum.getMetricName())) {
+      metricDatum.setMetricName(ABSOLUTE_METRICS.get(metricDatum.getMetricName()));
+    }
+    newQueueItem.setMetricDatum(metricDatum);
+    newQueueItem.setAccountId(instanceInfoProvider.getEffectiveUserId(event.getInstanceId()).getAccountNumber());
+    queueItems.add(newQueueItem);
+  }
+}
