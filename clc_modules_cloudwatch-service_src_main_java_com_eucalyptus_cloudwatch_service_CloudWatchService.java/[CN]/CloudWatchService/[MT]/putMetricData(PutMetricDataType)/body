@@ -1,0 +1,27 @@
+{
+  PutMetricDataResponseType reply=request.getReply();
+  long before=System.currentTimeMillis();
+  final Context ctx=Contexts.lookup();
+  try {
+    checkActionPermission(PolicySpec.CLOUDWATCH_PUTMETRICDATA,ctx);
+    if (CloudWatchConfigProperties.isDisabledCloudWatchService()) {
+      faultDisableCloudWatchServiceIfNecessary();
+      throw new ServiceDisabledException("Service Disabled");
+    }
+    final OwnerFullName ownerFullName=ctx.getUserFullName();
+    final List<MetricDatum> metricData=CloudWatchBackendServiceFieldValidator.validateMetricData(request.getMetricData());
+    final String namespace=CloudWatchBackendServiceFieldValidator.validateNamespace(request.getNamespace(),true);
+    final Boolean privileged=Contexts.lookup().isPrivileged();
+    LOG.trace("Namespace=" + namespace);
+    LOG.trace("metricData=" + metricData);
+    MetricType metricType=CloudWatchBackendServiceFieldValidator.getMetricTypeFromNamespace(namespace);
+    if (metricType == MetricType.System && !privileged) {
+      throw new InvalidParameterValueException("The value AWS/ for parameter Namespace is invalid.");
+    }
+    MetricDataQueue.getInstance().insertMetricData(ownerFullName.getAccountNumber(),namespace,metricData,metricType);
+  }
+ catch (  Exception ex) {
+    handleException(ex);
+  }
+  return reply;
+}

@@ -1,0 +1,90 @@
+{
+  if (dimensionMap == null) {
+    dimensionMap=new HashMap<String,String>();
+  }
+ else   if (dimensionMap.size() > MetricEntity.MAX_DIM_NUM) {
+    throw new IllegalArgumentException("Too many dimensions for metric, " + dimensionMap.size());
+  }
+  TreeSet<DimensionEntity> dimensions=new TreeSet<DimensionEntity>();
+  for (  Map.Entry<String,String> entry : dimensionMap.entrySet()) {
+    DimensionEntity d=new DimensionEntity();
+    d.setName(entry.getKey());
+    d.setValue(entry.getValue());
+    dimensions.add(d);
+  }
+  Date now=new Date();
+  if (endTime == null)   endTime=now;
+  if (startTime == null)   startTime=new Date(now.getTime() - 60 * 60 * 1000L);
+  startTime=MetricUtils.stripSeconds(startTime);
+  endTime=MetricUtils.stripSeconds(endTime);
+  if (startTime.after(endTime)) {
+    throw new IllegalArgumentException("Start time must be after end time");
+  }
+  if (period == null) {
+    period=60;
+  }
+  if (period % 60 != 0) {
+    throw new IllegalArgumentException("Period must be a multiple of 60");
+  }
+  if (period < 0) {
+    throw new IllegalArgumentException("Period must be greater than 0");
+  }
+  if (period == 0) {
+    throw new IllegalArgumentException("Period must not equal 0");
+  }
+  if (metricType == null) {
+    throw new IllegalArgumentException("metricType must not be null");
+  }
+  if (accountId == null) {
+    throw new IllegalArgumentException("accountId must not be null");
+  }
+  if (metricName == null) {
+    throw new IllegalArgumentException("metricName must not be null");
+  }
+  if (namespace == null) {
+    throw new IllegalArgumentException("namespace must not be null");
+  }
+  String hash=hash(dimensions);
+  Class metricEntityClass=MetricEntityFactory.getClassForEntitiesGet(metricType,hash);
+  Map<GetMetricStatisticsAggregationKey,MetricStatistics> aggregationMap=new TreeMap<GetMetricStatisticsAggregationKey,MetricStatistics>(GetMetricStatisticsAggregationKey.COMPARATOR_WITH_NULLS.INSTANCE);
+  EntityTransaction db=Entities.get(metricEntityClass);
+  try {
+    Criteria criteria=Entities.createCriteria(metricEntityClass);
+    criteria=criteria.add(Restrictions.eq("accountId",accountId));
+    criteria=criteria.add(Restrictions.eq("metricName",metricName));
+    criteria=criteria.add(Restrictions.eq("namespace",namespace));
+    criteria=criteria.add(Restrictions.lt("timestamp",endTime));
+    criteria=criteria.add(Restrictions.ge("timestamp",startTime));
+    criteria=criteria.add(Restrictions.eq("dimensionHash",hash));
+    if (units != null) {
+      criteria=criteria.add(Restrictions.eq("units",units));
+    }
+    criteria=criteria.addOrder(Order.asc("creationTimestamp"));
+    criteria=criteria.addOrder(Order.asc("naturalId"));
+    Collection results=criteria.list();
+    for (    Object o : results) {
+      MetricEntity me=(MetricEntity)o;
+      GetMetricStatisticsAggregationKey key=new GetMetricStatisticsAggregationKey(me,startTime,period,hash);
+      MetricStatistics item=new MetricStatistics(me,startTime,period,dimensions);
+      if (!aggregationMap.containsKey(key)) {
+        aggregationMap.put(key,item);
+      }
+ else {
+        MetricStatistics totalSoFar=aggregationMap.get(key);
+        totalSoFar.setSampleMax(Math.max(item.getSampleMax(),totalSoFar.getSampleMax()));
+        totalSoFar.setSampleMin(Math.min(item.getSampleMin(),totalSoFar.getSampleMin()));
+        totalSoFar.setSampleSize(totalSoFar.getSampleSize() + item.getSampleSize());
+        totalSoFar.setSampleSum(totalSoFar.getSampleSum() + item.getSampleSum());
+      }
+    }
+    db.commit();
+  }
+ catch (  RuntimeException ex) {
+    Logs.extreme().error(ex,ex);
+    throw ex;
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+  return Lists.newArrayList(aggregationMap.values());
+}
