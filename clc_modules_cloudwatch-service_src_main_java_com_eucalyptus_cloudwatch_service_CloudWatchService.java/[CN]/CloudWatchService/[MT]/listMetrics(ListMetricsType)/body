@@ -1,0 +1,34 @@
+{
+  ListMetricsResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  try {
+    checkActionPermission(PolicySpec.CLOUDWATCH_LISTMETRICS,ctx);
+    final OwnerFullName ownerFullName=ctx.getUserFullName();
+    final String namespace=CloudWatchBackendServiceFieldValidator.validateNamespace(request.getNamespace(),false);
+    final String metricName=CloudWatchBackendServiceFieldValidator.validateMetricName(request.getMetricName(),false);
+    final Map<String,String> dimensionMap=TransformationFunctions.DimensionFiltersToMap.INSTANCE.apply(CloudWatchBackendServiceFieldValidator.validateDimensionFilters(request.getDimensions()));
+    final Date after=new Date(System.currentTimeMillis() - 2 * 7 * 24* 60* 60* 1000L);
+    final Date before=null;
+    final Integer maxRecords=500;
+    final String nextToken=request.getNextToken();
+    final List<ListMetric> results;
+    try {
+      results=ListMetricManager.listMetrics(ownerFullName.getAccountNumber(),metricName,namespace,dimensionMap,after,before,maxRecords,nextToken);
+    }
+ catch (    InvalidTokenException e) {
+      throw new InvalidParameterValueException("Invalid nextToken");
+    }
+    final Metrics metrics=new Metrics();
+    metrics.setMember(Lists.newArrayList(Collections2.<ListMetric,Metric>transform(results,TransformationFunctions.ListMetricToMetric.INSTANCE)));
+    final ListMetricsResult listMetricsResult=new ListMetricsResult();
+    listMetricsResult.setMetrics(metrics);
+    if (maxRecords != null && results.size() == maxRecords) {
+      listMetricsResult.setNextToken(results.get(results.size() - 1).getNaturalId());
+    }
+    reply.setListMetricsResult(listMetricsResult);
+  }
+ catch (  Exception ex) {
+    handleException(ex);
+  }
+  return reply;
+}

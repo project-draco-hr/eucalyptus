@@ -5,14 +5,20 @@
     final boolean showAll=request.getAlarms().remove("verbose");
     final OwnerFullName ownerFullName=ctx.getUserFullName();
     final String accountId=ctx.isAdministrator() && showAll ? null : ownerFullName.getAccountNumber();
-    final String actionPrefix=validateActionPrefix(request.getActionPrefix(),false);
-    final String alarmNamePrefix=validateAlarmNamePrefix(request.getAlarmNamePrefix(),false);
-    final Collection<String> alarmNames=validateAlarmNames(request.getAlarmNames(),false);
-    validateNotBothAlarmNamesAndAlarmNamePrefix(alarmNames,alarmNamePrefix);
-    final Integer maxRecords=validateMaxRecords(request.getMaxRecords());
+    final String actionPrefix=CloudWatchBackendServiceFieldValidator.validateActionPrefix(request.getActionPrefix(),false);
+    final String alarmNamePrefix=CloudWatchBackendServiceFieldValidator.validateAlarmNamePrefix(request.getAlarmNamePrefix(),false);
+    final Collection<String> alarmNames=CloudWatchBackendServiceFieldValidator.validateAlarmNames(request.getAlarmNames(),false);
+    CloudWatchBackendServiceFieldValidator.validateNotBothAlarmNamesAndAlarmNamePrefix(alarmNames,alarmNamePrefix);
+    final Integer maxRecords=CloudWatchBackendServiceFieldValidator.validateMaxRecords(request.getMaxRecords());
     final String nextToken=request.getNextToken();
-    final StateValue stateValue=validateStateValue(request.getStateValue(),false);
-    final List<AlarmEntity> results=AlarmManager.describeAlarms(accountId,actionPrefix,alarmNamePrefix,alarmNames,maxRecords,stateValue,nextToken,RestrictedTypes.filteringFor(CloudWatchMetadata.AlarmMetadata.class).byPrivileges().buildPredicate());
+    final StateValue stateValue=CloudWatchBackendServiceFieldValidator.validateStateValue(request.getStateValue(),false);
+    final List<AlarmEntity> results;
+    try {
+      results=AlarmManager.describeAlarms(accountId,actionPrefix,alarmNamePrefix,alarmNames,maxRecords,stateValue,nextToken,RestrictedTypes.filteringFor(CloudWatchMetadata.AlarmMetadata.class).byPrivileges().buildPredicate());
+    }
+ catch (    InvalidTokenException ex) {
+      throw new InvalidNextTokenException(ex.getMessage());
+    }
     if (maxRecords != null && results.size() == maxRecords) {
       reply.getDescribeAlarmsResult().setNextToken(results.get(results.size() - 1).getNaturalId());
     }
