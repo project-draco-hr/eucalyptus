@@ -1,0 +1,30 @@
+{
+  final EntityTransaction db=Entities.get(AlarmEntity.class);
+  try {
+    AlarmEntity alarmEntity=(AlarmEntity)Entities.createCriteria(AlarmEntity.class).add(Restrictions.eq("accountId",accountId)).add(Restrictions.eq("alarmName",alarmName)).uniqueResult();
+    if (alarmEntity == null && CloudWatchResourceName.isResourceName().apply(alarmName))     try {
+      final CloudWatchResourceName arn=CloudWatchResourceName.parse(alarmName,CloudWatchResourceName.Type.alarm);
+      alarmEntity=(AlarmEntity)Entities.createCriteria(AlarmEntity.class).add(Restrictions.eq("accountId",arn.getNamespace())).add(Restrictions.eq("alarmName",arn.getName())).uniqueResult();
+    }
+ catch (    CloudWatchResourceName.InvalidResourceNameException e) {
+    }
+    if (alarmEntity == null || !filter.apply(alarmEntity)) {
+      throw new AlarmNotFoundException("Could not find alarm with name '" + alarmName + "'");
+    }
+    StateValue oldStateValue=alarmEntity.getStateValue();
+    if (stateValue != oldStateValue) {
+      Date evaluationDate=new Date();
+      AlarmState newState=createAlarmState(stateValue,stateReason,stateReasonData);
+      AlarmManager.changeAlarmState(alarmEntity,newState,evaluationDate);
+      AlarmManager.executeActions(alarmEntity,newState,true,evaluationDate);
+    }
+    db.commit();
+  }
+ catch (  RuntimeException ex) {
+    Logs.extreme().error(ex,ex);
+    throw ex;
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+}

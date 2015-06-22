@@ -2,17 +2,22 @@
   final SetAlarmStateResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
   try {
-    if (DISABLE_CLOUDWATCH_SERVICE) {
+    if (CloudWatchConfigProperties.isDisabledCloudWatchService()) {
       faultDisableCloudWatchServiceIfNecessary();
       throw new ServiceDisabledException("Service Disabled");
     }
     final OwnerFullName ownerFullName=ctx.getUserFullName();
     final String accountId=ownerFullName.getAccountNumber();
-    final String alarmName=validateAlarmName(request.getAlarmName(),true);
-    final String stateReason=validateStateReason(request.getStateReason(),true);
-    final String stateReasonData=validateStateReasonData(request.getStateReasonData(),false);
-    final StateValue stateValue=validateStateValue(request.getStateValue(),true);
-    AlarmManager.setAlarmState(accountId,alarmName,stateReason,stateReasonData,stateValue,RestrictedTypes.<CloudWatchMetadata.AlarmMetadata>filterPrivileged());
+    final String alarmName=CloudWatchBackendServiceFieldValidator.validateAlarmName(request.getAlarmName(),true);
+    final String stateReason=CloudWatchBackendServiceFieldValidator.validateStateReason(request.getStateReason(),true);
+    final String stateReasonData=CloudWatchBackendServiceFieldValidator.validateStateReasonData(request.getStateReasonData(),false);
+    final StateValue stateValue=CloudWatchBackendServiceFieldValidator.validateStateValue(request.getStateValue(),true);
+    try {
+      AlarmManager.setAlarmState(accountId,alarmName,stateReason,stateReasonData,stateValue,RestrictedTypes.<CloudWatchMetadata.AlarmMetadata>filterPrivileged());
+    }
+ catch (    AlarmNotFoundException ex) {
+      throw new ResourceNotFoundException(ex.getMessage());
+    }
   }
  catch (  Exception ex) {
     handleException(ex);

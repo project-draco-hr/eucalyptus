@@ -1,0 +1,52 @@
+{
+  if (dimensionMap != null && dimensionMap.size() > ListMetric.MAX_DIM_NUM) {
+    throw new IllegalArgumentException("Too many dimensions " + dimensionMap.size());
+  }
+  EntityTransaction db=Entities.get(ListMetric.class);
+  try {
+    Date nextTokenCreatedTime=NextTokenUtils.getNextTokenCreatedTime(nextToken,ListMetric.class);
+    Map<String,String> sortedDimensionMap=new TreeMap<String,String>();
+    Criteria criteria=Entities.createCriteria(ListMetric.class);
+    if (accountId != null) {
+      criteria=criteria.add(Restrictions.eq("accountId",accountId));
+    }
+    if (metricName != null) {
+      criteria=criteria.add(Restrictions.eq("metricName",metricName));
+    }
+    if (namespace != null) {
+      criteria=criteria.add(Restrictions.eq("namespace",namespace));
+    }
+    if (before != null) {
+      criteria=criteria.add(Restrictions.le("lastUpdateTimestamp",before));
+    }
+    if (after != null) {
+      criteria=criteria.add(Restrictions.ge("lastUpdateTimestamp",after));
+    }
+    if (dimensionMap != null && !dimensionMap.isEmpty()) {
+      sortedDimensionMap.putAll(dimensionMap);
+      int numDimensions=sortedDimensionMap.size();
+      int lowDimNum=1;
+      int highDimNum=ListMetric.MAX_DIM_NUM + 1 - numDimensions;
+      for (      Map.Entry<String,String> dimEntry : sortedDimensionMap.entrySet()) {
+        Disjunction or=Restrictions.disjunction();
+        for (int i=lowDimNum; i <= highDimNum; i++) {
+          or.add(Restrictions.conjunction().add(Restrictions.eq("dim" + i + "Name",dimEntry.getKey())).add(Restrictions.eq("dim" + i + "Value",dimEntry.getValue())));
+        }
+        lowDimNum++;
+        highDimNum++;
+        criteria=criteria.add(or);
+      }
+    }
+    criteria=NextTokenUtils.addNextTokenConstraints(maxRecords,nextToken,nextTokenCreatedTime,criteria);
+    List<ListMetric> dbResult=(List<ListMetric>)criteria.list();
+    db.commit();
+    return dbResult;
+  }
+ catch (  RuntimeException ex) {
+    Logs.extreme().error(ex,ex);
+    throw ex;
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+}

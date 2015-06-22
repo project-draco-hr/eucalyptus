@@ -1,0 +1,39 @@
+{
+  final DescribeServiceCertificatesResponseType reply=request.getReply();
+  final Predicate<ServiceConfiguration> configPredicate=Filters.publicService();
+  final List<ServiceCertificateType> serviceCertificates=Lists.newArrayList();
+  final Predicate<Component> componentPredicate=Predicates.compose(Filters.componentFrom(request.getFilters()),Components.componentId());
+  final Predicate<String> usagePredicate=Filters.usageFrom(request.getFilters());
+  for (  final Component comp : Iterables.filter(Components.list(),componentPredicate)) {
+    if (Iterables.any(comp.services(),Predicates.and(configPredicate,Filters.from(request.getFilters())))) {
+      final ComponentId currentComponentId=comp.getComponentId();
+      final ServiceCertificateType serviceCertificate=new ServiceCertificateType();
+      final Set<String> usages=currentComponentId.getCertificateUsages();
+      for (      final String usage : Iterables.filter(usages,usagePredicate)) {
+        final X509Certificate certificate=currentComponentId.getCertificate(usage);
+        try {
+          final byte[] certificateBytes=certificate.getEncoded();
+          serviceCertificate.setServiceType(comp.getName());
+          if ("der".equals(request.getFormat())) {
+            serviceCertificate.setCertificateFormat("der");
+            serviceCertificate.setCertificate(BaseEncoding.base64().encode(certificateBytes));
+          }
+ else {
+            serviceCertificate.setCertificateFormat("pem");
+            serviceCertificate.setCertificate(new String(PEMFiles.getBytes(certificate),StandardCharsets.UTF_8));
+          }
+          final Digest digest=Digest.forAlgorithm(request.getFingerprintDigest()).or(Digest.SHA256);
+          serviceCertificate.setCertificateFingerprintDigest(digest.algorithm());
+          serviceCertificate.setCertificateFingerprint(BaseEncoding.base16().withSeparator(":",2).encode(digest.digestBinary(certificateBytes)));
+          serviceCertificate.setCertificateUsage(usage);
+          serviceCertificates.add(serviceCertificate);
+        }
+ catch (        final CertificateEncodingException e) {
+          LOG.error("Error processing service certificate",e);
+        }
+      }
+    }
+  }
+  reply.getServiceCertificates().addAll(serviceCertificates);
+  return reply;
+}

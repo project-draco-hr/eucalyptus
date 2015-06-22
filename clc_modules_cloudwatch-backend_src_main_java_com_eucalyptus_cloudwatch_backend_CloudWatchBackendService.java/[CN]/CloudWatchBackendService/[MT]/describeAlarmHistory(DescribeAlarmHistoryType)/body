@@ -4,14 +4,20 @@
   try {
     final OwnerFullName ownerFullName=ctx.getUserFullName();
     final String accountId=ownerFullName.getAccountNumber();
-    final String alarmName=validateAlarmName(request.getAlarmName(),false);
-    final Date endDate=validateEndDate(request.getEndDate(),false);
-    final Date startDate=validateStartDate(request.getStartDate(),false);
-    validateDateOrder(startDate,endDate,"StartDate","EndDate",false,false);
-    final HistoryItemType historyItemType=validateHistoryItemType(request.getHistoryItemType(),false);
-    final Integer maxRecords=validateMaxRecords(request.getMaxRecords());
+    final String alarmName=CloudWatchBackendServiceFieldValidator.validateAlarmName(request.getAlarmName(),false);
+    final Date endDate=CloudWatchBackendServiceFieldValidator.validateEndDate(request.getEndDate(),false);
+    final Date startDate=CloudWatchBackendServiceFieldValidator.validateStartDate(request.getStartDate(),false);
+    CloudWatchBackendServiceFieldValidator.validateDateOrder(startDate,endDate,"StartDate","EndDate",false,false);
+    final HistoryItemType historyItemType=CloudWatchBackendServiceFieldValidator.validateHistoryItemType(request.getHistoryItemType(),false);
+    final Integer maxRecords=CloudWatchBackendServiceFieldValidator.validateMaxRecords(request.getMaxRecords());
     final String nextToken=request.getNextToken();
-    final List<AlarmHistory> results=AlarmManager.describeAlarmHistory(accountId,alarmName,endDate,historyItemType,maxRecords,startDate,nextToken,Predicates.compose(RestrictedTypes.filteringFor(CloudWatchMetadata.AlarmMetadata.class).byPrivileges().buildPredicate(),TransformationFunctions.AlarmHistoryToAlarmMetadata.INSTANCE));
+    final List<AlarmHistory> results;
+    try {
+      results=AlarmManager.describeAlarmHistory(accountId,alarmName,endDate,historyItemType,maxRecords,startDate,nextToken,Predicates.compose(RestrictedTypes.filteringFor(CloudWatchMetadata.AlarmMetadata.class).byPrivileges().buildPredicate(),TransformationFunctions.AlarmHistoryToAlarmMetadata.INSTANCE));
+    }
+ catch (    InvalidTokenException e) {
+      throw new InvalidNextTokenException(e.getMessage());
+    }
     if (maxRecords != null && results.size() == maxRecords) {
       reply.getDescribeAlarmHistoryResult().setNextToken(results.get(results.size() - 1).getNaturalId());
     }

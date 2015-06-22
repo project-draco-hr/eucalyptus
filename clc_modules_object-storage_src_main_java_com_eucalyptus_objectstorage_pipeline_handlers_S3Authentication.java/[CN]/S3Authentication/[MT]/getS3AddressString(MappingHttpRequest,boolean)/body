@@ -5,25 +5,23 @@
     String osgServicePath=ComponentIds.lookup(ObjectStorage.class).getServicePath();
     String bucket, key;
     StringBuilder addrString=new StringBuilder();
-    if (targetHost.contains(".objectstorage")) {
-      String hostBucket=targetHost.substring(0,targetHost.indexOf(".objectstorage"));
-      if (hostBucket.length() == 0) {
-        throw new InvalidAddressingHeaderException("Invalid Host header: " + targetHost);
-      }
+    boolean foundName=false;
+    if (!Strings.isNullOrEmpty(targetHost)) {
+      final String host=Iterables.getFirst(hostSplitter.split(targetHost),targetHost);
+      final Name hostDnsName=DomainNames.absolute(Name.fromString(host));
+      final Optional<Name> systemDomain=DomainNames.systemDomainFor(ObjectStorage.class,hostDnsName);
+      if (systemDomain.isPresent()) {
+        foundName=true;
+        final String hostBucket=hostDnsName.relativize(systemDomain.get()).toString();
+        if (hostBucket.length() == 0) {
+          throw new InvalidAddressingHeaderException("Invalid Host header: " + targetHost);
+        }
  else {
-        addrString.append("/" + hostBucket);
+          addrString.append("/" + hostBucket);
+        }
       }
     }
- else     if (targetHost.contains(".walrus")) {
-      String hostBucket=targetHost.substring(0,targetHost.indexOf(".walrus"));
-      if (hostBucket.length() == 0) {
-        throw new InvalidAddressingHeaderException("Invalid Host header: " + targetHost);
-      }
- else {
-        addrString.append("/" + hostBucket);
-      }
-    }
- else {
+    if (!foundName) {
       if (removeServicePath) {
         if (addr.startsWith(osgServicePath)) {
           addr=addr.substring(osgServicePath.length(),addr.length());
