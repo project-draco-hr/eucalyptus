@@ -5,10 +5,10 @@
     final String vendor=checkAction(action);
     actionMap.put(vendor,action);
   }
-  final SetMultimap<Pair<Optional<String>,String>,String> resourceMap=HashMultimap.create();
+  final SetMultimap<PolicyResourceSetKey,String> resourceMap=HashMultimap.create();
   for (  final String resource : resources) {
     final Ern ern=Ern.parse(resource);
-    resourceMap.put(Pair.lopair(Strings.emptyToNull(ern.getAccount()),ern.getResourceType()),ern.getResourceName());
+    resourceMap.put(key(ern.getRegion(),ern.getAccount(),ern.getResourceType()),ern.getResourceName());
   }
   final boolean notAction=PolicySpec.NOTACTION.equals(actionElement);
   final boolean notResource=PolicySpec.NOTRESOURCE.equals(resourceElement);
@@ -17,12 +17,13 @@
     final String vendor=actionSetEntry.getKey();
     final Set<String> actionSet=(Set<String>)actionSetEntry.getValue();
     boolean added=false;
-    for (    final Map.Entry<Pair<Optional<String>,String>,Collection<String>> resourceSetEntry : resourceMap.asMap().entrySet()) {
-      final Optional<String> accountIdOrName=resourceSetEntry.getKey().getLeft();
-      final String type=resourceSetEntry.getKey().getRight();
+    for (    final Map.Entry<PolicyResourceSetKey,Collection<String>> resourceSetEntry : resourceMap.asMap().entrySet()) {
+      final Optional<String> region=Optional.fromNullable(resourceSetEntry.getKey().region);
+      final Optional<String> accountIdOrName=Optional.fromNullable(resourceSetEntry.getKey().account);
+      final String type=resourceSetEntry.getKey().type;
       final Set<String> resourceSet=(Set<String>)resourceSetEntry.getValue();
       if (PolicySpec.ALL_ACTION.equals(vendor) || PolicySpec.ALL_RESOURCE.equals(type) || PolicySpec.isPermittedResourceVendor(vendor,PolicySpec.vendor(type))) {
-        results.add(new PolicyAuthorization(sid,EffectType.valueOf(effect),accountIdOrName.orNull(),type,principal,conditions,actionSet,notAction,resourceSet,notResource));
+        results.add(new PolicyAuthorization(sid,EffectType.valueOf(effect),region.orNull(),accountIdOrName.orNull(),type,principal,conditions,actionSet,notAction,resourceSet,notResource));
         added=true;
       }
     }
