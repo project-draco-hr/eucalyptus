@@ -1,0 +1,20 @@
+def main(self):
+    req = DescribeServices.from_other(self, ListAll=True)
+    services = (req.main().get('serviceStatuses') or [])
+    nodes = {}
+    for service in services:
+        svcid = service['serviceId']
+        if (svcid.get('type') == 'node'):
+            nodes[svcid.get('name')] = {'zone': svcid.get('partition'), 'host': svcid.get('host'), 'state': service.get('localState'), 'details': (service.get('details') or {}), 'instances': {}, }
+    req = DescribeInstances.from_other(self, InstanceId=['verbose'])
+    reservations = req.main().get('reservationSet')
+    for reservation in reservations:
+        for instance in (reservation.get('instancesSet') or []):
+            inst_info = {}
+            for tag in (instance.get('tagSet') or []):
+                if ((tag['key'] == 'euca:node') and (tag['value'] in nodes)):
+                    node = nodes[tag['value']]
+                    node['instances'][instance['instanceId']] = inst_info
+                elif (tag['key'] == 'euca:node:migration:destination'):
+                    inst_info['migration_dest'] = tag['value']
+    return nodes
