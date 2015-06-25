@@ -1,0 +1,31 @@
+{
+  final AccessLog accessLog=evt.getAttributes().getAccessLog();
+  if (accessLog == null || !accessLog.getEnabled())   return;
+  final String bucketName=accessLog.getS3BucketName();
+  final String bucketPrefix=com.google.common.base.Objects.firstNonNull(accessLog.getS3BucketPrefix(),"");
+  this.roleName=String.format("%s-%s-%s",EventHandlerChainNew.IAMRoleSetup.ROLE_NAME_PREFIX,evt.getContext().getAccount().getAccountNumber(),evt.getLoadBalancer());
+  final String policyName=ACCESSLOG_ROLE_POLICY_NAME;
+  try {
+    final List<String> policies=EucalyptusActivityTasks.getInstance().listRolePolicies(this.roleName);
+    if (policies.contains(policyName)) {
+      EucalyptusActivityTasks.getInstance().deleteRolePolicy(this.roleName,policyName);
+    }
+  }
+ catch (  final Exception ex) {
+    ;
+  }
+  String policyDocument=ACCESSLOG_ROLE_POLICY_DOCUMENT.replace("BUCKETNAME_PLACEHOLDER",bucketName);
+  if (bucketPrefix.length() > 0) {
+    policyDocument=policyDocument.replace("BUCKETPREFIX_PLACEHOLDER",bucketPrefix + "/*");
+  }
+ else {
+    policyDocument=policyDocument.replace("BUCKETPREFIX_PLACEHOLDER","*");
+  }
+  try {
+    EucalyptusActivityTasks.getInstance().putRolePolicy(roleName,policyName,policyDocument);
+    policyAdded=true;
+  }
+ catch (  final Exception ex) {
+    throw new EventHandlerException("failed to put role policy for loadbalancer vm's access to S3 buckets");
+  }
+}
