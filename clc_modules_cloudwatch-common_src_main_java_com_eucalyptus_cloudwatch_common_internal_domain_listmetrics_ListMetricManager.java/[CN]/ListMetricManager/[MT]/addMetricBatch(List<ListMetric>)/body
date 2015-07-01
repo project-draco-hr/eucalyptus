@@ -1,44 +1,29 @@
 {
-  for (  List<ListMetric> dataBatchPartial : Iterables.partition(dataBatch,LIST_METRIC_NUM_DB_OPERATIONS_PER_TRANSACTION)) {
+  Multimap<PrefetchFields,ListMetric> dataBatchPrefetchMap=LinkedListMultimap.create();
+  for (  final ListMetric item : dataBatch) {
+    PrefetchFields prefetchFields=new PrefetchFields(item.getAccountId(),item.getNamespace(),item.getMetricName());
+    dataBatchPrefetchMap.put(prefetchFields,item);
+  }
+  for (  List<PrefetchFields> prefetchFieldsListPartial : Iterables.partition(dataBatchPrefetchMap.keySet(),LIST_METRIC_NUM_DB_OPERATIONS_PER_TRANSACTION)) {
     EntityTransaction db=Entities.get(ListMetric.class);
     try {
       int numOperations=0;
-      HashSet<ListMetricCacheLoadKey> loadedKeys=Sets.newHashSet();
-      HashMap<ListMetricCacheKey,ListMetric> cache=Maps.newHashMap();
-      Collection<ListMetricCacheKey> cacheKeys=prune(dataBatchPartial);
-      List<ListMetric> listMetrics=Lists.newArrayList();
-      for (      ListMetricCacheKey cacheKey : cacheKeys) {
-        listMetrics.add(createMetric(cacheKey.getLoadKey().getAccountId(),cacheKey.getMetricName(),cacheKey.getLoadKey().getNamespace(),cacheKey.getDimensionMap(),cacheKey.getMetricType()));
-      }
-      for (      ListMetric metric : listMetrics) {
-        ListMetricCacheLoadKey loadKey=new ListMetricCacheLoadKey();
-        loadKey.setAccountId(metric.getAccountId());
-        loadKey.setNamespace(metric.getNamespace());
-        if (!loadedKeys.contains(loadKey)) {
-          Criteria criteria=Entities.createCriteria(ListMetric.class).add(Restrictions.eq("accountId",metric.getAccountId())).add(Restrictions.eq("namespace",metric.getNamespace()));
-          List<ListMetric> results=(List<ListMetric>)criteria.list();
-          for (          ListMetric result : results) {
-            ListMetricCacheKey key=new ListMetricCacheKey();
-            key.setLoadKey(loadKey);
-            key.setDimensionMap(result.getDimensionMap());
-            key.setMetricName(result.getMetricName());
-            key.setMetricType(result.getMetricType());
-            cache.put(key,result);
+      for (      PrefetchFields prefetchFields : prefetchFieldsListPartial) {
+        Map<NonPrefetchFields,ListMetric> dataCache=Maps.newHashMap();
+        Criteria criteria=Entities.createCriteria(ListMetric.class).add(Restrictions.eq("accountId",prefetchFields.getAccountId())).add(Restrictions.eq("namespace",prefetchFields.getNamespace())).add(Restrictions.eq("namespace",prefetchFields.getMetricName()));
+        List<ListMetric> results=(List<ListMetric>)criteria.list();
+        for (        ListMetric result : results) {
+          dataCache.put(new NonPrefetchFields(result.getMetricType(),result.getDimensionMap()),result);
+        }
+        for (        ListMetric listMetric : dataBatchPrefetchMap.get(prefetchFields)) {
+          NonPrefetchFields cacheKey=new NonPrefetchFields(listMetric.getMetricType(),listMetric.getDimensionMap());
+          if (dataCache.containsKey(cacheKey)) {
+            dataCache.get(cacheKey).updateTimeStamps();
           }
-          loadedKeys.add(loadKey);
-        }
-        ListMetricCacheKey key=new ListMetricCacheKey();
-        key.setDimensionMap(metric.getDimensionMap());
-        key.setLoadKey(loadKey);
-        key.setMetricName(metric.getMetricName());
-        key.setMetricType(metric.getMetricType());
-        ListMetric inDbMetric=cache.get(key);
-        if (inDbMetric != null) {
-          inDbMetric.setVersion(1 + inDbMetric.getVersion());
-        }
  else {
-          cache.put(key,metric);
-          Entities.persist(metric);
+            Entities.persist(listMetric);
+            dataCache.put(cacheKey,listMetric);
+          }
         }
         numOperations++;
         if (numOperations % LIST_METRIC_NUM_DB_OPERATIONS_UNTIL_SESSION_FLUSH == 0) {
