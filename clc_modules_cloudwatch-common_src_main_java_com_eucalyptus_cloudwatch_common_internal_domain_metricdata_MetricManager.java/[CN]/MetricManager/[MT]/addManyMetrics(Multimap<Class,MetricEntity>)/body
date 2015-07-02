@@ -1,18 +1,26 @@
 {
   for (  Class c : metricMap.keySet()) {
-    EntityTransaction db=Entities.get(c);
-    try {
-      for (      MetricEntity me : metricMap.get(c)) {
-        Entities.persist(me);
+    for (    List<MetricEntity> dataBatchPartial : Iterables.partition(metricMap.get(c),METRIC_DATA_NUM_DB_OPERATIONS_PER_TRANSACTION)) {
+      EntityTransaction db=Entities.get(c);
+      try {
+        int numOperations=0;
+        for (        MetricEntity me : dataBatchPartial) {
+          numOperations++;
+          if (numOperations % METRIC_DATA_NUM_DB_OPERATIONS_UNTIL_SESSION_FLUSH == 0) {
+            Entities.flushSession(me);
+            Entities.clearSession(me);
+          }
+          Entities.persist(me);
+        }
+        db.commit();
       }
-      db.commit();
-    }
- catch (    RuntimeException ex) {
-      Logs.extreme().error(ex,ex);
-      throw ex;
-    }
+ catch (      RuntimeException ex) {
+        Logs.extreme().error(ex,ex);
+        throw ex;
+      }
  finally {
-      if (db.isActive())       db.rollback();
+        if (db.isActive())         db.rollback();
+      }
     }
   }
 }
