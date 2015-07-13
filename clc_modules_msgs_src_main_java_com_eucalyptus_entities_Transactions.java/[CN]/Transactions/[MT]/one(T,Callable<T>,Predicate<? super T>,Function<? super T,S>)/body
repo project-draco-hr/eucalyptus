@@ -1,14 +1,14 @@
 {
   checkParam(type,notNullValue());
   checkParam(f,notNullValue());
-  EntityTransaction db=Transactions.get(type);
-  try {
+  try (final TransactionResource db=Transactions.get(type)){
     T entity=lookup.call();
     if (!predicate.apply(entity)) {
       throw new NoSuchElementException();
     }
     try {
       S res=f.apply(entity);
+      db.commit();
       return res;
     }
  catch (    Exception ex) {
@@ -16,12 +16,10 @@
     }
   }
  catch (  TransactionCallbackException e) {
-    db.rollback();
     Logs.extreme().error(e,e);
     throw e;
   }
 catch (  UndeclaredThrowableException e) {
-    db.rollback();
     Logs.extreme().error(e,e);
     if (e.getCause() instanceof TransactionException) {
       throw e;
@@ -31,10 +29,6 @@ catch (  UndeclaredThrowableException e) {
     }
   }
 catch (  Exception t) {
-    db.rollback();
     throw Transactions.transformException(t);
-  }
- finally {
-    pop();
   }
 }
