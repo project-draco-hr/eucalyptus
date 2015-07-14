@@ -1,26 +1,23 @@
 {
   PutServoStatesResponseType reply=request.getReply();
   final String servoId=request.getInstanceId();
-  try {
-    isValidServoRequest(servoId,request.getSourceIp());
-  }
- catch (  final Exception ex) {
-    throw new InternalFailureException("Failed to verify request sender");
-  }
   final Instances instances=request.getInstances();
   final MetricData metric=request.getMetricData();
   LoadBalancer lb=null;
+  LoadBalancerZone zone=null;
   if (servoId != null) {
     try {
-      final LoadBalancerServoInstance servo=LoadBalancers.lookupServoInstance(servoId);
-      final LoadBalancerZoneCoreView zoneView=servo.getAvailabilityZone();
-      final LoadBalancerZone zone=LoadBalancerZoneEntityTransform.INSTANCE.apply(zoneView);
-      final LoadBalancerCoreView lbView=zone.getLoadbalancer();
-      lb=LoadBalancerEntityTransform.INSTANCE.apply(lbView);
+      final LoadBalancerServoInstance servo=LoadBalancingServoCache.getInstance().getLoadBalancerServoInstance(servoId);
+      isValidServoRequest(servo,request.getSourceIp());
+      zone=LoadBalancingServoCache.getInstance().getLoadBalancerZone(servoId);
+      lb=LoadBalancingServoCache.getInstance().getLoadBalancer(servoId);
       if (lb == null)       throw new Exception("Failed to find the loadbalancer");
-      if (!servo.getAvailabilityZone().getState().equals(LoadBalancerZone.STATE.InService))       lb=null;
+      if (!zone.getState().equals(LoadBalancerZone.STATE.InService))       lb=null;
     }
- catch (    NoSuchElementException ex) {
+ catch (    final LoadBalancingException ex) {
+      throw new InternalFailureException("Failed to verify request sender");
+    }
+catch (    NoSuchElementException ex) {
       LOG.warn("unknown servo VM id is used to query: " + servoId);
     }
 catch (    Exception ex) {
@@ -28,8 +25,16 @@ catch (    Exception ex) {
     }
   }
   if (lb == null || !LoadBalancingMetadatas.filterPrivileged().apply(lb))   return reply;
+  final int healthyTimeoutSec=lb.getHealthCheckInterval() * lb.getHealthyThreshold();
+  final long currentTime=System.currentTimeMillis();
   if (instances != null && instances.getMember() != null && instances.getMember().size() > 0) {
-    final Collection<LoadBalancerBackendInstanceCoreView> lbInstances=lb.getBackendInstances();
+    List<LoadBalancerBackendInstance> lbInstances=Lists.newArrayList();
+    try {
+      lbInstances=LoadBalancingServoCache.getInstance().getLoadBalancerBackendInstances(servoId);
+    }
+ catch (    final Exception ex) {
+      LOG.error("failed to retrieve loadbalancer's backend instances",ex);
+    }
     for (    final Instance instance : instances.getMember()) {
       String instanceId=instance.getInstanceId();
       String[] parts=instanceId.split(":");
@@ -39,14 +44,24 @@ catch (    Exception ex) {
       }
       instanceId=parts[0];
       final String state=parts[1];
-      LoadBalancerBackendInstanceCoreView found=null;
-      for (      final LoadBalancerBackendInstanceCoreView lbInstance : lbInstances) {
+      LoadBalancerBackendInstance found=null;
+      for (      final LoadBalancerBackendInstance lbInstance : lbInstances) {
         if (instanceId.equals(lbInstance.getInstanceId())) {
           found=lbInstance;
           break;
         }
       }
-      if (found != null) {
+      boolean outdated=false;
+      Date lastUpdated;
+      if (found != null && (lastUpdated=found.instanceStateLastUpdated()) != null) {
+        final int diffSec=(int)((currentTime - lastUpdated.getTime()) / 1000.0);
+        if (diffSec > healthyTimeoutSec) {
+          outdated=true;
+        }
+      }
+      boolean stateChanged=false;
+      if (found != null && !state.equals(found.getState().name()))       stateChanged=true;
+      if (outdated || stateChanged) {
         try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
           final LoadBalancerBackendInstance update=Entities.uniqueResult(LoadBalancerBackendInstance.named(lb,found.getInstanceId()));
           update.setState(Enum.valueOf(LoadBalancerBackendInstance.STATE.class,state));
@@ -61,37 +76,41 @@ catch (    Exception ex) {
           update.updateInstanceStateTimestamp();
           Entities.persist(update);
           db.commit();
+          if (stateChanged) {
+            LoadBalancingServoCache.getInstance().invalidate(lb);
+          }
+ else {
+            LoadBalancingServoCache.getInstance().replaceBackendInstance(servoId,found,update);
+          }
         }
  catch (        final NoSuchElementException ex) {
-          LOG.error("unable to find the loadbancer backend instance",ex);
+          LOG.error("unable to find the loadbancer backend instance");
         }
 catch (        final Exception ex) {
-          LOG.error("unable to update the state of loadbalancer backend instance",ex);
+          LOG.error("unable to update the state of loadbalancer backend instance");
         }
       }
     }
   }
-  for (  final LoadBalancerBackendInstanceCoreView sample : lb.getBackendInstances()) {
-    try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
-      final LoadBalancerBackendInstance found=Entities.uniqueResult(LoadBalancerBackendInstance.named(lb,sample.getInstanceId()));
-      final String zoneName=found.getAvailabilityZone().getName();
-      if (found.getState().equals(LoadBalancerBackendInstance.STATE.InService)) {
-        LoadBalancerCwatchMetrics.getInstance().updateHealthy(lb.getCoreView(),zoneName,found.getInstanceId());
-      }
- else       if (found.getState().equals(LoadBalancerBackendInstance.STATE.OutOfService)) {
-        LoadBalancerCwatchMetrics.getInstance().updateUnHealthy(lb.getCoreView(),zoneName,found.getInstanceId());
-      }
-      db.commit();
+  List<LoadBalancerBackendInstance> backendInstances=Lists.newArrayList();
+  try {
+    backendInstances=LoadBalancingServoCache.getInstance().getLoadBalancerBackendInstances(servoId);
+  }
+ catch (  final Exception ex) {
+    LOG.error("failed to retrieve loadbalancer's backend instances",ex);
+  }
+  for (  final LoadBalancerBackendInstance backend : backendInstances) {
+    final String zoneName=backend.getAvailabilityZone().getName();
+    if (backend.getState().equals(LoadBalancerBackendInstance.STATE.InService)) {
+      LoadBalancerCwatchMetrics.getInstance().updateHealthy(lb.getCoreView(),zoneName,backend.getInstanceId());
     }
- catch (    NoSuchElementException ex) {
-    }
-catch (    Exception ex) {
-      LOG.warn("Failed to query loadbalancer backend instance",ex);
+ else     if (backend.getState().equals(LoadBalancerBackendInstance.STATE.OutOfService)) {
+      LoadBalancerCwatchMetrics.getInstance().updateUnHealthy(lb.getCoreView(),zoneName,backend.getInstanceId());
     }
   }
   if (metric != null && metric.getMember() != null && metric.getMember().size() > 0) {
     try {
-      LoadBalancerCwatchMetrics.getInstance().addMetric(servoId,metric);
+      LoadBalancerCwatchMetrics.getInstance().addMetric(zone,metric);
     }
  catch (    Exception ex) {
       LOG.error("Failed to add ELB cloudwatch metric",ex);

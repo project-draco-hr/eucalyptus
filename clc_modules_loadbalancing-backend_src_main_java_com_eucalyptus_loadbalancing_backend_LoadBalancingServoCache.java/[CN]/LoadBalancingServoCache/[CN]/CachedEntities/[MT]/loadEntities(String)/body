@@ -1,0 +1,48 @@
+{
+  recordVersion.putIfAbsent(servoInstanceId,0L);
+  final Long enteringVersion=recordVersion.get(servoInstanceId);
+  final LoadBalancerServoInstance instance=LoadBalancers.lookupServoInstance(servoInstanceId);
+  final LoadBalancerZoneCoreView zoneView=instance.getAvailabilityZone();
+  final LoadBalancerZone zone=LoadBalancerZoneEntityTransform.INSTANCE.apply(zoneView);
+  final LoadBalancerCoreView lbView=zone.getLoadbalancer();
+  final LoadBalancer lb=LoadBalancerEntityTransform.INSTANCE.apply(lbView);
+  final List<LoadBalancerListener> listeners=Lists.newArrayList(Collections2.transform(lb.getListeners(),new Function<LoadBalancerListenerCoreView,LoadBalancerListener>(){
+    @Override public LoadBalancerListener apply(    LoadBalancerListenerCoreView arg0){
+      return LoadBalancerListenerEntityTransform.INSTANCE.apply(arg0);
+    }
+  }
+));
+  final List<LoadBalancerBackendInstance> backendInstances=Lists.newArrayList(Collections2.transform(lb.getBackendInstances(),new Function<LoadBalancerBackendInstanceCoreView,LoadBalancerBackendInstance>(){
+    @Override public LoadBalancerBackendInstance apply(    LoadBalancerBackendInstanceCoreView arg0){
+      return LoadBalancerBackendInstanceEntityTransform.INSTANCE.apply(arg0);
+    }
+  }
+));
+  final List<LoadBalancerPolicyDescription> policyDescriptions=Lists.newArrayList(Collections2.transform(lb.getPolicies(),new Function<LoadBalancerPolicyDescriptionCoreView,LoadBalancerPolicyDescription>(){
+    @Override public LoadBalancerPolicyDescription apply(    LoadBalancerPolicyDescriptionCoreView arg0){
+      return LoadBalancerPolicyDescriptionEntityTransform.INSTANCE.apply(arg0);
+    }
+  }
+));
+  final List<LoadBalancerBackendServerDescription> backendServers=Lists.newArrayList(Collections2.transform(lb.getBackendServers(),new Function<LoadBalancerBackendServerDescriptionCoreView,LoadBalancerBackendServerDescription>(){
+    @Override public LoadBalancerBackendServerDescription apply(    LoadBalancerBackendServerDescriptionCoreView arg0){
+      return LoadBalancerBackendServerDescriptionEntityTransform.INSTANCE.apply(arg0);
+    }
+  }
+));
+  final CachedEntities newEntities=new CachedEntities();
+  newEntities.lb=lb;
+  newEntities.zone=zone;
+  newEntities.servo=instance;
+  newEntities.listeners=listeners;
+  newEntities.backendInstances=backendInstances;
+  newEntities.policyDescriptions=policyDescriptions;
+  newEntities.backendServerDescs=backendServers;
+  final Long exitVersion=recordVersion.get(servoInstanceId);
+  if (exitVersion != enteringVersion) {
+    return loadEntities(servoInstanceId);
+  }
+ else {
+    return newEntities;
+  }
+}
