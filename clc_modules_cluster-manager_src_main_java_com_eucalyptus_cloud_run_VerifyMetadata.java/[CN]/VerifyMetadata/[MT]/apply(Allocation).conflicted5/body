@@ -1,55 +1,10 @@
 {
-  final UserFullName ownerFullName=allocInfo.getOwnerFullName();
-  final String instanceProfileArn=allocInfo.getRequest().getIamInstanceProfileArn();
-  final String instanceProfileName=allocInfo.getRequest().getIamInstanceProfileName();
-  if (!Strings.isNullOrEmpty(instanceProfileArn) || !Strings.isNullOrEmpty(instanceProfileName)) {
-    final String profileAccount;
-    final String profileName;
-    if (!Strings.isNullOrEmpty(instanceProfileArn))     try {
-      final Ern name=Ern.parse(instanceProfileArn);
-      if (!(name instanceof EuareResourceName)) {
-        throw new InvalidInstanceProfileMetadataException("Invalid IAM instance profile ARN: " + instanceProfileArn);
-      }
-      profileAccount=name.getAccount();
-      profileName=((EuareResourceName)name).getName();
-    }
- catch (    JSONException e) {
-      throw new InvalidInstanceProfileMetadataException("Invalid IAM instance profile ARN: " + instanceProfileArn,e);
-    }
- else {
-      profileAccount=ownerFullName.getAccountNumber();
-      profileName=instanceProfileName;
-    }
-    final InstanceProfile profile;
-    try {
-      profile=Accounts.lookupInstanceProfileByName(profileAccount,profileName);
-    }
- catch (    AuthException e) {
-      throw new InvalidInstanceProfileMetadataException("Invalid IAM instance profile: " + profileAccount + "/"+ profileName,e);
-    }
-    if (!Strings.isNullOrEmpty(instanceProfileName) && !instanceProfileName.equals(profile.getName())) {
-      throw new InvalidInstanceProfileMetadataException(String.format("Invalid IAM instance profile name '%s' for ARN: %s",profileName,instanceProfileArn));
-    }
-    try {
-      final AuthContextSupplier user=allocInfo.getAuthContext();
-      if (!Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_INSTANCE_PROFILE,Accounts.getInstanceProfileFullName(profile),AccountFullName.getInstance(profile.getAccountNumber()),PolicySpec.IAM_LISTINSTANCEPROFILES,user)) {
-        throw new IllegalMetadataAccessException(String.format("Not authorized to access instance profile with ARN %s for %s",profile.getInstanceProfileArn(),ownerFullName));
-      }
-      final Role role=profile.getRole();
-      if (role != null && !Permissions.isAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_RESOURCE_ROLE,Accounts.getRoleFullName(role),AccountFullName.getInstance(role.getAccountNumber()),PolicySpec.IAM_PASSROLE,user)) {
-        throw new IllegalMetadataAccessException(String.format("Not authorized to pass role with ARN %s for %s",role.getRoleArn(),ownerFullName));
-      }
-      if (role != null) {
-        allocInfo.setInstanceProfileArn(profile.getInstanceProfileArn());
-        allocInfo.setIamInstanceProfileId(profile.getInstanceProfileId());
-        allocInfo.setIamRoleArn(role.getRoleArn());
-      }
- else {
-        throw new InvalidInstanceProfileMetadataException("Role not found for IAM instance profile ARN: " + profile.getInstanceProfileArn());
-      }
-    }
- catch (    AuthException e) {
-      throw new MetadataException("IAM instance profile error",e);
+  if (allocInfo.getRunInstancesRequest().getKernelId() != null || allocInfo.getRunInstancesRequest().getRamdiskId() != null) {
+    Cluster c=Clusters.lookup(Topology.lookup(ClusterController.class,allocInfo.getPartition()));
+    if (!c.getNodeHostMap().values().isEmpty()) {
+      NodeInfo.Hypervisor h=c.getNodeHostMap().values().iterator().next().getHypervisor();
+      LOG.warn("Hypervisor is" + h);
+      if (!h.supportEkiEri())       throw new VerificationException("EKI/ERI options are not supported by installation on " + h.name());
     }
   }
   return true;
