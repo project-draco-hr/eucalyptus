@@ -1,0 +1,38 @@
+{
+  try {
+    return call(new Callable<Boolean>(){
+      @Override public Boolean call() throws Exception {
+        AllocatedAddressPersistenceException lastException=null;
+        for (int i=0; i < Entities.CONCURRENT_UPDATE_RETRIES; i++)         try {
+          allocatedAddressPersistence.updateByExample(AllocatedAddressEntity.exampleWithAddress(addressInfo.getAddress()),null,addressInfo.getAddress(),new Callback<AllocatedAddressEntity>(){
+            @Override public void fire(            final AllocatedAddressEntity addressEntity){
+              if (!addressInfo.isAllocated()) {
+                Entities.delete(addressEntity);
+              }
+ else {
+                Addresses.updateEntity(addressInfo,addressEntity);
+              }
+            }
+          }
+);
+          return true;
+        }
+ catch (        AllocatedAddressPersistenceException e) {
+          lastException=e;
+          if (address.getStateVersion() > addressInfo.getStateVersion() || (!PersistenceExceptions.isLockError(e) && !PersistenceExceptions.isStaleUpdate(e))) {
+            break;
+          }
+        }
+        if (lastException != null) {
+          LOG.error("Error storing address " + addressInfo.getAddress(),lastException);
+        }
+        return false;
+      }
+    }
+);
+  }
+ catch (  ExecutionException e) {
+    LOG.error("Error storing address " + addressInfo.getAddress(),e);
+  }
+  return false;
+}

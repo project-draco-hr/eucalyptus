@@ -1,36 +1,11 @@
 {
-  fireUsageEvent(new Supplier<EventActionInfo<AddressAction>>(){
-    @Override public EventActionInfo<AddressAction> get(){
-      return AddressEvent.forDisassociate(instanceUuid,instanceId);
-    }
+  final AddressStateMetadataSupport initialState=stateMetadata.get();
+  if (initialState instanceof AssociatedClassicAddressMetadata) {
+    final AssociatedClassicAddressMetadata associated=(AssociatedClassicAddressMetadata)initialState;
+    return transition(initialState,new AllocatedClassicAddressMetadata(initialState.version + 1,associated.getOwnerAccountNumber(),associated.getOwnerUserId(),associated.getOwnerUserName()));
   }
-);
-  SplitTransition unassign=new SplitTransition(Transition.unassigning){
-    public void top(){
-      try {
-        VmInstance vm=VmInstances.lookup(Address.this.getInstanceId());
-      }
- catch (      NoSuchElementException e) {
-        LOG.debug(e);
-      }
-    }
-    public void bottom(){
-      Address.this.stateUuid=UUID.randomUUID().toString();
-      Address.this.instanceUuid=UNASSIGNED_INSTANCEUUID;
-      Address.this.instanceId=UNASSIGNED_INSTANCEID;
-      Address.this.instanceAddress=UNASSIGNED_INSTANCEADDR;
-      Address.this.associationId=null;
-      Address.this.networkInterfaceId=null;
-      Address.this.networkInterfaceOwnerId=null;
-      Address.this.privateAddress=null;
-    }
+ else   if (initialState instanceof AssignedClassicSystemAddressMetadata) {
+    return transition(initialState,new AvailableAddressMetadata(initialState.version + 1));
   }
-;
-  if (State.impending.equals(this.atomicState.getReference())) {
-    this.transition(State.impending,State.allocated,this.isPending(),true,unassign);
-  }
- else {
-    this.transition(State.assigned,State.allocated,false,true,unassign);
-  }
-  return this;
+  return Optional.absent();
 }

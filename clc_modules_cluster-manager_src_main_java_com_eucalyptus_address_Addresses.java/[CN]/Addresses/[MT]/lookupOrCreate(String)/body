@@ -1,0 +1,37 @@
+{
+  Address addr=null;
+  try {
+    addr=addressRegistry.lookupDisabled(address);
+    LOG.trace("Found address in the inactive set cache: " + addr);
+  }
+ catch (  final NoSuchElementException e1) {
+    try {
+      addr=addressRegistry.lookup(address);
+      LOG.trace("Found address in the active set cache: " + addr);
+    }
+ catch (    final NoSuchElementException e) {
+    }
+  }
+  if (addr == null)   try (final TransactionResource tx=Entities.transactionFor(VmInstance.class)){
+    VmInstance vm=maybeFindVm(null,address,null);
+    addr=new Address(address);
+    if (vm != null) {
+      addr.pendingAssignment();
+      final Optional<AddressStateTransition> transition;
+      if (vm.getVpcId() == null) {
+        transition=addr.assign(vm);
+      }
+ else {
+        transition=addr.assign(Iterables.getOnlyElement(vm.getNetworkInterfaces()));
+      }
+      if (transition.isPresent()) {
+        store(addr,transition.get().newAddressInfo());
+      }
+      addressRegistry.register(addr);
+    }
+ else {
+      addressRegistry.registerDisabled(addr);
+    }
+  }
+   return addr;
+}
