@@ -1,0 +1,24 @@
+{
+  final Optional<Address> address=requestedAddress.isPresent() ? addressRegistry.tryEnable(requestedAddress.get()) : addressRegistry.tryEnable();
+  if (!address.isPresent()) {
+    throw new NotEnoughAddressResourcesException();
+  }
+  final Optional<AddressStateTransition> pendingTransition=address.get().pendingAssignment();
+  if (pendingTransition.isPresent()) {
+    try {
+      allocatedAddressPersistence.save(createEntity(pendingTransition.get().newAddressInfo()));
+    }
+ catch (    final Exception e) {
+      LOG.error("Persistence error for system address, attempting rollback " + address.get().getDisplayName(),e);
+      if (pendingTransition.get().rollback()) {
+        disable(address.get().getName());
+      }
+      throw new NotEnoughAddressResourcesException();
+    }
+  }
+ else {
+    LOG.error("Error transitioning enabled address: " + address);
+    throw new NotEnoughAddressResourcesException();
+  }
+  return address.get();
+}

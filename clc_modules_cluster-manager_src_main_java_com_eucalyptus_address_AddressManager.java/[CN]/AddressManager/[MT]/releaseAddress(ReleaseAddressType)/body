@@ -3,9 +3,10 @@
   if (request.getPublicIp() == null && request.getAllocationId() == null) {
     throw new ClientComputeException("MissingParameter","PublicIp or AllocationId required");
   }
+  final String allocationId=ResourceIdentifiers.tryNormalize().apply(request.getAllocationId());
   final Address address;
   try {
-    address=RestrictedTypes.doPrivileged(Objects.firstNonNull(request.getPublicIp(),ResourceIdentifiers.tryNormalize().apply(request.getAllocationId())),Address.class);
+    address=RestrictedTypes.doPrivileged(Objects.firstNonNull(request.getPublicIp(),allocationId),Address.class);
   }
  catch (  NoSuchElementException e) {
     if (request.getAllocationId() != null) {
@@ -13,13 +14,12 @@
     }
     throw e;
   }
-  if (address.getDomain() == Address.Domain.vpc && address.isAssigned()) {
+  try {
+    addresses.release(address,address.getDomain() == AddressDomain.vpc ? allocationId != null ? allocationId : address.getAllocationId() : null);
+  }
+ catch (  IllegalStateException e) {
     throw new ClientComputeException("InvalidIPAddress.InUse","Address (" + address.getName() + ") in use ("+ address.getNetworkInterfaceId()+ ")");
   }
-  if (address.isPending()) {
-    address.clearPending();
-  }
-  Addresses.release(address);
   reply.set_return(true);
   return reply;
 }

@@ -1,0 +1,78 @@
+{
+  try (final TransactionResource tx=Entities.transactionFor(AllocatedAddressEntity.class)){
+    final Set<String> addresses=Sets.newHashSetWithExpectedSize(128);
+    for (    final AllocatedAddressEntity entity : Entities.query(AllocatedAddressEntity.exampleWithAddress(null))) {
+      addresses.add(entity.getAddress());
+      try {
+        final VmInstance instance=VmInstances.lookupByPublicIp(entity.getAddress());
+        if (instance.getVpcId() == null) {
+          entity.setState(AddressState.assigned);
+          entity.setDomain(AddressDomain.standard);
+          entity.setInstanceId(instance.getDisplayName());
+          entity.setInstanceUuid(instance.getInstanceUuid());
+          entity.setPrivateAddress(instance.getPrivateAddress());
+        }
+ else         if (instance.getNetworkInterfaces() != null) {
+          for (          final NetworkInterface networkInterface : instance.getNetworkInterfaces()) {
+            if (networkInterface.isAssociated()) {
+              entity.setState(AddressState.assigned);
+              entity.setDomain(AddressDomain.vpc);
+              entity.setAllocationId(networkInterface.getAssociation().getAllocationId());
+              entity.setAssociationId(networkInterface.getAssociation().getAssociationId());
+              entity.setNetworkInterfaceId(networkInterface.getDisplayName());
+              entity.setNetworkInterfaceOwnerId(networkInterface.getOwnerUserId());
+              entity.setPrivateAddress(networkInterface.getPrivateIpAddress());
+              if (networkInterface.isAttached() && networkInterface.getAttachment().getDeviceIndex() == 0) {
+                entity.setInstanceId(instance.getDisplayName());
+                entity.setInstanceUuid(instance.getInstanceUuid());
+              }
+            }
+          }
+        }
+        Entities.evict(instance);
+      }
+ catch (      NoSuchElementException e) {
+        entity.setState(AddressState.allocated);
+      }
+    }
+    for (    final VmInstance instance : VmInstances.list(Predicates.alwaysTrue())) {
+      if (!VmNetworkConfig.DEFAULT_IP.equals(instance.getPublicAddress()) && !addresses.contains(instance.getPublicAddress())) {
+        if (instance.getVpcId() == null) {
+          final AllocatedAddressEntity entity=AllocatedAddressEntity.create();
+          entity.setDisplayName(instance.getPublicAddress());
+          entity.setState(AddressState.assigned);
+          entity.setDomain(AddressDomain.standard);
+          entity.setOwner(Principals.systemFullName());
+          entity.setInstanceId(instance.getDisplayName());
+          entity.setInstanceUuid(instance.getInstanceUuid());
+          entity.setPrivateAddress(instance.getPrivateAddress());
+          Entities.persist(entity);
+        }
+ else         if (instance.getNetworkInterfaces() != null) {
+          for (          final NetworkInterface networkInterface : instance.getNetworkInterfaces()) {
+            if (networkInterface.isAssociated()) {
+              final AllocatedAddressEntity entity=AllocatedAddressEntity.create();
+              entity.setDisplayName(networkInterface.getAssociation().getPublicIp());
+              entity.setState(AddressState.assigned);
+              entity.setDomain(AddressDomain.vpc);
+              entity.setOwner(Principals.systemFullName());
+              entity.setAllocationId(networkInterface.getAssociation().getAllocationId());
+              entity.setAssociationId(networkInterface.getAssociation().getAssociationId());
+              entity.setNetworkInterfaceId(networkInterface.getDisplayName());
+              entity.setNetworkInterfaceOwnerId(networkInterface.getOwnerUserId());
+              entity.setPrivateAddress(networkInterface.getPrivateIpAddress());
+              if (networkInterface.isAttached() && networkInterface.getAttachment().getDeviceIndex() == 0) {
+                entity.setInstanceId(instance.getDisplayName());
+                entity.setInstanceUuid(instance.getInstanceUuid());
+              }
+              Entities.persist(entity);
+            }
+          }
+        }
+      }
+      Entities.evict(instance);
+    }
+    tx.commit();
+  }
+   return true;
+}

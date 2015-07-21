@@ -1,9 +1,10 @@
 {
   final DisassociateAddressResponseType reply=request.getReply().markFailed();
   final Context ctx=Contexts.lookup();
+  final String associationId=ResourceIdentifiers.tryNormalize().apply(request.getAssociationId());
   final Address address;
   try {
-    address=RestrictedTypes.doPrivileged(Objects.firstNonNull(request.getPublicIp(),ResourceIdentifiers.tryNormalize().apply(request.getAssociationId())),Address.class);
+    address=RestrictedTypes.doPrivileged(Objects.firstNonNull(request.getPublicIp(),associationId),Address.class);
   }
  catch (  final NoSuchElementException e) {
     if (request.getAssociationId() != null) {
@@ -14,53 +15,51 @@
     }
   }
   reply.set_return(true);
-  if (address.isSystemOwned() && !ctx.isAdministrator()) {
-    throw new EucalyptusCloudException("Only administrators can unassign system owned addresses: " + address.toString());
-  }
- else   if (address.getDomain() != Address.Domain.vpc) {
-    final String vmId=address.getInstanceId();
-    try {
-      final VmInstance vm=VmInstances.lookup(vmId);
-      final UnconditionalCallback<BaseMessage> systemAddressAssignmentCallback=new UnconditionalCallback<BaseMessage>(){
-        @Override public void fire(){
+  try (final Addresses.AddressingBatch batch=addresses.batch()){
+    if (address.isSystemOwned() && !ctx.isAdministrator()) {
+      throw new EucalyptusCloudException("Only administrators can unassign system owned addresses: " + address.toString());
+    }
+ else     if (address.getDomain() != AddressDomain.vpc) {
+      final String vmId=address.getInstanceId();
+      try {
+        addresses.unassign(address);
+        final VmInstance instance=VmInstances.lookup(vmId);
+        if (address.getAddress().equals(instance.getPublicAddress())) {
+          Addresses.updatePublicIpByInstanceId(instance.getDisplayName(),null);
           try {
-            Addresses.system(VmInstances.lookup(vmId));
+            addresses.system(instance);
           }
  catch (          NoSuchElementException e) {
             LOG.debug(e,e);
           }
 catch (          Exception e) {
-            LOG.error("Error assigning system address for instance " + vm.getInstanceId(),e);
+            LOG.error("Error assigning system address for instance " + vmId,e);
           }
         }
       }
-;
-      AddressingDispatcher.dispatch(AsyncRequests.newRequest(address.unassign().getCallback()).then(systemAddressAssignmentCallback),vm.getPartition());
-    }
- catch (    Exception e) {
-      LOG.debug(e);
-      Logs.extreme().debug(e,e);
-      address.unassign().clearPending();
-    }
-  }
- else {
-    final NetworkInterface networkInterface=RestrictedTypes.doPrivileged(address.getNetworkInterfaceId(),NetworkInterface.class);
-    try (final TransactionResource tx=Entities.transactionFor(NetworkInterface.class)){
-      final NetworkInterface eni=Entities.merge(networkInterface);
-      if (address.isStarted()) {
-        address.stop();
+ catch (      Exception e) {
+        LOG.debug(e);
+        Logs.extreme().debug(e,e);
       }
-      address.unassign(eni);
-      eni.disassociate();
-      if (eni.isAttached()) {
-        final VmInstance vm=eni.getAttachment().getInstance();
-        VmInstances.updatePublicAddress(vm,VmNetworkConfig.DEFAULT_IP);
-        if (!vm.isUsePrivateAddressing() && (VmInstance.VmState.PENDING.equals(vm.getState()) || VmInstance.VmState.RUNNING.equals(vm.getState()))) {
-          NetworkInterfaceHelper.associate(Addresses.allocateSystemAddress(),eni);
+    }
+ else {
+      final NetworkInterface networkInterface=RestrictedTypes.doPrivileged(address.getNetworkInterfaceId(),NetworkInterface.class);
+      try (final TransactionResource tx=Entities.transactionFor(NetworkInterface.class)){
+        final NetworkInterface eni=Entities.merge(networkInterface);
+        if (addresses.unassign(address,associationId)) {
+          eni.disassociate();
+          if (eni.isAttached()) {
+            final VmInstance vm=eni.getAttachment().getInstance();
+            PublicAddresses.markDirty(address.getAddress(),vm.getPartition());
+            VmInstances.updatePublicAddress(vm,VmNetworkConfig.DEFAULT_IP);
+            if (!vm.isUsePrivateAddressing() && (VmInstance.VmState.PENDING.equals(vm.getState()) || VmInstance.VmState.RUNNING.equals(vm.getState()))) {
+              NetworkInterfaceHelper.associate(addresses.allocateSystemAddress(),eni);
+            }
+          }
+          tx.commit();
         }
       }
-      tx.commit();
-    }
-   }
-  return reply;
+     }
+  }
+   return reply;
 }
