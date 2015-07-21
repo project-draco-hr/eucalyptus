@@ -1,11 +1,29 @@
 {
-  if (allocInfo.getRunInstancesRequest().getKernelId() != null || allocInfo.getRunInstancesRequest().getRamdiskId() != null) {
-    Cluster c=Clusters.lookup(Topology.lookup(ClusterController.class,allocInfo.getPartition()));
-    if (!c.getNodeHostMap().values().isEmpty()) {
-      NodeInfo.Hypervisor h=c.getNodeHostMap().values().iterator().next().getHypervisor();
-      LOG.warn("Hypervisor is" + h);
-      if (!h.supportEkiEri())       throw new VerificationException("EKI/ERI options are not supported by installation on " + h.name());
+  RunInstancesType msg=allocInfo.getRequest();
+  String imageId=msg.getImageId();
+  VmType vmType=allocInfo.getVmType();
+  try {
+    BootableSet bootSet=Emis.newBootableSet(imageId);
+    allocInfo.setBootableSet(bootSet);
+    if (!bootSet.isBlockStorage()) {
+      if (Platform.windows.equals(bootSet.getMachine().getPlatform()) && bootSet.getMachine().getImageSizeBytes() > ((1024L * 1024L * 1024L* vmType.getDisk()) + (1024L * 1024L * 10))) {
+        throw new ImageInstanceTypeVerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
+      }
+ else       if (bootSet.getMachine().getImageSizeBytes() >= ((1024L * 1024L * 1024L* vmType.getDisk()))) {
+        throw new ImageInstanceTypeVerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
+      }
     }
+  }
+ catch (  VerificationException e) {
+    throw e;
+  }
+catch (  MetadataException ex) {
+    LOG.error(ex);
+    throw ex;
+  }
+catch (  RuntimeException ex) {
+    LOG.error(ex);
+    throw new VerificationException("Failed to verify references for request: " + msg.toSimpleString() + " because of: "+ ex.getMessage(),ex);
   }
   return true;
 }

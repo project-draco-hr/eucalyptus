@@ -74,32 +74,27 @@ case EXTANT:
         }
       break;
 case DONE:
-    if (imagingTask instanceof VolumeImagingTask) {
-      try {
-        ImagingTasks.updateVolumeStatus((VolumeImagingTask)imagingTask,volumeId,ImportTaskState.COMPLETED,null);
-        Volumes.setSystemManagedFlag(null,volumeId,false);
-      }
- catch (      final Exception ex) {
-        ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.FAILED,ImportTaskState.STATE_MSG_FAILED_UNEXPECTED);
-        LOG.error("Failed to update volume's state",ex);
-        break;
-      }
-      try {
-        if (imagingTask instanceof ImportVolumeImagingTask) {
-          ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.COMPLETED,ImportTaskState.STATE_MSG_DONE);
-        }
- else         if (ImagingTasks.isConversionDone((VolumeImagingTask)imagingTask)) {
-          ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.INSTANTIATING,ImportTaskState.STATE_MSG_LAUNCHING_INSTANCE);
-        }
-      }
- catch (      final Exception ex) {
-        LOG.error("Failed to update imaging task's state to completed",ex);
-      }
+    try {
+      ImagingTasks.updateVolumeStatus((VolumeImagingTask)imagingTask,volumeId,ImportTaskState.COMPLETED,null);
+      Volumes.setSystemManagedFlag(null,volumeId,false);
     }
- else     if (imagingTask instanceof DiskImagingTask) {
+ catch (    final Exception ex) {
+      ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.FAILED,ImportTaskState.STATE_MSG_FAILED_UNEXPECTED);
+      LOG.error("Failed to update volume's state",ex);
+      break;
+    }
+  try {
+    if (imagingTask instanceof ImportVolumeImagingTask) {
       ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.COMPLETED,ImportTaskState.STATE_MSG_DONE);
     }
-  break;
+ else     if (ImagingTasks.isConversionDone((VolumeImagingTask)imagingTask)) {
+      ImagingTasks.transitState(imagingTask,ImportTaskState.CONVERTING,ImportTaskState.INSTANTIATING,ImportTaskState.STATE_MSG_LAUNCHING_INSTANCE);
+    }
+  }
+ catch (  final Exception ex) {
+    LOG.error("Failed to update imaging task's state to completed",ex);
+  }
+break;
 case FAILED:
 String stateMsg=ImportTaskState.STATE_MSG_CONVERSION_FAILED;
 if (request.getMessage() != null) stateMsg=request.getMessage();
@@ -109,19 +104,6 @@ final String errorCode=request.getErrorCode();
 if (errorCode != null && errorCode.length() > 0 && ImagingWorkers.isFatalError(errorCode)) {
 LOG.warn(String.format("A task %s experienced fatal error. Worker instance %s is being retired",request.getImportTaskId(),request.getInstanceId()));
 ImagingWorkers.retireWorker(request.getInstanceId());
-}
-if (imagingTask instanceof DiskImagingTask) {
-String conversionTaskId=((DiskImagingTask)imagingTask).getTask().getConversionTaskId();
-String imageId=null;
-for (ImageInfo imageInfo : ImageConversionManager.getPartitionedImages()) {
-if (imageInfo instanceof MachineImageInfo) {
-if (conversionTaskId.equals(((MachineImageInfo)imageInfo).getImageConversionId())) {
-imageId=imageInfo.getDisplayName();
-break;
-}
-}
-}
-ImagingSupport.terminateInstancesWaitingImageConversion(imageId);
 }
 break;
 }

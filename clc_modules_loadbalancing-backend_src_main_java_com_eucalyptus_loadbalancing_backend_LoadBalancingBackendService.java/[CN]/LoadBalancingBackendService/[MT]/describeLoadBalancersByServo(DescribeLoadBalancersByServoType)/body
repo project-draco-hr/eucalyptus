@@ -1,32 +1,28 @@
 {
   final DescribeLoadBalancersByServoResponseType reply=request.getReply();
   final String instanceId=request.getInstanceId();
-  LoadBalancerZoneCoreView zoneView;
-  LoadBalancerZone zone;
+  LoadBalancerServoInstance instance=null;
   try {
-    isValidServoRequest(instanceId,request.getSourceIp());
-    final LoadBalancerServoInstance instance=LoadBalancers.lookupServoInstance(instanceId);
-    zoneView=instance.getAvailabilityZone();
-    zone=LoadBalancerZoneEntityTransform.INSTANCE.apply(zoneView);
+    instance=LoadBalancingServoCache.getInstance().getLoadBalancerServoInstance(instanceId);
+    isValidServoRequest(instance,request.getSourceIp());
   }
  catch (  final Exception ex) {
     throw new InternalFailureException("Failed to verify request sender");
   }
   final Function<LoadBalancerZone,Optional<LoadBalancerServoDescription>> lookupLBDescriptions=new Function<LoadBalancerZone,Optional<LoadBalancerServoDescription>>(){
     @Override public Optional<LoadBalancerServoDescription> apply(    final LoadBalancerZone zone){
-      final LoadBalancerCoreView lbView=zone.getLoadbalancer();
-      final String lbName=lbView.getDisplayName();
-      final LoadBalancerServoDescription desc=new LoadBalancerServoDescription();
-      desc.setLoadBalancerName(lbName);
-      desc.setCreatedTime(lbView.getCreationTimestamp());
       final LoadBalancer lb;
       try {
-        lb=LoadBalancerEntityTransform.INSTANCE.apply(lbView);
+        lb=LoadBalancingServoCache.getInstance().getLoadBalancer(instanceId);
       }
  catch (      final Exception ex) {
         return Optional.<LoadBalancerServoDescription>absent();
       }
-      desc.setDnsName(LoadBalancers.getLoadBalancerDnsName(lbView));
+      final String lbName=lb.getDisplayName();
+      final LoadBalancerServoDescription desc=new LoadBalancerServoDescription();
+      desc.setLoadBalancerName(lbName);
+      desc.setCreatedTime(lb.getCreationTimestamp());
+      desc.setDnsName(LoadBalancers.getLoadBalancerDnsName(lb));
       desc.setLoadBalancerAttributes(TypeMappers.transform(lb,LoadBalancerAttributes.class));
       Collection<LoadBalancerBackendInstanceCoreView> backendInstancesInSameZone=Collections2.filter(zone.getBackendInstances(),new Predicate<LoadBalancerBackendInstanceCoreView>(){
         @Override public boolean apply(        LoadBalancerBackendInstanceCoreView arg0){
@@ -74,19 +70,25 @@
       desc.getAvailabilityZones().getMember().add(zone.getName());
       final Set<String> policiesOfListener=Sets.newHashSet();
       final Set<String> policiesForBackendServer=Sets.newHashSet();
-      if (lb.getListeners().size() > 0) {
+      List<LoadBalancerListener> lbListeners=Lists.newArrayList();
+      try {
+        lbListeners=LoadBalancingServoCache.getInstance().getLoadBalancerListeners(instanceId);
+      }
+ catch (      final Exception ex) {
+        ;
+      }
+      if (lbListeners.size() > 0) {
         desc.setListenerDescriptions(new ListenerDescriptions());
-        desc.getListenerDescriptions().setMember(new ArrayList<>(Collections2.transform(lb.getListeners(),new Function<LoadBalancerListenerCoreView,ListenerDescription>(){
-          @Override public ListenerDescription apply(          final LoadBalancerListenerCoreView input){
+        desc.getListenerDescriptions().setMember(new ArrayList<>(Collections2.transform(lbListeners,new Function<LoadBalancerListener,ListenerDescription>(){
+          @Override public ListenerDescription apply(          final LoadBalancerListener lbListener){
             ListenerDescription desc=new ListenerDescription();
             Listener listener=new Listener();
-            listener.setLoadBalancerPort(input.getLoadbalancerPort());
-            listener.setInstancePort(input.getInstancePort());
-            if (input.getInstanceProtocol() != PROTOCOL.NONE)             listener.setInstanceProtocol(input.getInstanceProtocol().name());
-            listener.setProtocol(input.getProtocol().name());
-            if (input.getCertificateId() != null)             listener.setSSLCertificateId(input.getCertificateId());
+            listener.setLoadBalancerPort(lbListener.getLoadbalancerPort());
+            listener.setInstancePort(lbListener.getInstancePort());
+            if (lbListener.getInstanceProtocol() != PROTOCOL.NONE)             listener.setInstanceProtocol(lbListener.getInstanceProtocol().name());
+            listener.setProtocol(lbListener.getProtocol().name());
+            if (lbListener.getCertificateId() != null)             listener.setSSLCertificateId(lbListener.getCertificateId());
             desc.setListener(listener);
-            final LoadBalancerListener lbListener=LoadBalancerListenerEntityTransform.INSTANCE.apply(input);
             final PolicyNames pnames=new PolicyNames();
             pnames.setMember(new ArrayList<>(Lists.transform(lbListener.getPolicies(),new Function<LoadBalancerPolicyDescriptionCoreView,String>(){
               @Override public String apply(              LoadBalancerPolicyDescriptionCoreView arg0){
@@ -107,13 +109,13 @@
 )));
       }
       try {
-        if (lb.getBackendServers().size() > 0) {
+        final List<LoadBalancerBackendServerDescription> backendServers=LoadBalancingServoCache.getInstance().getLoadBalancerBackendServerDescriptions(instanceId);
+        if (backendServers.size() > 0) {
           desc.setBackendServerDescriptions(new BackendServerDescriptions());
-          desc.getBackendServerDescriptions().setMember(new ArrayList<>(Collections2.transform(lb.getBackendServers(),new Function<LoadBalancerBackendServerDescriptionCoreView,BackendServerDescription>(){
-            @Override public BackendServerDescription apply(            LoadBalancerBackendServerDescriptionCoreView arg0){
-              final LoadBalancerBackendServerDescription backend=LoadBalancerBackendServerDescriptionEntityTransform.INSTANCE.apply(arg0);
+          desc.getBackendServerDescriptions().setMember(new ArrayList<>(Collections2.transform(backendServers,new Function<LoadBalancerBackendServerDescription,BackendServerDescription>(){
+            @Override public BackendServerDescription apply(            LoadBalancerBackendServerDescription backend){
               final BackendServerDescription desc=new BackendServerDescription();
-              desc.setInstancePort(arg0.getInstancePort());
+              desc.setInstancePort(backend.getInstancePort());
               desc.setPolicyNames(new PolicyNames());
               desc.getPolicyNames().setMember(new ArrayList<>(Collections2.transform(backend.getPolicyDescriptions(),new Function<LoadBalancerPolicyDescriptionCoreView,String>(){
                 @Override public String apply(                LoadBalancerPolicyDescriptionCoreView arg0){
@@ -149,10 +151,10 @@
       }
       List<LoadBalancerPolicyDescription> lbPolicies=Lists.newArrayList();
       try {
-        lbPolicies=LoadBalancerPolicies.getLoadBalancerPolicyDescription(lb);
+        lbPolicies=LoadBalancingServoCache.getInstance().getLoadBalancerPolicyDescriptions(instanceId);
       }
  catch (      final Exception ex) {
-        ;
+        LOG.error("Failed to retrieve loadbalancer's policies",ex);
       }
       final List<PolicyDescription> policies=Lists.newArrayList();
       for (      final LoadBalancerPolicyDescription lbPolicy : lbPolicies) {
@@ -165,9 +167,16 @@
     }
   }
 ;
+  LoadBalancerZone zone=null;
+  try {
+    zone=LoadBalancingServoCache.getInstance().getLoadBalancerZone(instanceId);
+  }
+ catch (  final Exception ex) {
+    throw new InternalFailureException("unknown error");
+  }
   Optional<LoadBalancerServoDescription> descs=Optional.<LoadBalancerServoDescription>absent();
   try {
-    final LoadBalancer lb=LoadBalancerEntityTransform.INSTANCE.apply(zone.getLoadbalancer());
+    final LoadBalancer lb=LoadBalancingServoCache.getInstance().getLoadBalancer(instanceId);
     if (zone != null && LoadBalancingMetadatas.filterPrivileged().apply(lb) && zone.getState().equals(LoadBalancerZone.STATE.InService)) {
       descs=lookupLBDescriptions.apply(zone);
     }

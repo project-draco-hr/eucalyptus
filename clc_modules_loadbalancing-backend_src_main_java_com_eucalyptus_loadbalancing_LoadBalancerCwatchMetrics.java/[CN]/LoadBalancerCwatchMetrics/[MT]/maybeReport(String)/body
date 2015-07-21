@@ -7,19 +7,27 @@
   final Date lastReport=this.lastReported.get(userId);
   long currentTime=System.currentTimeMillis();
   int diffSec=(int)((currentTime - lastReport.getTime()) / 1000.0);
-  if (diffSec >= CLOUDWATCH_REPORTING_INTERVAL_SEC)   data=this.getDataAndClear(userId);
+  if (diffSec >= CLOUDWATCH_REPORTING_INTERVAL_SEC) {
+    this.lastReported.put(userId,new Date(currentTime));
+    data=this.getDataAndClear(userId);
+  }
   if (data != null && data.getMember() != null && data.getMember().size() > 0) {
-    try {
-      EucalyptusActivityTasks.getInstance().putCloudWatchMetricData(userId,CLOUDWATCH_ELB_METRIC_NAMESPACE,data);
-      EucalyptusActivityTasks.getInstance().putCloudWatchMetricData(userId,CLOUDWATCH_ELB_METRIC_NAMESPACE,removeDimensions(data,"LoadBalancerName"));
-      EucalyptusActivityTasks.getInstance().putCloudWatchMetricData(userId,CLOUDWATCH_ELB_METRIC_NAMESPACE,removeDimensions(data,"AvailabilityZone"));
-      EucalyptusActivityTasks.getInstance().putCloudWatchMetricData(userId,CLOUDWATCH_ELB_METRIC_NAMESPACE,removeDimensions(data,"LoadBalancerName","AvailabilityZone"));
-    }
- catch (    Exception ex) {
-      Exceptions.toUndeclared(ex);
-    }
+    final int MAX_PUT_METRIC_DATA_ITEMS=20;
+    for (    final List<MetricDatum> partition : Iterables.partition(data.getMember(),MAX_PUT_METRIC_DATA_ITEMS)) {
+      final MetricData partitionedData=new MetricData();
+      partitionedData.setMember(Lists.newArrayList(partition));
+      try {
+        EucalyptusActivityTasks.getInstance().putCloudWatchMetricData(userId,CLOUDWATCH_ELB_METRIC_NAMESPACE,partitionedData);
+        EucalyptusActivityTasks.getInstance().putCloudWatchMetricData(userId,CLOUDWATCH_ELB_METRIC_NAMESPACE,removeDimensions(partitionedData,"LoadBalancerName"));
+        EucalyptusActivityTasks.getInstance().putCloudWatchMetricData(userId,CLOUDWATCH_ELB_METRIC_NAMESPACE,removeDimensions(partitionedData,"AvailabilityZone"));
+        EucalyptusActivityTasks.getInstance().putCloudWatchMetricData(userId,CLOUDWATCH_ELB_METRIC_NAMESPACE,removeDimensions(partitionedData,"LoadBalancerName","AvailabilityZone"));
+      }
+ catch (      Exception ex) {
+        Exceptions.toUndeclared(ex);
+      }
  finally {
-      this.lastReported.put(userId,new Date(currentTime));
+        ;
+      }
     }
   }
 }

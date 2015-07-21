@@ -4,7 +4,6 @@
   final List<LoadBalancerBackendInstance> stateOutdated=Lists.newArrayList();
   try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
     allInstances.addAll(Entities.query(LoadBalancerBackendInstance.named()));
-    db.commit();
   }
  catch (  final Exception ex) {
   }
@@ -69,16 +68,20 @@
         final LoadBalancerBackendInstance update=Entities.uniqueResult(be);
         update.setBackendState(trueState);
         Entities.persist(update);
+        db.commit();
+        LoadBalancingServoCache.getInstance().invalidate(be);
       }
- else       if (instanceMap.containsKey(be.getInstanceId())) {
+ else       if (instanceMap.containsKey(be.getInstanceId()) && !instanceMap.get(be.getInstanceId()).getIpAddress().equals(be.getIpAddress())) {
         final LoadBalancerBackendInstance update=Entities.uniqueResult(be);
         update.setVmInstance(instanceMap.get(be.getInstanceId()));
         Entities.persist(update);
+        db.commit();
+        LoadBalancingServoCache.getInstance().invalidate(be);
       }
     }
-    db.commit();
   }
  catch (  final Exception ex) {
+    ;
   }
   try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
     for (    final LoadBalancerBackendInstance be : beToDelete) {
@@ -87,6 +90,9 @@
       LOG.info("Instance " + be.getInstanceId() + " is terminated and removed from ELB");
     }
     db.commit();
+    for (    final LoadBalancerBackendInstance be : beToDelete) {
+      LoadBalancingServoCache.getInstance().invalidate(be);
+    }
   }
  catch (  final Exception ex) {
     ;
