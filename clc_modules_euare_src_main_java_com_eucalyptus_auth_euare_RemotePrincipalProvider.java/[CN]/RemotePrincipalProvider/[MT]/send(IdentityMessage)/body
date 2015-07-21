@@ -1,19 +1,32 @@
 {
   final URI endpoint=URI.create(endpoints.iterator().next());
   final ServiceConfiguration config=new EphemeralConfiguration(ComponentIds.lookup(Identity.class),"identity","identity",endpoint);
-  try {
-    return AsyncRequests.sendSync(config,request);
+  for (int n=0; n <= MAX_RETRIES; n++) {
+    try {
+      return AsyncRequests.sendSync(config,request);
+    }
+ catch (    Exception e) {
+      final Optional<AsyncExceptions.AsyncWebServiceError> errorOptional=AsyncExceptions.asWebServiceError(e);
+      if (errorOptional.isPresent()) {
+        throw e;
+      }
+      if (Thread.currentThread().isInterrupted() || n == MAX_RETRIES) {
+        if (Exceptions.isCausedBy(e,SSLHandshakeException.class)) {
+          throw new AuthException("HTTPS connection failed for region host " + endpoint.getHost());
+        }
+        if (Exceptions.isCausedBy(e,SSLException.class)) {
+          throw new AuthException("HTTPS error for region host " + endpoint.getHost() + ": "+ String.valueOf(e.getMessage()));
+        }
+        if (Exceptions.isCausedBy(e,ConnectException.class)) {
+          throw new AuthException("Error connecting to region host " + endpoint.getHost());
+        }
+        throw e;
+      }
+ else {
+        final long sleep=(long)(RETRY_SLEEP * Math.pow(BACKOFF,n));
+        Thread.sleep(sleep);
+      }
+    }
   }
- catch (  Exception e) {
-    if (Exceptions.isCausedBy(e,SSLHandshakeException.class)) {
-      throw new AuthException("HTTPS connection failed for region host " + endpoint.getHost());
-    }
-    if (Exceptions.isCausedBy(e,SSLException.class)) {
-      throw new AuthException("HTTPS error for region host " + endpoint.getHost() + ": "+ String.valueOf(e.getMessage()));
-    }
-    if (Exceptions.isCausedBy(e,ConnectException.class)) {
-      throw new AuthException("Error connecting to region host " + endpoint.getHost());
-    }
-    throw e;
-  }
+  throw new Exception("Retry error");
 }

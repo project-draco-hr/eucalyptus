@@ -1,0 +1,86 @@
+{
+  try {
+    if (cached != null) {
+      request.setPtag(cached.getPTag());
+    }
+    final DescribePrincipalResponseType response=send(request);
+    final Principal principal=response.getDescribePrincipalResult().getPrincipal();
+    if (principal == null) {
+      throw new AuthException("Invalid identity");
+    }
+    if (principal.getPtag() != null && cached != null && principal.getPtag().equals(cached.getPTag())) {
+      return cached;
+    }
+    final UserPrincipal[] userPrincipalHolder=new UserPrincipal[1];
+    final Supplier<UserPrincipal> userPrincipalSupplier=new Supplier<UserPrincipal>(){
+      @Override public UserPrincipal get(){
+        return userPrincipalHolder[0];
+      }
+    }
+;
+    final EuareResourceName ern=(EuareResourceName)EuareResourceName.parse(principal.getArn());
+    final ImmutableList<AccessKey> accessKeys=ImmutableList.copyOf(Iterables.transform(principal.getAccessKeys(),accessKeyTransform(userPrincipalSupplier)));
+    final ImmutableList<Certificate> certificates=ImmutableList.copyOf(Iterables.transform(principal.getCertificates(),certificateTransform(userPrincipalSupplier)));
+    final ImmutableList<PolicyVersion> policies=ImmutableList.copyOf(Iterables.transform(principal.getPolicies(),TypeMappers.lookup(Policy.class,PolicyVersion.class)));
+    return userPrincipalHolder[0]=new UserPrincipal(){
+      @Nonnull @Override public String getName(){
+        return ern.getName();
+      }
+      @Nonnull @Override public String getPath(){
+        return ern.getPath();
+      }
+      @Nonnull @Override public String getUserId(){
+        return principal.getUserId();
+      }
+      @Nonnull @Override public String getAuthenticatedId(){
+        return Objects.firstNonNull(principal.getRoleId(),principal.getUserId());
+      }
+      @Nonnull @Override public String getAccountAlias(){
+        return principal.getAccountAlias();
+      }
+      @Nonnull @Override public String getAccountNumber(){
+        return ern.getAccount();
+      }
+      @Nonnull @Override public String getCanonicalId(){
+        return principal.getCanonicalId();
+      }
+      @Override public boolean isEnabled(){
+        return principal.getEnabled();
+      }
+      @Override public boolean isAccountAdmin(){
+        return principal.getRoleId() == null && DatabaseAuthUtils.isAccountAdmin(getName());
+      }
+      @Override public boolean isSystemAdmin(){
+        return principal.getRoleId() == null && Accounts.isSystemAccount(getAccountAlias());
+      }
+      @Override public boolean isSystemUser(){
+        return Accounts.isSystemAccount(getAccountAlias());
+      }
+      @Nullable @Override public String getPassword(){
+        return principal.getPasswordHash();
+      }
+      @Nullable @Override public Long getPasswordExpires(){
+        return principal.getPasswordExpiry();
+      }
+      @Nonnull @Override public List<AccessKey> getKeys(){
+        return accessKeys;
+      }
+      @Nonnull @Override public List<Certificate> getCertificates(){
+        return certificates;
+      }
+      @Nonnull @Override public List<PolicyVersion> getPrincipalPolicies(){
+        return policies;
+      }
+      @Override public String getToken(){
+        return null;
+      }
+      @Nullable @Override public String getPTag(){
+        return principal.getPtag();
+      }
+    }
+;
+  }
+ catch (  Exception e) {
+    throw new AuthException(e);
+  }
+}
