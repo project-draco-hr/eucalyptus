@@ -3,115 +3,100 @@
   final String instanceId=request.getInstanceId() == null ? null : normalizeInstanceIdentifier(request.getInstanceId());
   final String networkInterfaceId=request.getNetworkInterfaceId() == null ? null : normalizeNetworkInterfaceIdentifier(request.getNetworkInterfaceId());
   final Address address=RestrictedTypes.doPrivileged(Objects.firstNonNull(request.getPublicIp(),ResourceIdentifiers.tryNormalize().apply(request.getAllocationId())),Address.class);
-  if (!address.isAllocated()) {
+  if (!address.isAllocated() && !Contexts.lookup().isAdministrator()) {
     throw new EucalyptusCloudException("Cannot associate an address which is not allocated: " + request.getPublicIp());
   }
  else   if (!Contexts.lookup().isAdministrator() && !Contexts.lookup().getUserFullName().asAccountFullName().getAccountNumber().equals(address.getOwner().getAccountNumber())) {
     throw new EucalyptusCloudException("Cannot associate an address which is not allocated to your account: " + request.getPublicIp());
   }
   final VmInstance vm=instanceId == null ? null : RestrictedTypes.doPrivileged(instanceId,VmInstance.class);
-  if (address.getDomain() != Address.Domain.vpc) {
-    if (vm == null) {
-      throw new ClientComputeException("InvalidParameterCombination","InstanceId must be specified when using PublicIp");
-    }
-    if (VmStateSet.NOT_RUNNING.apply(vm)) {
-      throw new ClientComputeException("InvalidInstanceID","The instance '" + vm.getDisplayName() + "' is not in a valid state for this operation.");
-    }
-    final VmInstance oldVm=findCurrentAssignedVm(address);
-    final Address oldAddr=findVmExistingAddress(vm);
-    reply.set_return(true);
-    if (oldAddr != null && address.equals(oldAddr)) {
-      return reply;
-    }
-    final UnconditionalCallback<BaseMessage> assignTarget=new UnconditionalCallback<BaseMessage>(){
-      public void fire(){
-        AddressingDispatcher.dispatch(AsyncRequests.newRequest(address.assign(vm).getCallback()).then(new Callback.Success<BaseMessage>(){
-          @Override public void fire(          BaseMessage response){
-            Addresses.updatePublicIpByInstanceId(vm.getInstanceId(),address.getName());
-          }
-        }
-),vm.getPartition());
-        if (oldVm != null) {
-          Addresses.system(oldVm);
-        }
+  try (final Addresses.AddressingBatch batch=addresses.batch()){
+    if (address.getDomain() != AddressDomain.vpc) {
+      if (vm == null) {
+        throw new ClientComputeException("InvalidParameterCombination","InstanceId must be specified when using PublicIp");
       }
-    }
-;
-    final UnconditionalCallback<BaseMessage> unassignBystander=new UnconditionalCallback<BaseMessage>(){
-      public void fire(){
-        if (oldAddr != null) {
-          AddressingDispatcher.dispatch(AsyncRequests.newRequest(oldAddr.unassign().getCallback()).then(assignTarget),vm.getPartition());
-        }
- else {
-          assignTarget.fire();
-        }
+      if (VmStateSet.NOT_RUNNING.apply(vm)) {
+        throw new ClientComputeException("InvalidInstanceID","The instance '" + vm.getDisplayName() + "' is not in a valid state for this operation.");
       }
-    }
-;
-    if (address.isAssigned()) {
-      AddressingDispatcher.dispatch(AsyncRequests.newRequest(address.unassign().getCallback()).then(unassignBystander),oldVm.getPartition());
-    }
- else {
-      unassignBystander.fire();
-    }
-  }
- else {
-    final NetworkInterface networkInterface;
-    try (final TransactionResource tx=Entities.transactionFor(VmInstance.class)){
-      if (vm != null) {
-        if (VmStateSet.EXPECTING_TEARDOWN.apply(vm) || VmStateSet.DONE.apply(vm)) {
-          throw new ClientComputeException("InvalidInstanceID","The instance '" + vm.getDisplayName() + "' is not in a valid state for this operation.");
-        }
-        networkInterface=Iterables.getOnlyElement(Entities.merge(vm).getNetworkInterfaces());
-      }
- else {
-        if (networkInterfaceId == null) {
-          throw new ClientComputeException("MissingParameter","Either instance ID or network interface id must be specified");
-        }
-        networkInterface=RestrictedTypes.doPrivileged(networkInterfaceId,NetworkInterface.class);
-        if (networkInterface.isAttached()) {
-          final VmInstance attachedVm=networkInterface.getAttachment().getInstance();
-          if (VmStateSet.EXPECTING_TEARDOWN.apply(attachedVm)) {
-            throw new ClientComputeException("IncorrectInstanceState","The instance to which '" + networkInterfaceId + "' is attached is not in a valid state for this operation");
-          }
-        }
-      }
-    }
-     reply.set_return(true);
-    if (!address.isAssigned() || !networkInterface.getDisplayName().equals(address.getNetworkInterfaceId())) {
-      if (address.isAssigned() && !request.getAllowReassociation()) {
-        throw new ClientComputeException("Resource.AlreadyAssociated","Address already associated");
+      final VmInstance oldVm=findCurrentAssignedVm(address);
+      final Address oldAddr=findVmExistingAddress(addresses,vm);
+      reply.set_return(true);
+      if (oldAddr != null && address.equals(oldAddr)) {
+        return reply;
       }
       if (address.isAssigned()) {
-        final NetworkInterface oldNetworkInterface=RestrictedTypes.doPrivileged(address.getNetworkInterfaceId(),NetworkInterface.class);
-        try (final TransactionResource tx=Entities.transactionFor(NetworkInterface.class)){
-          final NetworkInterface eni=Entities.merge(oldNetworkInterface);
-          address.unassign(eni);
-          eni.disassociate();
-          if (eni.isAttached()) {
-            VmInstances.updatePublicAddress(eni.getAttachment().getInstance(),VmNetworkConfig.DEFAULT_IP);
-          }
-          tx.commit();
+        addresses.unassign(address);
+        if (oldVm != null) {
+          addresses.system(oldVm);
         }
-       }
-      try (final TransactionResource tx=Entities.transactionFor(NetworkInterface.class)){
-        final NetworkInterface eni=Entities.merge(networkInterface);
-        internetGateways.lookupByVpc(AccountFullName.getInstance(address.getOwnerAccountNumber()),eni.getVpc().getDisplayName(),CloudMetadatas.toDisplayName());
-        if (eni.isAssociated()) {
-          NetworkInterfaceHelper.releasePublic(eni);
-          eni.disassociate();
-          if (eni.isAttached()) {
-            VmInstances.updatePublicAddress(eni.getAttachment().getInstance(),VmNetworkConfig.DEFAULT_IP);
-          }
-        }
-        NetworkInterfaceHelper.associate(address,eni);
-        tx.commit();
       }
- catch (      final VpcMetadataNotFoundException e) {
-        throw new ClientComputeException("Gateway.NotAttached","Internet gateway not found for VPC");
+      if (oldAddr != null) {
+        addresses.unassign(oldAddr);
+      }
+      if (addresses.assign(address,vm)) {
+        Addresses.updatePublicIpByInstanceId(vm.getInstanceId(),address.getName());
       }
     }
-    reply.setAssociationId(address.getAssociationId());
+ else {
+      final NetworkInterface networkInterface;
+      try (final TransactionResource tx=Entities.transactionFor(VmInstance.class)){
+        if (vm != null) {
+          if (VmStateSet.EXPECTING_TEARDOWN.apply(vm) || VmStateSet.DONE.apply(vm)) {
+            throw new ClientComputeException("InvalidInstanceID","The instance '" + vm.getDisplayName() + "' is not in a valid state for this operation.");
+          }
+          networkInterface=Iterables.getOnlyElement(Entities.merge(vm).getNetworkInterfaces());
+        }
+ else {
+          if (networkInterfaceId == null) {
+            throw new ClientComputeException("MissingParameter","Either instance ID or network interface id must be specified");
+          }
+          networkInterface=RestrictedTypes.doPrivileged(networkInterfaceId,NetworkInterface.class);
+          if (networkInterface.isAttached()) {
+            final VmInstance attachedVm=networkInterface.getAttachment().getInstance();
+            if (VmStateSet.EXPECTING_TEARDOWN.apply(attachedVm)) {
+              throw new ClientComputeException("IncorrectInstanceState","The instance to which '" + networkInterfaceId + "' is attached is not in a valid state for this operation");
+            }
+          }
+        }
+      }
+       reply.set_return(true);
+      if (!address.isAssigned() || !networkInterface.getDisplayName().equals(address.getNetworkInterfaceId())) {
+        if (address.isAssigned() && !request.getAllowReassociation()) {
+          throw new ClientComputeException("Resource.AlreadyAssociated","Address already associated");
+        }
+        if (address.isAssigned()) {
+          final NetworkInterface oldNetworkInterface=RestrictedTypes.doPrivileged(address.getNetworkInterfaceId(),NetworkInterface.class);
+          try (final TransactionResource tx=Entities.transactionFor(NetworkInterface.class)){
+            final NetworkInterface eni=Entities.merge(oldNetworkInterface);
+            addresses.unassign(address,null);
+            eni.disassociate();
+            if (eni.isAttached()) {
+              VmInstances.updatePublicAddress(eni.getAttachment().getInstance(),VmNetworkConfig.DEFAULT_IP);
+            }
+            tx.commit();
+          }
+         }
+        try (final TransactionResource tx=Entities.transactionFor(NetworkInterface.class)){
+          final NetworkInterface eni=Entities.merge(networkInterface);
+          internetGateways.lookupByVpc(AccountFullName.getInstance(address.getOwnerAccountNumber()),eni.getVpc().getDisplayName(),CloudMetadatas.toDisplayName());
+          if (eni.isAssociated()) {
+            NetworkInterfaceHelper.releasePublic(eni);
+            eni.disassociate();
+            if (eni.isAttached()) {
+              final VmInstance instance=eni.getAttachment().getInstance();
+              PublicAddresses.markDirty(address.getAddress(),instance.getPartition());
+              VmInstances.updatePublicAddress(instance,VmNetworkConfig.DEFAULT_IP);
+            }
+          }
+          NetworkInterfaceHelper.associate(address,eni);
+          tx.commit();
+        }
+ catch (        final VpcMetadataNotFoundException e) {
+          throw new ClientComputeException("Gateway.NotAttached","Internet gateway not found for VPC");
+        }
+      }
+      reply.setAssociationId(address.getAssociationId());
+    }
   }
-  return reply;
+   return reply;
 }

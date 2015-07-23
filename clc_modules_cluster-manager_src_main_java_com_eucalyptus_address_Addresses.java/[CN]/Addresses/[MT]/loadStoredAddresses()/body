@@ -1,0 +1,50 @@
+{
+  try {
+    for (    AllocatedAddressEntity addr : allocatedAddressPersistence.list(null)) {
+      if (!addressRegistry.contains(addr.getName())) {
+        try {
+          final Address address=new Address(addr.getName());
+          if (addr.getState() == null) {
+            continue;
+          }
+          if (addr.getState().ordinal() < AddressState.allocated.ordinal()) {
+            allocatedAddressPersistence.delete(addr,Predicates.alwaysTrue());
+            continue;
+          }
+ else           if (addr.getState() == AddressState.allocated) {
+            address.allocate(addr.getOwnerAccountNumber(),addr.getOwnerUserId(),addr.getOwnerUserName(),addr.getDomain(),addr.getAllocationId());
+          }
+ else           if (addr.getState() == AddressState.impending) {
+            address.pendingAssignment();
+          }
+ else           if (addr.getState() == AddressState.assigned) {
+            if (addr.getOwnerAccountNumber() == null || addr.getOwnerAccountNumber().equals(Principals.systemAccount().getAccountNumber())) {
+              address.pendingAssignment();
+            }
+ else {
+              address.allocate(addr.getOwnerAccountNumber(),addr.getOwnerUserId(),addr.getOwnerUserName(),addr.getDomain(),addr.getAllocationId());
+            }
+            if (addr.getNetworkInterfaceId() == null) {
+              address.assignClassic(addr.getInstanceId(),addr.getInstanceUuid(),addr.getPrivateAddress());
+            }
+ else {
+              address.assignVpc(addr.getNetworkInterfaceId(),addr.getNetworkInterfaceOwnerId(),addr.getPrivateAddress(),addr.getAssociationId());
+            }
+          }
+ else           if (addr.getState() == AddressState.started) {
+            address.allocate(addr.getOwnerAccountNumber(),addr.getOwnerUserId(),addr.getOwnerUserName(),addr.getDomain(),addr.getAllocationId());
+            address.assignVpc(addr.getNetworkInterfaceId(),addr.getNetworkInterfaceOwnerId(),addr.getPrivateAddress(),addr.getAssociationId());
+            address.start(addr.getInstanceId(),addr.getInstanceUuid());
+          }
+          addressRegistry.register(address);
+        }
+ catch (        Exception ex) {
+          LOG.error(ex,ex);
+        }
+      }
+    }
+  }
+ catch (  final Exception e) {
+    LOG.debug(e,e);
+  }
+}
