@@ -1,0 +1,22 @@
+{
+  if (Topology.isEnabledLocally(Eucalyptus.class) && Hosts.isCoordinator() && Bootstrap.isOperational()&& !Databases.isVolatile()) {
+    final List<VmInstance> instances=Lists.newArrayList();
+    try (final TransactionResource tx=Entities.readOnlyDistinctTransactionFor(VmInstance.class)){
+      instances.addAll(list(null,Restrictions.or(criterion(Timeout.BURIED),criterion(Timeout.TERMINATED)),Collections.<String,String>emptyMap(),Predicates.or(Timeout.BURIED,Timeout.TERMINATED)));
+    }
+     for (    final VmInstance instance : instances)     try {
+switch (instance.getState()) {
+case TERMINATED:
+        VmInstances.buried(instance);
+      break;
+case BURIED:
+    VmInstances.delete(instance);
+  break;
+}
+}
+ catch (final Exception ex) {
+LOG.error(ex);
+Logs.extreme().error(ex,ex);
+}
+}
+}
