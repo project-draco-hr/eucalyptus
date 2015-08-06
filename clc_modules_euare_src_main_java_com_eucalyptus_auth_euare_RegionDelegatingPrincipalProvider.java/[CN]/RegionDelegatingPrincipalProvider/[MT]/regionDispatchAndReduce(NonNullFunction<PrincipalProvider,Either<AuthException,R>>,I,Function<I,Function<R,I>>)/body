@@ -4,15 +4,27 @@
     final List<Either<AuthException,R>> regionResults=Lists.newArrayList();
     regionResults.add(invoker.apply(localProvider));
     if (!Iterables.isEmpty(regionInfos)) {
+      final List<Future<Either<AuthException,R>>> regionResultFutures=Lists.newArrayList();
       withRegions:       for (      final RegionInfo regionInfo : regionInfos) {
         if (!RegionConfigurations.getRegionName().asSet().contains(regionInfo.getName())) {
           for (          final RegionInfo.RegionService service : regionInfo.getServices()) {
             if ("identity".equals(service.getType())) {
               final PrincipalProvider remoteProvider=new RemotePrincipalProvider(service.getEndpoints());
-              regionResults.add(invoker.apply(remoteProvider));
+              regionResultFutures.add(Threads.enqueue(Identity.class,RegionDelegatingPrincipalProvider.class,FUtils.cpartial(invoker,remoteProvider)));
               continue withRegions;
             }
           }
+        }
+      }
+      for (      final Future<Either<AuthException,R>> future : regionResultFutures) {
+        try {
+          regionResults.add(future.get());
+        }
+ catch (        final InterruptedException e) {
+          throw new AuthException("Interrupted");
+        }
+catch (        final ExecutionException e) {
+          throw new RuntimeException(e);
         }
       }
     }

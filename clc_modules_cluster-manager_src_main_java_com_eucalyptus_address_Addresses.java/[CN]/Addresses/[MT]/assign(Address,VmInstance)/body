@@ -1,0 +1,26 @@
+{
+  try (final AddressingBatch batch=batch()){
+    boolean assigned=false;
+    if (address.getOwnerAccountNumber() == null || vm.getOwnerAccountNumber().equals(address.getOwnerAccountNumber())) {
+      boolean disableAddressOnFailure=false;
+      if (!address.isAllocated()) {
+        final Optional<Address> enabledAddress=addressRegistry.tryEnable(address.getAddress());
+        disableAddressOnFailure=enabledAddress.isPresent();
+      }
+      final Optional<AddressStateTransition> assignTransition=address.assign(vm);
+      if (assignTransition.isPresent()) {
+        assigned=store(address,assignTransition.get().newAddressInfo()) || !assignTransition.get().rollback();
+      }
+      if (assigned && assignTransition.get().newAddressInfo().getOwnerUserId() != null) {
+        fireAssociateUsageEvent(assignTransition.get());
+      }
+      if (!assigned && disableAddressOnFailure) {
+        disable(address.getAddress());
+      }
+      if (assigned) {
+        addressFlushRequired();
+      }
+    }
+    return assigned;
+  }
+ }

@@ -1,0 +1,57 @@
+{
+  try (final AddressingBatch batch=batch()){
+    boolean release=false;
+    Optional<AddressStateTransition> releaseTransition=Optional.absent();
+    while (address.isAllocated() && !releaseTransition.isPresent() && (allocationId == null || allocationId.equals(address.getAllocationId()))) {
+      releaseTransition=address.release(allocationId);
+    }
+    if (releaseTransition.isPresent()) {
+      if (releaseTransition.get().oldAddressInfo().isReallyAssigned() && releaseTransition.get().oldAddressInfo().getInstanceId() != null) {
+        if (releaseTransition.get().oldAddressInfo().getOwnerUserId() != null) {
+          fireDisassociateUsageEvent(releaseTransition.get());
+        }
+        try {
+          final VmInstance instance=VmInstances.lookup(releaseTransition.get().oldAddressInfo().getInstanceId());
+          if (address.getAddress().equals(instance.getPublicAddress())) {
+            Addresses.updatePublicIpByInstanceId(instance.getDisplayName(),null);
+          }
+          try {
+            system(instance);
+          }
+ catch (          NoSuchElementException e) {
+            LOG.debug(e,e);
+          }
+catch (          Exception e) {
+            LOG.error("Error assigning system address for instance " + instance.getDisplayName(),e);
+          }
+        }
+ catch (        NoSuchElementException ex) {
+          Logs.extreme().error(ex);
+        }
+      }
+      try {
+        if (allocatedAddressPersistence.delete(createEntity(releaseTransition.get().oldAddressInfo()),new Predicate<AllocatedAddressEntity>(){
+          @Override public boolean apply(          final AllocatedAddressEntity addressEntity){
+            return allocationId == null || allocationId.equals(addressEntity.getAllocationId());
+          }
+        }
+)) {
+          release=true;
+          disable(address.getAddress());
+          LOG.debug("Released address: " + String.valueOf(address));
+          if (releaseTransition.get().oldAddressInfo().getOwnerUserId() != null) {
+            fireUsageEvent(releaseTransition.get().oldAddressInfo().getOwnerUserId(),address.getDisplayName(),Suppliers.ofInstance(AddressEvent.forRelease()));
+          }
+        }
+ else {
+          releaseTransition.get().rollback();
+        }
+      }
+ catch (      final Exception e) {
+        LOG.error("Persistence error for allocated address, attempting rollback " + address.getDisplayName(),e);
+        releaseTransition.get().rollback();
+      }
+    }
+    return release;
+  }
+ }

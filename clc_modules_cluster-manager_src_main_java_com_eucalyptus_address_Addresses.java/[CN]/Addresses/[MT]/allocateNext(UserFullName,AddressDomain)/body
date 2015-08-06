@@ -1,0 +1,33 @@
+{
+  final Predicate<Address> predicate=RestrictedTypes.filterPrivileged();
+  final Address address;
+  try {
+    address=addressRegistry.enableFirst(predicate);
+  }
+ catch (  final NoSuchElementException e) {
+    throw new NotEnoughResourcesException(ERR_SYS_INSUFFICIENT_ADDRESS_CAPACITY);
+  }
+  final Optional<AddressStateTransition> transition=address.allocate(userId,domain);
+  if (!transition.isPresent()) {
+    throw new NotEnoughResourcesException(ERR_SYS_INSUFFICIENT_ADDRESS_CAPACITY);
+  }
+  try {
+    call(new Callable<Void>(){
+      @Override public Void call() throws Exception {
+        allocatedAddressPersistence.save(createEntity(transition.get().newAddressInfo()));
+        return null;
+      }
+    }
+);
+  }
+ catch (  final Exception e) {
+    LOG.error("Persistence error for allocated address, attempting rollback " + address.getDisplayName(),e);
+    if (transition.get().rollback()) {
+      disable(address.getAddress());
+    }
+    throw new NotEnoughResourcesException(ERR_SYS_INSUFFICIENT_ADDRESS_CAPACITY);
+  }
+  LOG.debug("Allocated address for public addressing: " + String.valueOf(address));
+  fireUsageEvent(userId,address.getDisplayName(),Suppliers.ofInstance(AddressEvent.forAllocate()));
+  return address;
+}
