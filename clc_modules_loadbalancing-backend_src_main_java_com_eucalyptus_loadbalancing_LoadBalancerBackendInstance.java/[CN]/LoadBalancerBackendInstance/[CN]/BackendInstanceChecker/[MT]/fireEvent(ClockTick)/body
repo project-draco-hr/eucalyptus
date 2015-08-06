@@ -24,20 +24,21 @@
   }
  catch (  final Exception ex) {
   }
-  final List<String> instancesToCheck=Lists.transform(stateOutdated,new Function<LoadBalancerBackendInstance,String>(){
+  final Set<String> instancesToCheck=Sets.newHashSet(Lists.transform(stateOutdated,new Function<LoadBalancerBackendInstance,String>(){
     @Override @Nullable public String apply(    @Nullable LoadBalancerBackendInstance arg0){
       return arg0.getInstanceId();
     }
   }
-);
-  List<RunningInstancesItemType> result=null;
-  try {
-    result=EucalyptusActivityTasks.getInstance().describeSystemInstancesWithVerbose(instancesToCheck);
-    if (result == null)     throw new Exception();
-  }
- catch (  final Exception ex) {
-    LOG.warn("failed to query instances",ex);
-    return;
+));
+  final List<RunningInstancesItemType> result=Lists.newArrayList();
+  for (  final List<String> partition : Iterables.partition(instancesToCheck,NUM_INSTANCES_TO_DESCRIBE)) {
+    try {
+      result.addAll(EucalyptusActivityTasks.getInstance().describeSystemInstancesWithVerbose(partition));
+    }
+ catch (    final Exception ex) {
+      LOG.warn("failed to query instances",ex);
+      break;
+    }
   }
   final Set<String> instancesToDelete=Sets.newHashSet();
   final Map<String,STATE> stateMap=new HashMap<String,STATE>();
@@ -57,44 +58,54 @@
  else     if ("stopped".equals(state))     stateMap.put(instance.getInstanceId(),STATE.Error);
   }
   final List<LoadBalancerBackendInstance> beToDelete=Lists.newArrayList();
-  try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
-    for (    final LoadBalancerBackendInstance be : stateOutdated) {
-      if (instancesToDelete.contains(be.getInstanceId())) {
-        beToDelete.add(be);
-        continue;
-      }
-      if (stateMap.containsKey(be.getInstanceId())) {
+  for (  final LoadBalancerBackendInstance be : stateOutdated) {
+    if (instancesToDelete.contains(be.getInstanceId())) {
+      beToDelete.add(be);
+      continue;
+    }
+    if (stateMap.containsKey(be.getInstanceId())) {
+      try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
         final STATE trueState=stateMap.get(be.getInstanceId());
         final LoadBalancerBackendInstance update=Entities.uniqueResult(be);
         update.setBackendState(trueState);
         Entities.persist(update);
         db.commit();
+      }
+ catch (      final Exception ex) {
+        ;
+      }
+ finally {
         LoadBalancingServoCache.getInstance().invalidate(be);
       }
- else       if (instanceMap.containsKey(be.getInstanceId()) && !instanceMap.get(be.getInstanceId()).getIpAddress().equals(be.getIpAddress())) {
+    }
+ else     if (instanceMap.containsKey(be.getInstanceId()) && !instanceMap.get(be.getInstanceId()).getIpAddress().equals(be.getIpAddress())) {
+      try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
         final LoadBalancerBackendInstance update=Entities.uniqueResult(be);
-        update.setVmInstance(instanceMap.get(be.getInstanceId()));
+        update.setIpAddress(instanceMap.get(be.getInstanceId()).getIpAddress());
+        update.setPartition(instanceMap.get(be.getInstanceId()).getPlacement());
         Entities.persist(update);
         db.commit();
+      }
+ catch (      final Exception ex) {
+        ;
+      }
+ finally {
         LoadBalancingServoCache.getInstance().invalidate(be);
       }
     }
   }
- catch (  final Exception ex) {
-    ;
-  }
-  try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
-    for (    final LoadBalancerBackendInstance be : beToDelete) {
+  for (  final LoadBalancerBackendInstance be : beToDelete) {
+    try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
       final LoadBalancerBackendInstance entity=Entities.uniqueResult(be);
       Entities.delete(entity);
       LOG.info("Instance " + be.getInstanceId() + " is terminated and removed from ELB");
+      db.commit();
     }
-    db.commit();
-    for (    final LoadBalancerBackendInstance be : beToDelete) {
+ catch (    final Exception ex) {
+      ;
+    }
+ finally {
       LoadBalancingServoCache.getInstance().invalidate(be);
     }
-  }
- catch (  final Exception ex) {
-    ;
   }
 }
