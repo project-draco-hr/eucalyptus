@@ -1,0 +1,98 @@
+{
+  List<AbsoluteMetricQueueItem> regularMetrics=Lists.newArrayList();
+  List<SimpleAbsoluteMetricHistory> absoluteMetricsToInsert=Lists.newArrayList();
+  SortedAbsoluteMetrics sortedAbsoluteMetrics=sortAbsoluteMetrics(dataBatch);
+  regularMetrics.addAll(sortedAbsoluteMetrics.getRegularMetrics());
+  AbsoluteMetricMap absoluteMetricMap=sortedAbsoluteMetrics.getAbsoluteMetricMap();
+  EntityTransaction db=Entities.get(AbsoluteMetricHistory.class);
+  try {
+    int count=0;
+    Criteria criteria=Entities.createCriteria(AbsoluteMetricHistory.class);
+    ScrollableResults absoluteMetrics=criteria.setCacheMode(CacheMode.IGNORE).scroll(ScrollMode.FORWARD_ONLY);
+    while (absoluteMetrics.next()) {
+      AbsoluteMetricHistory absoluteMetricHistory=(AbsoluteMetricHistory)absoluteMetrics.get(0);
+      if (absoluteMetricMap.containsKey(absoluteMetricHistory.getNamespace(),absoluteMetricHistory.getMetricName(),absoluteMetricHistory.getDimensionName(),absoluteMetricHistory.getDimensionValue())) {
+        MetricsAndOtherFields metricsAndOtherFields=absoluteMetricMap.getMetricsAndOtherFields(absoluteMetricHistory.getNamespace(),absoluteMetricHistory.getMetricName(),absoluteMetricHistory.getDimensionName(),absoluteMetricHistory.getDimensionValue());
+        Map<TimestampAndMetricValue,MetricDatum> metricDatumMap=metricsAndOtherFields.getMetricDatumMap();
+        SequentialMetrics sequentialMetrics=calculateSequentialMetrics(absoluteMetricHistory,metricDatumMap,metricsAndOtherFields.getAccountId(),metricsAndOtherFields.getRelativeMetricName());
+        absoluteMetricMap.removeEntries(absoluteMetricHistory.getNamespace(),absoluteMetricHistory.getMetricName(),absoluteMetricHistory.getDimensionName(),absoluteMetricHistory.getDimensionValue());
+        for (        AbsoluteMetricQueueItem regularMetric : sequentialMetrics.getRegularMetrics()) {
+          if (AbsoluteMetricHelper.AWS_EBS_NAMESPACE.equals(regularMetric.getNamespace())) {
+            if (AbsoluteMetricHelper.VOLUME_READ_OPS_METRIC_NAME.equals(regularMetric.getMetricDatum().getMetricName())) {
+              regularMetrics.add(AbsoluteMetricHelper.createVolumeThroughputMetric(regularMetric.getAccountId(),regularMetric.getNamespace(),regularMetric.getMetricDatum()));
+            }
+ else             if (AbsoluteMetricHelper.VOLUME_TOTAL_READ_WRITE_TIME_METRIC_NAME.equals(regularMetric.getMetricDatum().getMetricName())) {
+              AbsoluteMetricHelper.convertVolumeTotalReadWriteTimeToVolumeIdleTime(regularMetric.getMetricDatum());
+            }
+          }
+          regularMetrics.add(regularMetric);
+        }
+        absoluteMetricHistory.setTimestamp(sequentialMetrics.getUpdateTimestamp());
+        absoluteMetricHistory.setLastMetricValue(sequentialMetrics.getUpdateValue());
+        if (++count % AbsoluteMetricQueue.ABSOLUTE_METRIC_NUM_DB_OPERATIONS_UNTIL_SESSION_FLUSH == 0) {
+          Entities.flushSession(AbsoluteMetricHistory.class);
+          Entities.clearSession(AbsoluteMetricHistory.class);
+        }
+      }
+    }
+    db.commit();
+  }
+ catch (  RuntimeException ex) {
+    Logs.extreme().error(ex,ex);
+    throw ex;
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+  for (  AbsoluteMetricMap.NamespaceMetricNameAndDimension namespaceMetricNameAndDimension : absoluteMetricMap.keySet()) {
+    AbsoluteMetricHistory absoluteMetricHistory=new AbsoluteMetricHistory();
+    absoluteMetricHistory.setNamespace(namespaceMetricNameAndDimension.getNamespace());
+    absoluteMetricHistory.setMetricName(namespaceMetricNameAndDimension.getMetricName());
+    absoluteMetricHistory.setDimensionName(namespaceMetricNameAndDimension.getDimensionName());
+    absoluteMetricHistory.setDimensionValue(namespaceMetricNameAndDimension.getDimensionValue());
+    MetricsAndOtherFields metricsAndOtherFields=absoluteMetricMap.get(namespaceMetricNameAndDimension);
+    Map<TimestampAndMetricValue,MetricDatum> metricDataMap=metricsAndOtherFields.getMetricDatumMap();
+    if (metricDataMap.size() == 0)     continue;
+    TimestampAndMetricValue firstValue=metricDataMap.keySet().iterator().next();
+    metricDataMap.remove(firstValue);
+    absoluteMetricHistory.setLastMetricValue(firstValue.getMetricValue());
+    absoluteMetricHistory.setTimestamp(firstValue.getTimestamp());
+    if (metricDataMap.size() != 0) {
+      SequentialMetrics sequentialMetrics=calculateSequentialMetrics(absoluteMetricHistory,metricDataMap,metricsAndOtherFields.getAccountId(),metricsAndOtherFields.getRelativeMetricName());
+      for (      AbsoluteMetricQueueItem regularMetric : sequentialMetrics.getRegularMetrics()) {
+        if (AbsoluteMetricHelper.AWS_EBS_NAMESPACE.equals(regularMetric.getNamespace())) {
+          if (AbsoluteMetricHelper.VOLUME_READ_OPS_METRIC_NAME.equals(regularMetric.getMetricDatum().getMetricName())) {
+            regularMetrics.add(AbsoluteMetricHelper.createVolumeThroughputMetric(regularMetric.getAccountId(),regularMetric.getNamespace(),regularMetric.getMetricDatum()));
+          }
+ else           if (AbsoluteMetricHelper.VOLUME_TOTAL_READ_WRITE_TIME_METRIC_NAME.equals(regularMetric.getMetricDatum().getMetricName())) {
+            AbsoluteMetricHelper.convertVolumeTotalReadWriteTimeToVolumeIdleTime(regularMetric.getMetricDatum());
+          }
+        }
+        regularMetrics.add(regularMetric);
+      }
+      absoluteMetricHistory.setTimestamp(sequentialMetrics.getUpdateTimestamp());
+      absoluteMetricHistory.setLastMetricValue(sequentialMetrics.getUpdateValue());
+    }
+    absoluteMetricsToInsert.add(convertToSimpleAbsoluteMetricHistory(absoluteMetricHistory));
+  }
+  db=Entities.get(AbsoluteMetricHistory.class);
+  try {
+    int count=0;
+    for (    SimpleAbsoluteMetricHistory simpleAbsoluteMetricHistory : absoluteMetricsToInsert) {
+      Entities.persist(convertToAbsoluteMetricHistory(simpleAbsoluteMetricHistory));
+      if (++count % AbsoluteMetricQueue.ABSOLUTE_METRIC_NUM_DB_OPERATIONS_UNTIL_SESSION_FLUSH == 0) {
+        Entities.flushSession(AbsoluteMetricHistory.class);
+        Entities.clearSession(AbsoluteMetricHistory.class);
+      }
+    }
+    db.commit();
+  }
+ catch (  RuntimeException ex) {
+    Logs.extreme().error(ex,ex);
+    throw ex;
+  }
+ finally {
+    if (db.isActive())     db.rollback();
+  }
+  return regularMetrics;
+}

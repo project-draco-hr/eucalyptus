@@ -1,0 +1,121 @@
+{
+  List<AbsoluteMetricQueueItem> regularMetrics=new ArrayList<AbsoluteMetricQueueItem>();
+  Multimap<String,AbsoluteMetricQueueItem> instanceMetricMap=LinkedListMultimap.create();
+  Multimap<String,AbsoluteMetricQueueItem> volumeMetricMap=LinkedListMultimap.create();
+  for (  final AbsoluteMetricQueueItem item : dataBatch) {
+    String nameSpace=item.getNamespace();
+    MetricDatum datum=item.getMetricDatum();
+    if (AbsoluteMetricHelper.AWS_EBS_NAMESPACE.equals(nameSpace)) {
+      String volumeId=null;
+      if ((datum.getDimensions() != null) && (datum.getDimensions().getMember() != null)) {
+        for (        Dimension dimension : datum.getDimensions().getMember()) {
+          if (AbsoluteMetricHelper.VOLUME_ID_DIM_NAME.equals(dimension.getName())) {
+            volumeId=dimension.getValue();
+          }
+        }
+      }
+      if (volumeId == null) {
+        continue;
+      }
+ else {
+        volumeMetricMap.put(volumeId,item);
+      }
+    }
+ else     if (AbsoluteMetricHelper.AWS_EC2_NAMESPACE.equals(nameSpace)) {
+      String instanceId=null;
+      if ((datum.getDimensions() != null) && (datum.getDimensions().getMember() != null)) {
+        for (        Dimension dimension : datum.getDimensions().getMember()) {
+          if (AbsoluteMetricHelper.INSTANCE_ID_DIM_NAME.equals(dimension.getName())) {
+            instanceId=dimension.getValue();
+          }
+        }
+      }
+      if (instanceId == null) {
+        continue;
+      }
+ else {
+        instanceMetricMap.put(instanceId,item);
+      }
+    }
+ else {
+      regularMetrics.add(item);
+    }
+  }
+  for (  List<String> partialVolumeKeySet : Iterables.partition(volumeMetricMap.keySet(),AbsoluteMetricQueue.ABSOLUTE_METRIC_NUM_DB_OPERATIONS_PER_TRANSACTION)) {
+    EntityTransaction db=Entities.get(AbsoluteMetricHistory.class);
+    try {
+      int numVolumes=0;
+      for (      String volumeId : partialVolumeKeySet) {
+        AbsoluteMetricCache cache=new AbsoluteMetricCache(db);
+        cache.load(AbsoluteMetricHelper.AWS_EBS_NAMESPACE,AbsoluteMetricHelper.VOLUME_ID_DIM_NAME,volumeId);
+        for (        AbsoluteMetricQueueItem item : volumeMetricMap.get(volumeId)) {
+          String accountId=item.getAccountId();
+          String nameSpace=item.getNamespace();
+          MetricDatum datum=item.getMetricDatum();
+          if (AbsoluteMetricHelper.EBS_ABSOLUTE_METRICS.containsKey(datum.getMetricName())) {
+            if (!adjustAbsoluteVolumeStatisticSet(cache,datum,datum.getMetricName(),AbsoluteMetricHelper.EBS_ABSOLUTE_METRICS.get(datum.getMetricName()),volumeId))             continue;
+          }
+          if (AbsoluteMetricHelper.VOLUME_READ_OPS_METRIC_NAME.equals(datum.getMetricName())) {
+            regularMetrics.add(AbsoluteMetricHelper.createVolumeThroughputMetric(accountId,nameSpace,datum));
+          }
+          if (AbsoluteMetricHelper.VOLUME_TOTAL_READ_WRITE_TIME_METRIC_NAME.equals(datum.getMetricName())) {
+            AbsoluteMetricHelper.convertVolumeTotalReadWriteTimeToVolumeIdleTime(datum);
+          }
+          if (AbsoluteMetricHelper.VOLUME_QUEUE_LENGTH_METRIC_NAME.equals(datum.getMetricName())) {
+            if (!adjustAbsoluteVolumeQueueLengthStatisticSet(cache,datum,volumeId))             continue;
+          }
+          regularMetrics.add(item);
+        }
+        numVolumes++;
+        if (numVolumes % AbsoluteMetricQueue.ABSOLUTE_METRIC_NUM_DB_OPERATIONS_UNTIL_SESSION_FLUSH == 0) {
+          Entities.flushSession(AbsoluteMetricHistory.class);
+          Entities.clearSession(AbsoluteMetricHistory.class);
+        }
+      }
+      db.commit();
+    }
+ catch (    RuntimeException ex) {
+      Logs.extreme().error(ex,ex);
+      throw ex;
+    }
+ finally {
+      if (db.isActive())       db.rollback();
+    }
+  }
+  for (  List<String> partialInstanceKeySet : Iterables.partition(instanceMetricMap.keySet(),AbsoluteMetricQueue.ABSOLUTE_METRIC_NUM_DB_OPERATIONS_PER_TRANSACTION)) {
+    EntityTransaction db=Entities.get(AbsoluteMetricHistory.class);
+    try {
+      int numInstances=0;
+      for (      String instanceId : partialInstanceKeySet) {
+        AbsoluteMetricCache cache=new AbsoluteMetricCache(db);
+        cache.load(AbsoluteMetricHelper.AWS_EC2_NAMESPACE,AbsoluteMetricHelper.INSTANCE_ID_DIM_NAME,instanceId);
+        for (        AbsoluteMetricQueueItem item : instanceMetricMap.get(instanceId)) {
+          String accountId=item.getAccountId();
+          String nameSpace=item.getNamespace();
+          MetricDatum datum=item.getMetricDatum();
+          if (AbsoluteMetricHelper.EC2_ABSOLUTE_METRICS.containsKey(datum.getMetricName())) {
+            if (!adjustAbsoluteInstanceStatisticSet(cache,datum,datum.getMetricName(),AbsoluteMetricHelper.EC2_ABSOLUTE_METRICS.get(datum.getMetricName()),instanceId))             continue;
+          }
+ else           if (AbsoluteMetricHelper.CPU_UTILIZATION_MS_ABSOLUTE_METRIC_NAME.equals(datum.getMetricName())) {
+            if (!adjustAbsoluteInstanceCPUStatisticSet(cache,datum,AbsoluteMetricHelper.CPU_UTILIZATION_MS_ABSOLUTE_METRIC_NAME,AbsoluteMetricHelper.CPU_UTILIZATION_METRIC_NAME,instanceId))             continue;
+          }
+          regularMetrics.add(item);
+        }
+        numInstances++;
+        if (numInstances % AbsoluteMetricQueue.ABSOLUTE_METRIC_NUM_DB_OPERATIONS_UNTIL_SESSION_FLUSH == 0) {
+          Entities.flushSession(AbsoluteMetricHistory.class);
+          Entities.clearSession(AbsoluteMetricHistory.class);
+        }
+      }
+      db.commit();
+    }
+ catch (    RuntimeException ex) {
+      Logs.extreme().error(ex,ex);
+      throw ex;
+    }
+ finally {
+      if (db.isActive())       db.rollback();
+    }
+  }
+  return regularMetrics;
+}

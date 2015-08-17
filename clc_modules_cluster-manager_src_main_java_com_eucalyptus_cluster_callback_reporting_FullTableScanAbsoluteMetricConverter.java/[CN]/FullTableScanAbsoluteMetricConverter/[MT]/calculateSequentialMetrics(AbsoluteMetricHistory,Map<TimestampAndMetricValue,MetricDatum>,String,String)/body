@@ -1,0 +1,69 @@
+{
+  SequentialMetrics sequentialMetrics=new SequentialMetrics();
+  Date lastDate=absoluteMetricHistory.getTimestamp();
+  Double lastValue=absoluteMetricHistory.getLastMetricValue();
+  for (  TimestampAndMetricValue value : metricDatumMap.keySet()) {
+    double valueDiff=value.getMetricValue() - lastValue;
+    boolean isVolumeQueueLengthCase=AbsoluteMetricHelper.AWS_EBS_NAMESPACE.equals(absoluteMetricHistory.getNamespace()) && AbsoluteMetricHelper.VOLUME_QUEUE_LENGTH_PLACEHOLDER_ABSOLUTE_METRIC_NAME.equals(absoluteMetricHistory.getMetricName());
+    boolean isCPUUtilizationCase=AbsoluteMetricHelper.AWS_EC2_NAMESPACE.equals(absoluteMetricHistory.getNamespace()) && AbsoluteMetricHelper.CPU_UTILIZATION_MS_ABSOLUTE_METRIC_NAME.equals(absoluteMetricHistory.getMetricName());
+    long timeDiff=value.getTimestamp().getTime() - lastDate.getTime();
+    if (timeDiff < 0) {
+      continue;
+    }
+ else     if (timeDiff == 0) {
+      if (Math.abs(valueDiff) > AbsoluteMetricHelper.TOLERANCE) {
+        LOG.warn("Getting different values " + value.getMetricValue() + " and "+ lastValue+ " for absolute metric "+ absoluteMetricHistory.getMetricName()+ " at the same timestamp "+ lastDate+ ", keeping the second value.");
+      }
+      continue;
+    }
+ else {
+      lastDate=value.getTimestamp();
+      lastValue=isVolumeQueueLengthCase ? 0 : value.getMetricValue();
+      if (timeDiff > AbsoluteMetricHelper.MAX_DIFFERENCE_DURATION_MS) {
+        continue;
+      }
+ else       if (valueDiff < -AbsoluteMetricHelper.TOLERANCE) {
+        continue;
+      }
+ else {
+        if (Math.abs(valueDiff) < AbsoluteMetricHelper.TOLERANCE) {
+          valueDiff=0.0;
+        }
+        AbsoluteMetricQueueItem regularMetric=new AbsoluteMetricQueueItem();
+        regularMetric.setNamespace(absoluteMetricHistory.getNamespace());
+        regularMetric.setAccountId(accountId);
+        MetricDatum datum=metricDatumMap.get(value);
+        regularMetric.setMetricDatum(datum);
+        datum.setMetricName(relativeMetricName);
+        datum.setValue(null);
+        StatisticSet statisticSet=new StatisticSet();
+        double sampleCount=(double)timeDiff / 60000.0;
+        if (isVolumeQueueLengthCase) {
+          datum.setMetricName(AbsoluteMetricHelper.VOLUME_QUEUE_LENGTH_METRIC_NAME);
+          statisticSet.setSum(value.getMetricValue() * sampleCount);
+          statisticSet.setMaximum(value.getMetricValue());
+          statisticSet.setMinimum(value.getMetricValue());
+        }
+ else         if (isCPUUtilizationCase) {
+          double percentage=100.0 * (valueDiff / timeDiff);
+          statisticSet.setSum(percentage * sampleCount);
+          statisticSet.setMaximum(percentage);
+          statisticSet.setMinimum(percentage);
+          datum.setUnit(Units.Percent.toString());
+        }
+ else {
+          statisticSet.setSum(valueDiff);
+          statisticSet.setMaximum(valueDiff / sampleCount);
+          statisticSet.setMinimum(valueDiff / sampleCount);
+        }
+        statisticSet.setSampleCount(sampleCount);
+        datum.setStatisticValues(statisticSet);
+        datum.setValue(null);
+        sequentialMetrics.getRegularMetrics().add(regularMetric);
+      }
+    }
+  }
+  sequentialMetrics.setUpdateTimestamp(lastDate);
+  sequentialMetrics.setUpdateValue(lastValue);
+  return sequentialMetrics;
+}
