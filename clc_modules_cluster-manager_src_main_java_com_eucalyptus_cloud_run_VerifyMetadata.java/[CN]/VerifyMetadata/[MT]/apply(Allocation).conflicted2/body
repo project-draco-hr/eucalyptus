@@ -1,29 +1,15 @@
 {
-  RunInstancesType msg=allocInfo.getRequest();
-  String imageId=msg.getImageId();
-  VmType vmType=allocInfo.getVmType();
-  try {
-    BootableSet bootSet=Emis.newBootableSet(imageId);
-    allocInfo.setBootableSet(bootSet);
-    if (!bootSet.isBlockStorage()) {
-      if (Platform.windows.equals(bootSet.getMachine().getPlatform()) && bootSet.getMachine().getImageSizeBytes() > ((1024L * 1024L * 1024L* vmType.getDisk()) + (1024L * 1024L * 10))) {
-        throw new ImageInstanceTypeVerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
-      }
- else       if (bootSet.getMachine().getImageSizeBytes() >= ((1024L * 1024L * 1024L* vmType.getDisk()))) {
-        throw new ImageInstanceTypeVerificationException("Unable to run instance " + bootSet.getMachine().getDisplayName() + " in which the size "+ bootSet.getMachine().getImageSizeBytes()+ " bytes of the instance is greater than the vmType "+ vmType.getDisplayName()+ " size "+ vmType.getDisk()+ " GB.");
-      }
-    }
+  if (allocInfo.getRequest().getKeyName() == null || "".equals(allocInfo.getRequest().getKeyName())) {
+    allocInfo.setSshKeyPair(KeyPairs.noKey());
+    return true;
   }
- catch (  VerificationException e) {
-    throw e;
+  UserFullName ownerFullName=allocInfo.getOwnerFullName();
+  RunInstancesType request=allocInfo.getRequest();
+  String keyName=request.getKeyName();
+  SshKeyPair key=KeyPairs.lookup(ownerFullName.asAccountFullName(),keyName);
+  if (!RestrictedTypes.filterPrivileged().apply(key)) {
+    throw new IllegalMetadataAccessException("Not authorized to use keypair " + keyName + " by "+ ownerFullName.getUserName());
   }
-catch (  MetadataException ex) {
-    LOG.error(ex);
-    throw ex;
-  }
-catch (  RuntimeException ex) {
-    LOG.error(ex);
-    throw new VerificationException("Failed to verify references for request: " + msg.toSimpleString() + " because of: "+ ex.getMessage(),ex);
-  }
+  allocInfo.setSshKeyPair(key);
   return true;
 }
