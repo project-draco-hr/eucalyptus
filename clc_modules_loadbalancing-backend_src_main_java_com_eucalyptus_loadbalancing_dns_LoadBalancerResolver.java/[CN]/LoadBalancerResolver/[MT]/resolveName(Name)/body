@@ -1,0 +1,26 @@
+{
+  final Name hostName=name.relativize(LoadBalancerDomainName.getLoadBalancerSubdomain());
+  final Optional<LoadBalancerDomainName> domainName=LoadBalancerDomainName.findMatching(hostName);
+  final Set<String> ips=Sets.newTreeSet();
+  if (domainName.isPresent()) {
+    final Pair<String,String> accountNamePair=domainName.get().toScopedLoadBalancerName(hostName);
+    try (final TransactionResource tx=Entities.transactionFor(LoadBalancer.class)){
+      final LoadBalancer loadBalancer=LoadBalancers.getLoadbalancer(accountNamePair.getLeft(),accountNamePair.getRight());
+      final Predicate<LoadBalancerServoInstanceCoreView> canResolve=new Predicate<LoadBalancerServoInstanceCoreView>(){
+        @Override public boolean apply(        LoadBalancerServoInstanceCoreView arg0){
+          return arg0.canResolveDns();
+        }
+      }
+;
+      final List<LoadBalancerServoInstanceCoreView> servos=Lists.newArrayList();
+      for (      final LoadBalancerAutoScalingGroupCoreView group : loadBalancer.getAutoScaleGroups()) {
+        servos.addAll(INSTANCE.apply(group).getServos());
+      }
+      final Function<LoadBalancerServoInstanceCoreView,String> ipExtractor=loadBalancer.getScheme() == LoadBalancer.Scheme.Internal ? LoadBalancerServoInstanceCoreView.privateIp() : LoadBalancerServoInstanceCoreView.address();
+      Iterables.addAll(ips,Iterables.transform(Collections2.filter(servos,canResolve),ipExtractor));
+    }
+   }
+  List<String> ipList=Lists.newArrayList(ips);
+  Collections.sort(ipList);
+  return ipList;
+}
