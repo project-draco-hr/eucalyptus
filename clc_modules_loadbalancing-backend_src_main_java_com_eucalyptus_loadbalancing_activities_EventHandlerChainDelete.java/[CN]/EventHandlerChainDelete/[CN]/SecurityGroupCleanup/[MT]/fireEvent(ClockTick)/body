@@ -12,31 +12,43 @@
     Collection<LoadBalancerServoInstanceCoreView> instances=group.getServoInstances();
     if (instances == null || instances.size() <= 0)     toDelete.add(group);
   }
-  for (  LoadBalancerSecurityGroup group : toDelete) {
+  for (  final LoadBalancerSecurityGroup group : toDelete) {
+    boolean deleted=false;
     try {
-      EucalyptusActivityTasks.getInstance().deleteSystemSecurityGroup(group.getName(),true);
-      LOG.info("deleted security group: " + group.getName());
+      final List<SecurityGroupItemType> existingGroups=EucalyptusActivityTasks.getInstance().describeSystemSecurityGroups(Lists.newArrayList(group.getName()),true);
+      if (existingGroups == null || existingGroups.size() <= 0)       deleted=true;
+ else {
+        EucalyptusActivityTasks.getInstance().deleteSystemSecurityGroup(group.getName(),true);
+        LOG.info("deleted security group: " + group.getName());
+        deleted=true;
+      }
     }
  catch (    final Exception ex) {
       try {
-        EucalyptusActivityTasks.getInstance().deleteSystemSecurityGroup(group.getName(),false);
-        LOG.info("deleted security group: " + group.getName());
+        final List<SecurityGroupItemType> existingGroups=EucalyptusActivityTasks.getInstance().describeSystemSecurityGroups(Lists.newArrayList(group.getName()),false);
+        if (existingGroups == null || existingGroups.size() <= 0)         deleted=true;
+ else {
+          EucalyptusActivityTasks.getInstance().deleteSystemSecurityGroup(group.getName(),false);
+          LOG.info("deleted security group: " + group.getName());
+          deleted=true;
+        }
       }
  catch (      final Exception ex2) {
         LOG.warn("failed to delete the security group from eucalyptus",ex2);
       }
     }
-  }
-  try (final TransactionResource db2=Entities.transactionFor(LoadBalancerSecurityGroup.class)){
-    for (    LoadBalancerSecurityGroup group : toDelete) {
-      LoadBalancerSecurityGroup g=Entities.uniqueResult(group);
-      Entities.delete(g);
+    if (deleted) {
+      try (final TransactionResource db=Entities.transactionFor(LoadBalancerSecurityGroup.class)){
+        final LoadBalancerSecurityGroup g=Entities.uniqueResult(group);
+        Entities.delete(g);
+        db.commit();
+      }
+ catch (      NoSuchElementException ex) {
+        ;
+      }
+catch (      Exception ex) {
+        LOG.warn("failed to delete the securty group from DB",ex);
+      }
     }
-    db2.commit();
-  }
- catch (  NoSuchElementException ex) {
-  }
-catch (  Exception ex) {
-    LOG.warn("failed to delete the securty group from entity",ex);
   }
 }
