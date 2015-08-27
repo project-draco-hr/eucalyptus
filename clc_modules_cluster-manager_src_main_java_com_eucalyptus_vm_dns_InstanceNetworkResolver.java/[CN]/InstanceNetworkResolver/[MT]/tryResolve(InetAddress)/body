@@ -1,0 +1,25 @@
+{
+  try (TransactionResource db=Entities.readOnlyDistinctTransactionFor(VmInstance.class)){
+    final VmInstance instance=VmInstances.lookupByPublicIp(address.getHostAddress());
+    if (instance.getVpcId() != null) {
+      return FUtils.flatten(Optional.fromNullable(instance.getBootRecord().getVpc()).transform(Functions.compose(Cidr.parse(),Vpcs.FilterStringFunctions.CIDR)));
+    }
+ else {
+      final InetAddress privateAddress=AddressRegistry.getInstance().contains(address.getHostAddress()) ? InetAddresses.forString(VmInstances.lookupByPublicIp(address.getHostAddress()).getPrivateAddress()) : address;
+      for (      final ServiceConfiguration clusterService : ServiceConfigurations.list(ClusterController.class)) {
+        final ClusterConfiguration cluster=(ClusterConfiguration)clusterService;
+        try {
+          final Cidr cidr=Subnets.cidr(cluster.getVnetSubnet(),cluster.getVnetNetmask());
+          if (cidr.contains(privateAddress.getHostAddress())) {
+            return Optional.of(cidr);
+          }
+        }
+ catch (        final UnknownHostException ex) {
+        }
+      }
+    }
+  }
+ catch (  NoSuchElementException e) {
+  }
+  return Optional.absent();
+}

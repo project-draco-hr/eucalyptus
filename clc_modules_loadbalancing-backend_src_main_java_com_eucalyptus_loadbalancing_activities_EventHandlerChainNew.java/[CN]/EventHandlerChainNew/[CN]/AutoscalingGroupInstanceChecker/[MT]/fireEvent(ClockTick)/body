@@ -1,49 +1,36 @@
 {
   if (Bootstrap.isFinished() && Topology.isEnabledLocally(LoadBalancingBackend.class) && Topology.isEnabled(AutoScaling.class)&& Topology.isEnabled(Eucalyptus.class)) {
+    final Date now=new Date(System.currentTimeMillis());
+    final int elapsedSec=(int)((now.getTime() - lastCheckTime.getTime()) / 1000.0);
+    if (elapsedSec < AUTOSCALE_GROUP_CHECK_INTERVAL_SEC)     return;
+    lastCheckTime=now;
     List<LoadBalancerAutoScalingGroup> groups=Lists.newArrayList();
     Map<String,LoadBalancerAutoScalingGroup> allGroupMap=new ConcurrentHashMap<>();
     try (final TransactionResource db=Entities.transactionFor(LoadBalancerAutoScalingGroup.class)){
       groups=Entities.query(LoadBalancerAutoScalingGroup.named(),true);
-      db.commit();
       for (      LoadBalancerAutoScalingGroup g : groups) {
         allGroupMap.put(g.getName(),g);
       }
     }
  catch (    Exception ex) {
     }
-    Map<String,LoadBalancerAutoScalingGroup> groupToQuery=new ConcurrentHashMap<>();
-    final Date current=new Date(System.currentTimeMillis());
-    for (    final LoadBalancerAutoScalingGroup group : groups) {
-      final Date lastUpdate=group.getLastUpdateTimestamp();
-      int elapsedSec=(int)((current.getTime() - lastUpdate.getTime()) / 1000.0);
-      if (elapsedSec > AUTOSCALE_GROUP_CHECK_INTERVAL_SEC) {
-        try (final TransactionResource db=Entities.transactionFor(LoadBalancerAutoScalingGroup.class)){
-          LoadBalancerAutoScalingGroup update=Entities.uniqueResult(group);
-          update.setLastUpdateTimestamp(current);
-          Entities.persist(update);
-          db.commit();
-        }
- catch (        Exception ex) {
-        }
-        groupToQuery.put(group.getName(),group);
+    final Map<String,LoadBalancerAutoScalingGroup> groupToQuery=allGroupMap;
+    List<AutoScalingGroupType> queriedGroups=Lists.newArrayList();
+    for (    final List<String> partition : Iterables.partition(groupToQuery.keySet(),NUM_ASGS_TO_DESCRIBE)) {
+      try {
+        DescribeAutoScalingGroupsResponseType response=EucalyptusActivityTasks.getInstance().describeAutoScalingGroupsWithVerbose(partition);
+        DescribeAutoScalingGroupsResult result=response.getDescribeAutoScalingGroupsResult();
+        AutoScalingGroupsType asgroups=result.getAutoScalingGroups();
+        queriedGroups.addAll(asgroups.getMember());
       }
-    }
-    if (groupToQuery.size() <= 0)     return;
-    List<AutoScalingGroupType> queriedGroups;
-    try {
-      DescribeAutoScalingGroupsResponseType response=EucalyptusActivityTasks.getInstance().describeAutoScalingGroupsWithVerbose(Lists.newArrayList(groupToQuery.keySet()));
-      DescribeAutoScalingGroupsResult result=response.getDescribeAutoScalingGroupsResult();
-      AutoScalingGroupsType asgroups=result.getAutoScalingGroups();
-      queriedGroups=asgroups.getMember();
-    }
- catch (    Exception ex) {
-      LOG.error("Failed to describe autoscaling groups",ex);
-      return;
+ catch (      Exception ex) {
+        LOG.error("Failed to describe autoscaling groups",ex);
+        return;
+      }
     }
     Map<String,LoadBalancerServoInstance> servoMap=new ConcurrentHashMap<>();
     try (final TransactionResource db=Entities.transactionFor(LoadBalancerServoInstance.class)){
       final List<LoadBalancerServoInstance> result=Entities.query(LoadBalancerServoInstance.named(),true);
-      db.commit();
       for (      LoadBalancerServoInstance inst : result) {
         servoMap.put(inst.getInstanceId(),inst);
       }
@@ -56,47 +43,18 @@
       Instances instances=asg.getInstances();
       if (instances != null && instances.getMember() != null && instances.getMember().size() > 0) {
         for (        final Instance instance : instances.getMember()) {
-          String instanceId=instance.getInstanceId();
+          final String instanceId=instance.getInstanceId();
           foundInstances.put(instanceId,instance);
           if (!servoMap.containsKey(instanceId)) {
             try {
               final LoadBalancerAutoScalingGroup group=allGroupMap.get(asg.getAutoScalingGroupName());
               if (group == null)               throw new IllegalArgumentException("The group with name " + asg.getAutoScalingGroupName() + " not found in the database");
-              final LoadBalancerCoreView lbView=group.getLoadBalancer();
-              LoadBalancer lb;
-              try {
-                lb=LoadBalancerEntityTransform.INSTANCE.apply(lbView);
-              }
- catch (              final Exception ex) {
-                LOG.error("unable to transfrom loadbalancer from the viewer",ex);
-                throw ex;
-              }
-              LoadBalancerZoneCoreView zoneView=null;
-              for (              final LoadBalancerZoneCoreView z : lb.getZones()) {
-                if (z.getName().equals(instance.getAvailabilityZone())) {
-                  zoneView=z;
-                  break;
-                }
-              }
-              if (zoneView == null)               throw new Exception("No availability zone with name=" + instance.getAvailabilityZone() + " found for loadbalancer "+ lb.getDisplayName());
-              final LoadBalancerSecurityGroupCoreView sgroupView=lb.getGroup();
-              if (sgroupView == null && lb.getVpcId() == null)               throw new Exception("No security group is found for loadbalancer " + lb.getDisplayName());
-              LoadBalancerZone zone;
-              LoadBalancerSecurityGroup sgroup;
-              LoadBalancerDnsRecord dns;
-              try {
-                zone=LoadBalancerZoneEntityTransform.INSTANCE.apply(zoneView);
-                sgroup=sgroupView == null ? null : LoadBalancerSecurityGroupEntityTransform.INSTANCE.apply(sgroupView);
-              }
- catch (              final Exception ex) {
-                LOG.error("unable to transform entity",ex);
-                throw ex;
-              }
-              final LoadBalancerServoInstance newInstance=LoadBalancerServoInstance.newInstance(zone,sgroup,group,instanceId);
+              final LoadBalancerServoInstance newInstance=newInstance(instance,group);
               newServos.add(newInstance);
             }
- catch (            Exception ex) {
-              LOG.error("Failed to construct new servo instance",ex);
+ catch (            final Exception ex) {
+              LOG.error("Failed to construct servo instance entity",ex);
+              continue;
             }
           }
         }

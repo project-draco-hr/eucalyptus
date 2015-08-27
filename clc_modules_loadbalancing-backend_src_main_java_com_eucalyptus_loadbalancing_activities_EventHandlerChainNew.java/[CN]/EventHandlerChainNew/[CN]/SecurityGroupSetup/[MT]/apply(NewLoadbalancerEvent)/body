@@ -21,8 +21,8 @@ catch (  Exception ex) {
       if (groups != null)       for (      final SecurityGroupItemType group : groups) {
         if (groupName.equals(group.getGroupName()) && group.getVpcId() == null) {
           groupFound=true;
-          this.createdGroup=groupName;
-          this.createdGroupId=group.getGroupId();
+          this.groupName=groupName;
+          this.groupId=group.getGroupId();
           this.groupOwnerAccountId=group.getAccountId();
           break;
         }
@@ -35,10 +35,12 @@ catch (  Exception ex) {
       try {
         EucalyptusActivityTasks.getInstance().createSystemSecurityGroup(groupName,groupDesc);
         this.createdGroup=groupName;
+        this.groupName=groupName;
         List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeSystemSecurityGroups(Lists.newArrayList(groupName));
         if (groups != null)         for (        final SecurityGroupItemType group : groups) {
           if (groupName.equals(group.getGroupName()) && group.getVpcId() == null) {
             this.createdGroupId=group.getGroupId();
+            this.groupId=group.getGroupId();
             this.groupOwnerAccountId=group.getAccountId();
             break;
           }
@@ -48,13 +50,13 @@ catch (  Exception ex) {
         throw new EventHandlerException("Failed to create the security group for loadbalancer",ex);
       }
     }
-    if (this.createdGroup == null || this.groupOwnerAccountId == null)     throw new EventHandlerException("Failed to create the security group for loadbalancer");
+    if (this.groupName == null || this.groupOwnerAccountId == null)     throw new EventHandlerException("Failed to create the security group for loadbalancer");
     try (final TransactionResource db=Entities.transactionFor(LoadBalancerSecurityGroup.class)){
       try {
-        Entities.uniqueResult(LoadBalancerSecurityGroup.named(lbEntity,this.groupOwnerAccountId,this.createdGroup));
+        Entities.uniqueResult(LoadBalancerSecurityGroup.named(lbEntity,this.groupOwnerAccountId,this.groupName));
       }
  catch (      NoSuchElementException ex) {
-        Entities.persist(LoadBalancerSecurityGroup.create(lbEntity,this.groupOwnerAccountId,this.createdGroup));
+        Entities.persist(LoadBalancerSecurityGroup.create(lbEntity,this.groupOwnerAccountId,this.groupName));
       }
       db.commit();
     }
@@ -72,6 +74,8 @@ catch (  Exception ex) {
       EucalyptusActivityTasks.getInstance().createUserSecurityGroup(accountFullName,groupName,groupDesc);
       final List<SecurityGroupItemType> createdGroupList=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsByName(accountFullName,lb.getVpcId(),groupName);
       elbVpcGroup=Iterables.getOnlyElement(createdGroupList);
+      this.createdGroupId=elbVpcGroup.getGroupId();
+      this.createdGroup=elbVpcGroup.getGroupName();
     }
  else {
       elbVpcGroup=Iterables.get(groups,0);
@@ -90,8 +94,8 @@ catch (  Exception ex) {
     }
 ).apply(lb.getDisplayName());
     this.rollbackCreate=false;
-    this.createdGroupId=elbVpcGroup.getGroupId();
-    this.createdGroup=elbVpcGroup.getGroupName();
+    this.groupId=elbVpcGroup.getGroupId();
+    this.groupName=elbVpcGroup.getGroupName();
     this.groupOwnerAccountId=elbVpcGroup.getAccountId();
   }
 }

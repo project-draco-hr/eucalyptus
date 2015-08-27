@@ -4,15 +4,6 @@
   Collection<String> eventZones=null;
   Collection<String> eventSecurityGroupIds=Collections.emptySet();
   Map<String,String> zoneToSubnetIdMap=null;
-  if (evt instanceof NewLoadbalancerEvent) {
-    eventZones=((NewLoadbalancerEvent)evt).getZones();
-    zoneToSubnetIdMap=((NewLoadbalancerEvent)evt).getZoneToSubnetIdMap();
-  }
- else   if (evt instanceof ApplySecurityGroupsEvent) {
-    final Map<String,String> groupIdToNameMap=((ApplySecurityGroupsEvent)evt).getSecurityGroupIdsToNames();
-    eventSecurityGroupIds=groupIdToNameMap == null ? eventSecurityGroupIds : groupIdToNameMap.keySet();
-  }
-  if (eventZones == null && eventSecurityGroupIds.isEmpty())   return;
   final LoadBalancer lbEntity;
   final LoadBalancer.LoadBalancerCoreView lb;
   try {
@@ -28,110 +19,127 @@
 catch (  Exception ex) {
     throw new EventHandlerException("Failed due to query exception",ex);
   }
-  String newlaunchConfigName=String.format("lc-euca-internal-elb-%s-%s-%s",lb.getOwnerAccountNumber(),lb.getDisplayName(),UUID.randomUUID().toString().substring(0,8));
-  if (newlaunchConfigName.length() > 255)   newlaunchConfigName=newlaunchConfigName.substring(0,255);
-  String launchConfigName=newlaunchConfigName;
-  String launchConfigToDelete=null;
-  String groupName=getAutoScalingGroupName(lb.getOwnerAccountNumber(),lb.getDisplayName());
-  String instanceProfileName=null;
-  try {
-    List<String> result=this.chain.findHandler(InstanceProfileSetup.class).getResult();
-    instanceProfileName=result.get(0);
+  if (evt instanceof NewLoadbalancerEvent) {
+    eventZones=((NewLoadbalancerEvent)evt).getZones();
+    zoneToSubnetIdMap=((NewLoadbalancerEvent)evt).getZoneToSubnetIdMap();
   }
- catch (  Exception ex) {
-  }
-  boolean asgFound=false;
-  boolean updateLaunchConfig=false;
-  try {
-    final DescribeAutoScalingGroupsResponseType response=EucalyptusActivityTasks.getInstance().describeAutoScalingGroups(Lists.newArrayList(groupName),lb.useSystemAccount());
-    final List<AutoScalingGroupType> groups=response.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember();
-    if (groups.size() > 0 && groups.get(0).getAutoScalingGroupName().equals(groupName)) {
-      asgFound=true;
-      launchConfigName=groups.get(0).getLaunchConfigurationName();
-      if (!eventSecurityGroupIds.isEmpty()) {
-        final LaunchConfigurationType lc=EucalyptusActivityTasks.getInstance().describeLaunchConfiguration(launchConfigName,lb.useSystemAccount());
-        updateLaunchConfig=lc == null || lc.getSecurityGroups() == null || !Sets.newHashSet(lc.getSecurityGroups().getMember()).equals(Sets.newHashSet(eventSecurityGroupIds));
-        if (updateLaunchConfig) {
-          launchConfigToDelete=launchConfigName;
-          launchConfigName=newlaunchConfigName;
-        }
+ else   if (evt instanceof ApplySecurityGroupsEvent) {
+    final Map<String,String> groupIdToNameMap=((ApplySecurityGroupsEvent)evt).getSecurityGroupIdsToNames();
+    eventSecurityGroupIds=groupIdToNameMap == null ? eventSecurityGroupIds : groupIdToNameMap.keySet();
+    eventZones=Lists.newArrayList();
+    eventZones.addAll(Collections2.transform(Collections2.filter(lbEntity.getZones(),new Predicate<LoadBalancerZoneCoreView>(){
+      @Override public boolean apply(      LoadBalancerZoneCoreView arg0){
+        return LoadBalancerZone.STATE.InService.equals(arg0.getState());
       }
     }
+),new Function<LoadBalancerZoneCoreView,String>(){
+      @Override public String apply(      LoadBalancerZoneCoreView arg0){
+        return arg0.getName();
+      }
+    }
+));
   }
- catch (  final Exception ex) {
-    asgFound=false;
-  }
-  if (!asgFound || updateLaunchConfig) {
+  if (eventZones == null && eventSecurityGroupIds.isEmpty())   return;
+  for (  final String availabilityZone : eventZones) {
+    final String groupName=getAutoScalingGroupName(lb.getOwnerAccountNumber(),lb.getDisplayName(),availabilityZone);
+    String launchConfigName=null;
+    String launchConfigToDelete=null;
+    String instanceProfileName=null;
     try {
-      final Set<String> securityGroupNamesOrIds=Sets.newHashSet(eventSecurityGroupIds);
-      if (securityGroupNamesOrIds.isEmpty()) {
-        if (!lb.getSecurityGroupIdsToNames().isEmpty()) {
-          securityGroupNamesOrIds.addAll(lb.getSecurityGroupIdsToNames().keySet());
-        }
- else {
-          final StoredResult<String> sgroupSetup=this.getChain().findHandler(SecurityGroupSetup.class);
-          final List<String> group=sgroupSetup.getResult();
-          if (!group.isEmpty()) {
-            securityGroupNamesOrIds.add(group.get(0));
+      List<String> result=this.chain.findHandler(InstanceProfileSetup.class).getResult();
+      instanceProfileName=result.get(0);
+    }
+ catch (    Exception ex) {
+      ;
+    }
+    boolean asgFound=false;
+    boolean updateLaunchConfig=false;
+    try {
+      final DescribeAutoScalingGroupsResponseType response=EucalyptusActivityTasks.getInstance().describeAutoScalingGroups(Lists.newArrayList(groupName),lb.useSystemAccount());
+      final List<AutoScalingGroupType> groups=response.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember();
+      if (groups.size() > 0 && groups.get(0).getAutoScalingGroupName().equals(groupName)) {
+        asgFound=true;
+        launchConfigName=groups.get(0).getLaunchConfigurationName();
+        if (!eventSecurityGroupIds.isEmpty()) {
+          final LaunchConfigurationType lc=EucalyptusActivityTasks.getInstance().describeLaunchConfiguration(launchConfigName,lb.useSystemAccount());
+          updateLaunchConfig=lc == null || lc.getSecurityGroups() == null || !Sets.newHashSet(lc.getSecurityGroups().getMember()).equals(Sets.newHashSet(eventSecurityGroupIds));
+          if (updateLaunchConfig) {
+            launchConfigToDelete=launchConfigName;
           }
         }
       }
-      final String keyName=KEYNAME != null && KEYNAME.length() > 0 ? KEYNAME : null;
-      final String userData=B64.standard.encString(String.format("%s\n%s",getCredentialsString(),getLoadBalancerUserData(INIT_SCRIPT,lb.getOwnerAccountNumber())));
-      EucalyptusActivityTasks.getInstance().createLaunchConfiguration(IMAGE,INSTANCE_TYPE,instanceProfileName,launchConfigName,securityGroupNamesOrIds,keyName,userData,zoneToSubnetIdMap.isEmpty() ? null : lb.getScheme() != LoadBalancer.Scheme.Internal,lb.useSystemAccount());
-      this.launchConfigName=launchConfigName;
-    }
- catch (    Exception ex) {
-      throw new EventHandlerException("Failed to create launch configuration",ex);
-    }
-  }
-  Integer capacity;
-  if (!asgFound) {
-    if (eventZones == null) {
-      throw new EventHandlerException("Availability zones required to create auto scaling group.");
-    }
-    try {
-      final List<String> availabilityZones=Lists.newArrayList(eventZones);
-      final String vpcZoneIdentifier=zoneToSubnetIdMap.isEmpty() ? null : Strings.emptyToNull(Joiner.on(',').skipNulls().join(Iterables.transform(availabilityZones,Functions.forMap(zoneToSubnetIdMap))));
-      capacity=availabilityZones.size() * this.capacityPerZone;
-      EucalyptusActivityTasks.getInstance().createAutoScalingGroup(groupName,availabilityZones,vpcZoneIdentifier,capacity,launchConfigName,TagCreator.TAG_KEY,TagCreator.TAG_VALUE,lb.useSystemAccount());
-      this.asgName=groupName;
-    }
- catch (    Exception ex) {
-      throw new EventHandlerException("Failed to create autoscaling group",ex);
-    }
-  }
- else {
-    try {
-      final List<String> availabilityZones=eventZones == null ? null : Lists.newArrayList(eventZones);
-      capacity=availabilityZones == null ? null : availabilityZones.size() * this.capacityPerZone;
-      EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(groupName,availabilityZones,capacity,launchConfigName,lb.useSystemAccount());
-    }
- catch (    Exception ex) {
-      throw new EventHandlerException("Failed to update the autoscaling group",ex);
-    }
-    if (launchConfigToDelete != null)     try {
-      EucalyptusActivityTasks.getInstance().deleteLaunchConfiguration(launchConfigToDelete,lb.useSystemAccount());
     }
  catch (    final Exception ex) {
-      LOG.warn("unable to delete launch configuration (" + launchConfigToDelete + ")",ex);
+      asgFound=false;
     }
-    this.asgName=groupName;
-    this.launchConfigName=launchConfigName;
-  }
-  try (final TransactionResource db=Entities.transactionFor(LoadBalancerAutoScalingGroup.class)){
-    try {
-      final LoadBalancerAutoScalingGroup group=Entities.uniqueResult(LoadBalancerAutoScalingGroup.named(lbEntity));
-      if (capacity != null)       group.setCapacity(capacity);
+    if (!asgFound || updateLaunchConfig) {
+      try {
+        final Set<String> securityGroupNamesOrIds=Sets.newHashSet(eventSecurityGroupIds);
+        if (securityGroupNamesOrIds.isEmpty()) {
+          if (!lb.getSecurityGroupIdsToNames().isEmpty()) {
+            securityGroupNamesOrIds.addAll(lb.getSecurityGroupIdsToNames().keySet());
+          }
+ else {
+            final StoredResult<String> sgroupSetup=this.getChain().findHandler(SecurityGroupSetup.class);
+            final List<String> group=sgroupSetup.getResult();
+            if (!group.isEmpty()) {
+              securityGroupNamesOrIds.add(group.get(0));
+            }
+          }
+        }
+        final String keyName=KEYNAME != null && KEYNAME.length() > 0 ? KEYNAME : null;
+        final String userData=B64.standard.encString(String.format("%s\n%s",getCredentialsString(),getLoadBalancerUserData(INIT_SCRIPT,lb.getOwnerAccountNumber())));
+        launchConfigName=getLaunchConfigName(lb.getOwnerAccountNumber(),lb.getDisplayName(),availabilityZone);
+        EucalyptusActivityTasks.getInstance().createLaunchConfiguration(IMAGE,INSTANCE_TYPE,instanceProfileName,launchConfigName,securityGroupNamesOrIds,keyName,userData,zoneToSubnetIdMap.isEmpty() ? null : lb.getScheme() != LoadBalancer.Scheme.Internal,lb.useSystemAccount());
+        this.createdLaunchConfigNames.add(launchConfigName);
+      }
+ catch (      Exception ex) {
+        throw new EventHandlerException("Failed to create launch configuration",ex);
+      }
     }
- catch (    NoSuchElementException ex) {
-      final LoadBalancerAutoScalingGroup group=LoadBalancerAutoScalingGroup.newInstance(lbEntity,groupName,this.launchConfigName);
-      if (capacity != null)       group.setCapacity(capacity);
-      Entities.persist(group);
+    this.launchConfigNames.add(launchConfigName);
+    Integer capacity=EventHandlerChainNew.getCapacityPerZone();
+    if (!asgFound) {
+      try {
+        final List<String> availabilityZones=Lists.newArrayList(availabilityZone);
+        final String vpcZoneIdentifier=zoneToSubnetIdMap.isEmpty() ? null : Strings.emptyToNull(Joiner.on(',').skipNulls().join(Iterables.transform(availabilityZones,Functions.forMap(zoneToSubnetIdMap))));
+        EucalyptusActivityTasks.getInstance().createAutoScalingGroup(groupName,availabilityZones,vpcZoneIdentifier,capacity,launchConfigName,TagCreator.TAG_KEY,TagCreator.TAG_VALUE,lb.useSystemAccount());
+        this.createdAsgNames.add(groupName);
+      }
+ catch (      Exception ex) {
+        throw new EventHandlerException("Failed to create autoscaling group",ex);
+      }
     }
-    db.commit();
-  }
- catch (  Exception ex) {
-    throw new EventHandlerException("Failed to commit the database",ex);
+ else {
+      try {
+        final List<String> availabilityZones=Lists.newArrayList(availabilityZone);
+        EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(groupName,availabilityZones,capacity,launchConfigName,lb.useSystemAccount());
+      }
+ catch (      Exception ex) {
+        throw new EventHandlerException("Failed to update the autoscaling group",ex);
+      }
+      if (launchConfigToDelete != null)       try {
+        EucalyptusActivityTasks.getInstance().deleteLaunchConfiguration(launchConfigToDelete,lb.useSystemAccount());
+      }
+ catch (      final Exception ex) {
+        LOG.warn("unable to delete launch configuration (" + launchConfigToDelete + ")",ex);
+      }
+    }
+    this.asgNames.add(groupName);
+    try (final TransactionResource db=Entities.transactionFor(LoadBalancerAutoScalingGroup.class)){
+      try {
+        final LoadBalancerAutoScalingGroup group=Entities.uniqueResult(LoadBalancerAutoScalingGroup.named(lbEntity,availabilityZone));
+        if (capacity != null)         group.setCapacity(capacity);
+      }
+ catch (      NoSuchElementException ex) {
+        final LoadBalancerAutoScalingGroup group=LoadBalancerAutoScalingGroup.newInstance(lbEntity,availabilityZone,groupName,launchConfigName);
+        if (capacity != null)         group.setCapacity(capacity);
+        Entities.persist(group);
+      }
+      db.commit();
+    }
+ catch (    final Exception ex) {
+      throw new EventHandlerException("Failed to commit the database",ex);
+    }
   }
 }
