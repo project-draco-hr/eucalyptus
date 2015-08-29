@@ -1,0 +1,24 @@
+{
+  final Record query=request.getQuery();
+  if (RequestType.PTR.apply(query))   return super.lookupRecords(request);
+  try {
+    final Name name=query.getName();
+    final InetAddress requestIp=InstanceDomainNames.toInetAddress(name.relativize(InstanceDomainNames.EXTERNAL.get()));
+    final Optional<Cidr> instanceNetwork=lookupNetwork(request.getRemoteAddress());
+    final Optional<VmDnsInfo> vmInfo=lookupPublic(requestIp);
+    if (vmInfo.isPresent()) {
+      final InetAddress instanceAddress=instanceNetwork.isPresent() && instanceNetwork.get().contains(vmInfo.get().getPrivateIp()) ? InetAddresses.forString(vmInfo.get().getPrivateIp()) : requestIp;
+      if (RequestType.A.apply(query)) {
+        final Record rec=DomainNameRecords.addressRecord(name,instanceAddress);
+        return DnsResponse.forName(name).answer(rec);
+      }
+ else {
+        return DnsResponse.forName(name).answer(Lists.<Record>newArrayList());
+      }
+    }
+  }
+ catch (  Exception ex) {
+    LOG.debug(ex);
+  }
+  return super.lookupRecords(request);
+}

@@ -1,0 +1,24 @@
+{
+  final Record query=request.getQuery();
+  try {
+    if (RequestType.PTR.apply(query)) {
+      final InetAddress ip=DomainNameRecords.inAddrArpaToInetAddress(query.getName());
+      final Optional<VmDnsInfo> vmInfo=lookupAny(ip);
+      if (vmInfo.isPresent()) {
+        final String hostAddress=ip.getHostAddress();
+        if (hostAddress.equals(vmInfo.get().getPrivateIp())) {
+          final Name dnsName=InstanceDomainNames.fromInetAddress(InstanceDomainNames.INTERNAL,ip);
+          return DnsResponse.forName(query.getName()).answer(DomainNameRecords.ptrRecord(dnsName,ip));
+        }
+ else         if (hostAddress.equals(vmInfo.get().getPublicIp())) {
+          final Name dnsName=InstanceDomainNames.fromInetAddress(InstanceDomainNames.EXTERNAL,ip);
+          return DnsResponse.forName(query.getName()).answer(DomainNameRecords.ptrRecord(dnsName,ip));
+        }
+      }
+    }
+  }
+ catch (  final Exception ex) {
+    LOG.debug(ex);
+  }
+  return DnsResponse.forName(query.getName()).nxdomain();
+}
