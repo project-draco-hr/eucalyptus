@@ -41,20 +41,26 @@ catch (  final Exception ex) {
       throw new InternalFailure400Exception(String.format("Failed to disable zones: %s",reason),e);
     }
   }
-  List<String> availableZones=Lists.newArrayList();
+  final List<String> attachedSubnets=Lists.newArrayList();
   try {
-    final LoadBalancer updatedLb=LoadBalancers.getLoadbalancer(ctx,lbName);
-    availableZones=Lists.transform(LoadBalancers.findZonesInService(updatedLb),new Function<LoadBalancerZoneCoreView,String>(){
-      @Override public String apply(      @Nullable LoadBalancerZoneCoreView arg0){
-        return arg0.getName();
+    final LoadBalancer lbEntity=LoadBalancers.getLoadbalancer(ctx,lbName);
+    attachedSubnets.addAll(Collections2.transform(Collections2.filter(lbEntity.getZones(),new Predicate<LoadBalancerZoneCoreView>(){
+      @Override public boolean apply(      LoadBalancerZoneCoreView zone){
+        return LoadBalancerZone.STATE.InService.equals(zone.getState()) && zoneToSubnetIdMap.containsKey(zone.getName());
       }
     }
-);
+),new Function<LoadBalancerZoneCoreView,String>(){
+      @Override public String apply(      LoadBalancerZoneCoreView zone){
+        return zoneToSubnetIdMap.get(zone.getName());
+      }
+    }
+));
   }
- catch (  Exception ex) {
+ catch (  final Exception ex) {
+    ;
   }
   final Subnets replySubnets=new Subnets();
-  replySubnets.getMember().addAll(zoneToSubnetIdMap.values());
+  replySubnets.getMember().addAll(attachedSubnets);
   reply.getDetachLoadBalancerFromSubnetsResult().setSubnets(replySubnets);
   return reply;
 }

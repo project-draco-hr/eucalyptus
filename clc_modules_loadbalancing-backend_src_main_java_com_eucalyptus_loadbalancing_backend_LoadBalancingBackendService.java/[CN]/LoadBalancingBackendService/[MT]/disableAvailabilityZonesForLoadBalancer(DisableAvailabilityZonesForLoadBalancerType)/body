@@ -13,6 +13,18 @@
   if (!LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
     throw new AccessPointNotFoundException();
   }
+  final Optional<VpcType> vpcOptional=EucalyptusActivityTasks.getInstance().defaultVpc(ctx.getAccount());
+  final Map<String,String> zoneToSubnetIdMap=Maps.newHashMap();
+  if (vpcOptional.isPresent() && Objects.equals(lb.getVpcId(),vpcOptional.get().getVpcId())) {
+    final List<SubnetType> subnets=EucalyptusActivityTasks.getInstance().describeSubnetsByZone(lb.getVpcId(),true,zones);
+    CollectionUtils.putAll(subnets,zoneToSubnetIdMap,SubnetType.zone(),SubnetType.id());
+    if (zones.size() != zoneToSubnetIdMap.size()) {
+      throw new InvalidConfigurationRequestException("Cannot disable zone for VPC loadbalancer, default subnet not found.");
+    }
+  }
+ else   if (lb.getVpcId() != null) {
+    throw new InvalidConfigurationRequestException("Cannot disable zone for VPC loadbalancer");
+  }
   if (zones != null && zones.size() > 0) {
     try {
       final DisabledZoneEvent evt=new DisabledZoneEvent();

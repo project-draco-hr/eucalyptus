@@ -16,6 +16,9 @@
           if (loadBalancer.getVpcId() == null) {
             throw Exceptions.toUndeclared(new InvalidConfigurationRequestException("VPC only"));
           }
+          for (          final SecurityGroupItemType group : groups) {
+            if (!loadBalancer.getVpcId().equals(group.getVpcId()))             throw Exceptions.toUndeclared(new InvalidConfigurationRequestException(String.format("Security group \"%s\" does not belong to VPC \"%s\"",group.getGroupId(),loadBalancer.getVpcId())));
+          }
           final List<SecurityGroupItemType> sortedGroups=Ordering.natural().onResultOf(SecurityGroupItemType.groupId()).sortedCopy(groups);
           loadBalancer.setSecurityGroupRefs(Lists.newArrayList(Iterables.transform(sortedGroups,TypeMappers.lookup(SecurityGroupItemType.class,LoadBalancerSecurityGroupRef.class))));
           final ApplySecurityGroupsEvent evt=new ApplySecurityGroupsEvent();
@@ -53,5 +56,6 @@ catch (      TransactionException e) {
     final String reason=Optional.fromNullable(e.getCause()).transform(Exceptions.message()).or("internal error");
     throw new InternalFailure400Exception(String.format("Failed to apply security groups to loadbalancer: %s",reason),e);
   }
+  reply.getApplySecurityGroupsToLoadBalancerResult().setSecurityGroups(new SecurityGroups(Collections2.transform(groups,SecurityGroupItemType.groupId())));
   return reply;
 }
