@@ -1,5 +1,52 @@
 {
-  ObjectEntity objectEntity=getObjectEntityAndCheckPermissions(request,null);
+  ObjectEntity objectEntity=getObjectEntityAndCheckPermissions(request,request.getVersionId());
+  if (objectEntity.getIsDeleteMarker()) {
+    throw new NoSuchKeyException(request.getKey());
+  }
+  request.setKey(objectEntity.getObjectUuid());
+  request.setBucket(objectEntity.getBucket().getBucketUuid());
+  Date ifModifiedSince=request.getIfModifiedSince();
+  Date ifUnmodifiedSince=request.getIfUnmodifiedSince();
+  String ifMatch=request.getIfMatch();
+  String ifNoneMatch=request.getIfNoneMatch();
+  if (ifMatch != null && !objectEntity.geteTag().equals(ifMatch)) {
+    throw new PreconditionFailedException("If-Match");
+  }
+  if (DATE_TIME_COMPARATOR.compare(objectEntity.getObjectModifiedTimestamp(),ifUnmodifiedSince) > 0) {
+    throw new PreconditionFailedException("If-Unmodified-Since");
+  }
+  boolean shortReply=false;
+  if (ifNoneMatch != null) {
+    if (objectEntity.geteTag().equals(ifNoneMatch)) {
+      if (ifModifiedSince != null) {
+        if (DATE_TIME_COMPARATOR.compare(objectEntity.getObjectModifiedTimestamp(),ifModifiedSince) <= 0) {
+          shortReply=true;
+        }
+ else {
+          shortReply=false;
+        }
+      }
+ else {
+        shortReply=true;
+      }
+    }
+ else {
+      shortReply=false;
+    }
+  }
+ else   if (ifModifiedSince != null && DATE_TIME_COMPARATOR.compare(objectEntity.getObjectModifiedTimestamp(),ifModifiedSince) <= 0) {
+    shortReply=true;
+  }
+ else {
+    shortReply=false;
+  }
+  if (shortReply) {
+    return generateNotModifiedResponse(request,objectEntity);
+  }
+  request.setIfModifiedSince(null);
+  request.setIfUnmodifiedSince(null);
+  request.setIfMatch(null);
+  request.setIfNoneMatch(null);
   Long objectSize=objectEntity.getSize();
   Long lastIndex=(objectSize - 1) < 0 ? 0 : (objectSize - 1);
   Long byteRangeStart=request.getByteRangeStart();
@@ -35,8 +82,6 @@
   if (byteRangeEnd != null && byteRangeEnd > lastIndex) {
     byteRangeEnd=lastIndex;
   }
-  request.setKey(objectEntity.getObjectUuid());
-  request.setBucket(objectEntity.getBucket().getBucketUuid());
   request.setByteRangeStart(byteRangeStart);
   request.setByteRangeEnd(byteRangeEnd);
   try {
@@ -45,6 +90,7 @@
     response.setLastModified(objectEntity.getObjectModifiedTimestamp());
     populateStoredHeaders(response,objectEntity.getStoredHeaders());
     response.setResponseHeaderOverrides(request.getResponseHeaderOverrides());
+    response.setStatus(HttpResponseStatus.OK);
     return response;
   }
  catch (  S3Exception e) {
