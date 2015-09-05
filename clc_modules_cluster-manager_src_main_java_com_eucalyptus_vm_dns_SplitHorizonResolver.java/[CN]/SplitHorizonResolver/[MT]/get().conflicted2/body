@@ -1,0 +1,25 @@
+{
+  if (Databases.isVolatile()) {
+    return lastLoaded.get();
+  }
+ else   try {
+    final List<Cidr> cidrs=ImmutableList.copyOf(Optional.presentInstances(Iterables.transform(ServiceConfigurations.list(ClusterController.class),new Function<ServiceConfiguration,Optional<Cidr>>(){
+      @Override public Optional<Cidr> apply(      final ServiceConfiguration serviceConfiguration){
+        final ClusterConfiguration cluster=(ClusterConfiguration)serviceConfiguration;
+        try {
+          return Optional.of(Subnets.cidr(cluster.getVnetSubnet(),cluster.getVnetNetmask()));
+        }
+ catch (        final UnknownHostException ex) {
+          return Optional.absent();
+        }
+      }
+    }
+)));
+    lastLoaded.set(cidrs);
+    return cidrs;
+  }
+ catch (  final Throwable e) {
+    LOG.error("Error reloading cluster information, using cached value",e);
+    return lastLoaded.get();
+  }
+}
