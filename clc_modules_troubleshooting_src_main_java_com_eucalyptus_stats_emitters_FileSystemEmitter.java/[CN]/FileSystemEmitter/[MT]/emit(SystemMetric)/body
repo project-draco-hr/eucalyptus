@@ -6,17 +6,37 @@
     String path=fsRoot + "/" + event.getSensor().replace('.','/');
     Path filePath=FileSystems.getDefault().getPath(path);
     Path tmpPath=FileSystems.getDefault().getPath(path + ".new");
-    try {
-      Files.createDirectories(filePath.getParent());
-    }
- catch (    Exception e) {
-      throw new RuntimeException("Could not create file path for sensor output. Path='" + path + "'");
+    if (!pathCache.contains(tmpPath)) {
+      try {
+        LOG.debug("Creating directories tree up to " + filePath.getParent());
+        Files.createDirectories(filePath.getParent());
+      }
+ catch (      Exception e) {
+        throw new RuntimeException("Could not create file path for sensor output. Path='" + path + "'");
+      }
+      Path c=filePath.getParent();
+      while (!c.equals(fsRoot)) {
+        try {
+          LOG.debug("Checking dir " + c);
+          Files.getFileAttributeView(c,PosixFileAttributeView.class).setGroup(FileSystemEmitterConfiguration.getGroup());
+        }
+ catch (        Exception ex) {
+          LOG.error("Can't set group permission for " + c);
+        }
+        c=c.getParent();
+      }
+      pathCache.add(tmpPath);
     }
     tmpPath=Files.createFile(tmpPath,PosixFilePermissions.asFileAttribute(FileSystemEmitterConfiguration.getDataFilePermissions()));
-    Files.getFileAttributeView(tmpPath,PosixFileAttributeView.class).setGroup(FileSystemEmitterConfiguration.getGroup());
     BufferedWriter fileOut=Files.newBufferedWriter(tmpPath,StandardCharsets.UTF_8);
     fileOut.write(event.toString());
     fileOut.close();
+    try {
+      Files.getFileAttributeView(tmpPath,PosixFileAttributeView.class).setGroup(FileSystemEmitterConfiguration.getGroup());
+    }
+ catch (    Exception ex) {
+      LOG.error("Can't set group permission for " + tmpPath + " Please make sure that "+ System.getProperty("euca.user")+ " user is part of "+ FileSystemEmitterConfiguration.getGroup()+ " group.");
+    }
     Files.move(tmpPath,filePath,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE);
     return true;
   }
