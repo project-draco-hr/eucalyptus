@@ -1,0 +1,65 @@
+{
+  try {
+    final Optional<NetworkConfiguration> networkConfiguration=NetworkConfigurations.getNetworkConfiguration();
+    final List<com.eucalyptus.cluster.Cluster> clusters=Clusters.getInstance().listValues();
+    final NetworkInfoSource source=cacheSource();
+    final int sourceFingerprint=fingerprint(source,clusters,NetworkGroups.NETWORK_CONFIGURATION);
+    final Pair<Integer,String> lastBroadcast=lastEncodedNetworkInformation.get();
+    final String encodedNetworkInfo;
+    if (lastBroadcast != null && lastBroadcast.getLeft() == sourceFingerprint) {
+      encodedNetworkInfo=lastBroadcast.getRight();
+    }
+ else {
+      final NetworkInfo info=NetworkInfoBroadcasts.buildNetworkConfiguration(networkConfiguration,source,Suppliers.ofInstance(clusters),new Supplier<String>(){
+        @Override public String get(){
+          return Topology.lookup(Eucalyptus.class).getInetAddress().getHostAddress();
+        }
+      }
+,new Function<List<String>,List<String>>(){
+        @Nullable @Override public List<String> apply(        final List<String> defaultServers){
+          return NetworkConfigurations.loadSystemNameservers(defaultServers);
+        }
+      }
+);
+      final JAXBContext jc=JAXBContext.newInstance("com.eucalyptus.cluster");
+      final StringWriter writer=new StringWriter(8192);
+      jc.createMarshaller().marshal(info,writer);
+      final String networkInfo=writer.toString();
+      if (logger.isTraceEnabled()) {
+        logger.trace("Broadcasting network information:\n${networkInfo}");
+      }
+      final File newView=BaseDirectory.RUN.getChildFile("global_network_info.xml.temp");
+      if (newView.exists() && !newView.delete()) {
+        logger.warn("Error deleting stale network view " + newView.getAbsolutePath());
+      }
+      com.google.common.io.Files.write(networkInfo,newView,Charsets.UTF_8);
+      Files.move(newView.toPath(),BaseDirectory.RUN.getChildFile("global_network_info.xml").toPath(),StandardCopyOption.REPLACE_EXISTING);
+      encodedNetworkInfo=new String(B64.standard.enc(networkInfo.getBytes(Charsets.UTF_8)),Charsets.UTF_8);
+      lastEncodedNetworkInformation.compareAndSet(lastBroadcast,Pair.pair(sourceFingerprint,encodedNetworkInfo));
+    }
+    final BroadcastNetworkInfoCallback callback=new BroadcastNetworkInfoCallback(encodedNetworkInfo);
+    for (    final com.eucalyptus.cluster.Cluster cluster : clusters) {
+      final Long broadcastTime=System.currentTimeMillis();
+      if (null == activeBroadcastMap.putIfAbsent(cluster.getPartition(),broadcastTime)) {
+        try {
+          AsyncRequests.newRequest(callback.newInstance()).then(new UnconditionalCallback<BroadcastNetworkInfoResponseType>(){
+            @Override public void fire(){
+              activeBroadcastMap.remove(cluster.getPartition(),broadcastTime);
+            }
+          }
+).dispatch(cluster.getConfiguration());
+        }
+ catch (        Exception e) {
+          activeBroadcastMap.remove(cluster.getPartition(),broadcastTime);
+          logger.error("Error broadcasting network information to cluster (" + cluster.getPartition() + ") ("+ cluster.getName()+ ")",e);
+        }
+      }
+ else {
+        logger.warn("Skipping network information broadcast for active partition " + cluster.getPartition());
+      }
+    }
+  }
+ catch (  IOException|JAXBException e) {
+    logger.error("Error during network broadcast",e);
+  }
+}
