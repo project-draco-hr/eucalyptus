@@ -1,0 +1,45 @@
+{
+  try {
+    final String vmId=vmStateContext.input.getLeft();
+    final long intitialReportTimeoutMillis=VmInstances.VM_INITIAL_REPORT_TIMEOUT * 1000;
+    final VmStateView vmView=vmStateContext.getLocalState().get(vmId);
+    if (vmView != null && vmView.getState() == VmState.PENDING && (System.currentTimeMillis() - vmView.getLastUpdated()) < intitialReportTimeoutMillis) {
+      return;
+    }
+    final VmInstance vm=VmInstances.lookupAny(vmId);
+    if (VmState.PENDING.apply(vm) && vm.lastUpdateMillis() < intitialReportTimeoutMillis) {
+      return;
+    }
+ else     if (vm.isBlockStorage() && VmInstances.Timeout.UNREPORTED.apply(vm)) {
+      VmInstances.stopped(vm);
+    }
+ else     if (VmState.STOPPING.apply(vm)) {
+      VmInstances.stopped(vm);
+    }
+ else     if (VmState.SHUTTING_DOWN.apply(vm)) {
+      VmInstances.terminated(vm);
+    }
+ else     if (VmInstances.Timeout.TERMINATED.apply(vm)) {
+      VmInstances.buried(vm);
+    }
+ else     if (VmInstances.Timeout.BURIED.apply(vm)) {
+      VmInstances.delete(vm);
+    }
+ else     if (VmInstances.Timeout.SHUTTING_DOWN.apply(vm)) {
+      VmInstances.terminated(vm);
+    }
+ else     if (VmInstances.Timeout.STOPPING.apply(vm)) {
+      VmInstances.stopped(vm);
+    }
+ else     if (VmInstances.Timeout.UNREPORTED.apply(vm)) {
+      VmInstances.terminated(vm);
+    }
+ else     if (VmStateSet.RUN.apply(vm) && VmRuntimeState.InstanceStatus.Ok.apply(vm)) {
+      VmInstances.unreachable(vm);
+    }
+  }
+ catch (  final Exception ex) {
+    LOG.error(ex);
+    Logs.extreme().error(ex,ex);
+  }
+}

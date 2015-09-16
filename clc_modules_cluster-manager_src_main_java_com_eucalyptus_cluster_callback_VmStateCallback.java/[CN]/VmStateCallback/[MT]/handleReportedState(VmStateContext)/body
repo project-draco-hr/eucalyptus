@@ -1,0 +1,65 @@
+{
+  final VmInfo runVm=vmStateContext.getInput().getRight();
+  final VmState runVmState=VmState.Mapper.get(runVm.getStateName());
+  try {
+    final VmStateView vmView=vmStateContext.getLocalState().get(runVm.getInstanceId());
+    boolean updateRequired=false;
+    if (vmView != null) {
+      if (vmView.inState(VmStateSet.DONE)) {
+        if (vmView.getReason() == VmInstance.Reason.EXPIRED) {
+          VmStateCallback.handleUnknown(vmStateContext);
+        }
+ else {
+          LOG.trace("Ignore state update to terminated instance: " + runVm.getInstanceId());
+        }
+        return;
+      }
+ else       if (vmView.getState() == VmState.RUNNING && System.currentTimeMillis() > vmView.getExpires()) {
+        updateRequired=true;
+      }
+ else       if (VmState.SHUTTING_DOWN.equals(runVmState)) {
+        updateRequired=true;
+      }
+ else       if (!vmView.inState(VmStateSet.RUN) && VmStateSet.RUN.contains(runVmState) && (System.currentTimeMillis() - vmView.getLastUpdated()) > (VmInstances.VOLATILE_STATE_TIMEOUT_SEC * 1000l)) {
+        updateRequired=true;
+      }
+ else       if (vmView.inState(VmStateSet.RUN)) {
+        updateRequired=vmView.isBundling() || vmView.isMigrating() || runVmState != vmView.getState() || !Objects.equals(vmView.getGuestState(),runVm.getGuestStateName()) || !Objects.equals(vmView.getServiceTag(),runVm.getServiceTag()) || (System.currentTimeMillis() - vmView.getLastUpdated()) > VmInstances.Timeout.UNTOUCHED.getMilliseconds() || vmView.getReachabilityStatus() != ReachabilityStatus.Passed || (vmView.getState() == VmState.RUNNING && !vmView.getVolumeAttachments().equals(CollectionUtils.putAll(Iterables.transform(runVm.getVolumes(),TypeMappers.lookup(AttachedVolume.class,VmStateVolumeAttachmentView.class)),Maps.<String,VmStateVolumeAttachmentView>newHashMap(),HasName.GET_NAME,Functions.<VmStateVolumeAttachmentView>identity())));
+      }
+    }
+    if (updateRequired)     try (final TransactionResource db=Entities.transactionFor(VmInstance.class)){
+      VmInstance vm=VmInstances.lookupAny(runVm.getInstanceId());
+      if (VmInstances.Timeout.EXPIRED.apply(vm)) {
+        if (vm.isBlockStorage()) {
+          VmInstances.stopped(vm);
+        }
+ else {
+          VmInstances.shutDown(vm);
+        }
+      }
+ else       if (VmState.SHUTTING_DOWN.equals(runVmState)) {
+        db.rollback();
+        VmStateCallback.handleReportedTeardown(vm,runVm);
+        return;
+      }
+ else {
+        VmInstances.doUpdate(vm).apply(runVm);
+      }
+      Entities.commit(db);
+    }
+ catch (    Exception ex) {
+      LOG.error(ex);
+      Logs.extreme().error(ex,ex);
+      throw ex;
+    }
+  }
+ catch (  TerminatedInstanceException ex1) {
+    LOG.trace("Ignore state update to terminated instance: " + runVm.getInstanceId());
+  }
+catch (  NoSuchElementException ex1) {
+  }
+catch (  Exception ex1) {
+    LOG.error(ex1);
+    Logs.extreme().error(ex1,ex1);
+  }
+}
