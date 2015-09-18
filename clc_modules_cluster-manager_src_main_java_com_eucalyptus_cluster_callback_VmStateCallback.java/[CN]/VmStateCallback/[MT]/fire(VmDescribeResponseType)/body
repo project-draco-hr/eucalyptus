@@ -6,8 +6,9 @@
   if (Databases.isVolatile()) {
     return;
   }
+  final Map<String,VmStateView> localState=ImmutableMap.copyOf(CollectionUtils.putAll(instanceViewSupplier.get(),Maps.<String,VmStateView>newHashMapWithExpectedSize(reply.getVms().size()),HasName.GET_NAME,Functions.<VmStateView>identity()));
   reply.setOriginCluster(this.getSubject().getConfiguration().getName());
-  final Set<String> reportedInstances=Sets.newHashSet();
+  final Set<String> reportedInstances=Sets.newHashSetWithExpectedSize(reply.getVms().size());
   for (  VmInfo vmInfo : reply.getVms()) {
     reportedInstances.add(vmInfo.getInstanceId());
     vmInfo.setPlacement(this.getSubject().getConfiguration().getName());
@@ -28,14 +29,14 @@
   final List<Optional<Runnable>> taskList=Lists.newArrayList();
   for (  final VmInfo runVm : reply.getVms()) {
     if (this.initialInstances.get().contains(runVm.getInstanceId())) {
-      taskList.add(UpdateTaskFunction.REPORTED.apply(Either.<String,VmInfo>right(runVm)));
+      taskList.add(UpdateTaskFunction.REPORTED.apply(context(localState,runVm)));
     }
  else     if (unknownInstances.contains(runVm.getInstanceId())) {
-      taskList.add(UpdateTaskFunction.UNKNOWN.apply(Either.<String,VmInfo>right(runVm)));
+      taskList.add(UpdateTaskFunction.UNKNOWN.apply(context(localState,runVm)));
     }
   }
   for (  final String vmId : unreportedInstances) {
-    taskList.add(UpdateTaskFunction.UNREPORTED.apply(Either.<String,VmInfo>left(vmId)));
+    taskList.add(UpdateTaskFunction.UNREPORTED.apply(context(localState,vmId)));
   }
   for (  final Runnable task : Optional.presentInstances(taskList)) {
     Threads.enqueue(ClusterController.class,VmStateCallback.class,(Runtime.getRuntime().availableProcessors() * 2) + 1,Executors.callable(task));
