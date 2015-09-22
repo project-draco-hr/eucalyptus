@@ -17,15 +17,19 @@
       try {
         if (event.isAsserted(defaultPollIntervalSeconds)) {
           if (Bootstrap.isFinished() && Hosts.isCoordinator()) {
-            if (busy.compareAndSet(false,true)) {
-              Threads.lookup(Reporting.class).limitTo(REPORTING_NUM_THREADS).submit(new Callable<Object>(){
-                @Override public Object call() throws Exception {
-                  try {
-                    List<String> allInstanceIds=VmInstances.listWithProjection(VmInstances.instanceIdProjection(),VmInstance.criterion(VmState.RUNNING),VmInstance.nonNullNodeCriterion());
-                    final Iterable<List<String>> processInts=Iterables.partition(allInstanceIds,SENSOR_QUERY_BATCH_SIZE);
-                    for (                    final ServiceConfiguration ccConfig : Topology.enabledServices(ClusterController.class)) {
+            CloudWatchHelper.DefaultInstanceInfoProvider.refresh();
+            for (            final ServiceConfiguration ccConfig : Topology.enabledServices(ClusterController.class)) {
+              final String ccHost=ccConfig.getHostName();
+              if (busyHosts.replace(ccHost,false,true) || busyHosts.putIfAbsent(ccHost,true) == null) {
+                Threads.lookup(Reporting.class,DescribeSensorsListener.class).submit(new Callable<Object>(){
+                  @Override public Object call() throws Exception {
+                    final ExecutorService executorService=Threads.lookup(Reporting.class,DescribeSensorsListener.class,"response-processing").limitTo(4);
+                    final long startTime=System.currentTimeMillis();
+                    try {
+                      final List<String> allInstanceIds=VmInstances.listWithProjection(VmInstances.instanceIdProjection(),VmInstance.criterion(VmState.RUNNING),VmInstance.zoneCriterion(ccConfig.getPartition()),VmInstance.nonNullNodeCriterion());
+                      final Iterable<List<String>> processInts=Iterables.partition(allInstanceIds,SENSOR_QUERY_BATCH_SIZE);
                       for (                      final List<String> instIds : processInts) {
-                        ArrayList<String> instanceIds=Lists.newArrayList(instIds);
+                        final ArrayList<String> instanceIds=Lists.newArrayList(instIds);
                         final DescribeSensorCallback msgCallback=new DescribeSensorCallback(HISTORY_SIZE,COLLECTION_INTERVAL_TIME_MS,instanceIds){
                           @Override public void fireException(                          Throwable e){
                           }
@@ -33,23 +37,32 @@
                           }
                         }
 ;
-                        Future<DescribeSensorsResponse> ret=AsyncRequests.newRequest(msgCallback).dispatch(ccConfig);
-                        try {
-                          new DescribeSensorCallback(HISTORY_SIZE,COLLECTION_INTERVAL_TIME_MS,instanceIds).fire(ret.get());
+                        final DescribeSensorsResponse response=AsyncRequests.newRequest(msgCallback).dispatch(ccConfig).get();
+                        executorService.submit(new Runnable(){
+                          @Override public void run(){
+                            try {
+                              new DescribeSensorCallback(HISTORY_SIZE,COLLECTION_INTERVAL_TIME_MS,instanceIds).fire(response);
+                            }
+ catch (                            Exception e) {
+                              Exceptions.maybeInterrupted(e);
+                            }
+                          }
                         }
- catch (                        Exception e) {
-                          Exceptions.maybeInterrupted(e);
-                        }
+);
                       }
                     }
-                  }
   finally {
-                    busy.set(false);
+                      busyHosts.put(ccHost,false);
+                      LOG.debug("Sensor polling for " + ccHost + " took "+ (System.currentTimeMillis() - startTime)+ "ms");
+                    }
+                    return null;
                   }
-                  return null;
                 }
-              }
 );
+              }
+ else {
+                LOG.warn("Skipping sensors polling for " + ccHost + ", previous poll not complete.");
+              }
             }
           }
         }
