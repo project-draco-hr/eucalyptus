@@ -2,7 +2,7 @@
   if (dimensionMap == null) {
     dimensionMap=new HashMap<String,String>();
   }
- else   if (dimensionMap.size() > MetricEntity.MAX_DIM_NUM) {
+ else   if (dimensionMap.size() > AbstractPersistentWithDimensions.MAX_DIM_NUM) {
     throw new IllegalArgumentException("Too many dimensions for metric, " + dimensionMap.size());
   }
   TreeSet<DimensionEntity> dimensions=new TreeSet<DimensionEntity>();
@@ -58,11 +58,18 @@
     if (units != null) {
       criteria=criteria.add(Restrictions.eq("units",units));
     }
-    criteria=criteria.addOrder(Order.asc("creationTimestamp"));
-    criteria=criteria.addOrder(Order.asc("naturalId"));
-    Collection results=criteria.list();
-    for (    Object o : results) {
-      MetricEntity me=(MetricEntity)o;
+    ProjectionList projectionList=Projections.projectionList();
+    projectionList.add(Projections.max("sampleMax"));
+    projectionList.add(Projections.min("sampleMin"));
+    projectionList.add(Projections.sum("sampleSize"));
+    projectionList.add(Projections.sum("sampleSum"));
+    projectionList.add(Projections.groupProperty("units"));
+    projectionList.add(Projections.groupProperty("timestamp"));
+    criteria.setProjection(projectionList);
+    criteria.addOrder(Order.asc("timestamp"));
+    ScrollableResults results=criteria.setCacheMode(CacheMode.IGNORE).scroll(ScrollMode.FORWARD_ONLY);
+    while (results.next()) {
+      MetricEntity me=getMetricEntity(accountId,metricName,namespace,metricType,hash,results);
       GetMetricStatisticsAggregationKey key=new GetMetricStatisticsAggregationKey(me,startTime,period,hash);
       MetricStatistics item=new MetricStatistics(me,startTime,period,dimensions);
       if (!aggregationMap.containsKey(key)) {
@@ -76,7 +83,6 @@
         totalSoFar.setSampleSum(totalSoFar.getSampleSum() + item.getSampleSum());
       }
     }
-    db.commit();
   }
    return Lists.newArrayList(aggregationMap.values());
 }
