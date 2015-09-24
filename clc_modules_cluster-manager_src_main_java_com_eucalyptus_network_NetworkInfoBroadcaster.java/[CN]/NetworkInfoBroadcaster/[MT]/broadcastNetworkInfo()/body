@@ -4,23 +4,36 @@
     final List<com.eucalyptus.cluster.Cluster> clusters=Clusters.getInstance().listValues();
     final NetworkInfoSource source=cacheSource();
     final int sourceFingerprint=fingerprint(source,clusters,NetworkGroups.NETWORK_CONFIGURATION);
-    final Pair<Integer,String> lastBroadcast=lastEncodedNetworkInformation.get();
+    final LastBroadcastInfo lastBroadcast=lastBroadcastInformation.get();
+    final Pair<Long,String> appliedVersion=lastAppliedNetworkInformation.get();
     final String encodedNetworkInfo;
-    if (lastBroadcast != null && lastBroadcast.getLeft() == sourceFingerprint) {
-      encodedNetworkInfo=lastBroadcast.getRight();
+    if (lastBroadcast != null && lastBroadcast.version == sourceFingerprint && (appliedVersion == null || appliedVersion.getRight().equals(lastBroadcast.appliedVersion))) {
+      encodedNetworkInfo=lastBroadcast.encodedNetworkInfo;
     }
  else {
-      final NetworkInfo info=NetworkInfoBroadcasts.buildNetworkConfiguration(networkConfiguration,source,Suppliers.ofInstance(clusters),new Supplier<String>(){
-        @Override public String get(){
-          return Topology.lookup(Eucalyptus.class).getInetAddress().getHostAddress();
-        }
+      final NetworkInfo info;
+      final boolean converged=lastBroadcast != null && (System.currentTimeMillis() - lastBroadcast.lastConvergedTimestamp > TimeUnit.SECONDS.toMillis(150));
+      if (converged) {
+        info=lastBroadcast.networkInfo;
       }
+ else {
+        info=NetworkInfoBroadcasts.buildNetworkConfiguration(networkConfiguration,source,Suppliers.ofInstance(clusters),new Supplier<String>(){
+          @Override public String get(){
+            return Topology.lookup(Eucalyptus.class).getInetAddress().getHostAddress();
+          }
+        }
 ,new Function<List<String>,List<String>>(){
-        @Nullable @Override public List<String> apply(        final List<String> defaultServers){
-          return NetworkConfigurations.loadSystemNameservers(defaultServers);
+          @Nullable @Override public List<String> apply(          final List<String> defaultServers){
+            return NetworkConfigurations.loadSystemNameservers(defaultServers);
+          }
         }
-      }
 );
+        info.setVersion(BaseEncoding.base16().lowerCase().encode(Ints.toByteArray(sourceFingerprint)));
+      }
+      if (appliedVersion != null) {
+        info.setAppliedTime(Timestamps.formatIso8601Timestamp(new Date(appliedVersion.getLeft())));
+        info.setAppliedVersion(appliedVersion.getRight());
+      }
       final JAXBContext jc=JAXBContext.newInstance("com.eucalyptus.cluster");
       final StringWriter writer=new StringWriter(8192);
       jc.createMarshaller().marshal(info,writer);
@@ -35,7 +48,7 @@
       com.google.common.io.Files.write(networkInfo,newView,Charsets.UTF_8);
       Files.move(newView.toPath(),BaseDirectory.RUN.getChildFile("global_network_info.xml").toPath(),StandardCopyOption.REPLACE_EXISTING);
       encodedNetworkInfo=new String(B64.standard.enc(networkInfo.getBytes(Charsets.UTF_8)),Charsets.UTF_8);
-      lastEncodedNetworkInformation.compareAndSet(lastBroadcast,Pair.pair(sourceFingerprint,encodedNetworkInfo));
+      lastBroadcastInformation.set(new LastBroadcastInfo(sourceFingerprint,appliedVersion == null ? null : appliedVersion.getRight(),info,encodedNetworkInfo,info.getAppliedVersion() != null && info.getAppliedVersion().equals(info.getVersion()) ? System.currentTimeMillis() : lastBroadcast == null ? 0 : lastBroadcast.lastConvergedTimestamp));
     }
     final BroadcastNetworkInfoCallback callback=new BroadcastNetworkInfoCallback(encodedNetworkInfo);
     for (    final com.eucalyptus.cluster.Cluster cluster : clusters) {
