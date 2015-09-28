@@ -1,20 +1,36 @@
 {
-  if (!CloudWatchConfigProperties.isDisabledCloudWatchService() && Bootstrap.isOperational() && Topology.isEnabledLocally(CloudWatchBackend.class)) {
-    LOG.debug("Kicking off alarm state evaluation for " + alarmName);
-    try (final TransactionResource db=Entities.transactionFor(AlarmEntity.class)){
-      Criteria criteria=Entities.createCriteria(AlarmEntity.class).add(Restrictions.eq("accountId",accountId)).add(Restrictions.eq("alarmName",alarmName));
-      AlarmEntity alarmEntity=(AlarmEntity)criteria.uniqueResult();
-      if (alarmEntity == null)       return;
-      AlarmState currentState=evaluateState(alarmEntity);
+  try {
+    if (!CloudWatchConfigProperties.isDisabledCloudWatchService() && Bootstrap.isOperational() && Topology.isEnabledLocally(CloudWatchBackend.class)) {
       Date evaluationDate=new Date();
-      if (currentState.getStateValue() != alarmEntity.getStateValue()) {
-        AlarmManager.changeAlarmState(alarmEntity,currentState,evaluationDate);
-        AlarmManager.executeActions(alarmEntity,currentState,true,evaluationDate);
+      Map<AlarmEntity,AlarmState> currentStates=evaluateStates(alarmEntities);
+      Map<String,AlarmState> statesToUpdate=Maps.newHashMap();
+      List<AlarmHistory> historyList=Collections.<AlarmHistory>synchronizedList(new ArrayList<AlarmHistory>());
+      CountDownLatch alarmHistoryCountdownLatch=new CountDownLatch(currentStates != null && currentStates.keySet() != null ? currentStates.keySet().size() : 0);
+      for (      AlarmEntity alarmEntity : currentStates.keySet()) {
+        AlarmState currentState=currentStates.get(alarmEntity);
+        if (currentState.getStateValue() != alarmEntity.getStateValue()) {
+          statesToUpdate.put(alarmEntity.getNaturalId(),currentState);
+          historyList.add(AlarmManager.createChangeAlarmStateHistoryItem(alarmEntity,currentState,evaluationDate));
+          AlarmManager.executeActionsAndRecord(alarmEntity,currentState,true,evaluationDate,historyList,alarmHistoryCountdownLatch);
+        }
+ else         if (moreThanOnePeriodHasPassed(alarmEntity,evaluationDate)) {
+          AlarmManager.executeActionsAndRecord(alarmEntity,currentState,false,evaluationDate,historyList,alarmHistoryCountdownLatch);
+        }
+ else {
+          alarmHistoryCountdownLatch.countDown();
+        }
       }
- else       if (moreThanOnePeriodHasPassed(alarmEntity,evaluationDate)) {
-        AlarmManager.executeActions(alarmEntity,currentState,false,evaluationDate);
+      try {
+        alarmHistoryCountdownLatch.await();
+        AlarmManager.changeAlarmStateBatch(statesToUpdate,evaluationDate);
+        AlarmManager.addAlarmHistoryEvents(historyList);
       }
-      db.commit();
+ catch (      InterruptedException e) {
+        LOG.error(e);
+      }
     }
-   }
+  }
+  finally {
+    countDownLatch.countDown();
+  }
 }

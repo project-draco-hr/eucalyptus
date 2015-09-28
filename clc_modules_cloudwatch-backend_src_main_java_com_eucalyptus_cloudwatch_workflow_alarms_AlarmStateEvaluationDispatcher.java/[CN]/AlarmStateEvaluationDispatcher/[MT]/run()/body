@@ -1,14 +1,30 @@
 {
   if (!CloudWatchConfigProperties.isDisabledCloudWatchService() && Bootstrap.isOperational() && Topology.isEnabledLocally(CloudWatchBackend.class)) {
     LOG.debug("Kicking off AlarmStateEvaluationDispatcher");
+    int size=0;
+    long before=0;
+    List<List<AlarmEntity>> resultsList=null;
     try (final TransactionResource db=Entities.transactionFor(AlarmEntity.class)){
       Criteria criteria=Entities.createCriteria(AlarmEntity.class);
       List<AlarmEntity> results=(List<AlarmEntity>)criteria.list();
-      for (      AlarmEntity alarmEntity : results) {
-        LOG.debug("Submitting job for " + alarmEntity.getAlarmName());
-        executorService.submit(new AlarmStateEvaluationWorker(alarmEntity.getAccountId(),alarmEntity.getAlarmName()));
-      }
-      db.commit();
+      resultsList=makeResultsList(results);
+      before=System.currentTimeMillis();
+      size=results.size();
     }
-   }
+     try {
+      if (resultsList != null) {
+        LOG.debug("Evaluating " + size + " alarms");
+        CountDownLatch countDownLatch=new CountDownLatch(resultsList.size());
+        for (        List<AlarmEntity> alarmEntityList : resultsList) {
+          executorService.submit(new AlarmStateEvaluationWorker(alarmEntityList,countDownLatch));
+        }
+        countDownLatch.await();
+        long after=System.currentTimeMillis();
+        LOG.debug("Done evaluating " + size + " alarms, time = "+ (after - before)+ " ms");
+      }
+    }
+ catch (    InterruptedException e) {
+      LOG.debug(e,e);
+    }
+  }
 }
