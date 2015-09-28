@@ -1,16 +1,29 @@
 {
-  final Map<String,StorageVolume> idStorageVolumeMap=Maps.newHashMap();
   final ServiceConfiguration scConfig=Topology.lookup(Storage.class,Partitions.lookupByName(partition));
   try {
-    final DescribeStorageVolumesResponseType volState=AsyncRequests.sendSync(scConfig,new DescribeStorageVolumesType());
-    for (    final StorageVolume vol : volState.getVolumeSet()) {
-      LOG.trace("Volume states: " + vol.getVolumeId() + " "+ vol.getStatus()+ " "+ vol.getActualDeviceName());
-      idStorageVolumeMap.put(vol.getVolumeId(),vol);
+    final CheckedListenableFuture<DescribeStorageVolumesResponseType> describeFuture=AsyncRequests.dispatch(scConfig,new DescribeStorageVolumesType());
+    return new Supplier<Map<String,StorageVolume>>(){
+      @Override public Map<String,StorageVolume> get(){
+        final Map<String,StorageVolume> idStorageVolumeMap=Maps.newHashMap();
+        try {
+          final DescribeStorageVolumesResponseType volState=describeFuture.get();
+          for (          final StorageVolume vol : volState.getVolumeSet()) {
+            LOG.trace("Volume states: " + vol.getVolumeId() + " "+ vol.getStatus()+ " "+ vol.getActualDeviceName());
+            idStorageVolumeMap.put(vol.getVolumeId(),vol);
+          }
+        }
+ catch (        final Exception ex) {
+          LOG.error(ex);
+          Logs.extreme().error(ex,ex);
+        }
+        return idStorageVolumeMap;
+      }
     }
+;
   }
  catch (  final Exception ex) {
     LOG.error(ex);
     Logs.extreme().error(ex,ex);
   }
-  return idStorageVolumeMap;
+  return Suppliers.ofInstance(Collections.<String,StorageVolume>emptyMap());
 }

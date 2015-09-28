@@ -1,0 +1,57 @@
+{
+  final StringBuilder buf=new StringBuilder();
+  final Function<String,Volume> updateVolume=new Function<String,Volume>(){
+    @Override public Volume apply(    final String input){
+      try {
+        final Volume volumeToUpdate=Entities.uniqueResult(Volume.named(null,input));
+        State volumeState=volumeToUpdate.getState();
+        Integer size=0;
+        final Optional<State> newState=calculateState(volumeToUpdate,storageVolume == null ? null : storageVolume.getStatus());
+        if (storageVolume != null) {
+          size=Integer.parseInt(storageVolume.getSize());
+        }
+        if (newState.isPresent()) {
+          volumeState=newState.get();
+        }
+        volumeToUpdate.setState(volumeState);
+        try {
+          if (volumeToUpdate.getSize() <= 0) {
+            volumeToUpdate.setSize(size);
+            if (EnumSet.of(State.GENERATING,State.EXTANT,State.BUSY).contains(volumeState)) {
+              Volumes.fireUsageEvent(volumeToUpdate,VolumeEvent.forVolumeCreate());
+            }
+          }
+        }
+ catch (        final Exception ex) {
+          LOG.error(ex);
+          Logs.extreme().error(ex,ex);
+        }
+        buf.append(" Resulting new-state: [").append(volumeToUpdate.getState()).append("]");
+        LOG.debug(buf.toString());
+        return volumeToUpdate;
+      }
+ catch (      final TransactionException ex) {
+        LOG.error(buf.toString() + " failed because of " + ex.getMessage());
+        Logs.extreme().error(buf.toString() + " failed because of " + ex.getMessage(),ex);
+        throw Exceptions.toUndeclared(ex);
+      }
+catch (      final NoSuchElementException ex) {
+        LOG.error(buf.toString() + " failed because of " + ex.getMessage());
+        Logs.extreme().error(buf.toString() + " failed because of " + ex.getMessage(),ex);
+        throw ex;
+      }
+    }
+  }
+;
+  final Optional<State> newState=calculateState(volume,storageVolume == null ? null : storageVolume.getStatus());
+  buf.append("VolumeStateUpdate: Current Volume Info: [").append("Partition: ").append(volume.getPartition()).append(" ").append("Name: ").append(volume.getDisplayName()).append(" ").append("CurrentState: ").append(volume.getState()).append(" ").append("Created: ").append(volume.getCreationTimestamp()).append(" ]");
+  if (storageVolume != null) {
+    buf.append(" Incoming state update: [").append("State: ").append(storageVolume.getStatus()).append("=>").append(newState).append(" ").append("Size: ").append(storageVolume.getSize()).append("GB ").append("SourceSnapshotId: ").append(storageVolume.getSnapshotId()).append(" ").append("CreationTime: ").append(storageVolume.getCreateTime()).append(" ").append("DeviceName: ").append(storageVolume.getActualDeviceName()).append(" ] ");
+  }
+  if (volume.getSize() <= 0 || (newState.isPresent() && newState.get() != volume.getState())) {
+    Entities.asTransaction(Volume.class,updateVolume).apply(volume.getDisplayName());
+  }
+ else {
+    LOG.debug(buf.toString() + " unchanged");
+  }
+}
