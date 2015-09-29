@@ -13,18 +13,29 @@
     }
      try {
       if (resultsList != null) {
-        LOG.debug("Evaluating " + size + " alarms");
-        CountDownLatch countDownLatch=new CountDownLatch(resultsList.size());
+        ExecutorCompletionService executorCompletionService=new ExecutorCompletionService(executorService);
+        Set<Future> futures=Sets.newHashSet();
         for (        List<AlarmEntity> alarmEntityList : resultsList) {
-          executorService.submit(new AlarmStateEvaluationWorker(alarmEntityList,countDownLatch));
+          futures.add(executorCompletionService.submit(new AlarmStateEvaluationWorker(alarmEntityList),new Object()));
         }
-        countDownLatch.await();
+        Future completedFuture;
+        while (futures.size() > 0) {
+          completedFuture=executorCompletionService.take();
+          futures.remove(completedFuture);
+          try {
+            completedFuture.get();
+          }
+ catch (          ExecutionException e) {
+            Throwable cause=e.getCause();
+            LOG.error(cause);
+          }
+        }
         long after=System.currentTimeMillis();
         LOG.debug("Done evaluating " + size + " alarms, time = "+ (after - before)+ " ms");
       }
     }
  catch (    InterruptedException e) {
-      LOG.debug(e,e);
+      LOG.debug(e);
     }
   }
 }
