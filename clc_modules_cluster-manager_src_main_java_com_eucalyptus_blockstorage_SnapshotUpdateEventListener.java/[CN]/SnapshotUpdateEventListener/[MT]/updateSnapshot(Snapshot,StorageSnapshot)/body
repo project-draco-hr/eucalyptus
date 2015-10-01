@@ -1,0 +1,51 @@
+{
+  try {
+    final Function<String,Optional<SnapShotEvent>> updateSnapshot=new Function<String,Optional<SnapShotEvent>>(){
+      public Optional<SnapShotEvent> apply(      final String input){
+        Optional<SnapShotEvent> event=Optional.absent();
+        try {
+          final Snapshot entity=Entities.uniqueResult(Snapshot.named(null,input));
+          final SnapshotStateChange stateChange=changesFor(entity,storageSnapshot);
+          final StringBuilder buf=new StringBuilder();
+          buf.append("SnapshotStateUpdate: ").append(entity.getPartition()).append(" ").append(input).append(" ").append(entity.getParentVolume()).append(" ").append(entity.getState()).append(" ").append(entity.getProgress()).append(" ");
+          if (entity.getState() == State.GENERATING && stateChange.newState == State.EXTANT) {
+            try {
+              final Volume volume=Entities.uniqueResult(Volume.named(null,storageSnapshot.getVolumeId()));
+              final String volumeUuid=volume.getNaturalId();
+              event=Optional.of(SnapShotEvent.with(SnapShotEvent.forSnapShotCreate(entity.getVolumeSize(),volumeUuid,entity.getParentVolume()),entity.getNaturalId(),entity.getDisplayName(),entity.getOwnerUserId(),entity.getOwnerUserName(),entity.getOwnerAccountNumber()));
+            }
+ catch (            final Throwable e) {
+              LOG.error("Error inserting/creating reporting event for snapshot creation of snapshot: " + entity.getDisplayName(),e);
+            }
+          }
+          stateChange.update(entity);
+          if (storageSnapshot != null) {
+            buf.append(" storage-snapshot ").append(storageSnapshot.getStatus()).append("=>").append(entity.getState()).append(" ").append(storageSnapshot.getProgress()).append(" ");
+          }
+          LOG.debug(buf.toString());
+          return event;
+        }
+ catch (        TransactionException ex) {
+          throw Exceptions.toUndeclared(ex);
+        }
+      }
+    }
+;
+    if (changesFor(snapshot,storageSnapshot).willUpdate(snapshot)) {
+      try {
+        final Optional<SnapShotEvent> event=Entities.asTransaction(Snapshot.class,updateSnapshot).apply(snapshot.getDisplayName());
+        if (event.isPresent()) {
+          ListenerRegistry.getInstance().fireEvent(event.get());
+        }
+      }
+ catch (      Exception ex) {
+        LOG.error(ex);
+        Logs.extreme().error(ex,ex);
+      }
+    }
+  }
+ catch (  Exception ex) {
+    LOG.error(ex);
+    Logs.extreme().error(ex,ex);
+  }
+}
