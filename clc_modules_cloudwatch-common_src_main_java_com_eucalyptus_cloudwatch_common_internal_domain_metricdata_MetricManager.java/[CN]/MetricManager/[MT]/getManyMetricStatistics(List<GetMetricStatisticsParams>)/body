@@ -1,0 +1,92 @@
+{
+  if (getMetricStatisticsParamses == null)   throw new IllegalArgumentException("getMetricStatisticsParamses can not be null");
+  Date now=new Date();
+  Map<GetMetricStatisticsParams,Collection<MetricStatistics>> resultMap=Maps.newHashMap();
+  Multimap<Class,GetMetricStatisticsParams> hashGroupMap=LinkedListMultimap.create();
+  for (  GetMetricStatisticsParams getMetricStatisticsParams : getMetricStatisticsParamses) {
+    if (getMetricStatisticsParams == null)     throw new IllegalArgumentException("getMetricStatisticsParams can not be null");
+    getMetricStatisticsParams.validate(now);
+    Class metricEntityClass=MetricEntityFactory.getClassForEntitiesGet(getMetricStatisticsParams.getMetricType(),getMetricStatisticsParams.getDimensionHash());
+    hashGroupMap.put(metricEntityClass,getMetricStatisticsParams);
+  }
+  for (  Class metricEntityClass : hashGroupMap.keySet()) {
+    try (final TransactionResource db=Entities.transactionFor(metricEntityClass)){
+      Date minDate=null;
+      Date maxDate=null;
+      Junction disjunction=Restrictions.disjunction();
+      Map<GetMetricStatisticsParams,TreeMap<GetMetricStatisticsAggregationKey,MetricStatistics>> multiAggregationMap=Maps.newHashMap();
+      for (      GetMetricStatisticsParams getMetricStatisticsParams : hashGroupMap.get(metricEntityClass)) {
+        multiAggregationMap.put(getMetricStatisticsParams,new TreeMap<GetMetricStatisticsAggregationKey,MetricStatistics>(GetMetricStatisticsAggregationKey.COMPARATOR_WITH_NULLS.INSTANCE));
+        Junction conjunction=Restrictions.conjunction();
+        conjunction=conjunction.add(Restrictions.lt("timestamp",getMetricStatisticsParams.getEndTime()));
+        conjunction=conjunction.add(Restrictions.ge("timestamp",getMetricStatisticsParams.getStartTime()));
+        conjunction=conjunction.add(Restrictions.eq("accountId",getMetricStatisticsParams.getAccountId()));
+        conjunction=conjunction.add(Restrictions.eq("metricName",getMetricStatisticsParams.getMetricName()));
+        conjunction=conjunction.add(Restrictions.eq("namespace",getMetricStatisticsParams.getNamespace()));
+        conjunction=conjunction.add(Restrictions.eq("dimensionHash",hash(getMetricStatisticsParams.getDimensionMap())));
+        if (getMetricStatisticsParams.getUnits() != null) {
+          conjunction=conjunction.add(Restrictions.eq("units",getMetricStatisticsParams.getUnits()));
+        }
+        disjunction=disjunction.add(conjunction);
+        if (minDate == null || getMetricStatisticsParams.getStartTime().before(minDate)) {
+          minDate=getMetricStatisticsParams.getStartTime();
+        }
+        if (maxDate == null || getMetricStatisticsParams.getEndTime().after(maxDate)) {
+          maxDate=getMetricStatisticsParams.getEndTime();
+        }
+      }
+      Criteria criteria=Entities.createCriteria(metricEntityClass);
+      criteria=criteria.add(Restrictions.lt("timestamp",maxDate));
+      criteria=criteria.add(Restrictions.ge("timestamp",minDate));
+      criteria=criteria.add(disjunction);
+      ProjectionList projectionList=Projections.projectionList();
+      projectionList.add(Projections.max("sampleMax"));
+      projectionList.add(Projections.min("sampleMin"));
+      projectionList.add(Projections.sum("sampleSize"));
+      projectionList.add(Projections.sum("sampleSum"));
+      projectionList.add(Projections.groupProperty("units"));
+      projectionList.add(Projections.groupProperty("timestamp"));
+      projectionList.add(Projections.groupProperty("accountId"));
+      projectionList.add(Projections.groupProperty("metricName"));
+      projectionList.add(Projections.groupProperty("metricType"));
+      projectionList.add(Projections.groupProperty("namespace"));
+      projectionList.add(Projections.groupProperty("dimensionHash"));
+      criteria.setProjection(projectionList);
+      criteria.addOrder(Order.asc("timestamp"));
+      ScrollableResults results=criteria.setCacheMode(CacheMode.IGNORE).scroll(ScrollMode.FORWARD_ONLY);
+      while (results.next()) {
+        MetricEntity me=getMetricEntity(results);
+        for (        GetMetricStatisticsParams getMetricStatisticsParams : hashGroupMap.get(metricEntityClass)) {
+          if (metricDataMatches(getMetricStatisticsParams,me)) {
+            Map<GetMetricStatisticsAggregationKey,MetricStatistics> aggregationMap=multiAggregationMap.get(getMetricStatisticsParams);
+            GetMetricStatisticsAggregationKey key=new GetMetricStatisticsAggregationKey(me,getMetricStatisticsParams.getStartTime(),getMetricStatisticsParams.getPeriod(),getMetricStatisticsParams.getDimensionHash());
+            MetricStatistics item=new MetricStatistics(me,getMetricStatisticsParams.getStartTime(),getMetricStatisticsParams.getPeriod(),getMetricStatisticsParams.getDimensions());
+            if (!aggregationMap.containsKey(key)) {
+              aggregationMap.put(key,item);
+            }
+ else {
+              MetricStatistics totalSoFar=aggregationMap.get(key);
+              totalSoFar.setSampleMax(Math.max(item.getSampleMax(),totalSoFar.getSampleMax()));
+              totalSoFar.setSampleMin(Math.min(item.getSampleMin(),totalSoFar.getSampleMin()));
+              totalSoFar.setSampleSize(totalSoFar.getSampleSize() + item.getSampleSize());
+              totalSoFar.setSampleSum(totalSoFar.getSampleSum() + item.getSampleSum());
+            }
+          }
+        }
+      }
+      for (      GetMetricStatisticsParams getMetricStatisticsParams : multiAggregationMap.keySet()) {
+        resultMap.put(getMetricStatisticsParams,multiAggregationMap.get(getMetricStatisticsParams).values());
+      }
+    }
+   }
+  List<Collection<MetricStatistics>> resultList=Lists.newArrayList();
+  for (  GetMetricStatisticsParams getMetricStatisticsParams : getMetricStatisticsParamses) {
+    if (resultMap.get(getMetricStatisticsParams) == null) {
+      resultList.add(new ArrayList<MetricStatistics>());
+    }
+ else {
+      resultList.add(resultMap.get(getMetricStatisticsParams));
+    }
+  }
+  return resultList;
+}

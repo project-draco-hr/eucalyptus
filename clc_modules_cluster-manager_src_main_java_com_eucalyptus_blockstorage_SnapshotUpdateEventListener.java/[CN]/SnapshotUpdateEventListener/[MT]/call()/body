@@ -1,22 +1,21 @@
 {
   try {
     try {
-      Multimap<String,String> snapshots=ArrayListMultimap.create();
+      final Multimap<String,Snapshot> snapshots=ArrayListMultimap.create();
       for (      Snapshot s : Snapshots.list()) {
-        snapshots.put(s.getPartition(),s.getDisplayName());
+        snapshots.put(s.getPartition(),s);
       }
-      for (      final String partition : snapshots.keySet()) {
+      final Map<String,Collection<Snapshot>> snapshotsByPartition=ImmutableMap.copyOf(snapshots.asMap());
+      final Map<String,Supplier<Map<String,StorageSnapshot>>> scSnapshotsByPartition=Maps.newHashMap();
+      for (      final String partition : snapshotsByPartition.keySet()) {
+        scSnapshotsByPartition.put(partition,getSnapshotsInPartition(partition));
+      }
+      for (      final String partition : snapshotsByPartition.keySet()) {
         try {
-          ServiceConfiguration sc=Topology.lookup(Storage.class,Partitions.lookupByName(partition));
-          DescribeStorageSnapshotsType scRequest=new DescribeStorageSnapshotsType();
-          DescribeStorageSnapshotsResponseType snapshotInfo=AsyncRequests.sendSync(sc,scRequest);
-          final Map<String,StorageSnapshot> storageSnapshots=Maps.newHashMap();
-          for (          final StorageSnapshot storageSnapshot : snapshotInfo.getSnapshotSet()) {
-            storageSnapshots.put(storageSnapshot.getSnapshotId(),storageSnapshot);
-          }
-          for (          String snapshotId : snapshots.get(partition)) {
-            final StorageSnapshot storageSnapshot=storageSnapshots.remove(snapshotId);
-            updateSnapshot(snapshotId,storageSnapshot);
+          final Map<String,StorageSnapshot> storageSnapshots=scSnapshotsByPartition.get(partition).get();
+          for (          final Snapshot snapshot : snapshotsByPartition.get(partition)) {
+            final StorageSnapshot storageSnapshot=storageSnapshots.remove(snapshot.getDisplayName());
+            updateSnapshot(snapshot,storageSnapshot);
           }
           for (          StorageSnapshot unknownSnapshot : storageSnapshots.values()) {
             LOG.trace("SnapshotStateUpdate: found unknown snapshot: " + unknownSnapshot.getSnapshotId() + " "+ unknownSnapshot.getStatus());

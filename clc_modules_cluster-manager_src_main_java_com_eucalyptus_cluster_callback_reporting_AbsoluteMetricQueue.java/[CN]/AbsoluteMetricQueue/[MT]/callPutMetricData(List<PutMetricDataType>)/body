@@ -1,9 +1,37 @@
 {
-  ServiceConfiguration serviceConfiguration=createServiceConfiguration();
-  for (  PutMetricDataType putMetricData : putMetricDataList) {
-    BaseMessage reply=AsyncRequests.dispatch(serviceConfiguration,putMetricData).get();
-    if (!(reply instanceof PutMetricDataResponseType)) {
-      throw new EucalyptusCloudException("Unable to send put metric data to cloud watch");
+  final List<ServiceConfiguration> serviceConfigurations=Lists.newArrayList(Topology.lookupMany(CloudWatch.class));
+  final Map<ServiceConfiguration,Semaphore> semaphoreMap=Maps.newHashMap();
+  for (  final ServiceConfiguration serviceConfiguration : serviceConfigurations) {
+    semaphoreMap.put(serviceConfiguration,new Semaphore(8));
+  }
+  final Iterator<ServiceConfiguration> putToServiceConfiguration=Iterables.cycle(serviceConfigurations).iterator();
+  for (  final PutMetricDataType putMetricData : putMetricDataList) {
+    final ServiceConfiguration serviceConfiguration=putToServiceConfiguration.next();
+    final Semaphore activePuts=semaphoreMap.get(serviceConfiguration);
+    activePuts.acquire();
+    try {
+      final CheckedListenableFuture<BaseMessage> replyFuture=AsyncRequests.dispatch(serviceConfiguration,putMetricData);
+      replyFuture.addListener(new Runnable(){
+        @Override public void run(){
+          try {
+            final BaseMessage reply=replyFuture.get();
+            if (!(reply instanceof PutMetricDataResponseType)) {
+              LOG.error("Error putting compute system metric data");
+            }
+          }
+ catch (          ExecutionException|InterruptedException e) {
+            LOG.error("Error putting compute system metric data",e);
+          }
+ finally {
+            activePuts.release();
+          }
+        }
+      }
+);
+    }
+ catch (    Throwable t) {
+      activePuts.release();
+      LOG.error("Error putting compute system metric data",t);
     }
   }
 }

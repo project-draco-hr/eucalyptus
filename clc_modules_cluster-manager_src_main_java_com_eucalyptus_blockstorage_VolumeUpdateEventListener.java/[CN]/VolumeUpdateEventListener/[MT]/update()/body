@@ -1,24 +1,42 @@
 {
-  final Multimap<String,String> partitionVolumeMap=HashMultimap.create();
-  final EntityTransaction db=Entities.get(Volume.class);
-  try {
+  final Multimap<String,Volume> partitionVolumeMap=HashMultimap.create();
+  try (final TransactionResource tx=Entities.readOnlyDistinctTransactionFor(Volume.class)){
     for (    final Volume v : Entities.query(Volume.named(null,null))) {
-      partitionVolumeMap.put(v.getPartition(),v.getDisplayName());
+      partitionVolumeMap.put(v.getPartition().intern(),v);
     }
-    db.rollback();
   }
  catch (  final Exception ex) {
     Logs.extreme().error(ex,ex);
-    db.rollback();
   }
-  Logs.extreme().debug("Volume state update: " + Joiner.on("\n").join(partitionVolumeMap.entries()));
-  for (  final String partition : partitionVolumeMap.keySet()) {
+  final Map<String,Collection<Volume>> volumesByPartition=ImmutableMap.copyOf(partitionVolumeMap.asMap());
+  final Map<String,Supplier<Map<String,StorageVolume>>> scVolumesByPartition=Maps.newHashMap();
+  for (  final String partition : volumesByPartition.keySet()) {
+    scVolumesByPartition.put(partition,updateVolumesInPartition(partition));
+  }
+  for (  final String partition : volumesByPartition.keySet()) {
     try {
-      final Map<String,StorageVolume> idStorageVolumeMap=updateVolumesInPartition(partition);
-      for (      final String v : partitionVolumeMap.get(partition)) {
+      final Map<String,StorageVolume> idStorageVolumeMap=scVolumesByPartition.get(partition).get();
+      for (      final Volume v : volumesByPartition.get(partition)) {
         try {
-          final StorageVolume storageVolume=idStorageVolumeMap.get(v);
-          volumeStateUpdate(v,storageVolume);
+          final StorageVolume storageVolume=idStorageVolumeMap.get(v.getDisplayName());
+          if (pendingUpdates.putIfAbsent(v.getDisplayName(),System.currentTimeMillis()) == null)           try {
+            Threads.enqueue(Storage.class,VolumeUpdateEventListener.class,(Runtime.getRuntime().availableProcessors() * 2) + 1,new Callable<Void>(){
+              @Override public Void call() throws Exception {
+                try {
+                  volumeStateUpdate(v,storageVolume);
+                }
+  finally {
+                  pendingUpdates.remove(v.getDisplayName());
+                }
+                return null;
+              }
+            }
+);
+          }
+ catch (          Throwable t) {
+            pendingUpdates.remove(v.getDisplayName());
+            throw Throwables.propagate(t);
+          }
         }
  catch (        final Exception ex) {
           LOG.error(ex);

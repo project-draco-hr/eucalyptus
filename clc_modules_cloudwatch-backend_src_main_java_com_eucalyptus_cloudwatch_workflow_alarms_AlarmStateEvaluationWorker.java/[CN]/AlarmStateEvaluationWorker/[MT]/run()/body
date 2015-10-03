@@ -1,20 +1,26 @@
 {
-  if (!CloudWatchConfigProperties.isDisabledCloudWatchService() && Bootstrap.isOperational() && Topology.isEnabledLocally(CloudWatchBackend.class)) {
-    LOG.debug("Kicking off alarm state evaluation for " + alarmName);
-    try (final TransactionResource db=Entities.transactionFor(AlarmEntity.class)){
-      Criteria criteria=Entities.createCriteria(AlarmEntity.class).add(Restrictions.eq("accountId",accountId)).add(Restrictions.eq("alarmName",alarmName));
-      AlarmEntity alarmEntity=(AlarmEntity)criteria.uniqueResult();
-      if (alarmEntity == null)       return;
-      AlarmState currentState=evaluateState(alarmEntity);
+  try {
+    if (!CloudWatchConfigProperties.isDisabledCloudWatchService() && Bootstrap.isOperational() && Topology.isEnabledLocally(CloudWatchBackend.class)) {
       Date evaluationDate=new Date();
-      if (currentState.getStateValue() != alarmEntity.getStateValue()) {
-        AlarmManager.changeAlarmState(alarmEntity,currentState,evaluationDate);
-        AlarmManager.executeActions(alarmEntity,currentState,true,evaluationDate);
+      Map<AlarmEntity,AlarmState> currentStates=evaluateStates(alarmEntities);
+      Map<String,AlarmState> statesToUpdate=Maps.newHashMap();
+      List<AlarmHistory> historyList=Lists.newArrayList();
+      for (      AlarmEntity alarmEntity : currentStates.keySet()) {
+        AlarmState currentState=currentStates.get(alarmEntity);
+        if (currentState.getStateValue() != alarmEntity.getStateValue()) {
+          statesToUpdate.put(alarmEntity.getNaturalId(),currentState);
+          historyList.add(AlarmManager.createChangeAlarmStateHistoryItem(alarmEntity,currentState,evaluationDate));
+          historyList.addAll(AlarmManager.executeActionsAndRecord(alarmEntity,currentState,true,evaluationDate,historyList));
+        }
+ else         if (moreThanOnePeriodHasPassed(alarmEntity,evaluationDate)) {
+          historyList.addAll(AlarmManager.executeActionsAndRecord(alarmEntity,currentState,false,evaluationDate,historyList));
+        }
       }
- else       if (moreThanOnePeriodHasPassed(alarmEntity,evaluationDate)) {
-        AlarmManager.executeActions(alarmEntity,currentState,false,evaluationDate);
-      }
-      db.commit();
+      AlarmManager.changeAlarmStateBatch(statesToUpdate,evaluationDate);
+      AlarmManager.addAlarmHistoryEvents(historyList);
     }
-   }
+  }
+ catch (  Exception e) {
+    LOG.error(e);
+  }
 }

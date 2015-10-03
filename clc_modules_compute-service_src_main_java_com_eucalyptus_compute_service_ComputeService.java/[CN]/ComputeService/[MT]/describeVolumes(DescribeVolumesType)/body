@@ -15,9 +15,28 @@
     public Pair<Set<String>,ArrayList<com.eucalyptus.compute.common.Volume>> apply(    final Set<String> input){
       final Set<String> allowedVolumeIds=Sets.newHashSet();
       final ArrayList<com.eucalyptus.compute.common.Volume> replyVolumes=Lists.newArrayList();
-      final List<VmInstance> vms=VmInstances.list(ownerFullName,Predicates.alwaysTrue());
       final List<Volume> volumes=Entities.query(Volume.named(ownerFullName,null),true,persistenceFilter.asCriterion(),persistenceFilter.getAliases());
       final Iterable<Volume> filteredVolumes=Iterables.filter(volumes,Predicates.and(new TrackingPredicate<Volume>(volumeIds),requestedAndAccessible));
+      final Criterion attachmentCriterion;
+      final Map<String,String> attachmentAliases;
+      if (Iterables.isEmpty(filteredVolumes)) {
+        attachmentCriterion=Restrictions.disjunction();
+        attachmentAliases=Collections.emptyMap();
+      }
+ else       if (Iterables.size(Iterables.limit(filteredVolumes,51)) < 50) {
+        attachmentCriterion=Restrictions.in("volumeId",Sets.newHashSet(Iterables.transform(filteredVolumes,RestrictedTypes.toDisplayName())));
+        attachmentAliases=Collections.emptyMap();
+      }
+ else       if (ownerFullName == null) {
+        attachmentCriterion=Restrictions.conjunction();
+        attachmentAliases=Collections.emptyMap();
+      }
+ else {
+        attachmentCriterion=Restrictions.eq("vmInstance.ownerAccountNumber",ownerFullName.getAccountNumber());
+        ;
+        attachmentAliases=Collections.singletonMap("vmInstance","vmInstance");
+      }
+      final Map<String,VmVolumeAttachment> attachmentMap=CollectionUtils.putAll(Iterables.concat(Entities.query(VmBootVolumeAttachment.example(),true,attachmentCriterion,attachmentAliases),Entities.query(VmStandardVolumeAttachment.example(),true,attachmentCriterion,attachmentAliases)),Maps.<String,VmVolumeAttachment>newHashMap(),VmVolumeAttachment.volumeId(),Functions.<VmVolumeAttachment>identity());
       for (      final Volume foundVol : filteredVolumes) {
         allowedVolumeIds.add(foundVol.getDisplayName());
         if (State.ANNIHILATED.equals(foundVol.getState())) {
@@ -25,12 +44,12 @@
           replyVolumes.add(foundVol.morph(new com.eucalyptus.compute.common.Volume()));
         }
  else {
+          VmVolumeAttachment attachment=attachmentMap.get(foundVol.getDisplayName());
           AttachedVolume attachedVolume=null;
-          try {
-            VmVolumeAttachment attachment=VmInstances.lookupVolumeAttachment(foundVol.getDisplayName(),vms);
+          if (attachment != null) {
             attachedVolume=VmVolumeAttachment.asAttachedVolume(attachment.getVmInstance()).apply(attachment);
           }
- catch (          NoSuchElementException ex) {
+ else {
             if (State.BUSY.equals(foundVol.getState())) {
               foundVol.setState(State.EXTANT);
             }
