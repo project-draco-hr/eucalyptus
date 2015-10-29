@@ -1,0 +1,37 @@
+{
+  VmInstance vm;
+  Map<Boolean,Set<String>> outputMap=Maps.newHashMap();
+  outputMap.put(true,new HashSet<String>());
+  outputMap.put(false,new HashSet<String>());
+  for (  String id : instanceIdsToRefresh) {
+    try (final TransactionResource db=Entities.transactionFor(VmInstance.class)){
+      vm=VmInstances.lookup(id);
+      if (pvOnly && ImageMetadata.VirtualizationType.paravirtualized.equals(ImageMetadata.VirtualizationType.fromString().apply(vm.getVirtualizationType()))) {
+        Emis.BootableSet bs=Emis.recreateBootableSet(vm);
+        if (bs.hasKernel() && !outputMap.get(true).contains(bs.getKernel().getDisplayName())) {
+          try {
+            outputMap.get(true).add(bs.getKernel().getDisplayName() + "=" + bs.getKernelDownloadManifest(Partitions.lookupByName(vm.getPartition()).getNodeCertificate().getPublicKey(),vm.getReservationId()));
+          }
+ catch (          MetadataException ex) {
+            LOG.warn("Could not get kernel download manifest for migration of instance: " + id + ". Migration may fail for this instance",ex);
+            throw ex;
+          }
+        }
+        if (bs.hasRamdisk() && !outputMap.get(true).contains(bs.getRamdisk().getDisplayName())) {
+          try {
+            outputMap.get(true).add(bs.getRamdisk().getDisplayName() + "=" + bs.getRamdiskDownloadManifest(Partitions.lookupByName(vm.getPartition()).getNodeCertificate().getPublicKey(),vm.getReservationId()));
+          }
+ catch (          MetadataException ex) {
+            LOG.warn("Could not get ramdisk download manifest for migration of instance: " + id + ". Migration may fail for this instance",ex);
+            throw ex;
+          }
+        }
+      }
+    }
+ catch (    Exception e) {
+      LOG.warn("Failure during update of download manifest while building new bootset. May not be able migrate this instance: " + id,e);
+      outputMap.get(false).add(id);
+    }
+  }
+  return outputMap;
+}
