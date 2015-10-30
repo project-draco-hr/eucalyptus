@@ -1,12 +1,37 @@
 {
-  ObjectEntity objectEntity=getObjectEntityAndCheckPermissions(request,request.getVersionId());
-  ObjectEntity responseEntity=OsgObjectFactory.getFactory().logicallyDeleteVersion(ospClient,objectEntity,Contexts.lookup().getUser());
-  DeleteVersionResponseType reply=request.getReply();
-  reply.setStatus(HttpResponseStatus.NO_CONTENT);
-  reply.setKey(request.getKey());
-  if (responseEntity != null) {
-    reply.setVersionId(responseEntity.getVersionId());
-    if (responseEntity.getIsDeleteMarker() != null && responseEntity.getIsDeleteMarker())     reply.setIsDeleteMarker(Boolean.TRUE);
+  ObjectEntity objectEntity;
+  try {
+    objectEntity=getObjectEntityAndCheckPermissions(request,request.getVersionId());
   }
-  return reply;
+ catch (  NoSuchKeyException e) {
+    LOG.warn("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with: InvalidArgumentException");
+    throw new InvalidArgumentException(request.getBucket() + "/" + request.getKey()+ "?versionId="+ request.getVersionId(),"Invalid version id specified").withArgumentName("versionId").withArgumentValue(request.getVersionId());
+  }
+catch (  S3Exception e) {
+    LOG.warn("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with: ",e);
+    throw e;
+  }
+catch (  Exception e) {
+    LOG.warn("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with 500 InternalError because of:",e);
+    throw new InternalErrorException(request.getBucket());
+  }
+  try {
+    ObjectEntity responseEntity=OsgObjectFactory.getFactory().logicallyDeleteVersion(ospClient,objectEntity,Contexts.lookup().getUser());
+    DeleteVersionResponseType reply=request.getReply();
+    reply.setStatus(HttpResponseStatus.NO_CONTENT);
+    reply.setKey(request.getKey());
+    if (responseEntity != null) {
+      reply.setVersionId(responseEntity.getVersionId());
+      if (responseEntity.getIsDeleteMarker() != null && responseEntity.getIsDeleteMarker())       reply.setIsDeleteMarker(Boolean.TRUE);
+    }
+    return reply;
+  }
+ catch (  S3Exception e) {
+    LOG.warn("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with: ",e);
+    throw e;
+  }
+catch (  Exception e) {
+    LOG.warn("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with 500 InternalError because of:",e);
+    throw new InternalErrorException(request.getBucket() + "/" + request.getKey()+ "?versionId="+ request.getVersionId());
+  }
 }

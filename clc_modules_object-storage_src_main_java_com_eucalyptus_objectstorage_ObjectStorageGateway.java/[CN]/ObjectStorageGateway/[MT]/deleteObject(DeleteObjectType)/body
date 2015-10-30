@@ -3,14 +3,18 @@
   try {
     objectEntity=getObjectEntityAndCheckPermissions(request,null);
   }
- catch (  NoSuchBucketException|NoSuchKeyException|NoSuchEntityException|NoSuchElementException e) {
+ catch (  NoSuchKeyException e) {
     DeleteObjectResponseType reply=request.getReply();
     reply.setStatus(HttpResponseStatus.NO_CONTENT);
     reply.setStatusMessage("No Content");
     return reply;
   }
+catch (  S3Exception e) {
+    LOG.warn("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with: ",e);
+    throw e;
+  }
 catch (  Exception e) {
-    LOG.error("Error getting bucket metadata for bucket " + request.getBucket());
+    LOG.warn("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with 500 InternalError because of:",e);
     throw new InternalErrorException(request.getBucket());
   }
   try {
@@ -31,8 +35,12 @@ catch (  Exception e) {
     }
     return reply;
   }
- catch (  Exception e) {
-    LOG.error("Transaction error during delete object: " + request.getBucket() + "/"+ request.getKey(),e);
+ catch (  S3Exception e) {
+    LOG.warn("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with: ",e);
+    throw e;
+  }
+catch (  Exception e) {
+    LOG.warn("Transaction error during delete object: " + request.getBucket() + "/"+ request.getKey(),e);
     throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
   }
 }
