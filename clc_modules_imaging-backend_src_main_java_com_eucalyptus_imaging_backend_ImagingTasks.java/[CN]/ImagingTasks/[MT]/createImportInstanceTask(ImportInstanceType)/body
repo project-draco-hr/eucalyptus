@@ -2,7 +2,23 @@
   final ImportInstanceLaunchSpecification launchSpec=request.getLaunchSpecification();
   if (launchSpec == null)   throw new ImagingServiceException("Launch specification is required");
   if (launchSpec.getArchitecture() == null || !("i386".equals(launchSpec.getArchitecture()) || "x86_64".equals(launchSpec.getArchitecture())))   throw new ImagingServiceException("Architecture should be either i386 or x86_64");
+  int vmTypeDiskSize=-1;
   if (launchSpec.getInstanceType() == null)   throw new ImagingServiceException("Instance type is required");
+ else {
+    try {
+      final List<VmTypeDetails> vmTypes=Ec2Client.getInstance().describeInstanceTypes(Contexts.lookup().getUser().getUserId());
+      for (      final VmTypeDetails type : vmTypes) {
+        if (launchSpec.getInstanceType().equals(type.getName())) {
+          vmTypeDiskSize=type.getDisk();
+          break;
+        }
+      }
+      if (vmTypeDiskSize < 0)       throw new Exception();
+    }
+ catch (    final Exception ex) {
+      throw new ImagingServiceException("Instance type " + launchSpec.getInstanceType() + " is not found");
+    }
+  }
   if (launchSpec.getKeyName() != null && launchSpec.getKeyName().length() > 0) {
     try {
       final List<DescribeKeyPairsResponseItemType> keys=Ec2Client.getInstance().describeKeyPairs(Contexts.lookup().getUser().getUserId(),Lists.newArrayList(launchSpec.getKeyName()));
@@ -10,6 +26,19 @@
     }
  catch (    final Exception ex) {
       throw new ImagingServiceException("Key " + launchSpec.getKeyName() + " is not found");
+    }
+  }
+  if (launchSpec.getGroupName() != null && launchSpec.getGroupName().size() > 0) {
+    final Set<String> requestedGroups=Sets.newHashSet(launchSpec.getGroupName());
+    try {
+      final List<SecurityGroupItemType> groups=Ec2Client.getInstance().describeSecurityGroups(Contexts.lookup().getUser().getUserId(),launchSpec.getGroupName());
+      for (      final SecurityGroupItemType group : groups) {
+        requestedGroups.remove(group.getGroupName());
+      }
+      if (requestedGroups.size() > 0)       throw new Exception();
+    }
+ catch (    final Exception ex) {
+      throw new ImagingServiceException("Security groups are not found: " + Joiner.on(",").join(requestedGroups));
     }
   }
   String availabilityZone=null;
@@ -71,6 +100,7 @@
     if (volumeDetail == null)     throw new ImagingServiceException("Volume detail is required for disk image");
     try {
       final int volumeSize=volumeDetail.getSize();
+      if (volumeSize > vmTypeDiskSize)       throw new ImagingServiceException("Requested volume size exceeds max disk size of instance type '" + launchSpec.getInstanceType() + "'");
       if (getMaxVolumeSize(availabilityZone) < volumeSize)       throw new ImagingServiceException("Requested volume size exceeds max allowed volume size");
       final long imageBytes=imageDetail.getBytes();
       final long volumeSizeInBytes=(volumeSize * (long)Math.pow(1024,3));
