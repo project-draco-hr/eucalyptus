@@ -1,9 +1,15 @@
 {
-  String instanceType=allocInfo.getRequest().getInstanceType();
-  VmType vmType=VmTypes.lookup(instanceType);
-  if (!RestrictedTypes.filterPrivileged().apply(vmType)) {
-    throw new IllegalMetadataAccessException("Not authorized to allocate vm type " + instanceType + " for "+ allocInfo.getOwnerFullName());
+  if (allocInfo.getRequest().getKeyName() == null || "".equals(allocInfo.getRequest().getKeyName())) {
+    allocInfo.setSshKeyPair(KeyPairs.noKey());
+    return true;
   }
-  allocInfo.setVmType(vmType);
+  UserFullName ownerFullName=allocInfo.getOwnerFullName();
+  RunInstancesType request=allocInfo.getRequest();
+  String keyName=request.getKeyName();
+  SshKeyPair key=KeyPairs.lookup(ownerFullName.asAccountFullName(),keyName);
+  if (!RestrictedTypes.filterPrivileged().apply(key)) {
+    throw new IllegalMetadataAccessException("Not authorized to use keypair " + keyName + " by "+ ownerFullName.getUserName());
+  }
+  allocInfo.setSshKeyPair(key);
   return true;
 }
