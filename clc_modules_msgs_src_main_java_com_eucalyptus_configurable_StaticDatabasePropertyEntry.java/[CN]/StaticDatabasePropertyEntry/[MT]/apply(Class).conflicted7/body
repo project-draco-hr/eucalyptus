@@ -1,12 +1,24 @@
 {
+  final String EXPERIMENTAL_DNS_PREFIX="experimental.dns.";
+  final String DNS_PREFIX="dns.";
+  EntityTransaction db=Entities.get(StaticDatabasePropertyEntry.class);
   try {
-    StaticDatabasePropertyEntry.update("com.eucalyptus.imaging.ImagingServiceProperties.keyname","services.imaging.worker.keyname","");
-    LOG.info("Resetting services.imaging.worker.keyname property to ''. Please set it to a keypair from " + AccountIdentifiers.IMAGING_SYSTEM_ACCOUNT + " account if needed.");
-    StaticDatabasePropertyEntry.update("com.eucalyptus.loadbalancing.activities.LoadBalancerASGroupCreator.keyname","services.loadbalancing.worker.keyname","");
-    LOG.info("Resetting services.loadbalancing.worker.keyname to '' . Please set it to a keypair from " + AccountIdentifiers.ELB_SYSTEM_ACCOUNT + " account if needed.");
+    List<StaticDatabasePropertyEntry> entities=Entities.query(new StaticDatabasePropertyEntry());
+    for (    StaticDatabasePropertyEntry entry : entities) {
+      if (entry.getPropName() != null && entry.getPropName().startsWith(EXPERIMENTAL_DNS_PREFIX)) {
+        String oldPropertyName=entry.getPropName();
+        String newPropertyName=DNS_PREFIX + oldPropertyName.substring(EXPERIMENTAL_DNS_PREFIX.length());
+        LOG.debug("Upgrading: Changing property '" + oldPropertyName + "' to '"+ newPropertyName+ "'");
+        entry.setPropName(newPropertyName);
+      }
+    }
+    db.commit();
     return true;
   }
- catch (  Exception e) {
-    throw Exceptions.toUndeclared(e);
+ catch (  Exception ex) {
+    throw Exceptions.toUndeclared(ex);
+  }
+ finally {
+    if (db.isActive())     db.rollback();
   }
 }
