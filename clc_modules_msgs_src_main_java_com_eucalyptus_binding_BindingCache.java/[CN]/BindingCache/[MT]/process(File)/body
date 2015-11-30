@@ -29,12 +29,14 @@
           final String classGuess=j.getName().replaceAll("/",".").replaceAll("\\.class.{0,1}","");
           final Class candidate=ClassLoader.getSystemClassLoader().loadClass(classGuess);
           if (MSG_BASE_CLASS.isAssignableFrom(candidate) || MSG_DATA_CLASS.isAssignableFrom(candidate)) {
-            InputSupplier<InputStream> classSupplier=Resources.newInputStreamSupplier(ClassLoader.getSystemResource(j.getName()));
+            ByteSource classSupplier=Resources.asByteSource(ClassLoader.getSystemResource(j.getName()));
             File destClassFile=SubDirectory.CLASSCACHE.getChildFile(j.getName());
             if (!destClassFile.exists()) {
               Files.createParentDirs(destClassFile);
-              Files.copy(classSupplier,destClassFile);
-              Logs.extreme().debug("Caching: " + j.getName() + " => "+ destClassFile.getAbsolutePath());
+              try (final InputStream in=classSupplier.openBufferedStream();final OutputStream out=new FileOutputStream(destClassFile)){
+                ByteStreams.copy(in,out);
+              }
+               Logs.extreme().debug("Caching: " + j.getName() + " => "+ destClassFile.getAbsolutePath());
             }
             BINDING_CLASS_MAP.putIfAbsent(classGuess,candidate);
             BINDING_CLASS_ELEMENT_MAP.put(candidate.getSimpleName(),candidate);
