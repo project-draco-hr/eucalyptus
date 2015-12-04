@@ -1,0 +1,57 @@
+{
+  final URL url;
+  try {
+    url=new URL(urlStr);
+  }
+ catch (  MalformedURLException e) {
+    throw new ValidationErrorException("Invalid " + urlType + ":"+ urlStr);
+  }
+  boolean inWhitelist=WhiteListURLMatcher.urlIsAllowed(url,whitelist);
+  if (inWhitelist) {
+    InputStream templateIn=null;
+    try {
+      final URLConnection connection=SslSetup.configureHttpsUrlConnection(url.openConnection());
+      templateIn=connection.getInputStream();
+      long contentLength=connection.getContentLengthLong();
+      if (contentLength > maxContentLength) {
+        throw new ValidationErrorException(urlType + " exceeds maximum byte count, " + maxContentLength);
+      }
+      final byte[] templateData=ByteStreams.toByteArray(new BoundedInputStream(templateIn,maxContentLength + 1));
+      if (templateData.length > maxContentLength) {
+        throw new ValidationErrorException(urlType + " exceeds maximum byte count, " + maxContentLength);
+      }
+      return new String(templateData,StandardCharsets.UTF_8);
+    }
+ catch (    UnknownHostException ex) {
+      throw new ValidationErrorException("Invalid " + urlType + ":"+ urlStr);
+    }
+catch (    SSLHandshakeException ex) {
+      throw new ValidationErrorException("HTTPS connection error for " + urlStr);
+    }
+catch (    IOException ex) {
+      if (Strings.nullToEmpty(ex.getMessage()).startsWith("HTTPS hostname wrong")) {
+        throw new ValidationErrorException("HTTPS connection failed hostname verification for " + urlStr);
+      }
+      LOG.info("Unable to connect to whitelisted URL, trying S3 instead");
+      LOG.debug(ex,ex);
+    }
+ finally {
+      IO.close(templateIn);
+    }
+  }
+  String[] validHostBucketSuffixes=new String[]{"walrus","objectstorage","s3"};
+  String[] validServicePaths=new String[]{ObjectStorageProperties.LEGACY_WALRUS_SERVICE_PATH,ComponentIds.lookup(ObjectStorage.class).getServicePath()};
+  String[] validDomains=new String[]{DomainNames.externalSubdomain().relativize(Name.root).toString()};
+  S3Helper.BucketAndKey bucketAndKey=S3Helper.getBucketAndKeyFromUrl(url,validServicePaths,validHostBucketSuffixes,validDomains);
+  try (final EucaS3Client eucaS3Client=EucaS3ClientFactory.getEucaS3Client(new SecurityTokenAWSCredentialsProvider(user))){
+    if (eucaS3Client.getObjectMetadata(bucketAndKey.getBucket(),bucketAndKey.getKey()).getContentLength() > maxContentLength) {
+      throw new ValidationErrorException(urlType + " exceeds maximum byte count, " + maxContentLength);
+    }
+    return eucaS3Client.getObjectContent(bucketAndKey.getBucket(),bucketAndKey.getKey(),(int)maxContentLength);
+  }
+ catch (  Exception ex) {
+    LOG.debug("Error getting s3 object content: " + bucketAndKey.getBucket() + "/"+ bucketAndKey.getKey());
+    LOG.debug(ex,ex);
+    throw new ValidationErrorException(urlType + " is an S3 URL to a non-existent or unauthorized bucket/key.  (bucket=" + bucketAndKey.getBucket()+ ", key="+ bucketAndKey.getKey());
+  }
+}
