@@ -2,99 +2,36 @@
 synchronized (AWSEC2InstanceResourceAction.class) {
     AWSEC2InstanceResourceAction action=(AWSEC2InstanceResourceAction)resourceAction;
     ServiceConfiguration configuration=Topology.lookup(Compute.class);
-    RunInstancesType runInstancesType=MessageHelper.createMessage(RunInstancesType.class,action.info.getEffectiveUserId());
-    runInstancesType.setImageId(action.properties.getImageId());
-    if (action.properties.getAvailabilityZone() != null && !action.properties.getAvailabilityZone().isEmpty()) {
-      runInstancesType.setAvailabilityZone(action.properties.getAvailabilityZone());
-    }
-    if (action.properties.getBlockDeviceMappings() != null && !action.properties.getBlockDeviceMappings().isEmpty()) {
-      runInstancesType.setBlockDeviceMapping(action.convertBlockDeviceMappings(action.properties.getBlockDeviceMappings()));
-    }
-    if (action.properties.getBlockDeviceMappings() != null) {
-      runInstancesType.setDisableTerminate(action.properties.getDisableApiTermination());
-    }
-    if (action.properties.getEbsOptimized() != null) {
-      runInstancesType.setEbsOptimized(action.properties.getEbsOptimized());
-    }
-    if (action.properties.getIamInstanceProfile() != null && !action.properties.getIamInstanceProfile().isEmpty()) {
-      runInstancesType.setIamInstanceProfileName(action.properties.getIamInstanceProfile());
-    }
-    if (action.properties.getInstanceType() != null && !action.properties.getInstanceType().isEmpty()) {
-      runInstancesType.setInstanceType(action.properties.getInstanceType());
-    }
-    if (action.properties.getKernelId() != null && !action.properties.getKernelId().isEmpty()) {
-      runInstancesType.setKernelId(action.properties.getKernelId());
-    }
-    if (action.properties.getKeyName() != null && !action.properties.getKeyName().isEmpty()) {
-      runInstancesType.setKeyName(action.properties.getKeyName());
-    }
-    if (action.properties.getMonitoring() != null) {
-      runInstancesType.setMonitoring(action.properties.getMonitoring());
-    }
-    if (action.properties.getNetworkInterfaces() != null && !action.properties.getNetworkInterfaces().isEmpty()) {
-      runInstancesType.setNetworkInterfaceSet(action.convertNetworkInterfaceSet(action.properties.getNetworkInterfaces()));
-    }
-    if (action.properties.getPlacementGroupName() != null && !action.properties.getPlacementGroupName().isEmpty()) {
-      runInstancesType.setPlacementGroup(action.properties.getPlacementGroupName());
-    }
-    if (action.properties.getPrivateIpAddress() != null && !action.properties.getPrivateIpAddress().isEmpty()) {
-      runInstancesType.setPrivateIpAddress(action.properties.getPrivateIpAddress());
-    }
-    if (action.properties.getRamdiskId() != null && !action.properties.getRamdiskId().isEmpty()) {
-      runInstancesType.setRamdiskId(action.properties.getRamdiskId());
-    }
-    if (action.properties.getSecurityGroupIds() != null && !action.properties.getSecurityGroupIds().isEmpty() && action.properties.getSecurityGroups() != null && !action.properties.getSecurityGroups().isEmpty()) {
-      throw new ValidationErrorException("SecurityGroupIds and SecurityGroups can not both be set on an AWS::EC2::Instance");
-    }
-    if (action.properties.getSecurityGroupIds() != null && !action.properties.getSecurityGroupIds().isEmpty()) {
-      runInstancesType.setGroupIdSet(Lists.newArrayList(action.properties.getSecurityGroupIds()));
-    }
-    if (action.properties.getSecurityGroups() != null && !action.properties.getSecurityGroups().isEmpty()) {
-      runInstancesType.setGroupSet(Lists.newArrayList(action.properties.getSecurityGroups()));
-    }
-    if (action.properties.getSubnetId() != null && !action.properties.getSubnetId().isEmpty()) {
-      runInstancesType.setSubnetId(action.properties.getSubnetId());
-    }
-    if (action.properties.getTenancy() != null && !action.properties.getTenancy().isEmpty()) {
-      if (!"default".equals(action.properties.getTenancy()) && !"dedicated".equals(action.properties.getTenancy())) {
-        throw new ValidationErrorException("Tenancy must be 'default' or 'dedicated'");
-      }
-      runInstancesType.setPlacementTenancy(action.properties.getTenancy());
-    }
-    if (action.properties.getUserData() != null && !action.properties.getUserData().isEmpty()) {
-      runInstancesType.setUserData(action.properties.getUserData());
-    }
     if (action.properties.getVolumes() != null && !action.properties.getVolumes().isEmpty()) {
-      DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,action.info.getEffectiveUserId());
       ArrayList<String> volumeIds=Lists.newArrayList();
+      Map<String,String> deviceMap=Maps.newHashMap();
       for (      EC2MountPoint ec2MountPoint : action.properties.getVolumes()) {
         volumeIds.add(ec2MountPoint.getVolumeId());
+        deviceMap.put(ec2MountPoint.getVolumeId(),ec2MountPoint.getDevice());
       }
+      DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,action.info.getEffectiveUserId());
       describeVolumesType.getFilterSet().add(Filter.filter("volume-id",volumeIds));
       DescribeVolumesResponseType describeVolumesResponseType;
       try {
         describeVolumesResponseType=AsyncRequests.sendSync(configuration,describeVolumesType);
       }
- catch (      final Exception e) {
-        throw new ValidationErrorException("Error checking volumes " + asWebServiceErrorMessage(e,e.getMessage()));
+ catch (      Exception e) {
+        throw new RetryAfterConditionCheckFailedException("Error describing volumes: " + asWebServiceErrorMessage(e,e.getMessage()));
       }
       Map<String,String> volumeStatusMap=Maps.newHashMap();
       for (      Volume volume : describeVolumesResponseType.getVolumeSet()) {
-        volumeStatusMap.put(volume.getVolumeId(),volume.getStatus());
+        for (        AttachedVolume attachedVolume : volume.getAttachmentSet()) {
+          if (attachedVolume.getInstanceId().equals(action.info.getPhysicalResourceId()) && attachedVolume.getDevice().equals(deviceMap.get(volume.getVolumeId()))) {
+            volumeStatusMap.put(volume.getVolumeId(),attachedVolume.getStatus());
+          }
+        }
       }
       for (      String volumeId : volumeIds) {
-        if (!volumeStatusMap.containsKey(volumeId)) {
-          throw new ValidationErrorException("No such volume " + volumeId);
-        }
- else         if (!"available".equals(volumeStatusMap.get(volumeId))) {
-          throw new ValidationErrorException("Volume " + volumeId + " not available");
+        if (!"attached".equals(volumeStatusMap.get(volumeId))) {
+          throw new RetryAfterConditionCheckFailedException("One or more volumes is not yet attached to the instance");
         }
       }
     }
-    runInstancesType.setMinCount(1);
-    runInstancesType.setMaxCount(1);
-    RunInstancesResponseType runInstancesResponseType=AsyncRequests.<RunInstancesType,RunInstancesResponseType>sendSync(configuration,runInstancesType);
-    action.info.setPhysicalResourceId(runInstancesResponseType.getRsvInfo().getInstancesSet().get(0).getInstanceId());
     return action;
   }
 }
