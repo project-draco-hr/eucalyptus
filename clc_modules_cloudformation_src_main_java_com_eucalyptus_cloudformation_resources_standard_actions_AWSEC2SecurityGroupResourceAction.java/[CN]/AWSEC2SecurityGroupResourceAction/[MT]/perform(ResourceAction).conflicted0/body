@@ -1,24 +1,27 @@
 {
   AWSEC2SecurityGroupResourceAction action=(AWSEC2SecurityGroupResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  CreateSecurityGroupType createSecurityGroupType=MessageHelper.createMessage(CreateSecurityGroupType.class,action.info.getEffectiveUserId());
-  if (!Strings.isNullOrEmpty(action.properties.getGroupDescription())) {
-    createSecurityGroupType.setGroupDescription(action.properties.getGroupDescription());
+  if (action.properties.getSecurityGroupEgress() != null && !action.properties.getSecurityGroupEgress().isEmpty()) {
+    RevokeSecurityGroupEgressType revokeSecurityGroupEgressType=MessageHelper.createMessage(RevokeSecurityGroupEgressType.class,action.info.getEffectiveUserId());
+    revokeSecurityGroupEgressType.setGroupId(JsonHelper.getJsonNodeFromString(action.info.getGroupId()).asText());
+    revokeSecurityGroupEgressType.setIpPermissions(Lists.newArrayList(DEFAULT_EGRESS_RULE()));
+    RevokeSecurityGroupEgressResponseType revokeSecurityGroupEgressResponseType=AsyncRequests.<RevokeSecurityGroupEgressType,RevokeSecurityGroupEgressResponseType>sendSync(configuration,revokeSecurityGroupEgressType);
+    for (    EC2SecurityGroupRule ec2SecurityGroupRule : action.properties.getSecurityGroupEgress()) {
+      AuthorizeSecurityGroupEgressType authorizeSecurityGroupEgressType=MessageHelper.createMessage(AuthorizeSecurityGroupEgressType.class,action.info.getEffectiveUserId());
+      authorizeSecurityGroupEgressType.setGroupId(JsonHelper.getJsonNodeFromString(action.info.getGroupId()).asText());
+      if (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getCidrIp()) && !Strings.isNullOrEmpty(ec2SecurityGroupRule.getDestinationSecurityGroupId())) {
+        throw new ValidationErrorException("Both CidrIp and DestinationSecurityGroup cannot be specified in SecurityGroupEgress");
+      }
+      IpPermissionType ipPermissionType=new IpPermissionType(ec2SecurityGroupRule.getIpProtocol(),ec2SecurityGroupRule.getFromPort(),ec2SecurityGroupRule.getToPort());
+      if (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getCidrIp())) {
+        ipPermissionType.setCidrIpRanges(Lists.newArrayList(ec2SecurityGroupRule.getCidrIp()));
+      }
+      if (!Strings.isNullOrEmpty(ec2SecurityGroupRule.getDestinationSecurityGroupId())) {
+        ipPermissionType.setGroups(Lists.newArrayList(new UserIdGroupPairType(null,null,ec2SecurityGroupRule.getDestinationSecurityGroupId())));
+      }
+      authorizeSecurityGroupEgressType.setIpPermissions(Lists.newArrayList(ipPermissionType));
+      AuthorizeSecurityGroupEgressResponseType authorizeSecurityGroupEgressResponseType=AsyncRequests.<AuthorizeSecurityGroupEgressType,AuthorizeSecurityGroupEgressResponseType>sendSync(configuration,authorizeSecurityGroupEgressType);
+    }
   }
-  if (!Strings.isNullOrEmpty(action.properties.getVpcId())) {
-    createSecurityGroupType.setVpcId(action.properties.getVpcId());
-  }
-  String groupName=action.getDefaultPhysicalResourceId();
-  createSecurityGroupType.setGroupName(groupName);
-  CreateSecurityGroupResponseType createSecurityGroupResponseType=AsyncRequests.<CreateSecurityGroupType,CreateSecurityGroupResponseType>sendSync(configuration,createSecurityGroupType);
-  String groupId=createSecurityGroupResponseType.getGroupId();
-  if (!Strings.isNullOrEmpty(action.properties.getVpcId())) {
-    action.info.setPhysicalResourceId(groupId);
-  }
- else {
-    action.info.setPhysicalResourceId(groupName);
-  }
-  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
-  action.info.setGroupId(JsonHelper.getStringFromJsonNode(new TextNode(groupId)));
   return action;
 }

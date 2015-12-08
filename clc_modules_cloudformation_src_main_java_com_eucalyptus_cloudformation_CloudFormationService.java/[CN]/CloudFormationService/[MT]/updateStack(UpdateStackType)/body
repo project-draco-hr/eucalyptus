@@ -1,3 +1,123 @@
 {
-  return request.getReply();
+  UpdateStackResponseType reply=request.getReply();
+  try {
+    final Context ctx=Contexts.lookup();
+    checkActionPermission(CloudFormationPolicySpec.CLOUDFORMATION_UPDATESTACK,ctx);
+    final User user=ctx.getUser();
+    final String userId=user.getUserId();
+    final String accountId=user.getAccountNumber();
+    final String stackName=request.getStackName();
+    if (stackName == null) {
+      throw new ValidationErrorException("StackName must not be null");
+    }
+    List<Parameter> parameters=null;
+    if (request.getParameters() != null && request.getParameters().getMember() != null) {
+      parameters=request.getParameters().getMember();
+    }
+    final ArrayList<String> capabilities=Lists.newArrayList();
+    if (request.getCapabilities() != null && request.getCapabilities().getMember() != null) {
+      capabilities.addAll(request.getCapabilities().getMember());
+    }
+    final String stackPolicyBody=request.getStackPolicyBody();
+    final String stackPolicyUrl=request.getStackPolicyURL();
+    final String stackPolicyText=validateAndGetStackPolicy(user,stackPolicyBody,stackPolicyUrl);
+    final String stackPolicyDuringUpdateBody=request.getStackPolicyDuringUpdateBody();
+    final String stackPolicyDuringUpdateUrl=request.getStackPolicyDuringUpdateURL();
+    final String stackPolicyDuringUpdateText=validateAndGetStackPolicyDuringUpdate(user,stackPolicyDuringUpdateBody,stackPolicyDuringUpdateUrl);
+    if (stackName == null)     throw new ValidationErrorException("Stack name is null");
+    final String templateBody=request.getTemplateBody();
+    if (templateBody != null) {
+      if (templateBody.getBytes().length > Limits.REQUEST_TEMPLATE_BODY_MAX_LENGTH_BYTES) {
+        throw new ValidationErrorException("Template body may not exceed " + Limits.REQUEST_TEMPLATE_BODY_MAX_LENGTH_BYTES + " bytes in a request.");
+      }
+    }
+    final String templateUrl=request.getTemplateURL();
+    final boolean usePreviousTemplate=(request.getUsePreviousTemplate() == null) ? false : request.getUsePreviousTemplate().booleanValue();
+    if (usePreviousTemplate && (templateBody != null || templateUrl != null)) {
+      throw new ValidationErrorException("You cannot specify both usePreviousTemplate and Template Body/Template URL");
+    }
+    if (templateBody != null && templateUrl != null)     throw new ValidationErrorException("You cannot specify both Template Body and Template URL");
+    if (!usePreviousTemplate && (templateBody == null && templateUrl == null)) {
+      throw new ValidationErrorException("You must specify either Template Body or Template URL");
+    }
+    checkStackPermission(ctx,stackName,accountId);
+    final StackEntity stackEntity=StackEntityManager.getAnyStackByNameOrId(stackName,accountId);
+    if (stackEntity == null) {
+      throw new ValidationErrorException("Stack " + stackName + " does not exist");
+    }
+    final String stackId=stackEntity.getStackId();
+    final PseudoParameterValues pseudoParameterValues=new PseudoParameterValues();
+    pseudoParameterValues.setAccountId(accountId);
+    pseudoParameterValues.setStackName(stackName);
+    pseudoParameterValues.setStackId(stackId);
+    if (request.getNotificationARNs() != null && request.getNotificationARNs().getMember() != null) {
+      ArrayList<String> notificationArns=Lists.newArrayList();
+      for (      String notificationArn : request.getNotificationARNs().getMember()) {
+        notificationArns.add(notificationArn);
+      }
+      pseudoParameterValues.setNotificationArns(notificationArns);
+    }
+    pseudoParameterValues.setRegion(getRegion());
+    final String templateText=(usePreviousTemplate ? stackEntity.getTemplateBody() : (templateBody != null) ? templateBody : extractTemplateTextFromURL(templateUrl,user));
+    final List<Parameter> oldParameters=convertToParameters(StackEntityHelper.jsonToParameters(stackEntity.getParametersJson()));
+    validateAndUpdateParameters(oldParameters,parameters);
+    final String oldTemplateText=stackEntity.getTemplateBody();
+    List<String> oldCapabilities=StackEntityHelper.jsonToCapabilities(stackEntity.getCapabilitiesJson());
+    PseudoParameterValues oldPseudoParameterValues=getPseudoParameterValues(stackEntity);
+    final Template oldTemplate=new TemplateParser().parse(oldTemplateText,oldParameters,oldCapabilities,oldPseudoParameterValues,userId);
+    final Template template=new TemplateParser().parse(templateText,parameters,capabilities,pseudoParameterValues,userId);
+    boolean requiresUpdate=false;
+    Multiset<String> oldNotificationArnsMS=HashMultiset.create();
+    List<String> oldNotificationArns=StackEntityHelper.jsonToNotificationARNs(stackEntity.getNotificationARNsJson());
+    if (oldNotificationArns != null) {
+      oldNotificationArnsMS.addAll(oldNotificationArns);
+    }
+    Multiset<String> notificationArnsMS=HashMultiset.create();
+    if (pseudoParameterValues.getNotificationArns() != null) {
+      notificationArnsMS.addAll(pseudoParameterValues.getNotificationArns());
+    }
+    if (!oldNotificationArnsMS.equals(notificationArnsMS)) {
+      requiresUpdate=true;
+    }
+ else     if (stackPolicyIsDifferent(stackEntity.getStackPolicy(),stackPolicyText)) {
+      requiresUpdate=true;
+    }
+ else     if (!oldTemplate.getResourceInfoMap().keySet().equals(template.getResourceInfoMap().keySet())) {
+      requiresUpdate=true;
+    }
+ else {
+      for (      String fieldName : oldTemplate.getResourceInfoMap().keySet()) {
+        LOG.info("fieldName=" + fieldName);
+        JsonNode oldMetadataJson=tryEvaluateFunctionsInMetadata(oldTemplate,fieldName,userId);
+        LOG.info("oldMetadata=" + oldMetadataJson);
+        JsonNode metadataJson=tryEvaluateFunctionsInMetadata(template,fieldName,userId);
+        LOG.info("metadata=" + metadataJson);
+        if (!equalsJson(oldMetadataJson,metadataJson)) {
+          requiresUpdate=true;
+          break;
+        }
+        JsonNode oldPropertiesJson=tryEvaluateFunctionsInProperties(oldTemplate,fieldName,userId);
+        LOG.info("oldProperties=" + oldPropertiesJson);
+        JsonNode propertiesJson=tryEvaluateFunctionsInProperties(template,fieldName,userId);
+        LOG.info("properties=" + propertiesJson);
+        if (!equalsJson(oldMetadataJson,metadataJson)) {
+          requiresUpdate=true;
+          break;
+        }
+      }
+    }
+    if (!requiresUpdate) {
+      throw new ValidationErrorException("No updates are to be performed.");
+    }
+    if (stackEntity.getStackStatus() != StackEntity.Status.CREATE_COMPLETE && stackEntity.getStackStatus() != StackEntity.Status.UPDATE_COMPLETE && stackEntity.getStackStatus() != StackEntity.Status.UPDATE_ROLLBACK_COMPLETE) {
+      throw new ValidationErrorException("Stack:" + stackId + " is in "+ stackEntity.getStackStatus().toString()+ " state and can not be updated.");
+    }
+    UpdateStackResult updateStackResult=new UpdateStackResult();
+    updateStackResult.setStackId(stackId);
+    reply.setUpdateStackResult(updateStackResult);
+  }
+ catch (  Exception ex) {
+    handleException(ex);
+  }
+  return reply;
 }

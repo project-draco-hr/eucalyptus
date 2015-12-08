@@ -2,36 +2,15 @@
 synchronized (AWSEC2InstanceResourceAction.class) {
     AWSEC2InstanceResourceAction action=(AWSEC2InstanceResourceAction)resourceAction;
     ServiceConfiguration configuration=Topology.lookup(Compute.class);
-    if (action.properties.getVolumes() != null && !action.properties.getVolumes().isEmpty()) {
-      ArrayList<String> volumeIds=Lists.newArrayList();
-      Map<String,String> deviceMap=Maps.newHashMap();
-      for (      EC2MountPoint ec2MountPoint : action.properties.getVolumes()) {
-        volumeIds.add(ec2MountPoint.getVolumeId());
-        deviceMap.put(ec2MountPoint.getVolumeId(),ec2MountPoint.getDevice());
-      }
-      DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,action.info.getEffectiveUserId());
-      describeVolumesType.getFilterSet().add(Filter.filter("volume-id",volumeIds));
-      DescribeVolumesResponseType describeVolumesResponseType;
-      try {
-        describeVolumesResponseType=AsyncRequests.sendSync(configuration,describeVolumesType);
-      }
- catch (      Exception e) {
-        throw new ValidationFailedException("Error describing volumes: " + asWebServiceErrorMessage(e,e.getMessage()));
-      }
-      Map<String,String> volumeStatusMap=Maps.newHashMap();
-      for (      Volume volume : describeVolumesResponseType.getVolumeSet()) {
-        for (        AttachedVolume attachedVolume : volume.getAttachmentSet()) {
-          if (attachedVolume.getInstanceId().equals(action.info.getPhysicalResourceId()) && attachedVolume.getDevice().equals(deviceMap.get(volume.getVolumeId()))) {
-            volumeStatusMap.put(volume.getVolumeId(),attachedVolume.getStatus());
-          }
-        }
-      }
-      for (      String volumeId : volumeIds) {
-        if (!"attached".equals(volumeStatusMap.get(volumeId))) {
-          throw new ValidationFailedException("One or more volumes is not yet attached to the instance");
-        }
-      }
-    }
+    if (action.info.getPhysicalResourceId() == null)     return action;
+    DescribeInstancesType describeInstancesType=MessageHelper.createMessage(DescribeInstancesType.class,action.info.getEffectiveUserId());
+    describeInstancesType.getFilterSet().add(Filter.filter("instance-id",action.info.getPhysicalResourceId()));
+    DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.sendSync(configuration,describeInstancesType);
+    if (describeInstancesResponseType.getReservationSet().size() == 0)     return action;
+    if ("terminated".equals(describeInstancesResponseType.getReservationSet().get(0).getInstancesSet().get(0).getStateName()))     return action;
+    TerminateInstancesType terminateInstancesType=MessageHelper.createMessage(TerminateInstancesType.class,action.info.getEffectiveUserId());
+    terminateInstancesType.setInstancesSet(Lists.newArrayList(action.info.getPhysicalResourceId()));
+    AsyncRequests.<TerminateInstancesType,TerminateInstancesResponseType>sendSync(configuration,terminateInstancesType);
     return action;
   }
 }
