@@ -4,6 +4,12 @@
   try {
     if (!Topology.isEnabled(CloudFormation.class))     throw new EucalyptusCloudException("CloudFormation is not enabled");
     if ("NULL".equals(ImagingServiceProperties.IMAGE))     throw new EucalyptusCloudException("You need to set 'services.imaging.worker.image'" + "before enabling the service");
+    UserPrincipal imagingUser=Accounts.lookupSystemAccountByAlias(AccountIdentifiers.IMAGING_SYSTEM_ACCOUNT);
+    if (Networking.getInstance().supports(NetworkingFeature.Vpc)) {
+      if (!Ec2Client.getInstance().hasDefaultVPC(imagingUser.getUserId())) {
+        Ec2Client.getInstance().createDefaultVPC(imagingUser.getAccountNumber());
+      }
+    }
     ServerCertificateMetadataType metadata=createAndUploadCertificate();
     String template=getInstance().loadTemplate("worker-cf-template.json");
     ArrayList<Parameter> params=new ArrayList<Parameter>();
@@ -23,7 +29,7 @@
     params.add(new Parameter("EuareServiceUrl",String.format("euare.%s",DNSProperties.getDomain())));
     params.add(new Parameter("ComputeServiceUrl",String.format("compute.%s",DNSProperties.getDomain())));
     LOG.debug("Creating CF stack for the imaging worker");
-    CloudFormationClient.getInstance().createStack(Accounts.lookupSystemAccountByAlias(AccountIdentifiers.IMAGING_SYSTEM_ACCOUNT).getUserId(),ImagingServiceProperties.IMAGING_WORKER_STACK_NAME,template,params);
+    CloudFormationClient.getInstance().createStack(imagingUser.getUserId(),ImagingServiceProperties.IMAGING_WORKER_STACK_NAME,template,params);
     LOG.debug("Done creating CF stack for the imaging worker");
   }
  catch (  final Exception ex) {
