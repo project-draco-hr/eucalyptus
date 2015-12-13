@@ -3,22 +3,18 @@
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
   if (volumeDeleted(action,configuration))   return action;
   if (!("Snapshot".equals(action.info.getDeletionPolicy())))   return action;
+  DescribeSnapshotsType describeSnapshotsType=MessageHelper.createMessage(DescribeSnapshotsType.class,action.info.getEffectiveUserId());
   String snapshotId=JsonHelper.getJsonNodeFromString(action.info.getSnapshotIdForDelete()).asText();
-  String effectiveAdminUserId=Accounts.lookupPrincipalByAccountNumber(Accounts.lookupPrincipalByUserId(action.info.getEffectiveUserId()).getAccountNumber()).getUserId();
-  CreateTagsType createSystemTagsType=MessageHelper.createPrivilegedMessage(CreateTagsType.class,effectiveAdminUserId);
-  createSystemTagsType.setResourcesSet(Lists.newArrayList(snapshotId));
-  createSystemTagsType.setTagSet(EC2Helper.createTagSet(TagHelper.getEC2SystemTags(action.info,action.getStackEntity())));
-  AsyncRequests.<CreateTagsType,CreateTagsResponseType>sendSync(configuration,createSystemTagsType);
-  List<EC2Tag> tags=TagHelper.getEC2StackTags(action.getStackEntity());
-  if (action.properties.getTags() != null && !action.properties.getTags().isEmpty()) {
-    TagHelper.checkReservedEC2TemplateTags(action.properties.getTags());
-    tags.addAll(action.properties.getTags());
+  describeSnapshotsType.getFilterSet().add(Filter.filter("snapshot-id",snapshotId));
+  DescribeSnapshotsResponseType describeSnapshotsResponseType=AsyncRequests.sendSync(configuration,describeSnapshotsType);
+  if (describeSnapshotsResponseType.getSnapshotSet() == null || describeSnapshotsResponseType.getSnapshotSet().isEmpty()) {
+    throw new RetryAfterConditionCheckFailedException("Snapshot " + snapshotId + " not yet complete");
   }
-  if (!tags.isEmpty()) {
-    CreateTagsType createTagsType=MessageHelper.createMessage(CreateTagsType.class,action.info.getEffectiveUserId());
-    createTagsType.setResourcesSet(Lists.newArrayList(snapshotId));
-    createTagsType.setTagSet(EC2Helper.createTagSet(tags));
-    AsyncRequests.<CreateTagsType,CreateTagsResponseType>sendSync(configuration,createTagsType);
+  if ("error".equals(describeSnapshotsResponseType.getSnapshotSet().get(0).getStatus())) {
+    throw new ResourceFailureException("Error creating snapshot " + snapshotId + ", while deleting volume "+ action.info.getPhysicalResourceId());
+  }
+ else   if (!"completed".equals(describeSnapshotsResponseType.getSnapshotSet().get(0).getStatus())) {
+    throw new RetryAfterConditionCheckFailedException("Snapshot " + snapshotId + " not yet complete");
   }
   return action;
 }
