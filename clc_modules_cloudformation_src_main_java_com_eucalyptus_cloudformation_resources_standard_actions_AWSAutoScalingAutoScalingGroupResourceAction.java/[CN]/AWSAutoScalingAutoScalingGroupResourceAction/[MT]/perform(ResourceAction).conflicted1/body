@@ -1,21 +1,19 @@
 {
   AWSAutoScalingAutoScalingGroupResourceAction action=(AWSAutoScalingAutoScalingGroupResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
-  if (groupDoesNotExist(configuration,action))   return action;
-  DescribeAutoScalingGroupsType describeAutoScalingGroupsType=MessageHelper.createMessage(DescribeAutoScalingGroupsType.class,action.info.getEffectiveUserId());
-  AutoScalingGroupNames autoScalingGroupNames=new AutoScalingGroupNames();
-  ArrayList<String> member=Lists.newArrayList(action.info.getPhysicalResourceId());
-  autoScalingGroupNames.setMember(member);
-  describeAutoScalingGroupsType.setAutoScalingGroupNames(autoScalingGroupNames);
-  DescribeAutoScalingGroupsResponseType describeAutoScalingGroupsResponseType=AsyncRequests.<DescribeAutoScalingGroupsType,DescribeAutoScalingGroupsResponseType>sendSync(configuration,describeAutoScalingGroupsType);
-  if (action.doesGroupNotExist(describeAutoScalingGroupsResponseType)) {
-    return action;
+  String effectiveAdminUserId=Accounts.lookupPrincipalByAccountNumber(Accounts.lookupPrincipalByUserId(action.info.getEffectiveUserId()).getAccountNumber()).getUserId();
+  CreateOrUpdateTagsType createSystemTagsType=MessageHelper.createPrivilegedMessage(CreateOrUpdateTagsType.class,effectiveAdminUserId);
+  createSystemTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(action.info.getPhysicalResourceId(),TagHelper.getAutoScalingSystemTags(action.info,action.getStackEntity())));
+  AsyncRequests.<CreateOrUpdateTagsType,CreateOrUpdateTagsResponseType>sendSync(configuration,createSystemTagsType);
+  List<AutoScalingTag> tags=TagHelper.getAutoScalingStackTags(action.getStackEntity());
+  if (action.properties.getTags() != null && !action.properties.getTags().isEmpty()) {
+    TagHelper.checkReservedAutoScalingTemplateTags(action.properties.getTags());
+    tags.addAll(action.properties.getTags());
   }
- else {
-    AutoScalingGroupType firstGroup=describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember().get(0);
-    if (firstGroup.getInstances() == null || firstGroup.getInstances().getMember() == null || firstGroup.getInstances().getMember().isEmpty()) {
-      return action;
-    }
+  if (!tags.isEmpty()) {
+    CreateOrUpdateTagsType createOrUpdateTagsType=MessageHelper.createMessage(CreateOrUpdateTagsType.class,action.info.getEffectiveUserId());
+    createOrUpdateTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(action.info.getPhysicalResourceId(),tags));
+    AsyncRequests.<CreateOrUpdateTagsType,CreateOrUpdateTagsResponseType>sendSync(configuration,createOrUpdateTagsType);
   }
-  throw new RetryAfterConditionCheckFailedException("Autoscaling group " + action.info.getPhysicalResourceId() + " still has instances");
+  return action;
 }

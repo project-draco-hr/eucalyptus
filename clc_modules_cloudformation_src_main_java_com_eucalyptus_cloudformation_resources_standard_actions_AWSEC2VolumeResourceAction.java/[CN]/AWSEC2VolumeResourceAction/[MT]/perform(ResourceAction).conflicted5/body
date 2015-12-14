@@ -1,20 +1,20 @@
 {
   AWSEC2VolumeResourceAction action=(AWSEC2VolumeResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  if (volumeDeleted(action,configuration))   return action;
-  if (!("Snapshot".equals(action.info.getDeletionPolicy())))   return action;
-  DescribeSnapshotsType describeSnapshotsType=MessageHelper.createMessage(DescribeSnapshotsType.class,action.info.getEffectiveUserId());
-  String snapshotId=JsonHelper.getJsonNodeFromString(action.info.getSnapshotIdForDelete()).asText();
-  describeSnapshotsType.getFilterSet().add(Filter.filter("snapshot-id",snapshotId));
-  DescribeSnapshotsResponseType describeSnapshotsResponseType=AsyncRequests.sendSync(configuration,describeSnapshotsType);
-  if (describeSnapshotsResponseType.getSnapshotSet() == null || describeSnapshotsResponseType.getSnapshotSet().isEmpty()) {
-    throw new RetryAfterConditionCheckFailedException("Snapshot " + snapshotId + " not yet complete");
+  DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,action.info.getEffectiveUserId());
+  describeVolumesType.getFilterSet().add(Filter.filter("volume-id",action.info.getPhysicalResourceId()));
+  DescribeVolumesResponseType describeVolumesResponseType;
+  try {
+    describeVolumesResponseType=AsyncRequests.sendSync(configuration,describeVolumesType);
   }
-  if ("error".equals(describeSnapshotsResponseType.getSnapshotSet().get(0).getStatus())) {
-    throw new ResourceFailureException("Error creating snapshot " + snapshotId + ", while deleting volume "+ action.info.getPhysicalResourceId());
+ catch (  final Exception e) {
+    throw new ValidationErrorException("Error describing volume " + action.info.getPhysicalResourceId() + ":"+ asWebServiceErrorMessage(e,e.getMessage()));
   }
- else   if (!"completed".equals(describeSnapshotsResponseType.getSnapshotSet().get(0).getStatus())) {
-    throw new RetryAfterConditionCheckFailedException("Snapshot " + snapshotId + " not yet complete");
+  if (describeVolumesResponseType.getVolumeSet().size() == 0) {
+    throw new RetryAfterConditionCheckFailedException("Volume " + action.info.getPhysicalResourceId() + " not yet available");
+  }
+  if (!"available".equals(describeVolumesResponseType.getVolumeSet().get(0).getStatus())) {
+    throw new RetryAfterConditionCheckFailedException("Volume " + action.info.getPhysicalResourceId() + " not yet available");
   }
   return action;
 }
