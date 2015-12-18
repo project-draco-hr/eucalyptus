@@ -1,16 +1,16 @@
 {
   try (final TransactionResource tx=Entities.readOnlyDistinctTransactionFor(AccessKeyEntity.class)){
-    final UserEntity user;
+    final Optional<UserEntity> user;
     try {
-      user=(UserEntity)Entities.createCriteria(UserEntity.class).createCriteria("keys").add(Restrictions.eq("accessKey",keyId)).setFlushMode(FlushMode.MANUAL).setReadOnly(true).uniqueResult();
+      user=Entities.criteriaQuery(UserEntity.class).join(UserEntity_.keys).whereEqual(AccessKeyEntity_.accessKey,keyId).entityCriteriaQuery().fetchSize(FlushMode.MANUAL).readonly().uniqueResultOption();
     }
  catch (    Exception e) {
       throw new InvalidAccessKeyAuthException("Failed to find access key",e);
     }
-    if (user == null) {
+    if (!user.isPresent()) {
       throw new InvalidAccessKeyAuthException("Failed to find access key");
     }
-    final UserPrincipal principal=new UserPrincipalImpl(user);
+    final UserPrincipal principal=new UserPrincipalImpl(user.get());
     final Optional<AccessKey> accessKey=Iterables.tryFind(principal.getKeys(),CollectionUtils.propertyPredicate(keyId,AccessKeys.accessKeyIdentifier()));
     if (!Iterables.any(accessKey.asSet(),AccessKeys.isActive())) {
       throw new InvalidAccessKeyAuthException("Invalid access key or token");
