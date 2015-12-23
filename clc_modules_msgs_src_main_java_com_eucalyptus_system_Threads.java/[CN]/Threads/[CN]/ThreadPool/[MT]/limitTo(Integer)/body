@@ -1,22 +1,21 @@
 {
-  if (this.numThreads.equals(numThreads)) {
+  Integer thisNumThreads;
+  try (final LockResource lock=LockResource.lock(limitLock.readLock())){
+    thisNumThreads=this.numThreads;
+  }
+   if (thisNumThreads.equals(numThreads)) {
     return this;
   }
  else {
-synchronized (this) {
-      if (this.numThreads.equals(numThreads)) {
-        return this;
+    try (final LockResource lock=LockResource.lock(limitLock.writeLock())){
+      this.numThreads=numThreads;
+      final ExecutorService oldExec=this.pool;
+      this.pool=null;
+      if (oldExec != null) {
+        oldExec.shutdown();
       }
- else {
-        this.numThreads=numThreads;
-        final ExecutorService oldExec=this.pool;
-        this.pool=null;
-        if (oldExec != null) {
-          oldExec.shutdown();
-        }
-        this.pool=this.makePool();
-      }
+      this.pool=this.makePool();
     }
-  }
+   }
   return this;
 }
