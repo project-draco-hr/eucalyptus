@@ -1,15 +1,18 @@
 {
   AWSEC2VPCResourceAction action=(AWSEC2VPCResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  if (action.info.getPhysicalResourceId() == null)   return action;
-  DescribeVpcsType describeVpcsType=MessageHelper.createMessage(DescribeVpcsType.class,action.info.getEffectiveUserId());
-  describeVpcsType.getFilterSet().add(Filter.filter("vpc-id",action.info.getPhysicalResourceId()));
-  DescribeVpcsResponseType describeVpcsResponseType=AsyncRequests.sendSync(configuration,describeVpcsType);
-  if (describeVpcsResponseType.getVpcSet() == null || describeVpcsResponseType.getVpcSet().getItem() == null || describeVpcsResponseType.getVpcSet().getItem().isEmpty()) {
-    return action;
+  final DescribeSecurityGroupsType groupsRequest=MessageHelper.createMessage(DescribeSecurityGroupsType.class,action.info.getEffectiveUserId());
+  groupsRequest.setSecurityGroupSet(Lists.newArrayList("default"));
+  groupsRequest.setFilterSet(Lists.newArrayList(Filter.filter("vpc-id",action.info.getPhysicalResourceId())));
+  final CheckedListenableFuture<DescribeSecurityGroupsResponseType> groupsFuture=AsyncRequests.dispatch(configuration,groupsRequest);
+  final DescribeNetworkAclsType networkAclsRequest=MessageHelper.createMessage(DescribeNetworkAclsType.class,action.info.getEffectiveUserId());
+  networkAclsRequest.setFilterSet(Lists.newArrayList(Filter.filter("vpc-id",action.info.getPhysicalResourceId()),Filter.filter("default","true")));
+  final CheckedListenableFuture<DescribeNetworkAclsResponseType> networkAclsFuture=AsyncRequests.dispatch(configuration,networkAclsRequest);
+  if (!groupsFuture.get().getSecurityGroupInfo().isEmpty()) {
+    action.info.setDefaultSecurityGroup(JsonHelper.getStringFromJsonNode(new TextNode(groupsFuture.get().getSecurityGroupInfo().get(0).getGroupId())));
   }
-  DeleteVpcType deleteVpcType=MessageHelper.createMessage(DeleteVpcType.class,action.info.getEffectiveUserId());
-  deleteVpcType.setVpcId(action.info.getPhysicalResourceId());
-  AsyncRequests.<DeleteVpcType,DeleteVpcResponseType>sendSync(configuration,deleteVpcType);
+  if (!networkAclsFuture.get().getNetworkAclSet().getItem().isEmpty()) {
+    action.info.setDefaultNetworkAcl(JsonHelper.getStringFromJsonNode(new TextNode(networkAclsFuture.get().getNetworkAclSet().getItem().get(0).getNetworkAclId())));
+  }
   return action;
 }
