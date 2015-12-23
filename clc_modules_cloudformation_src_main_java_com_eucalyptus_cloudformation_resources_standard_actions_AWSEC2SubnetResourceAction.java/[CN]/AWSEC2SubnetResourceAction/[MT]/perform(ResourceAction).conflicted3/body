@@ -1,0 +1,26 @@
+{
+  AWSEC2SubnetResourceAction action=(AWSEC2SubnetResourceAction)resourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  if (action.info.getPhysicalResourceId() == null)   return action;
+  DescribeVpcsType describeVpcsType=MessageHelper.createMessage(DescribeVpcsType.class,action.info.getEffectiveUserId());
+  describeVpcsType.getFilterSet().add(Filter.filter("vpc-id",action.properties.getVpcId()));
+  DescribeVpcsResponseType describeVpcsResponseType=AsyncRequests.sendSync(configuration,describeVpcsType);
+  if (describeVpcsResponseType.getVpcSet() == null || describeVpcsResponseType.getVpcSet().getItem() == null || describeVpcsResponseType.getVpcSet().getItem().isEmpty()) {
+    return action;
+  }
+  DescribeSubnetsType describeSubnetsType=MessageHelper.createMessage(DescribeSubnetsType.class,action.info.getEffectiveUserId());
+  describeSubnetsType.getFilterSet().add(Filter.filter("subnet-id",action.info.getPhysicalResourceId()));
+  DescribeSubnetsResponseType describeSubnetsResponseType=AsyncRequests.sendSync(configuration,describeSubnetsType);
+  if (describeSubnetsResponseType.getSubnetSet() == null || describeSubnetsResponseType.getSubnetSet().getItem() == null || describeSubnetsResponseType.getSubnetSet().getItem().isEmpty()) {
+    return action;
+  }
+  DeleteSubnetType deleteSubnetType=MessageHelper.createMessage(DeleteSubnetType.class,action.info.getEffectiveUserId());
+  deleteSubnetType.setSubnetId(action.info.getPhysicalResourceId());
+  try {
+    AsyncRequests.<DeleteSubnetType,DeleteSubnetResponseType>sendSync(configuration,deleteSubnetType);
+  }
+ catch (  Exception ex) {
+    throw new ValidationFailedException(AsyncExceptions.asWebServiceErrorMessage(ex,"Error deleting subnet"));
+  }
+  return action;
+}
