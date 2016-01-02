@@ -2,13 +2,20 @@
   final TerminateInstancesResponseType reply=request.getReply();
   final List<String> failedVmList=new ArrayList<>();
   final List<VmInstance> vmList=new ArrayList<>();
+  final Context context=Contexts.lookup();
   final Collection<String> identifiers=normalizeIdentifiers(request.getInstancesSet());
   for (  String requestedInstanceId : identifiers) {
     try {
       VmInstance vm=RestrictedTypes.doPrivileged(requestedInstanceId,VmInstance.class);
+      if (!context.isPrivileged() && Boolean.TRUE.equals(vm.getDisableApiTermination())) {
+        throw new ClientComputeException("OperationNotPermitted","Termination protection enabled for instance " + requestedInstanceId);
+      }
       vmList.add(vm);
     }
- catch (    final AuthException|NoSuchElementException e) {
+ catch (    final ClientComputeException e) {
+      throw e;
+    }
+catch (    final AuthException|NoSuchElementException e) {
       failedVmList.add(requestedInstanceId);
     }
 catch (    final Exception e) {
