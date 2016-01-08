@@ -1,26 +1,19 @@
 {
-  AWSEC2EIPResourceAction action=(AWSEC2EIPResourceAction)resourceAction;
-  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  final AWSEC2EIPResourceAction action=(AWSEC2EIPResourceAction)resourceAction;
   if (action.info.getPhysicalResourceId() == null)   return action;
-  DescribeAddressesType describeAddressesType=MessageHelper.createMessage(DescribeAddressesType.class,action.info.getEffectiveUserId());
-  if (action.properties.getDomain() != null) {
-    describeAddressesType.setAllocationIds(Lists.newArrayList(JsonHelper.getJsonNodeFromString(action.info.getAllocationId()).asText()));
-  }
- else {
-    describeAddressesType.setPublicIpsSet(Lists.newArrayList(action.info.getPhysicalResourceId()));
-  }
-  DescribeAddressesResponseType describeAddressesResponseType=AsyncRequests.<DescribeAddressesType,DescribeAddressesResponseType>sendSync(configuration,describeAddressesType);
-  if (describeAddressesResponseType.getAddressesSet() != null && !describeAddressesResponseType.getAddressesSet().isEmpty()) {
-    ReleaseAddressType releaseAddressType=MessageHelper.createMessage(ReleaseAddressType.class,action.info.getEffectiveUserId());
-    if (action.properties.getDomain() != null) {
-      releaseAddressType.setAllocationId(JsonHelper.getJsonNodeFromString(action.info.getAllocationId()).asText());
-    }
- else {
-      releaseAddressType.setPublicIp(action.info.getPhysicalResourceId());
-    }
-    AsyncRequests.<ReleaseAddressType,ReleaseAddressResponseType>sendSync(configuration,releaseAddressType);
-  }
   if (action.properties.getInstanceId() != null) {
+    final ServiceConfiguration configuration=Topology.lookup(Compute.class);
+    final List<AddressInfoType> addresses=describeAddresses(action,configuration).getAddressesSet();
+    if (addresses != null && !addresses.isEmpty() && (addresses.get(0).getInstanceId() != null || addresses.get(0).getNetworkInterfaceId() != null)) {
+      final DisassociateAddressType disassociateAddressType=MessageHelper.createMessage(DisassociateAddressType.class,action.info.getEffectiveUserId());
+      if (action.properties.getDomain() != null) {
+        disassociateAddressType.setAssociationId(addresses.get(0).getAssociationId());
+      }
+ else {
+        disassociateAddressType.setPublicIp(action.info.getPhysicalResourceId());
+      }
+      AsyncRequests.<DisassociateAddressType,DisassociateAddressResponseType>sendSync(configuration,disassociateAddressType);
+    }
     EC2Helper.refreshInstanceAttributes(action.getStackEntity(),action.properties.getInstanceId(),action.info.getEffectiveUserId());
   }
   return action;
