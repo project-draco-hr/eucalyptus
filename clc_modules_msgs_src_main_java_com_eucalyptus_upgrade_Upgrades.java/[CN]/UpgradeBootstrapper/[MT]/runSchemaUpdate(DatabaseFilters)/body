@@ -6,7 +6,29 @@
       final String schemaName=PersistenceContexts.toSchemaName().apply(ctx);
       UpgradeState.putContextProperties(props,schemaName,dbName.getVersionedName(databaseName));
       final PersistenceContextConfiguration config=new PersistenceContextConfiguration(ctx,PersistenceContexts.listEntities(ctx),props);
-      new SchemaUpdate(PersistenceContexts.getConfiguration(config)).execute(true,true);
+      final Configuration configuration=PersistenceContexts.getConfiguration(config);
+      final File configDigestFile=SubDirectory.RUNDB.getChildFile(ctx + ".cfg.sha256");
+      final ByteArrayOutputStream output=new ByteArrayOutputStream(4096);
+      final ObjectOutputStream outputObject=new ObjectOutputStream(output);
+      outputObject.writeObject(configuration);
+      outputObject.flush();
+      final String digest=BaseEncoding.base16().lowerCase().encode(Digest.SHA256.digestBinary(output.toByteArray()));
+      final boolean upgrade=BootstrapArgs.isUpgradeSystem() || isForceUpgrade();
+      if (upgrade || !configDigestFile.canRead() || !digest.equals(Files.toString(configDigestFile,StandardCharsets.UTF_8))) {
+        LOG.info("Running schema update for " + ctx);
+        new SchemaUpdate(configuration).execute(false,true);
+        if (upgrade) {
+          if (configDigestFile.exists() && !configDigestFile.delete()) {
+            LOG.warn("Unable to delete configuration digest file: " + configDigestFile.getAbsolutePath());
+          }
+        }
+ else {
+          Files.write(digest.getBytes(StandardCharsets.UTF_8),configDigestFile);
+        }
+      }
+ else {
+        LOG.debug("Schema update skipped (no changes) for " + ctx);
+      }
     }
   }
  catch (  final Exception e) {

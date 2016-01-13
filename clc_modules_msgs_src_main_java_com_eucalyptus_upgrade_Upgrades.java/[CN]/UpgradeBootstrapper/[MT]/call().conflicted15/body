@@ -1,63 +1,73 @@
 {
-  if (UpgradeEventLog.create()) {
-    return true;
+  final Set<String> databaseNames=getDatabaseNames();
+  final Set<String> schemaNames=getSchemaNames(databaseNames);
+  int exitCode=-1;
+  for (  final String ctx : PersistenceContexts.list()) {
+    final DatabaseNamingStrategy strategy=PersistenceContexts.getNamingStrategy(ctx);
+    final Collection<DatabaseNamingStrategy> otherStrategies=EnumSet.complementOf(EnumSet.of(strategy));
+    final Collection<DatabaseNamingStrategy> presentStrategies=Collections2.filter(otherStrategies,new Predicate<DatabaseNamingStrategy>(){
+      @Override public boolean apply(      @Nullable final DatabaseNamingStrategy strategy){
+        final String databaseName=strategy.getDatabaseName(ctx);
+        final String schemaName=strategy.getSchemaName(ctx);
+        return (schemaName == null && databaseNames.contains(databaseName)) || (schemaName != null && schemaNames.contains(schemaName));
+      }
+    }
+);
+    if (!presentStrategies.isEmpty() && !(BootstrapArgs.isUpgradeSystem() || isForceUpgrade())) {
+      LOG.fatal("Database layout update required for '" + ctx + "', but upgrade not enabled (add '-Deuca.upgrade.force=true' in CLOUD_OPTS to force)");
+      exitCode=1;
+      break;
+    }
+ else     if (presentStrategies.size() > 1) {
+      LOG.fatal("Error updating naming for context '" + ctx + "', multiple sources.");
+      exitCode=1;
+      break;
+    }
+ else     if (presentStrategies.size() == 1) {
+      exitCode=123;
+      final String targetDatabaseName=strategy.getDatabaseName(ctx);
+      final String targetSchemaName=Objects.firstNonNull(strategy.getSchemaName(ctx),Databases.getDefaultSchemaName());
+      final String sourceDatabaseName=Iterables.getOnlyElement(presentStrategies).getDatabaseName(ctx);
+      final String sourceSchemaName=Objects.firstNonNull(Iterables.getOnlyElement(presentStrategies).getSchemaName(ctx),Databases.getDefaultSchemaName());
+      ;
+      boolean copied=false;
+      try {
+        Databases.getBootstrapper().copyDatabaseSchema(sourceDatabaseName,sourceSchemaName,targetDatabaseName,targetSchemaName);
+        copied=true;
+      }
+ catch (      final Exception e) {
+        LOG.fatal("Error updating naming for context '" + ctx + "'",e);
+        exitCode=1;
+      }
+ finally {
+        try {
+          final String databaseToDelete=copied ? sourceDatabaseName : targetDatabaseName;
+          final String schemaToDelete=copied ? sourceSchemaName : targetSchemaName;
+          if (!DatabaseNamingStrategy.SHARED_DATABASE_NAME.equals(databaseToDelete)) {
+            Databases.getBootstrapper().deleteDatabase(databaseToDelete);
+          }
+ else           if (getSchemaNames(Collections.singleton(databaseToDelete)).contains(schemaToDelete)) {
+            LOG.info("Dropping schema " + schemaToDelete + " for database "+ databaseToDelete);
+            final Sql sql=Databases.getBootstrapper().getConnection(databaseToDelete,null);
+            try {
+              sql.executeUpdate("DROP SCHEMA " + schemaToDelete + " CASCADE");
+            }
+  finally {
+              if (sql != null)               sql.close();
+            }
+          }
+        }
+ catch (        Exception e) {
+          LOG.fatal("Error cleaning up after updating naming for context '" + ctx + "'",e);
+          exitCode=1;
+        }
+      }
+      if (exitCode == 1)       break;
+    }
   }
- else {
-    UpgradeState previousState=UpgradeEventLog.getLastState();
-    boolean continueUpgrade=false;
-switch (previousState) {
-case START:
-case PARSE_ARGS:
-case UPGRADE_NAMING:
-case CHECK_ARGS:
-case CHECK_UPGRADE_LOG:
-case PRE_SCHEMA_UPDATE:
-case CHECK_VERSIONS:
-      continueUpgrade=true;
-    break;
-case BEGIN_UPGRADE:
-case PRE_BACKINGUP_DATABASE:
-case PRE_COPYING_DATABASES:
-case PRE_SETUP_JPA:
-case RUN_PRE_UPGRADE:
-case RUN_ENTITY_UPGRADE:
-case RUN_POST_UPGRADE:
-  for (  String databaseName : Iterables.filter(Databases.getBootstrapper().listDatabases(),DatabaseFilters.OLDVERSION)) {
-    Databases.getBootstrapper().deleteDatabase(databaseName);
+  if (exitCode > -1) {
+    LOG.info("Restarting due to database renaming.");
+    System.exit(exitCode);
   }
-for (String databaseName : Iterables.filter(Databases.getBootstrapper().listDatabases(),DatabaseFilters.NEWVERSION)) {
-  Databases.getBootstrapper().deleteDatabase(databaseName);
-}
-continueUpgrade=true;
-break;
-case POST_SHUTDOWN_JPA:
-case POST_DELETE_ORIG_DB:
-for (String databaseName : Iterables.filter(Databases.getBootstrapper().listDatabases(),DatabaseFilters.NEWVERSION)) {
-Databases.getBootstrapper().deleteDatabase(databaseName);
-}
-for (String databaseName : Iterables.filter(Databases.getBootstrapper().listDatabases(),DatabaseFilters.EUCALYPTUS)) {
-Databases.getBootstrapper().deleteDatabase(databaseName);
-}
-for (String databaseName : Iterables.filter(Databases.getBootstrapper().listDatabases(),DatabaseFilters.OLDVERSION)) {
-Databases.getBootstrapper().renameDatabase(databaseName,DatabaseFilters.EUCALYPTUS.getVersionedName(databaseName));
-}
-continueUpgrade=true;
-break;
-case POST_RENAME_NEW_TO_ORIG_DB:
-case POST_DELETE_OLD_DB:
-POST_DELETE_OLD_DB.callAndLog();
-COMPLETED.callAndLog();
-continueUpgrade=false;
-break;
-case COMPLETED:
-continueUpgrade=true;
-break;
-case ERROR:
-LOG.fatal("Last upgrade stage executed was ERROR!  We need to bail out and have someone look at what is going on here.");
-System.exit(1);
-continueUpgrade=false;
-break;
-}
-return continueUpgrade;
-}
+  return true;
 }
