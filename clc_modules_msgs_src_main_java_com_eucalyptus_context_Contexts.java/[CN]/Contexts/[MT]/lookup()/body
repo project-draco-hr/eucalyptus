@@ -1,37 +1,20 @@
 {
-  Context ctx;
-  if ((ctx=tlContext.get()) != null) {
+  final Context ctx=tlContext.get();
+  if (ctx != null) {
     return maybeImpersonating(ctx);
   }
-  BaseMessage parent=null;
-  MuleMessage muleMsg=null;
-  if (RequestContext.getEvent() != null && RequestContext.getEvent().getMessage() != null) {
-    muleMsg=RequestContext.getEvent().getMessage();
+  final Optional<String> correlationId=lookupCorrelationId();
+  if (correlationId.isPresent()) {
+    try {
+      return Contexts.lookup(correlationId.get());
+    }
+ catch (    final NoSuchContextException e) {
+      Logs.exhaust().error(e,e);
+      throw new IllegalContextAccessException("Cannot access context implicitly using lookup(V) when not handling a request.",e);
+    }
   }
- else   if (RequestContext.getEventContext() != null && RequestContext.getEventContext().getMessage() != null) {
-    muleMsg=RequestContext.getEventContext().getMessage();
-  }
- else {
+ else   if (RequestContext.getEvent() != null || RequestContext.getEventContext() != null) {
     throw new IllegalContextAccessException("Cannot access context implicitly using lookup(V) outside of a service.");
-  }
-  Object o=muleMsg.getPayload();
-  if (o != null && o instanceof BaseMessage) {
-    try {
-      return Contexts.lookup(((BaseMessage)o).getCorrelationId());
-    }
- catch (    NoSuchContextException e) {
-      Logs.exhaust().error(e,e);
-      throw new IllegalContextAccessException("Cannot access context implicitly using lookup(V) when not handling a request.",e);
-    }
-  }
- else   if (o != null && o instanceof HasRequest) {
-    try {
-      return Contexts.lookup(((HasRequest)o).getRequest().getCorrelationId());
-    }
- catch (    NoSuchContextException e) {
-      Logs.exhaust().error(e,e);
-      throw new IllegalContextAccessException("Cannot access context implicitly using lookup(V) when not handling a request.",e);
-    }
   }
  else {
     throw new IllegalContextAccessException("Cannot access context implicitly using lookup(V) when not handling a request.");
