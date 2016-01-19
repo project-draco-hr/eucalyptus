@@ -1,18 +1,18 @@
 {
   AWSEC2VPCResourceAction action=(AWSEC2VPCResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  final DescribeSecurityGroupsType groupsRequest=MessageHelper.createMessage(DescribeSecurityGroupsType.class,action.info.getEffectiveUserId());
-  groupsRequest.setSecurityGroupSet(Lists.newArrayList("default"));
-  groupsRequest.setFilterSet(Lists.newArrayList(Filter.filter("vpc-id",action.info.getPhysicalResourceId())));
-  final CheckedListenableFuture<DescribeSecurityGroupsResponseType> groupsFuture=AsyncRequests.dispatch(configuration,groupsRequest);
-  final DescribeNetworkAclsType networkAclsRequest=MessageHelper.createMessage(DescribeNetworkAclsType.class,action.info.getEffectiveUserId());
-  networkAclsRequest.setFilterSet(Lists.newArrayList(Filter.filter("vpc-id",action.info.getPhysicalResourceId()),Filter.filter("default","true")));
-  final CheckedListenableFuture<DescribeNetworkAclsResponseType> networkAclsFuture=AsyncRequests.dispatch(configuration,networkAclsRequest);
-  if (!groupsFuture.get().getSecurityGroupInfo().isEmpty()) {
-    action.info.setDefaultSecurityGroup(JsonHelper.getStringFromJsonNode(new TextNode(groupsFuture.get().getSecurityGroupInfo().get(0).getGroupId())));
+  ModifyVpcAttributeType modifyVpcAttributeType=MessageHelper.createMessage(ModifyVpcAttributeType.class,action.info.getEffectiveUserId());
+  boolean enableDnsSupport=true;
+  boolean enableDnsHostnames=false;
+  if (action.properties.getEnableDnsSupport() != null) {
+    enableDnsSupport=action.properties.getEnableDnsSupport();
   }
-  if (!networkAclsFuture.get().getNetworkAclSet().getItem().isEmpty()) {
-    action.info.setDefaultNetworkAcl(JsonHelper.getStringFromJsonNode(new TextNode(networkAclsFuture.get().getNetworkAclSet().getItem().get(0).getNetworkAclId())));
+  if (action.properties.getEnableDnsHostnames() != null) {
+    enableDnsHostnames=action.properties.getEnableDnsHostnames();
   }
+  modifyVpcAttributeType.setVpcId(action.info.getPhysicalResourceId());
+  modifyVpcAttributeType.setEnableDnsSupport(action.createAttributeBooleanValueType(enableDnsSupport));
+  modifyVpcAttributeType.setEnableDnsHostnames(action.createAttributeBooleanValueType(enableDnsHostnames));
+  AsyncRequests.<ModifyVpcAttributeType,ModifyVpcAttributeResponseType>sendSync(configuration,modifyVpcAttributeType);
   return action;
 }
