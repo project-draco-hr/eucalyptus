@@ -13,10 +13,11 @@
   }
  else {
     byte[] digestBytes=Files.hash(f,Hashing.md5()).asBytes();
-    String digest=new BigInteger(digestBytes).abs().toString(16);
+    String digest=BaseEncoding.base16().lowerCase().encode(digestBytes);
     CURRENT_PROPS.put(BINDING_CACHE_JAR_PREFIX + f.getName(),digest);
     final JarFile jar=new JarFile(f);
     final List<JarEntry> jarList=Collections.list(jar.entries());
+    final ClassLoader systemClassLoader=ClassLoader.getSystemClassLoader();
     for (    final JarEntry j : jarList) {
       try {
         if (j.getName().matches(FILE_PATTERN)) {
@@ -25,9 +26,9 @@
           String bindingFullPath="jar:file:" + f.getAbsolutePath() + "!/"+ bindingName;
           this.addCurrentBinding(bindingBytes,bindingName,bindingFullPath);
         }
- else         if (j.getName().matches(".*\\.class.{0,1}")) {
-          final String classGuess=j.getName().replaceAll("/",".").replaceAll("\\.class.{0,1}","");
-          final Class candidate=ClassLoader.getSystemClassLoader().loadClass(classGuess);
+ else         if (FileProcessingMode.Process == mode && j.getName().matches(".*\\.class.{0,1}")) {
+          final String classGuess=j.getName().replace('/','.').replaceAll("\\.class.{0,1}","");
+          final Class candidate=systemClassLoader.loadClass(classGuess);
           if (MSG_BASE_CLASS.isAssignableFrom(candidate) || MSG_DATA_CLASS.isAssignableFrom(candidate)) {
             ByteSource classSupplier=Resources.asByteSource(ClassLoader.getSystemResource(j.getName()));
             File destClassFile=SubDirectory.CLASSCACHE.getChildFile(j.getName());
