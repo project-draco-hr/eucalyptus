@@ -1,0 +1,23 @@
+{
+  AWSIAMGroupResourceAction oldAction=(AWSIAMGroupResourceAction)oldResourceAction;
+  AWSIAMGroupResourceAction newAction=(AWSIAMGroupResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Euare.class);
+  Set<String> oldPolicyNames=IAMHelper.getPolicyNames(oldAction.properties.getPolicies());
+  Set<String> newPolicyNames=IAMHelper.getPolicyNames(newAction.properties.getPolicies());
+  if (newAction.properties.getPolicies() != null) {
+    for (    EmbeddedIAMPolicy policy : newAction.properties.getPolicies()) {
+      PutGroupPolicyType putGroupPolicyType=MessageHelper.createMessage(PutGroupPolicyType.class,newAction.info.getEffectiveUserId());
+      putGroupPolicyType.setGroupName(newAction.info.getPhysicalResourceId());
+      putGroupPolicyType.setPolicyName(policy.getPolicyName());
+      putGroupPolicyType.setPolicyDocument(policy.getPolicyDocument().toString());
+      AsyncRequests.<PutGroupPolicyType,PutGroupPolicyResponseType>sendSync(configuration,putGroupPolicyType);
+    }
+  }
+  for (  String oldPolicyName : Sets.difference(oldPolicyNames,newPolicyNames)) {
+    DeleteGroupPolicyType deleteGroupPolicyType=MessageHelper.createMessage(DeleteGroupPolicyType.class,newAction.info.getEffectiveUserId());
+    deleteGroupPolicyType.setGroupName(newAction.info.getPhysicalResourceId());
+    deleteGroupPolicyType.setPolicyName(oldPolicyName);
+    AsyncRequests.<DeleteGroupPolicyType,DeleteGroupPolicyResponseType>sendSync(configuration,deleteGroupPolicyType);
+  }
+  return newAction;
+}
