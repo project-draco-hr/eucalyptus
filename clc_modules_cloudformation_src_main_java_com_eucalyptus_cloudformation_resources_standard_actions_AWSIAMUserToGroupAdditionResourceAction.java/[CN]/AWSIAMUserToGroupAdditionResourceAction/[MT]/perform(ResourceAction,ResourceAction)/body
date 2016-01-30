@@ -1,0 +1,30 @@
+{
+  AWSIAMUserToGroupAdditionResourceAction oldAction=(AWSIAMUserToGroupAdditionResourceAction)oldResourceAction;
+  AWSIAMUserToGroupAdditionResourceAction newAction=(AWSIAMUserToGroupAdditionResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Euare.class);
+  if (!IAMHelper.groupExists(configuration,newAction.properties.getGroupName(),newAction.info.getEffectiveUserId())) {
+    throw new ValidationErrorException("No such group " + newAction.properties.getGroupName());
+  }
+  Collection<String> nonexistantUsers=IAMHelper.nonexistantUsers(configuration,newAction.properties.getUsers(),newAction.info.getEffectiveUserId());
+  if (!nonexistantUsers.isEmpty()) {
+    throw new ValidationErrorException("No such user(s) " + nonexistantUsers.toString());
+  }
+  Set<String> existingUsersForGroup=IAMHelper.getUserNamesForGroup(configuration,newAction.properties.getGroupName(),newAction.info.getEffectiveUserId());
+  Set<String> passedInUsers=Sets.newLinkedHashSet();
+  if (newAction.properties.getUsers() != null) {
+    passedInUsers.addAll(newAction.properties.getUsers());
+  }
+  for (  String userName : Sets.difference(passedInUsers,existingUsersForGroup)) {
+    AddUserToGroupType addUserToGroupType=MessageHelper.createMessage(AddUserToGroupType.class,newAction.info.getEffectiveUserId());
+    addUserToGroupType.setGroupName(newAction.properties.getGroupName());
+    addUserToGroupType.setUserName(userName);
+    AsyncRequests.<AddUserToGroupType,AddUserToGroupResponseType>sendSync(configuration,addUserToGroupType);
+  }
+  if (!Objects.equals(oldAction.properties.getGroupName(),newAction.properties.getGroupName())) {
+    IAMHelper.removeUsersFromGroup(configuration,oldAction.properties.getUsers(),oldAction.properties.getGroupName(),oldAction.info.getEffectiveUserId());
+  }
+ else {
+    IAMHelper.removeUsersFromGroup(configuration,Sets.difference(Sets.newLinkedHashSet(oldAction.properties.getUsers()),Sets.newLinkedHashSet(newAction.properties.getUsers())),newAction.properties.getGroupName(),newAction.info.getEffectiveUserId());
+  }
+  return newAction;
+}
