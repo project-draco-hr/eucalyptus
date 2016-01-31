@@ -1,0 +1,32 @@
+{
+  if (jsonNode == null)   return jsonNode;
+  if (!jsonNode.isArray() && !jsonNode.isObject())   return jsonNode;
+  ObjectMapper objectMapper=new ObjectMapper();
+  if (jsonNode.isArray()) {
+    ArrayNode arrayCopy=objectMapper.createArrayNode();
+    for (int i=0; i < jsonNode.size(); i++) {
+      JsonNode arrayElement=evaluateFunctionsPreResourceResolution(jsonNode.get(i),template,effectiveUserId);
+      arrayCopy.add(arrayElement);
+    }
+    return arrayCopy;
+  }
+  for (  IntrinsicFunction intrinsicFunction : IntrinsicFunctions.values()) {
+    IntrinsicFunction.MatchResult matchResult=intrinsicFunction.evaluateMatch(jsonNode);
+    if (matchResult.isMatch()) {
+      IntrinsicFunction.ValidateResult validateResult=intrinsicFunction.validateArgTypesWherePossible(matchResult);
+      try {
+        return intrinsicFunction.evaluateFunction(validateResult,template,effectiveUserId);
+      }
+ catch (      ValidationErrorException ex) {
+        return jsonNode;
+      }
+    }
+  }
+  ObjectNode objectCopy=objectMapper.createObjectNode();
+  List<String> fieldNames=Lists.newArrayList(jsonNode.fieldNames());
+  for (  String key : fieldNames) {
+    JsonNode objectElement=evaluateFunctionsPreResourceResolution(jsonNode.get(key),template,effectiveUserId);
+    objectCopy.put(key,objectElement);
+  }
+  return objectCopy;
+}
