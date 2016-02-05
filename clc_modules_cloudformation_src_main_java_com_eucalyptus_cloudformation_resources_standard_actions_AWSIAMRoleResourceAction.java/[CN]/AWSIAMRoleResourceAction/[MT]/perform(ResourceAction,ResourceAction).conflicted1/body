@@ -1,0 +1,23 @@
+{
+  AWSIAMRoleResourceAction oldAction=(AWSIAMRoleResourceAction)oldResourceAction;
+  AWSIAMRoleResourceAction newAction=(AWSIAMRoleResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Euare.class);
+  Set<String> oldPolicyNames=getPolicyNames(oldAction);
+  Set<String> newPolicyNames=getPolicyNames(newAction);
+  if (newAction.properties.getPolicies() != null) {
+    for (    EmbeddedIAMPolicy policy : newAction.properties.getPolicies()) {
+      PutRolePolicyType putRolePolicyType=MessageHelper.createMessage(PutRolePolicyType.class,newAction.info.getEffectiveUserId());
+      putRolePolicyType.setRoleName(newAction.info.getPhysicalResourceId());
+      putRolePolicyType.setPolicyName(policy.getPolicyName());
+      putRolePolicyType.setPolicyDocument(policy.getPolicyDocument().toString());
+      AsyncRequests.<PutRolePolicyType,PutRolePolicyResponseType>sendSync(configuration,putRolePolicyType);
+    }
+  }
+  for (  String oldPolicyName : Sets.difference(oldPolicyNames,newPolicyNames)) {
+    DeleteRolePolicyType deleteRolePolicyType=MessageHelper.createMessage(DeleteRolePolicyType.class,newAction.info.getEffectiveUserId());
+    deleteRolePolicyType.setRoleName(newAction.info.getPhysicalResourceId());
+    deleteRolePolicyType.setPolicyName(oldPolicyName);
+    AsyncRequests.<DeleteRolePolicyType,DeleteRolePolicyResponseType>sendSync(configuration,deleteRolePolicyType);
+  }
+  return newAction;
+}
