@@ -1,0 +1,24 @@
+{
+  List<String> failedNatGatewayIds=Collections.emptyList();
+  try (final TransactionResource tx=Entities.transactionFor(NatGateway.class)){
+    failedNatGatewayIds=natGateways.list(null,Restrictions.and(Example.create(NatGateway.exampleWithState(NatGateway.State.failed)),Restrictions.isNotNull("networkInterfaceId")),Collections.<String,String>emptyMap(),Predicates.<NatGateway>alwaysTrue(),CloudMetadatas.<NatGateway>toDisplayName());
+  }
+ catch (  final Exception e) {
+    logger.error("Error listing failed NAT gateways for cleanup",e);
+  }
+  for (  final String natGatewayId : failedNatGatewayIds) {
+    try (final TransactionResource tx=Entities.transactionFor(NatGateway.class)){
+      final NatGateway natGateway=natGateways.lookupByName(null,natGatewayId,Functions.<NatGateway>identity());
+      releaseNatGatewayResources(natGateway);
+      tx.commit();
+    }
+ catch (    Exception e) {
+      if (PersistenceExceptions.isStaleUpdate(e)) {
+        logger.debug("Conflict updating NAT gateway " + natGatewayId + " for cleanup (will retry)");
+      }
+ else {
+        logger.error("Error cleaning up failed NAT gateway " + natGatewayId,e);
+      }
+    }
+  }
+}

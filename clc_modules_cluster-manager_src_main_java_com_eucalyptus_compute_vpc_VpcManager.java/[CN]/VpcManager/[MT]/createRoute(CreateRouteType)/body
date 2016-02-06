@@ -3,6 +3,7 @@
   final Context ctx=Contexts.lookup();
   final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
   final String gatewayId=request.getGatewayId() == null ? null : Identifier.igw.normalize(request.getGatewayId());
+  final String natGatewayId=request.getNatGatewayId() == null ? null : Identifier.nat.normalize(request.getNatGatewayId());
   final String instanceId=request.getInstanceId() == null ? null : Identifier.i.normalize(request.getInstanceId());
   final String networkInterfaceId=request.getNetworkInterfaceId() == null ? null : Identifier.eni.normalize(request.getNetworkInterfaceId());
   final String routeTableId=Identifier.rtb.normalize(request.getRouteTableId());
@@ -11,7 +12,7 @@
   if (!destinationCidrOption.isPresent()) {
     throw new ClientComputeException("InvalidParameterValue","Cidr invalid: " + destinationCidr);
   }
-  if (gatewayId == null && instanceId == null && networkInterfaceId == null) {
+  if (gatewayId == null && natGatewayId == null && instanceId == null && networkInterfaceId == null) {
     throw new ClientComputeException("InvalidParameterCombination","Route target required");
   }
   final Supplier<Route> allocator=transactional(new Supplier<Route>(){
@@ -20,6 +21,7 @@
         final NetworkInterface networkInterface=networkInterfaceId == null ? null : networkInterfaces.lookupByName(accountFullName,networkInterfaceId,Functions.<NetworkInterface>identity());
         final VmInstance instance=instanceId == null ? null : VmInstances.lookup(instanceId);
         final InternetGateway internetGateway=gatewayId == null ? null : internetGateways.lookupByName(accountFullName,gatewayId,Functions.<InternetGateway>identity());
+        final NatGateway natGateway=natGatewayId == null ? null : natGateways.lookupByName(accountFullName,natGatewayId,Functions.<NatGateway>identity());
         routeTables.updateByExample(RouteTable.exampleWithName(accountFullName,routeTableId),accountFullName,request.getRouteTableId(),new Callback<RouteTable>(){
           @Override public void fire(          final RouteTable routeTable){
             try {
@@ -45,6 +47,12 @@
                     throw new ClientComputeException("InvalidParameterValue","Network interface invalid: " + targetNetworkInterface.getDisplayName());
                   }
                   route=Route.create(routeTable,Route.RouteOrigin.CreateRoute,destinationCidr,targetNetworkInterface);
+                }
+ else                 if (natGateway != null) {
+                  if (!RestrictedTypes.filterPrivileged().apply(natGateway) || !natGateway.getVpcId().equals(routeTable.getVpc().getDisplayName())) {
+                    throw new ClientComputeException("InvalidParameterValue","NAT gateway invalid: " + natGateway.getDisplayName());
+                  }
+                  route=Route.create(routeTable,Route.RouteOrigin.CreateRoute,destinationCidr,natGateway);
                 }
  else {
                   if (internetGateway == null || internetGateway.getVpc() == null || !internetGateway.getVpc().getDisplayName().equals(routeTable.getVpc().getDisplayName())) {

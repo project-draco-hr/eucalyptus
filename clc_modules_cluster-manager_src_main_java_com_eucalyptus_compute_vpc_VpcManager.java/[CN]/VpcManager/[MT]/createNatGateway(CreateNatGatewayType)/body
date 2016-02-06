@@ -1,0 +1,37 @@
+{
+  final CreateNatGatewayResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String allocationId=Identifier.eipalloc.normalize(request.getAllocationId());
+  final String subnetId=Identifier.subnet.normalize(request.getSubnetId());
+  final String clientToken=Strings.emptyToNull(request.getClientToken());
+  final Supplier<NatGateway> allocator=new Supplier<NatGateway>(){
+    @Override public NatGateway get(){
+      try {
+        final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
+        if (clientToken != null)         try {
+          return natGateways.lookupByClientToken(accountFullName,clientToken,Functions.<NatGateway>identity());
+        }
+ catch (        final VpcMetadataNotFoundException e) {
+        }
+        final Subnet subnet=subnets.lookupByName(accountFullName,subnetId,Functions.<Subnet>identity());
+        final long natGatewayCount=natGateways.countByZone(accountFullName,subnet.getAvailabilityZone());
+        if (natGatewayCount >= VpcConfiguration.getNatGatewaysPerAvailabilityZone()) {
+          throw new ClientComputeException("NatGatewayLimitExceeded","NAT gateway limit exceeded for availability zone " + subnet.getAvailabilityZone());
+        }
+        final String natGatewayId=Identifier.nat.generate();
+        final Vpc vpc=subnet.getVpc();
+        return natGateways.save(NatGateway.create(ctx.getUserFullName(),vpc,subnet,natGatewayId,clientToken,allocationId));
+      }
+ catch (      final VpcMetadataNotFoundException e) {
+        throw Exceptions.toUndeclared(new ClientComputeException("InvalidSubnetID.NotFound","Subnet not found '" + subnetId + "'"));
+      }
+catch (      final Exception ex) {
+        throw Exceptions.toUndeclared(ex);
+      }
+    }
+  }
+;
+  reply.setClientToken(clientToken);
+  reply.setNatGateway(allocate(allocator,NatGateway.class,NatGatewayType.class));
+  return reply;
+}
