@@ -8,38 +8,34 @@
       s3c.setBucketAcl(bucketName,CannedAccessControlList.valueOf(action.properties.getAccessControl()));
     }
     if (action.properties.getCorsConfiguration() != null) {
-      s3c.setBucketCrossOriginConfiguration(bucketName,action.convertCrossOriginConfiguration(action.properties.getCorsConfiguration()));
+      s3c.setBucketCrossOriginConfiguration(bucketName,convertCrossOriginConfiguration(action.properties.getCorsConfiguration()));
     }
     if (action.properties.getLifecycleConfiguration() != null) {
-      s3c.setBucketLifecycleConfiguration(bucketName,action.convertLifecycleConfiguration(action.properties.getLifecycleConfiguration()));
+      BucketVersioningConfiguration bucketVersioningConfiguration=s3c.getBucketVersioningConfiguration(bucketName);
+      if (!"Off".equals(bucketVersioningConfiguration.getStatus())) {
+        throw new ValidationErrorException("Unable to set lifecycle configuration on bucket " + bucketName + ", versioning is not Off, it is "+ bucketVersioningConfiguration.getStatus());
+      }
+      s3c.setBucketLifecycleConfiguration(bucketName,convertLifecycleConfiguration(action.properties.getLifecycleConfiguration()));
     }
     if (action.properties.getLoggingConfiguration() != null) {
-      s3c.setBucketLoggingConfiguration(action.convertLoggingConfiguration(bucketName,action.properties.getLoggingConfiguration()));
+      throw new InternalFailureException("LoggingConfiguration not yet implemented");
     }
     if (action.properties.getNotificationConfiguration() != null) {
-      s3c.setBucketNotificationConfiguration(bucketName,action.convertNotificationConfiguration(action.properties.getNotificationConfiguration()));
+      throw new InternalFailureException("NotificationConfiguration not yet implemented");
     }
-    List<CloudFormationResourceTag> systemTags=TagHelper.getCloudFormationResourceSystemTags(action.info,action.getStackEntity());
-    List<CloudFormationResourceTag> nonSystemTags=TagHelper.getCloudFormationResourceStackTags(action.getStackEntity());
-    if (action.properties.getTags() != null && !action.properties.getTags().isEmpty()) {
-      TagHelper.checkReservedCloudFormationResourceTemplateTags(action.properties.getTags());
-      nonSystemTags.addAll(action.properties.getTags());
+    if (action.properties.getReplicationConfiguration() != null) {
+      throw new InternalFailureException("ReplicationConfiguration not yet implemented");
     }
-    if (!nonSystemTags.isEmpty()) {
-      List<CloudFormationResourceTag> allTags=Lists.newArrayList();
-      allTags.addAll(systemTags);
-      allTags.addAll(nonSystemTags);
-      s3c.setBucketTaggingConfiguration(bucketName,action.convertTags(allTags));
-    }
- else {
-      EucaS3Client s3cAdmin=EucaS3ClientFactory.getEucaS3Client(new SecurityTokenAWSCredentialsProvider(AccountFullName.getInstance(user.getAccountNumber())));
-      s3cAdmin.setBucketTaggingConfiguration(bucketName,action.convertTags(systemTags));
-    }
+    setBucketTags(action,user,bucketName,s3c);
     if (action.properties.getVersioningConfiguration() != null) {
-      s3c.setBucketVersioningConfiguration(action.convertVersioningConfiguration(bucketName,action.properties.getVersioningConfiguration()));
+      BucketLifecycleConfiguration bucketLifecycleConfiguration=s3c.getBucketLifecycleConfiguration(bucketName);
+      if (bucketLifecycleConfiguration.getRules().size() > 0) {
+        throw new ValidationErrorException("Unable to set versioning configuration bucket " + bucketName + ".  Lifecycle configuration has been set.");
+      }
+      s3c.setBucketVersioningConfiguration(convertVersioningConfiguration(bucketName,action.properties.getVersioningConfiguration()));
     }
     if (action.properties.getWebsiteConfiguration() != null) {
-      s3c.setBucketWebsiteConfiguration(bucketName,action.convertWebsiteConfiguration(action.properties.getWebsiteConfiguration()));
+      throw new InternalFailureException("WebsiteConfiguration not yet implemented");
     }
   }
    String domainName=null;
