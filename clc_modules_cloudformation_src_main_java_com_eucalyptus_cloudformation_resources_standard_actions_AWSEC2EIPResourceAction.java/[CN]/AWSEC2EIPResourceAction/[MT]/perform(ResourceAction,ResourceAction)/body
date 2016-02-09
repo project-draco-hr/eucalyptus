@@ -1,0 +1,46 @@
+{
+  AWSEC2EIPResourceAction oldAction=(AWSEC2EIPResourceAction)oldResourceAction;
+  AWSEC2EIPResourceAction newAction=(AWSEC2EIPResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  String oldInstanceId=null;
+  final List<AddressInfoType> addresses=describeAddresses(newAction,configuration).getAddressesSet();
+  if (addresses != null && !addresses.isEmpty() && (addresses.get(0).getInstanceId() != null)) {
+    oldInstanceId=addresses.get(0).getInstanceId();
+  }
+  if (!Objects.equals(oldInstanceId,newAction.properties.getInstanceId())) {
+    if (newAction.properties.getInstanceId() != null) {
+      DescribeInstancesType describeInstancesType=MessageHelper.createMessage(DescribeInstancesType.class,newAction.info.getEffectiveUserId());
+      describeInstancesType.getFilterSet().add(Filter.filter("instance-id",newAction.properties.getInstanceId()));
+      DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.sendSync(configuration,describeInstancesType);
+      if (describeInstancesResponseType.getReservationSet() == null || describeInstancesResponseType.getReservationSet().isEmpty()) {
+        throw new ValidationErrorException("No such instance " + newAction.properties.getInstanceId());
+      }
+    }
+    if (oldInstanceId != null) {
+      final DisassociateAddressType disassociateAddressType=MessageHelper.createMessage(DisassociateAddressType.class,newAction.info.getEffectiveUserId());
+      if (newAction.properties.getDomain() != null) {
+        disassociateAddressType.setAssociationId(addresses.get(0).getAssociationId());
+      }
+ else {
+        disassociateAddressType.setPublicIp(newAction.info.getPhysicalResourceId());
+      }
+      AsyncRequests.<DisassociateAddressType,DisassociateAddressResponseType>sendSync(configuration,disassociateAddressType);
+      EC2Helper.refreshInstanceAttributes(newAction.getStackEntity(),oldInstanceId,newAction.info.getEffectiveUserId(),newAction.getStackEntity().getStackVersion());
+    }
+    if (newAction.properties.getInstanceId() != null) {
+      AssociateAddressType associateAddressType=MessageHelper.createMessage(AssociateAddressType.class,newAction.info.getEffectiveUserId());
+      if (newAction.properties.getDomain() != null) {
+        associateAddressType.setAllocationId(JsonHelper.getJsonNodeFromString(newAction.info.getAllocationId()).asText());
+      }
+ else {
+        associateAddressType.setPublicIp(newAction.info.getPhysicalResourceId());
+      }
+      associateAddressType.setInstanceId(newAction.properties.getInstanceId());
+      AsyncRequests.<AssociateAddressType,AssociateAddressResponseType>sendSync(configuration,associateAddressType);
+      if (newAction.properties.getInstanceId() != null) {
+        EC2Helper.refreshInstanceAttributes(newAction.getStackEntity(),newAction.properties.getInstanceId(),newAction.info.getEffectiveUserId(),newAction.getStackEntity().getStackVersion());
+      }
+    }
+  }
+  return newAction;
+}

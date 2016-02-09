@@ -1,0 +1,72 @@
+{
+  AWSEC2SecurityGroupResourceAction oldAction=(AWSEC2SecurityGroupResourceAction)oldResourceAction;
+  AWSEC2SecurityGroupResourceAction newAction=(AWSEC2SecurityGroupResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  String groupId=JsonHelper.getJsonNodeFromString(newAction.info.getGroupId()).asText();
+  DescribeSecurityGroupsType describeSecurityGroupsType=MessageHelper.createMessage(DescribeSecurityGroupsType.class,newAction.info.getEffectiveUserId());
+  describeSecurityGroupsType.setFilterSet(Lists.newArrayList(Filter.filter("group-id",groupId)));
+  DescribeSecurityGroupsResponseType describeSecurityGroupsResponseType=AsyncRequests.sendSync(configuration,describeSecurityGroupsType);
+  Set<IpPermissionTypeWithEquals> existingIngressPermissionTypes=Sets.newLinkedHashSet();
+  Set<IpPermissionTypeWithEquals> existingEgressPermissionTypes=Sets.newLinkedHashSet();
+  if (describeSecurityGroupsResponseType != null && describeSecurityGroupsResponseType.getSecurityGroupInfo() != null && !describeSecurityGroupsResponseType.getSecurityGroupInfo().isEmpty()) {
+    if (describeSecurityGroupsResponseType.getSecurityGroupInfo().get(0).getIpPermissions() != null) {
+      existingIngressPermissionTypes.addAll(IpPermissionTypeWithEquals.getNonNullCollection(describeSecurityGroupsResponseType.getSecurityGroupInfo().get(0).getIpPermissions()));
+    }
+    if (describeSecurityGroupsResponseType.getSecurityGroupInfo().get(0).getIpPermissionsEgress() != null) {
+      existingEgressPermissionTypes.addAll(IpPermissionTypeWithEquals.getNonNullCollection(describeSecurityGroupsResponseType.getSecurityGroupInfo().get(0).getIpPermissionsEgress()));
+    }
+  }
+  Set<IpPermissionTypeWithEquals> newIngressPermissionTypes=Sets.newLinkedHashSet();
+  Set<IpPermissionTypeWithEquals> newEgressPermissionTypes=Sets.newLinkedHashSet();
+  if (newAction.properties.getSecurityGroupIngress() != null && !newAction.properties.getSecurityGroupIngress().isEmpty()) {
+    for (    EC2SecurityGroupRule ec2SecurityGroupRule : newAction.properties.getSecurityGroupIngress()) {
+      IpPermissionType ipPermissionType=getIpPermissionTypeForIngress(newAction,ec2SecurityGroupRule);
+      newIngressPermissionTypes.add(new IpPermissionTypeWithEquals(ipPermissionType));
+    }
+  }
+  if (newAction.properties.getSecurityGroupEgress() != null && !newAction.properties.getSecurityGroupEgress().isEmpty()) {
+    for (    EC2SecurityGroupRule ec2SecurityGroupRule : newAction.properties.getSecurityGroupEgress()) {
+      IpPermissionType ipPermissionType=getIpPermissionTypeForEgress(ec2SecurityGroupRule);
+      newEgressPermissionTypes.add(new IpPermissionTypeWithEquals(ipPermissionType));
+    }
+  }
+  Set<IpPermissionTypeWithEquals> oldIngressPermissionTypes=Sets.newLinkedHashSet();
+  Set<IpPermissionTypeWithEquals> oldEgressPermissionTypes=Sets.newLinkedHashSet();
+  if (oldAction.properties.getSecurityGroupIngress() != null && !oldAction.properties.getSecurityGroupIngress().isEmpty()) {
+    for (    EC2SecurityGroupRule ec2SecurityGroupRule : oldAction.properties.getSecurityGroupIngress()) {
+      IpPermissionType ipPermissionType=getIpPermissionTypeForIngress(oldAction,ec2SecurityGroupRule);
+      oldIngressPermissionTypes.add(new IpPermissionTypeWithEquals(ipPermissionType));
+    }
+  }
+  if (oldAction.properties.getSecurityGroupEgress() != null && !oldAction.properties.getSecurityGroupEgress().isEmpty()) {
+    for (    EC2SecurityGroupRule ec2SecurityGroupRule : oldAction.properties.getSecurityGroupEgress()) {
+      IpPermissionType ipPermissionType=getIpPermissionTypeForEgress(ec2SecurityGroupRule);
+      oldEgressPermissionTypes.add(new IpPermissionTypeWithEquals(ipPermissionType));
+    }
+  }
+  for (  IpPermissionTypeWithEquals ipPermissionTypeWithEquals : Sets.difference(newIngressPermissionTypes,existingIngressPermissionTypes)) {
+    AuthorizeSecurityGroupIngressType authorizeSecurityGroupIngressType=MessageHelper.createMessage(AuthorizeSecurityGroupIngressType.class,newAction.info.getEffectiveUserId());
+    authorizeSecurityGroupIngressType.setGroupId(groupId);
+    authorizeSecurityGroupIngressType.setIpPermissions(Lists.newArrayList(ipPermissionTypeWithEquals.getIpPermissionType()));
+    AsyncRequests.<AuthorizeSecurityGroupIngressType,AuthorizeSecurityGroupIngressResponseType>sendSync(configuration,authorizeSecurityGroupIngressType);
+  }
+  for (  IpPermissionTypeWithEquals ipPermissionTypeWithEquals : Sets.difference(newEgressPermissionTypes,existingEgressPermissionTypes)) {
+    AuthorizeSecurityGroupEgressType authorizeSecurityGroupEgressType=MessageHelper.createMessage(AuthorizeSecurityGroupEgressType.class,newAction.info.getEffectiveUserId());
+    authorizeSecurityGroupEgressType.setGroupId(groupId);
+    authorizeSecurityGroupEgressType.setIpPermissions(Lists.newArrayList(ipPermissionTypeWithEquals.getIpPermissionType()));
+    AsyncRequests.<AuthorizeSecurityGroupEgressType,AuthorizeSecurityGroupEgressResponseType>sendSync(configuration,authorizeSecurityGroupEgressType);
+  }
+  for (  IpPermissionTypeWithEquals ipPermissionTypeWithEquals : Sets.intersection(oldIngressPermissionTypes,Sets.difference(existingIngressPermissionTypes,newIngressPermissionTypes))) {
+    RevokeSecurityGroupIngressType revokeSecurityGroupIngressType=MessageHelper.createMessage(RevokeSecurityGroupIngressType.class,newAction.info.getEffectiveUserId());
+    revokeSecurityGroupIngressType.setGroupId(groupId);
+    revokeSecurityGroupIngressType.setIpPermissions(Lists.newArrayList(ipPermissionTypeWithEquals.getIpPermissionType()));
+    AsyncRequests.<RevokeSecurityGroupIngressType,RevokeSecurityGroupIngressResponseType>sendSync(configuration,revokeSecurityGroupIngressType);
+  }
+  for (  IpPermissionTypeWithEquals ipPermissionTypeWithEquals : Sets.intersection(oldEgressPermissionTypes,Sets.difference(existingEgressPermissionTypes,newEgressPermissionTypes))) {
+    RevokeSecurityGroupEgressType revokeSecurityGroupEgressType=MessageHelper.createMessage(RevokeSecurityGroupEgressType.class,newAction.info.getEffectiveUserId());
+    revokeSecurityGroupEgressType.setGroupId(groupId);
+    revokeSecurityGroupEgressType.setIpPermissions(Lists.newArrayList(ipPermissionTypeWithEquals.getIpPermissionType()));
+    AsyncRequests.<RevokeSecurityGroupEgressType,RevokeSecurityGroupEgressResponseType>sendSync(configuration,revokeSecurityGroupEgressType);
+  }
+  return newAction;
+}
