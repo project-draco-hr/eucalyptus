@@ -1,14 +1,15 @@
 {
   AWSIAMUserResourceAction action=(AWSIAMUserResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Euare.class);
-  if (action.properties.getPolicies() != null) {
-    for (    EmbeddedIAMPolicy policy : action.properties.getPolicies()) {
-      PutUserPolicyType putUserPolicyType=MessageHelper.createMessage(PutUserPolicyType.class,action.info.getEffectiveUserId());
-      putUserPolicyType.setUserName(action.info.getPhysicalResourceId());
-      putUserPolicyType.setPolicyName(policy.getPolicyName());
-      putUserPolicyType.setPolicyDocument(policy.getPolicyDocument().toString());
-      AsyncRequests.<PutUserPolicyType,PutUserPolicyResponseType>sendSync(configuration,putUserPolicyType);
-    }
-  }
+  String userName=action.getDefaultPhysicalResourceId();
+  CreateUserType createUserType=MessageHelper.createMessage(CreateUserType.class,action.info.getEffectiveUserId());
+  createUserType.setUserName(userName);
+  createUserType.setPath(MoreObjects.firstNonNull(action.properties.getPath(),DEFAULT_PATH));
+  CreateUserResponseType createUserResponseType=AsyncRequests.<CreateUserType,CreateUserResponseType>sendSync(configuration,createUserType);
+  String arn=createUserResponseType.getCreateUserResult().getUser().getArn();
+  action.info.setPhysicalResourceId(userName);
+  action.info.setCreatedEnoughToDelete(true);
+  action.info.setArn(JsonHelper.getStringFromJsonNode(new TextNode(arn)));
+  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
   return action;
 }
