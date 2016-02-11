@@ -1,27 +1,14 @@
 {
   final AWSEC2NetworkInterfaceAttachmentResourceAction action=(AWSEC2NetworkInterfaceAttachmentResourceAction)resourceAction;
-  final ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  final AttachNetworkInterfaceType attachNetworkInterfaceType=MessageHelper.createMessage(AttachNetworkInterfaceType.class,action.info.getEffectiveUserId());
-  attachNetworkInterfaceType.setDeviceIndex(action.properties.getDeviceIndex());
-  attachNetworkInterfaceType.setInstanceId(action.properties.getInstanceId());
-  attachNetworkInterfaceType.setNetworkInterfaceId(action.properties.getNetworkInterfaceId());
-  try {
-    final AttachNetworkInterfaceResponseType attachNetworkInterfaceResponseType=AsyncRequests.sendSync(configuration,attachNetworkInterfaceType);
-    final String attachmentId=attachNetworkInterfaceResponseType.getAttachmentId();
-    action.info.setPhysicalResourceId(attachmentId);
-    action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(attachmentId)));
+  if (action.properties.getDeleteOnTermination() != null) {
+    final ServiceConfiguration configuration=Topology.lookup(Compute.class);
+    final ModifyNetworkInterfaceAttachmentType attachment=new ModifyNetworkInterfaceAttachmentType();
+    attachment.setAttachmentId(action.info.getPhysicalResourceId());
+    attachment.setDeleteOnTermination(action.properties.getDeleteOnTermination());
+    final ModifyNetworkInterfaceAttributeType modifyNetworkInterfaceAttributeType=MessageHelper.createMessage(ModifyNetworkInterfaceAttributeType.class,action.info.getEffectiveUserId());
+    modifyNetworkInterfaceAttributeType.setNetworkInterfaceId(action.properties.getNetworkInterfaceId());
+    modifyNetworkInterfaceAttributeType.setAttachment(attachment);
+    AsyncRequests.<ModifyNetworkInterfaceAttributeType,ModifyNetworkInterfaceAttributeResponseType>sendSync(configuration,modifyNetworkInterfaceAttributeType);
   }
- catch (  final Exception e) {
-    final Optional<AsyncWebServiceError> error=AsyncExceptions.asWebServiceError(e);
-    if (error.isPresent()) switch (Strings.nullToEmpty(error.get().getCode())) {
-case "InvalidInstanceID.NotFound":
-      throw new ValidationErrorException("No such instance " + action.properties.getInstanceId());
-case "InvalidNetworkInterfaceID.NotFound":
-    throw new ValidationErrorException("No such network interface " + action.properties.getNetworkInterfaceId());
-case "InvalidParameterValue":
-  throw new ValidationErrorException("Error attaching network interface - " + e.getMessage());
-}
-throw e;
-}
-return action;
+  return action;
 }

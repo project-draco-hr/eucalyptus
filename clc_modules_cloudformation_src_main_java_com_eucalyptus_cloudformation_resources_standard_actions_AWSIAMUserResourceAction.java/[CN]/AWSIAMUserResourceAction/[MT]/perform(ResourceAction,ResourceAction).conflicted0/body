@@ -2,10 +2,28 @@
   AWSIAMUserResourceAction oldAction=(AWSIAMUserResourceAction)oldResourceAction;
   AWSIAMUserResourceAction newAction=(AWSIAMUserResourceAction)newResourceAction;
   ServiceConfiguration configuration=Topology.lookup(Euare.class);
-  String userName=newAction.info.getPhysicalResourceId();
-  UpdateUserType updateUserType=MessageHelper.createMessage(UpdateUserType.class,newAction.info.getEffectiveUserId());
-  updateUserType.setUserName(userName);
-  updateUserType.setNewPath(MoreObjects.firstNonNull(newAction.properties.getPath(),DEFAULT_PATH));
-  UpdateUserResponseType updateUserResponseType=AsyncRequests.<UpdateUserType,UpdateUserResponseType>sendSync(configuration,updateUserType);
+  Set<String> oldGroupNames=IAMHelper.collectionToSetAndNullToEmpty(oldAction.properties.getGroups());
+  Set<String> newGroupNames=IAMHelper.collectionToSetAndNullToEmpty(newAction.properties.getGroups());
+  Set<String> existingGroupsForUser=IAMHelper.getGroupNamesForUser(configuration,newAction.info.getPhysicalResourceId(),newAction.info.getEffectiveUserId());
+  for (  String groupName : Sets.difference(newGroupNames,existingGroupsForUser)) {
+    AddUserToGroupType addUserToGroupType=MessageHelper.createMessage(AddUserToGroupType.class,newAction.info.getEffectiveUserId());
+    addUserToGroupType.setGroupName(groupName);
+    addUserToGroupType.setUserName(newAction.info.getPhysicalResourceId());
+    AsyncRequests.<AddUserToGroupType,AddUserToGroupResponseType>sendSync(configuration,addUserToGroupType);
+  }
+  for (  String groupName : Sets.difference(oldGroupNames,newGroupNames)) {
+    RemoveUserFromGroupType removeUserFromGroupType=MessageHelper.createMessage(RemoveUserFromGroupType.class,oldAction.info.getEffectiveUserId());
+    removeUserFromGroupType.setGroupName(groupName);
+    removeUserFromGroupType.setUserName(oldAction.info.getPhysicalResourceId());
+    try {
+      AsyncRequests.<RemoveUserFromGroupType,RemoveUserFromGroupResponseType>sendSync(configuration,removeUserFromGroupType);
+    }
+ catch (    final Exception e) {
+      final Optional<AsyncExceptions.AsyncWebServiceError> error=AsyncExceptions.asWebServiceError(e);
+      if (error.isPresent() && Strings.nullToEmpty(error.get().getCode()).equals("NoSuchEntity")) {
+      }
+ else       throw e;
+    }
+  }
   return newAction;
 }
