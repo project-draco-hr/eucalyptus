@@ -1,0 +1,19 @@
+{
+  AWSEC2VPCResourceAction oldAction=(AWSEC2VPCResourceAction)oldResourceAction;
+  AWSEC2VPCResourceAction newAction=(AWSEC2VPCResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  final DescribeSecurityGroupsType groupsRequest=MessageHelper.createMessage(DescribeSecurityGroupsType.class,newAction.info.getEffectiveUserId());
+  groupsRequest.setSecurityGroupSet(Lists.newArrayList("default"));
+  groupsRequest.setFilterSet(Lists.newArrayList(Filter.filter("vpc-id",newAction.info.getPhysicalResourceId())));
+  final CheckedListenableFuture<DescribeSecurityGroupsResponseType> groupsFuture=AsyncRequests.dispatch(configuration,groupsRequest);
+  final DescribeNetworkAclsType networkAclsRequest=MessageHelper.createMessage(DescribeNetworkAclsType.class,newAction.info.getEffectiveUserId());
+  networkAclsRequest.setFilterSet(Lists.newArrayList(Filter.filter("vpc-id",newAction.info.getPhysicalResourceId()),Filter.filter("default","true")));
+  final CheckedListenableFuture<DescribeNetworkAclsResponseType> networkAclsFuture=AsyncRequests.dispatch(configuration,networkAclsRequest);
+  if (!groupsFuture.get().getSecurityGroupInfo().isEmpty()) {
+    newAction.info.setDefaultSecurityGroup(JsonHelper.getStringFromJsonNode(new TextNode(groupsFuture.get().getSecurityGroupInfo().get(0).getGroupId())));
+  }
+  if (!networkAclsFuture.get().getNetworkAclSet().getItem().isEmpty()) {
+    newAction.info.setDefaultNetworkAcl(JsonHelper.getStringFromJsonNode(new TextNode(networkAclsFuture.get().getNetworkAclSet().getItem().get(0).getNetworkAclId())));
+  }
+  return newAction;
+}
