@@ -23,8 +23,18 @@
               throw new ClientComputeException("InvalidParameterValue","Device index in use");
             }
           }
-          vmRef[0]=vm;
-          networkInterface.attach(NetworkInterfaceAttachment.create(Identifier.eni_attach.generate(),vm,vm.getDisplayName(),vm.getOwnerAccountNumber(),deviceIndex,NetworkInterfaceAttachment.Status.attached,new Date(),false));
+          final NetworkInterfaceAttachment.Status initialState;
+          if (VmInstance.VmState.RUNNING.apply(vm)) {
+            vmRef[0]=vm;
+            initialState=NetworkInterfaceAttachment.Status.attaching;
+          }
+ else           if (VmInstance.VmState.STOPPED.apply(vm)) {
+            initialState=NetworkInterfaceAttachment.Status.attached;
+          }
+ else {
+            throw new ClientComputeException("IncorrectState","Instance '" + instanceId + "' is not 'running' or 'stopped'");
+          }
+          networkInterface.attach(NetworkInterfaceAttachment.create(Identifier.eni_attach.generate(),vm,vm.getDisplayName(),vm.getOwnerAccountNumber(),deviceIndex,initialState,new Date(),false));
         }
  catch (        NoSuchElementException e) {
           throw Exceptions.toUndeclared(new ClientComputeException("InvalidInstanceID.NotFound","Instance not found '" + request.getInstanceId() + "'"));
