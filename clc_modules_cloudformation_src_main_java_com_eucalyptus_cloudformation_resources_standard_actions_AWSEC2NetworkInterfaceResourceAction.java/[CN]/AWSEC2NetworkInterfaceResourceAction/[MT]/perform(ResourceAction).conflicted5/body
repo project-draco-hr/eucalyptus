@@ -1,7 +1,29 @@
 {
   AWSEC2NetworkInterfaceResourceAction action=(AWSEC2NetworkInterfaceResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  if (action.info.getCreatedEnoughToDelete() != Boolean.TRUE)   return action;
-  if (checkDeleted(action,configuration))   return action;
-  throw new RetryAfterConditionCheckFailedException("Network interface " + action.info.getPhysicalResourceId() + " not yet deleted");
+  CreateNetworkInterfaceType createNetworkInterfaceType=MessageHelper.createMessage(CreateNetworkInterfaceType.class,action.info.getEffectiveUserId());
+  createNetworkInterfaceType.setSubnetId(action.properties.getSubnetId());
+  if (!Strings.isNullOrEmpty(action.properties.getDescription())) {
+    createNetworkInterfaceType.setDescription(action.properties.getDescription());
+  }
+  if (!Strings.isNullOrEmpty(action.properties.getPrivateIpAddress())) {
+    createNetworkInterfaceType.setPrivateIpAddress(action.properties.getPrivateIpAddress());
+  }
+  if (action.properties.getPrivateIpAddresses() != null && !action.properties.getPrivateIpAddresses().isEmpty()) {
+    if (action.properties.getSecondaryPrivateIpAddressCount() != null) {
+      throw new ValidationErrorException("SecondaryPrivateIpAddressCount can only be assigned when no secondary private IP address is specified in PrivateIpAddresses");
+    }
+    createNetworkInterfaceType.setPrivateIpAddressesSet(action.convertPrivateIpAddresses(action.properties.getPrivateIpAddresses()));
+  }
+  if (action.properties.getGroupSet() != null && !action.properties.getGroupSet().isEmpty()) {
+    createNetworkInterfaceType.setGroupSet(action.convertGroupSet(action.properties.getGroupSet()));
+  }
+  if (action.properties.getSecondaryPrivateIpAddressCount() != null) {
+    action.properties.setSecondaryPrivateIpAddressCount(action.properties.getSecondaryPrivateIpAddressCount());
+  }
+  CreateNetworkInterfaceResponseType createNetworkInterfaceResponseType=AsyncRequests.<CreateNetworkInterfaceType,CreateNetworkInterfaceResponseType>sendSync(configuration,createNetworkInterfaceType);
+  action.info.setPhysicalResourceId(createNetworkInterfaceResponseType.getNetworkInterface().getNetworkInterfaceId());
+  action.info.setCreatedEnoughToDelete(true);
+  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
+  return action;
 }

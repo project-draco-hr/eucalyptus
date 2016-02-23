@@ -1,11 +1,12 @@
 {
-  AWSEC2NetworkInterfaceResourceAction action=(AWSEC2NetworkInterfaceResourceAction)resourceAction;
+  AWSEC2NetworkInterfaceResourceAction oldAction=(AWSEC2NetworkInterfaceResourceAction)oldResourceAction;
+  AWSEC2NetworkInterfaceResourceAction newAction=(AWSEC2NetworkInterfaceResourceAction)newResourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  DescribeNetworkInterfacesType describeNetworkInterfacesType=MessageHelper.createMessage(DescribeNetworkInterfacesType.class,action.info.getEffectiveUserId());
-  describeNetworkInterfacesType.getFilterSet().add(Filter.filter("network-interface-id",action.info.getPhysicalResourceId()));
+  DescribeNetworkInterfacesType describeNetworkInterfacesType=MessageHelper.createMessage(DescribeNetworkInterfacesType.class,newAction.info.getEffectiveUserId());
+  describeNetworkInterfacesType.getFilterSet().add(Filter.filter("network-interface-id",newAction.info.getPhysicalResourceId()));
   DescribeNetworkInterfacesResponseType describeNetworkInterfacesResponseType=AsyncRequests.sendSync(configuration,describeNetworkInterfacesType);
   if (describeNetworkInterfacesResponseType.getNetworkInterfaceSet() == null || describeNetworkInterfacesResponseType.getNetworkInterfaceSet().getItem() == null || describeNetworkInterfacesResponseType.getNetworkInterfaceSet().getItem().size() != 1) {
-    throw new ValidationErrorException("Network interface " + action.info.getPhysicalResourceId() + " either does not exist or is not unique");
+    throw new ValidationErrorException("Network interface " + newAction.info.getPhysicalResourceId() + " either does not exist or is not unique");
   }
   String primaryIp=null;
   boolean foundPrimary=false;
@@ -13,7 +14,7 @@
   for (  NetworkInterfacePrivateIpAddressesSetItemType networkInterfacePrivateIpAddressesSetItemType : describeNetworkInterfacesResponseType.getNetworkInterfaceSet().getItem().get(0).getPrivateIpAddressesSet().getItem()) {
     if (networkInterfacePrivateIpAddressesSetItemType.getPrimary()) {
       if (foundPrimary) {
-        throw new ValidationErrorException("Network interface " + action.info.getPhysicalResourceId() + " has a non-unique primary private ip address");
+        throw new ValidationErrorException("Network interface " + newAction.info.getPhysicalResourceId() + " has a non-unique primary private ip address");
       }
  else {
         primaryIp=networkInterfacePrivateIpAddressesSetItemType.getPrivateIpAddress();
@@ -25,9 +26,9 @@
     }
   }
   if (!foundPrimary) {
-    throw new ValidationErrorException("Network interface " + action.info.getPhysicalResourceId() + " has no primary private ip address");
+    throw new ValidationErrorException("Network interface " + newAction.info.getPhysicalResourceId() + " has no primary private ip address");
   }
-  action.info.setPrimaryPrivateIpAddress(JsonHelper.getStringFromJsonNode(new TextNode(primaryIp)));
-  action.info.setSecondaryPrivateIpAddresses(JsonHelper.getStringFromJsonNode(secondaryIpArrayNode));
-  return action;
+  newAction.info.setPrimaryPrivateIpAddress(JsonHelper.getStringFromJsonNode(new TextNode(primaryIp)));
+  newAction.info.setSecondaryPrivateIpAddresses(JsonHelper.getStringFromJsonNode(secondaryIpArrayNode));
+  return newAction;
 }
