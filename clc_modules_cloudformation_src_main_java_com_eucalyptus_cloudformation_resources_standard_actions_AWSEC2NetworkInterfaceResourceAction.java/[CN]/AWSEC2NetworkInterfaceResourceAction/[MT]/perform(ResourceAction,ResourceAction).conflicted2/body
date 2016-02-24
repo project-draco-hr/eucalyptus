@@ -2,33 +2,19 @@
   AWSEC2NetworkInterfaceResourceAction oldAction=(AWSEC2NetworkInterfaceResourceAction)oldResourceAction;
   AWSEC2NetworkInterfaceResourceAction newAction=(AWSEC2NetworkInterfaceResourceAction)newResourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  DescribeNetworkInterfacesType describeNetworkInterfacesType=MessageHelper.createMessage(DescribeNetworkInterfacesType.class,newAction.info.getEffectiveUserId());
-  describeNetworkInterfacesType.getFilterSet().add(Filter.filter("network-interface-id",newAction.info.getPhysicalResourceId()));
-  DescribeNetworkInterfacesResponseType describeNetworkInterfacesResponseType=AsyncRequests.sendSync(configuration,describeNetworkInterfacesType);
-  if (describeNetworkInterfacesResponseType.getNetworkInterfaceSet() == null || describeNetworkInterfacesResponseType.getNetworkInterfaceSet().getItem() == null || describeNetworkInterfacesResponseType.getNetworkInterfaceSet().getItem().size() != 1) {
-    throw new ValidationErrorException("Network interface " + newAction.info.getPhysicalResourceId() + " either does not exist or is not unique");
-  }
-  String primaryIp=null;
-  boolean foundPrimary=false;
-  ArrayNode secondaryIpArrayNode=new ObjectMapper().createArrayNode();
-  for (  NetworkInterfacePrivateIpAddressesSetItemType networkInterfacePrivateIpAddressesSetItemType : describeNetworkInterfacesResponseType.getNetworkInterfaceSet().getItem().get(0).getPrivateIpAddressesSet().getItem()) {
-    if (networkInterfacePrivateIpAddressesSetItemType.getPrimary()) {
-      if (foundPrimary) {
-        throw new ValidationErrorException("Network interface " + newAction.info.getPhysicalResourceId() + " has a non-unique primary private ip address");
-      }
- else {
-        primaryIp=networkInterfacePrivateIpAddressesSetItemType.getPrivateIpAddress();
-        foundPrimary=true;
-      }
+  if (!Objects.equals(oldAction.properties.getDescription(),newAction.properties.getDescription()) || !Objects.equals(oldAction.properties.getGroupSet(),newAction.properties.getGroupSet()) || !Objects.equals(oldAction.properties.getSourceDestCheck(),newAction.properties.getSourceDestCheck())) {
+    ModifyNetworkInterfaceAttributeType modifyNetworkInterfaceAttributeType=MessageHelper.createMessage(ModifyNetworkInterfaceAttributeType.class,newAction.info.getEffectiveUserId());
+    modifyNetworkInterfaceAttributeType.setNetworkInterfaceId(newAction.info.getPhysicalResourceId());
+    if (!Objects.equals(oldAction.properties.getDescription(),newAction.properties.getDescription())) {
+      modifyNetworkInterfaceAttributeType.setDescription(newAction.convertNullableAttributeValueType(newAction.properties.getDescription() != null ? newAction.properties.getDescription() : ""));
     }
- else {
-      secondaryIpArrayNode.add(networkInterfacePrivateIpAddressesSetItemType.getPrivateIpAddress());
+    if (!Objects.equals(oldAction.properties.getGroupSet(),newAction.properties.getGroupSet())) {
+      modifyNetworkInterfaceAttributeType.setGroupSet(newAction.convertGroupSet(newAction.properties.getGroupSet() != null && !newAction.properties.getGroupSet().isEmpty() ? newAction.properties.getGroupSet() : Lists.newArrayList(newAction.getDefaultGroupId(configuration))));
     }
+    if (!Objects.equals(oldAction.properties.getSourceDestCheck(),newAction.properties.getSourceDestCheck())) {
+      modifyNetworkInterfaceAttributeType.setSourceDestCheck(newAction.convertAttributeBooleanValueType(newAction.properties.getSourceDestCheck() != null ? newAction.properties.getSourceDestCheck() : Boolean.TRUE));
+    }
+    ModifyNetworkInterfaceAttributeResponseType modifyNetworkInterfaceAttributeResponseType=AsyncRequests.sendSync(configuration,modifyNetworkInterfaceAttributeType);
   }
-  if (!foundPrimary) {
-    throw new ValidationErrorException("Network interface " + newAction.info.getPhysicalResourceId() + " has no primary private ip address");
-  }
-  newAction.info.setPrimaryPrivateIpAddress(JsonHelper.getStringFromJsonNode(new TextNode(primaryIp)));
-  newAction.info.setSecondaryPrivateIpAddresses(JsonHelper.getStringFromJsonNode(secondaryIpArrayNode));
   return newAction;
 }
