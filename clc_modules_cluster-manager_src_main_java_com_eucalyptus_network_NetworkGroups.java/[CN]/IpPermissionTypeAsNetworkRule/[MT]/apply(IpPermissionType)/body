@@ -1,0 +1,53 @@
+{
+  List<NetworkRule> ruleList=new ArrayList<NetworkRule>();
+  if (!ipPerm.getGroups().isEmpty()) {
+    if (ipPerm.getFromPort() != null && ipPerm.getFromPort() == 0 && ipPerm.getToPort() != null && ipPerm.getToPort() == 0) {
+      ipPerm.setToPort(65535);
+    }
+    List<String> empty=Lists.newArrayList();
+    if (ipPerm.getIpProtocol() == null) {
+      NetworkRule rule=NetworkRule.create(NetworkRule.Protocol.tcp,ipPerm.getFromPort(),ipPerm.getToPort(),IpPermissionTypeExtractNetworkPeers.INSTANCE.apply(ipPerm),empty);
+      ruleList.add(rule);
+      NetworkRule rule1=NetworkRule.create(NetworkRule.Protocol.udp,ipPerm.getFromPort(),ipPerm.getToPort(),IpPermissionTypeExtractNetworkPeers.INSTANCE.apply(ipPerm),empty);
+      ruleList.add(rule1);
+      NetworkRule rule2=NetworkRule.create(NetworkRule.Protocol.tcp,-1,-1,IpPermissionTypeExtractNetworkPeers.INSTANCE.apply(ipPerm),empty);
+      ruleList.add(rule2);
+    }
+ else {
+      NetworkRule rule=NetworkRule.create(ipPerm.getIpProtocol(),anyProtocolAllowed,ipPerm.getFromPort(),ipPerm.getToPort(),IpPermissionTypeExtractNetworkPeers.INSTANCE.apply(ipPerm),empty);
+      ruleList.add(rule);
+    }
+  }
+ else   if (!ipPerm.getCidrIpRanges().isEmpty()) {
+    List<String> ipRanges=Lists.newArrayList();
+    List<String> literalIpRanges=Lists.newArrayList(ipPerm.getCidrIpRanges());
+    for (    final String range : ipPerm.getCidrIpRanges()) {
+      try {
+        if (range.indexOf('/') < 0)         throw new IllegalArgumentException();
+        try {
+          ipRanges.add(Cidr.parse(range,true).toString());
+        }
+ catch (        IllegalArgumentException e) {
+          if (forRevoke) {
+            ipRanges.add(range);
+          }
+ else {
+            throw e;
+          }
+        }
+      }
+ catch (      IllegalArgumentException e) {
+        throw new IllegalArgumentException("Invalid IP range: '" + range + "'");
+      }
+    }
+    NetworkRule rule=NetworkRule.create(ipPerm.getIpProtocol(),anyProtocolAllowed,ipPerm.getFromPort(),ipPerm.getToPort(),IpPermissionTypeExtractNetworkPeers.INSTANCE.apply(ipPerm),ipRanges);
+    ruleList.add(rule);
+    if (forRevoke && !ipRanges.equals(literalIpRanges)) {
+      ruleList.add(NetworkRule.create(ipPerm.getIpProtocol(),anyProtocolAllowed,ipPerm.getFromPort(),ipPerm.getToPort(),IpPermissionTypeExtractNetworkPeers.INSTANCE.apply(ipPerm),literalIpRanges));
+    }
+  }
+ else {
+    throw new IllegalArgumentException("Invalid Ip Permissions:  must specify either a source cidr or user");
+  }
+  return ruleList;
+}
