@@ -2,24 +2,34 @@
   final ReplaceRouteResponseType reply=request.getReply();
   final Context ctx=Contexts.lookup();
   final AccountFullName accountFullName=ctx.getUserFullName().asAccountFullName();
-  final String gatewayId=Identifier.igw.normalize(request.getGatewayId());
+  final String gatewayId=request.getGatewayId() == null ? null : Identifier.igw.normalize(request.getGatewayId());
+  final String natGatewayId=request.getNatGatewayId() == null ? null : Identifier.nat.normalize(request.getNatGatewayId());
+  final String instanceId=request.getInstanceId() == null ? null : Identifier.i.normalize(request.getInstanceId());
+  final String networkInterfaceId=request.getNetworkInterfaceId() == null ? null : Identifier.eni.normalize(request.getNetworkInterfaceId());
   final String routeTableId=Identifier.rtb.normalize(request.getRouteTableId());
   final String destinationCidr=request.getDestinationCidrBlock();
   final Optional<Cidr> destinationCidrOption=Cidr.parse().apply(destinationCidr);
   if (!destinationCidrOption.isPresent()) {
     throw new ClientComputeException("InvalidParameterValue","Cidr invalid: " + destinationCidr);
   }
+  if (gatewayId == null && natGatewayId == null && instanceId == null && networkInterfaceId == null) {
+    throw new ClientComputeException("InvalidParameterCombination","Route target required");
+  }
   try {
     routeTables.updateByExample(RouteTable.exampleWithName(accountFullName,routeTableId),accountFullName,request.getRouteTableId(),new Callback<RouteTable>(){
       @Override public void fire(      final RouteTable routeTable){
         if (RestrictedTypes.filterPrivileged().apply(routeTable))         try {
-          final InternetGateway internetGateway=internetGateways.lookupByName(accountFullName,gatewayId,Functions.<InternetGateway>identity());
+          final NetworkInterface networkInterface=networkInterfaceId == null ? null : networkInterfaces.lookupByName(accountFullName,networkInterfaceId,Functions.<NetworkInterface>identity());
+          final VmInstance instance=instanceId == null ? null : VmInstances.lookup(instanceId);
+          final InternetGateway internetGateway=gatewayId == null ? null : internetGateways.lookupByName(accountFullName,gatewayId,Functions.<InternetGateway>identity());
+          final NatGateway natGateway=natGatewayId == null ? null : natGateways.lookupByName(accountFullName,natGatewayId,Functions.<NatGateway>identity());
           final List<Route> routes=routeTable.getRoutes();
           final Optional<Route> oldRoute=Iterables.tryFind(routes,CollectionUtils.propertyPredicate(destinationCidr,RouteTables.RouteFilterStringFunctions.DESTINATION_CIDR));
+          final Route route=createRouteForTarget(routeTable,destinationCidr,networkInterface,instance,natGateway,internetGateway,gatewayId);
           if (!oldRoute.isPresent()) {
             throw new ClientComputeException("InvalidRoute.NotFound","Route not found for cidr: " + destinationCidr);
           }
-          routes.set(routes.indexOf(oldRoute.get()),Route.create(routeTable,Route.RouteOrigin.CreateRoute,destinationCidr,internetGateway));
+          routes.set(routes.indexOf(oldRoute.get()),route);
           routeTable.updateTimeStamps();
         }
  catch (        Exception e) {
