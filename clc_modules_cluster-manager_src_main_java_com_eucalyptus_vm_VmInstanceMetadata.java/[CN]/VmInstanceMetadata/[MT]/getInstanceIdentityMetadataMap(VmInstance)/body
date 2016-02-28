@@ -1,0 +1,19 @@
+{
+  final Map<String,String> m=Maps.newHashMap();
+  final String identityDocument=new JSONObject().element("privateIp",vm.getPrivateAddress()).element("devpayProductCodes",JSONNull.getInstance()).element("availabilityZone",vm.getPartition()).element("version","2010-08-31").element("region",RegionConfigurations.getRegionNameOrDefault()).element("instanceId",vm.getDisplayName()).element("billingProducts",JSONNull.getInstance()).element("instanceType",vm.getVmType().getName()).element("accountId",vm.getOwnerAccountNumber()).element("pendingTime",Timestamps.formatIso8601Timestamp(vm.getCreationTimestamp())).element("imageId",vm.getImageId()).element("architecture",vm.getBootRecord() == null || vm.getBootRecord().getArchitecture() == null ? "x86_64" : vm.getBootRecord().getArchitecture().toString()).element("kernelId",vm.getKernelId() == null ? JSONNull.getInstance() : vm.getKernelId()).element("ramdiskId",vm.getRamdiskId() == null ? JSONNull.getInstance() : vm.getRamdiskId()).toString(2);
+  final SystemCredentials.Credentials credentials=SystemCredentials.lookup(Eucalyptus.class);
+  m.put("instance-identity/document",identityDocument);
+  try {
+    m.put("instance-identity/pkcs7",B64_76.encode(Pkcs7.sign(identityDocument,credentials.getPrivateKey(),credentials.getCertificate())));
+  }
+ catch (  Exception e) {
+    LOG.error("Error generating pkcs7 identity document signed data",e);
+  }
+  try {
+    m.put("instance-identity/signature",B64_76.encode(Signatures.SHA1WithRSA.signBinary(credentials.getPrivateKey(),identityDocument.getBytes(StandardCharsets.UTF_8))));
+  }
+ catch (  GeneralSecurityException e) {
+    LOG.error("Error generating identity document signature",e);
+  }
+  return m;
+}
