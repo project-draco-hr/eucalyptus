@@ -1,25 +1,10 @@
 {
-  String identifier="";
   Context ctx=Contexts.lookup();
   if (!ctx.hasAdministrativePrivileges()) {
-    Class<? extends BaseMessage> msgType=ctx.getRequest().getClass();
-    Class<?> rscType=findResourceClass(allocator);
-    Ats ats=findPolicyAnnotations(rscType,msgType);
-    PolicyVendor vendor=ats.get(PolicyVendor.class);
-    PolicyResourceType type=ats.get(PolicyResourceType.class);
-    String action=getIamActionByMessageType();
-    AuthContextSupplier userContext=ctx.getAuthContext();
-    try {
-      if (RestrictedType.class.isAssignableFrom(rscType) && !Permissions.isAuthorized(vendor.value(),type.value(),identifier,null,action,userContext)) {
-        throw new AuthException("Not authorized to create: " + type.value() + " by user: "+ ctx.getUserFullName());
-      }
- else       if (!Permissions.canAllocate(vendor.value(),type.value(),identifier,action,userContext,amount)) {
-        throw new AuthQuotaException(type.value(),"Quota exceeded while trying to create: " + type.value() + " by user: "+ ctx.getUserFullName());
-      }
-    }
- catch (    AuthException ex) {
-      throw ex;
-    }
+    String action=getIamActionByMessageType(ctx.getRequest());
+    return allocateMeasurableResource(ctx.getAuthContext(),ctx.getUserFullName(),action,amount,allocator);
   }
-  return allocator.apply(amount);
+ else {
+    return allocator.apply(amount);
+  }
 }

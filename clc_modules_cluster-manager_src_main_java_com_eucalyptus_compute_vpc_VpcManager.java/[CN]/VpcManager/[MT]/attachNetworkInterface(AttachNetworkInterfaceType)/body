@@ -14,13 +14,31 @@
           if (networkInterface.isAttached()) {
             throw Exceptions.toUndeclared(new ClientComputeException("InvalidNetworkInterface.InUse","Network interface " + networkInterfaceId + " is already attached to instance "+ networkInterface.getAttachment().getInstanceId()));
           }
+          if (deviceIndex < 0 || deviceIndex > 31) {
+            throw new ClientComputeException("InvalidParameterValue","Invalid network device index '" + deviceIndex + "'");
+          }
           for (          final NetworkInterface eni : vm.getNetworkInterfaces()) {
             if (eni.isAttached() && deviceIndex.equals(eni.getAttachment().getDeviceIndex())) {
               throw new ClientComputeException("InvalidParameterValue","Device index in use");
             }
           }
-          vmRef[0]=vm;
-          networkInterface.attach(NetworkInterfaceAttachment.create(Identifier.eni_attach.generate(),vm,vm.getDisplayName(),vm.getOwnerAccountNumber(),deviceIndex,NetworkInterfaceAttachment.Status.attached,new Date(),false));
+          final int interfaceCount=vm.getNetworkInterfaces().size() + 1;
+          final int maxInterfaces=VmTypes.lookup(vm.getInstanceType()).getNetworkInterfaces();
+          if (interfaceCount > maxInterfaces) {
+            throw new ClientComputeException("AttachmentLimitExceeded","Interface count " + interfaceCount + " exceeds the limit for "+ vm.getInstanceType());
+          }
+          final NetworkInterfaceAttachment.Status initialState;
+          if (VmInstance.VmState.RUNNING.apply(vm)) {
+            vmRef[0]=vm;
+            initialState=NetworkInterfaceAttachment.Status.attaching;
+          }
+ else           if (VmInstance.VmState.STOPPED.apply(vm)) {
+            initialState=NetworkInterfaceAttachment.Status.attached;
+          }
+ else {
+            throw new ClientComputeException("IncorrectState","Instance '" + instanceId + "' is not 'running' or 'stopped'");
+          }
+          networkInterface.attach(NetworkInterfaceAttachment.create(Identifier.eni_attach.generate(),vm,vm.getDisplayName(),vm.getOwnerAccountNumber(),deviceIndex,initialState,new Date(),false));
         }
  catch (        NoSuchElementException e) {
           throw Exceptions.toUndeclared(new ClientComputeException("InvalidInstanceID.NotFound","Instance not found '" + request.getInstanceId() + "'"));

@@ -1,0 +1,22 @@
+{
+  AWSIAMPolicyResourceAction oldAction=(AWSIAMPolicyResourceAction)oldResourceAction;
+  AWSIAMPolicyResourceAction newAction=(AWSIAMPolicyResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Euare.class);
+  Set<String> oldRoleNames=IAMHelper.collectionToSetAndNullToEmpty(oldAction.properties.getRoles());
+  Set<String> newRoleNames=IAMHelper.collectionToSetAndNullToEmpty(newAction.properties.getRoles());
+  for (  String roleName : newRoleNames) {
+    PutRolePolicyType putRolePolicyType=MessageHelper.createMessage(PutRolePolicyType.class,newAction.info.getEffectiveUserId());
+    putRolePolicyType.setRoleName(roleName);
+    putRolePolicyType.setPolicyName(newAction.properties.getPolicyName());
+    putRolePolicyType.setPolicyDocument(newAction.properties.getPolicyDocument().toString());
+    AsyncRequests.<PutRolePolicyType,PutRolePolicyResponseType>sendSync(configuration,putRolePolicyType);
+  }
+  Collection<String> targetOldRoleNames=oldAction.properties.getPolicyName().equals(newAction.properties.getPolicyName()) ? Sets.difference(oldRoleNames,newRoleNames) : oldRoleNames;
+  for (  String roleName : targetOldRoleNames) {
+    DeleteRolePolicyType deleteRolePolicyType=MessageHelper.createMessage(DeleteRolePolicyType.class,newAction.info.getEffectiveUserId());
+    deleteRolePolicyType.setRoleName(roleName);
+    deleteRolePolicyType.setPolicyName(oldAction.properties.getPolicyName());
+    AsyncRequests.<DeleteRolePolicyType,DeleteRolePolicyResponseType>sendSync(configuration,deleteRolePolicyType);
+  }
+  return newAction;
+}

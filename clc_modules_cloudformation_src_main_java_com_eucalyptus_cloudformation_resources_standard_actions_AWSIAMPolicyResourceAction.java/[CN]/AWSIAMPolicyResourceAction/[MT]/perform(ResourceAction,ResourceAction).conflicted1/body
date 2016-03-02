@@ -1,0 +1,22 @@
+{
+  AWSIAMPolicyResourceAction oldAction=(AWSIAMPolicyResourceAction)oldResourceAction;
+  AWSIAMPolicyResourceAction newAction=(AWSIAMPolicyResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Euare.class);
+  Set<String> oldUserNames=IAMHelper.collectionToSetAndNullToEmpty(oldAction.properties.getUsers());
+  Set<String> newUserNames=IAMHelper.collectionToSetAndNullToEmpty(newAction.properties.getUsers());
+  for (  String userName : newUserNames) {
+    PutUserPolicyType putUserPolicyType=MessageHelper.createMessage(PutUserPolicyType.class,newAction.info.getEffectiveUserId());
+    putUserPolicyType.setUserName(userName);
+    putUserPolicyType.setPolicyName(newAction.properties.getPolicyName());
+    putUserPolicyType.setPolicyDocument(newAction.properties.getPolicyDocument().toString());
+    AsyncRequests.<PutUserPolicyType,PutUserPolicyResponseType>sendSync(configuration,putUserPolicyType);
+  }
+  Collection<String> targetOldUserNames=oldAction.properties.getPolicyName().equals(newAction.properties.getPolicyName()) ? Sets.difference(oldUserNames,newUserNames) : oldUserNames;
+  for (  String userName : targetOldUserNames) {
+    DeleteUserPolicyType deleteUserPolicyType=MessageHelper.createMessage(DeleteUserPolicyType.class,newAction.info.getEffectiveUserId());
+    deleteUserPolicyType.setUserName(userName);
+    deleteUserPolicyType.setPolicyName(oldAction.properties.getPolicyName());
+    AsyncRequests.<DeleteUserPolicyType,DeleteUserPolicyResponseType>sendSync(configuration,deleteUserPolicyType);
+  }
+  return newAction;
+}

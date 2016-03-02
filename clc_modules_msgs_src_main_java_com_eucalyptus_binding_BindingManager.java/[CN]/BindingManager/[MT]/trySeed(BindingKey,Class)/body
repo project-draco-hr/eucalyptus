@@ -1,15 +1,22 @@
 {
   boolean seeded=false;
   if (!BindingManager.bindingMap.containsKey(key)) {
-    try {
-      BindingManager.getBinding(key).seed(seedClass);
-      Logs.exhaust().trace("Seeding binding " + key.getName() + " for class "+ seedClass.getCanonicalName());
-      EventRecord.here(BindingManager.class,EventType.BINDING_SEEDED,key.getName(),seedClass.getName()).trace();
-      seeded=true;
+    final Binding binding=BindingManager.getBinding(key);
+    seeded=true;
+    bindingSeedMap.put(key,Threads.enqueue(Empyrean.class,BindingManager.class,new Callable<Boolean>(){
+      @Override public Boolean call() throws Exception {
+        try {
+          binding.seed(seedClass);
+          Logs.exhaust().trace("Seeding binding " + key.getName() + " for class "+ seedClass.getCanonicalName());
+          EventRecord.here(BindingManager.class,EventType.BINDING_SEEDED,key.getName() + " " + key.component,seedClass.getName()).debug();
+        }
+ catch (        BindingException e) {
+          throw new BindingException("Failed to seed binding " + key.getName() + " with class "+ seedClass,e);
+        }
+        return true;
+      }
     }
- catch (    BindingException e) {
-      throw BootstrapException.error("Failed to seed binding " + key.getName() + " with class "+ seedClass,e);
-    }
+));
   }
   return seeded;
 }

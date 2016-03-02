@@ -1,0 +1,23 @@
+{
+  final Vpc vpc=subnet.getVpc();
+  final String identifier=ResourceIdentifiers.generateString("eni");
+  final String mac=NetworkInterfaceHelper.mac(identifier);
+  final String accountNumber;
+  try {
+    accountNumber=Accounts.lookupAccountIdentifiersByAlias(AccountIdentifiers.SYSTEM_ACCOUNT).getAccountNumber();
+  }
+ catch (  final AuthException e) {
+    throw (ComputeException)new ComputeException("InternalError","Requester identifier lookup failure").initCause(e);
+  }
+  final String ip;
+  try {
+    ip=NetworkInterfaceHelper.allocate(vpc.getDisplayName(),subnet.getDisplayName(),identifier,mac,null);
+  }
+ catch (  final ResourceAllocationException e) {
+    throw new ClientComputeException("InsufficientFreeAddressesInSubnet","Cannot allocate address for subnet " + subnet.getDisplayName());
+  }
+  final NetworkInterface networkInterface=NetworkInterface.create(natGateway.getOwner(),accountNumber,vpc,subnet,identifier,mac,ip,vpc.getDnsHostnames() ? VmInstances.dnsName(ip,DomainNames.internalSubdomain()) : null,"Interface for NAT Gateway " + natGateway.getDisplayName());
+  networkInterface.attach(NetworkInterfaceAttachment.create(ResourceIdentifiers.generateString("ela-attach"),natGateway.getDisplayName(),NetworkInterfaceAttachment.Status.attached));
+  natGateway.attach(networkInterface);
+  return networkInterface;
+}

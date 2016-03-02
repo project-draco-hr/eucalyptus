@@ -1,0 +1,20 @@
+{
+  if (!instanceTimeoutSemaphore.tryAcquire()) {
+    return;
+  }
+  try {
+    final Set<String> instanceIds=Sets.newHashSet(VmInstances.listWithProjection(VmInstances.instanceIdProjection(),VmInstance.criterion(VmInstance.VmState.PENDING),VmInstance.lastUpdatedCriterion(System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(VmInstances.PENDING_TIME)),VmInstance.nullNodeCriterion()));
+    for (    final String instanceId : instanceIds) {
+      logger.info("Timing out pending instance : " + instanceId);
+      try {
+        VmInstances.terminated(instanceId);
+      }
+ catch (      final TransactionException e) {
+        logger.error("Error terminating instance : " + instanceId,e);
+      }
+    }
+  }
+  finally {
+    instanceTimeoutSemaphore.release();
+  }
+}

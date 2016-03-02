@@ -11,8 +11,21 @@
           if (Integer.valueOf(0).equals(networkInterface.getAttachment().getDeviceIndex())) {
             throw new ClientComputeException("OperationNotPermitted","Primary network interface cannot be detached");
           }
-          vpcId[0]=networkInterface.getVpc().getDisplayName();
-          networkInterface.detach();
+          if (networkInterface.getType() == NetworkInterface.Type.NatGateway) {
+            throw Exceptions.toUndeclared(new ClientComputeException("OperationNotPermitted","NAT gateway network interface cannot be detached"));
+          }
+          if (networkInterface.isAttached() && (networkInterface.getAttachment().getStatus() == NetworkInterfaceAttachment.Status.attached || networkInterface.getAttachment().getStatus() == NetworkInterfaceAttachment.Status.attaching)) {
+            if (VmInstance.VmState.PENDING.apply(networkInterface.getInstance())) {
+              throw new ClientComputeException("IncorrectState","The instance is not in a valid state for this operation");
+            }
+ else             if (VmInstance.VmStateSet.TORNDOWN.apply(networkInterface.getInstance())) {
+              networkInterface.detach();
+            }
+ else {
+              vpcId[0]=networkInterface.getVpc().getDisplayName();
+              networkInterface.getAttachment().transitionStatus(NetworkInterfaceAttachment.Status.detaching);
+            }
+          }
         }
  catch (        Exception e) {
           throw Exceptions.toUndeclared(e);

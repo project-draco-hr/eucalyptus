@@ -1,0 +1,40 @@
+{
+  try (TransactionResource db=Entities.transactionFor(StackResourceEntity.class)){
+    Criteria criteria=Entities.createCriteria(StackResourceEntity.class).add(Restrictions.eq("accountId",accountId)).add(Restrictions.eq("stackId",stackId)).add(Restrictions.eq("recordDeleted",Boolean.FALSE));
+    List<StackResourceEntity> stackResourceEntityList=criteria.list();
+    Map<String,List<StackResourceEntity>> stackResourceEntityVersionMap=Maps.newHashMap();
+    if (stackResourceEntityList != null) {
+      for (      StackResourceEntity stackResourceEntity : stackResourceEntityList) {
+        String key=stackResourceEntity.getAccountId() + " | " + stackResourceEntity.getStackId()+ " | "+ stackResourceEntity.getLogicalResourceId();
+        if (!stackResourceEntityVersionMap.containsKey(key)) {
+          stackResourceEntityVersionMap.put(key,Lists.<StackResourceEntity>newArrayList());
+        }
+        stackResourceEntityVersionMap.get(key).add(stackResourceEntity);
+      }
+      for (      List<StackResourceEntity> stackResourceEntityPerKeyList : stackResourceEntityVersionMap.values()) {
+        StackResourceEntity maxEntity=null;
+        for (        StackResourceEntity stackResourceEntity : stackResourceEntityPerKeyList) {
+          if (maxEntity == null) {
+            maxEntity=stackResourceEntity;
+          }
+ else           if (stackResourceEntity.getResourceStatus() != Status.NOT_STARTED && maxEntity.getResourceStatus() == Status.NOT_STARTED) {
+            maxEntity=stackResourceEntity;
+          }
+ else           if (stackResourceEntity.getResourceStatus() == Status.NOT_STARTED && maxEntity.getResourceStatus() == Status.NOT_STARTED && stackResourceEntity.getResourceVersion() > maxEntity.getResourceVersion()) {
+            maxEntity=stackResourceEntity;
+          }
+ else           if (stackResourceEntity.getResourceStatus() != Status.NOT_STARTED && maxEntity.getResourceStatus() != Status.NOT_STARTED && stackResourceEntity.getResourceVersion() > maxEntity.getResourceVersion()) {
+            maxEntity=stackResourceEntity;
+          }
+        }
+        maxEntity.setResourceVersion(finalResourceVersion);
+        for (        StackResourceEntity stackResourceEntity : stackResourceEntityPerKeyList) {
+          if (stackResourceEntity != maxEntity) {
+            Entities.delete(stackResourceEntity);
+          }
+        }
+      }
+    }
+    db.commit();
+  }
+ }

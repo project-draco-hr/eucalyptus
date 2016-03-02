@@ -1,11 +1,16 @@
 {
   AWSIAMAccessKeyResourceAction action=(AWSIAMAccessKeyResourceAction)resourceAction;
-  if (action.properties.getStatus() == null)   action.properties.setStatus("Active");
   ServiceConfiguration configuration=Topology.lookup(Euare.class);
-  UpdateAccessKeyType updateAccessKeyType=MessageHelper.createMessage(UpdateAccessKeyType.class,action.info.getEffectiveUserId());
-  updateAccessKeyType.setUserName(action.properties.getUserName());
-  updateAccessKeyType.setAccessKeyId(action.info.getPhysicalResourceId());
-  updateAccessKeyType.setStatus(action.properties.getStatus());
-  AsyncRequests.<UpdateAccessKeyType,UpdateAccessKeyResponseType>sendSync(configuration,updateAccessKeyType);
+  if (action.properties.getStatus() == null)   action.properties.setStatus("Active");
+  if (!"Active".equals(action.properties.getStatus()) && !"Inactive".equals(action.properties.getStatus())) {
+    throw new ValidationErrorException("Invalid status " + action.properties.getStatus());
+  }
+  CreateAccessKeyType createAccessKeyType=MessageHelper.createMessage(CreateAccessKeyType.class,action.info.getEffectiveUserId());
+  createAccessKeyType.setUserName(action.properties.getUserName());
+  CreateAccessKeyResponseType createAccessKeyResponseType=AsyncRequests.<CreateAccessKeyType,CreateAccessKeyResponseType>sendSync(configuration,createAccessKeyType);
+  action.info.setPhysicalResourceId(createAccessKeyResponseType.getCreateAccessKeyResult().getAccessKey().getAccessKeyId());
+  action.info.setCreatedEnoughToDelete(true);
+  action.info.setSecretAccessKey(JsonHelper.getStringFromJsonNode(new TextNode(createAccessKeyResponseType.getCreateAccessKeyResult().getAccessKey().getSecretAccessKey())));
+  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
   return action;
 }

@@ -3,7 +3,23 @@
   final String instanceId=normalizeIdentifier(request.getInstanceId());
   try (final TransactionResource tx=Entities.transactionFor(VmInstance.class)){
     final VmInstance vm=RestrictedTypes.doPrivileged(instanceId,VmInstance.class);
-    if (VmState.STOPPED.equals(vm.getState())) {
+    if ("sourceDestCheck".equals(request.getAttribute())) {
+      if (vm.getNetworkInterfaces() != null) {
+        for (        final NetworkInterface networkInterface : vm.getNetworkInterfaces()) {
+          if (networkInterface.getAttachment().getDeviceIndex() == 0) {
+            networkInterface.setSourceDestCheck(true);
+            tx.commit();
+            NetworkGroups.flushRules();
+            break;
+          }
+        }
+      }
+    }
+ else     if ("disableApiTermination".equals(request.getAttribute())) {
+      vm.setDisableApiTermination(false);
+      tx.commit();
+    }
+ else     if (VmState.STOPPED.equals(vm.getState())) {
       if (request.getAttribute().equals("kernel")) {
         String kernelId=vm.getKernelId();
         if (kernelId == null) {

@@ -1,0 +1,46 @@
+{
+  Bucket bucket=getBucketAndCheckAuthorization(request);
+  LOG.debug("In setBucketCors");
+  SetBucketCorsResponseType response=request.getReply();
+  String bucketName=request.getBucket();
+  List<CorsRule> goodRules=new ArrayList<>();
+  final int MAX_CORS_RULES=100;
+  if (request.getCorsConfiguration() != null && request.getCorsConfiguration().getRules() != null && request.getCorsConfiguration().getRules().size() > MAX_CORS_RULES) {
+    MalformedXMLException ex=new MalformedXMLException(bucketName);
+    ex.setMessage("More than " + MAX_CORS_RULES + " rules in CORS configuration not allowed");
+    throw ex;
+  }
+  List<String> savedRuleIds=new ArrayList<>();
+  String ruleId=null;
+  InvalidArgumentException invArgEx=null;
+  for (  CorsRule rule : request.getCorsConfiguration().getRules()) {
+    if (rule == null) {
+      break;
+    }
+    ruleId=rule.getId();
+    if (ruleId != null && ruleId.length() > 0) {
+      for (      String savedRuleId : savedRuleIds) {
+        if (ruleId.equals(savedRuleId)) {
+          invArgEx=new InvalidArgumentException(ruleId);
+          invArgEx.setMessage("RuleId must be unique. Found same ID for more than one rule");
+          throw invArgEx;
+        }
+        if (ruleId.length() > 255) {
+          invArgEx=new InvalidArgumentException(ruleId);
+          invArgEx.setMessage("RuleId > 255 characters");
+          throw invArgEx;
+        }
+      }
+      savedRuleIds.add(ruleId);
+    }
+    goodRules.add(rule);
+  }
+  try {
+    BucketCorsManagers.getInstance().addCorsRules(goodRules,bucket.getBucketUuid());
+  }
+ catch (  Exception ex) {
+    LOG.error("Caught exception while setting the CORS configuration for bucket <" + bucketName + ">, error: "+ ex.getMessage());
+    throw new InternalErrorException(bucketName);
+  }
+  return response;
+}

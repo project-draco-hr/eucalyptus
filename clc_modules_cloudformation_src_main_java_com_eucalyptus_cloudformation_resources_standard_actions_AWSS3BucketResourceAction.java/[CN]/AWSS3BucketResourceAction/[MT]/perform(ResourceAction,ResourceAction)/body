@@ -1,0 +1,74 @@
+{
+  AWSS3BucketResourceAction oldAction=(AWSS3BucketResourceAction)oldResourceAction;
+  AWSS3BucketResourceAction newAction=(AWSS3BucketResourceAction)newResourceAction;
+  if (newAction.properties.getVersioningConfiguration() != null && newAction.properties.getLifecycleConfiguration() != null) {
+    throw new ValidationErrorException("Unable to set both lifecycle configuration and versioning configuration for buckets");
+  }
+  URI serviceURI=ServiceUris.remotePublicify(ObjectStorage.class);
+  User user=Accounts.lookupPrincipalByUserId(oldAction.getResourceInfo().getEffectiveUserId());
+  String bucketName=oldAction.info.getPhysicalResourceId();
+  try (final EucaS3Client s3c=EucaS3ClientFactory.getEucaS3Client(new SecurityTokenAWSCredentialsProvider(user))){
+    if (newAction.properties.getAccessControl() != null) {
+      s3c.setBucketAcl(bucketName,CannedAccessControlList.valueOf(newAction.properties.getAccessControl()));
+    }
+ else {
+      s3c.setBucketAcl(bucketName,CannedAccessControlList.BucketOwnerFullControl);
+    }
+    if (newAction.properties.getCorsConfiguration() != null) {
+      s3c.setBucketCrossOriginConfiguration(bucketName,convertCrossOriginConfiguration(newAction.properties.getCorsConfiguration()));
+    }
+ else {
+      s3c.deleteBucketCrossOriginConfiguration(bucketName);
+    }
+    if (newAction.properties.getLifecycleConfiguration() != null) {
+      BucketVersioningConfiguration bucketVersioningConfiguration=s3c.getBucketVersioningConfiguration(bucketName);
+      if (!"Off".equals(bucketVersioningConfiguration.getStatus())) {
+        throw new ValidationErrorException("Unable to set lifecycle configuration on bucket " + bucketName + ", versioning is not Off, it is "+ bucketVersioningConfiguration.getStatus());
+      }
+      s3c.setBucketLifecycleConfiguration(bucketName,convertLifecycleConfiguration(newAction.properties.getLifecycleConfiguration()));
+    }
+ else {
+      s3c.deleteBucketLifecycleConfiguration(bucketName);
+    }
+    if (newAction.properties.getLoggingConfiguration() != null) {
+      throw new InternalFailureException("LoggingConfiguration not yet implemented");
+    }
+    if (newAction.properties.getNotificationConfiguration() != null) {
+      throw new InternalFailureException("NotificationConfiguration not yet implemented");
+    }
+    if (newAction.properties.getReplicationConfiguration() != null) {
+      throw new InternalFailureException("ReplicationConfiguration not yet implemented");
+    }
+    setBucketTags(newAction,user,bucketName,s3c);
+    if (newAction.properties.getVersioningConfiguration() != null) {
+      BucketLifecycleConfiguration bucketLifecycleConfiguration=s3c.getBucketLifecycleConfiguration(bucketName);
+      if (bucketLifecycleConfiguration.getRules().size() > 0) {
+        throw new ValidationErrorException("Unable to set versioning configuration bucket " + bucketName + ".  Lifecycle configuration has been set.");
+      }
+      s3c.setBucketVersioningConfiguration(convertVersioningConfiguration(bucketName,newAction.properties.getVersioningConfiguration()));
+    }
+ else {
+      BucketVersioningConfiguration bucketVersioningConfiguration=s3c.getBucketVersioningConfiguration(bucketName);
+      if (bucketVersioningConfiguration == null) {
+        throw new InternalFailureException("Unable to get bucketVersioningConfiguration for " + bucketName + " , does bucket exist?");
+      }
+      if (!bucketVersioningConfiguration.getStatus().equals("Off")) {
+        s3c.setBucketVersioningConfiguration(new SetBucketVersioningConfigurationRequest(bucketName,new BucketVersioningConfiguration("Suspended")));
+      }
+    }
+    if (newAction.properties.getWebsiteConfiguration() != null) {
+      throw new InternalFailureException("WebsiteConfiguration not yet implemented");
+    }
+    String domainName=null;
+    if ((serviceURI.getPath() == null || serviceURI.getPath().replace("/","").isEmpty())) {
+      domainName=bucketName + "." + serviceURI.getHost()+ (serviceURI.getPort() != -1 ? ":" + serviceURI.getPort() : "");
+    }
+ else {
+      domainName=serviceURI.getHost() + (serviceURI.getPort() != -1 ? ":" + serviceURI.getPort() : "") + serviceURI.getPath()+ "/"+ bucketName;
+    }
+    newAction.info.setDomainName(JsonHelper.getStringFromJsonNode(new TextNode(domainName)));
+    newAction.info.setWebsiteURL(JsonHelper.getStringFromJsonNode(new TextNode("http://" + domainName)));
+    newAction.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(newAction.info.getPhysicalResourceId())));
+    return newAction;
+  }
+ }

@@ -1,0 +1,42 @@
+{
+  try (TransactionResource db=Entities.transactionFor(STACK_ENTITY_TRANSACTION_CLASS)){
+    Criteria criteria=Entities.createCriteria(StackEntity.class).add(Restrictions.eq("stackId",stackId)).add(Restrictions.eq("accountId",accountId)).add(Restrictions.eq("recordDeleted",Boolean.FALSE));
+    List<StackEntity> entityList=criteria.list();
+    if (entityList == null || entityList.isEmpty()) {
+      throw new ValidationErrorException("Stack does not exist");
+    }
+ else     if (entityList.size() > 1) {
+      throw new InternalFailureException("More than one stack exists with this id " + stackId);
+    }
+    StackEntity currentStackEntity=entityList.get(0);
+    if (currentStackEntity.getStackVersion() != previousStackVersion) {
+      throw new ValidationErrorException("Stack: " + stackId + " is already being updated");
+    }
+    if (currentStackEntity.getStackStatus() != Status.CREATE_COMPLETE && currentStackEntity.getStackStatus() != Status.UPDATE_COMPLETE && currentStackEntity.getStackStatus() != Status.UPDATE_ROLLBACK_COMPLETE) {
+      throw new ValidationErrorException("Stack:" + stackId + " is in "+ currentStackEntity.getStackStatus().toString()+ " state and can not be updated.");
+    }
+    PastStackEntity previousStackEntity=new PastStackEntity();
+    copyStackEntityFields(currentStackEntity,previousStackEntity);
+    addStack(previousStackEntity);
+    StackEntityHelper.populateStackEntityWithTemplate(currentStackEntity,newTemplate);
+    currentStackEntity.setTemplateBody(newTemplateText);
+    currentStackEntity.setStackStatus(Status.UPDATE_IN_PROGRESS);
+    currentStackEntity.setStackStatusReason("User initiated");
+    currentStackEntity.setLastUpdateOperationTimestamp(new Date());
+    if (request.getCapabilities() != null && request.getCapabilities().getMember() != null) {
+      currentStackEntity.setCapabilitiesJson(StackEntityHelper.capabilitiesToJson(request.getCapabilities().getMember()));
+    }
+ else {
+      currentStackEntity.setCapabilitiesJson(null);
+    }
+    if (request.getNotificationARNs() != null && request.getNotificationARNs().getMember() != null) {
+      currentStackEntity.setNotificationARNsJson(StackEntityHelper.notificationARNsToJson(request.getNotificationARNs().getMember()));
+    }
+ else {
+      currentStackEntity.setNotificationARNsJson(null);
+    }
+    currentStackEntity.setStackVersion(previousStackVersion + 1);
+    db.commit();
+    return currentStackEntity;
+  }
+ }

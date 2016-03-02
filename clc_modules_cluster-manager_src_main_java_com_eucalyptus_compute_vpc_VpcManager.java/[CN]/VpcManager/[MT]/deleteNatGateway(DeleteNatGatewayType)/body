@@ -1,0 +1,43 @@
+{
+  final DeleteNatGatewayResponseType reply=request.getReply();
+  final String natGatewayId=Identifier.nat.normalize(request.getNatGatewayId());
+  final Context ctx=Contexts.lookup();
+  final AccountFullName accountFullName=ctx.isAdministrator() ? null : ctx.getUserFullName().asAccountFullName();
+  try {
+    natGateways.updateByExample(NatGateway.exampleWithName(accountFullName,natGatewayId),accountFullName,natGatewayId,new Callback<NatGateway>(){
+      @Override public void fire(      final NatGateway natGateway){
+        if (RestrictedTypes.filterPrivileged().apply(natGateway)) {
+          try {
+            if (natGateway.getState() == NatGateway.State.available || natGateway.getState() == NatGateway.State.pending) {
+              natGateway.setState(NatGateway.State.deleting);
+              natGateway.markDeletion();
+            }
+ else {
+              if (ctx.isAdministrator()) {
+                final Optional<NetworkInterface> networkInterface=NatGatewayHelper.cleanupResources(natGateway);
+                if (networkInterface.isPresent()) {
+                  networkInterfaces.delete(networkInterface.get());
+                }
+                natGateways.delete(natGateway);
+              }
+            }
+          }
+ catch (          Exception e) {
+            throw Exceptions.toUndeclared(e);
+          }
+        }
+ else {
+          throw Exceptions.toUndeclared(new ClientUnauthorizedComputeException("Not authorized to delete nat gateway"));
+        }
+      }
+    }
+);
+  }
+ catch (  final Exception e) {
+    if (!Exceptions.isCausedBy(e,VpcMetadataNotFoundException.class)) {
+      throw handleException(e);
+    }
+  }
+  reply.setNatGatewayId(request.getNatGatewayId());
+  return reply;
+}
