@@ -1,71 +1,69 @@
 {
-synchronized (getLock()) {
-    if (!ServerCertificateEntity.isCertificateNameValid(certName))     throw new AuthException(AuthException.INVALID_SERVER_CERT_NAME);
-    if (!ServerCertificateEntity.isCertificatePathValid(certPath))     throw new AuthException(AuthException.INVALID_SERVER_CERT_PATH);
-    try {
-      ServerCertificates.verifyCertificate(certBody,pk,certChain);
-    }
- catch (    final AuthException ex) {
-      throw ex;
-    }
-catch (    final Exception ex) {
-      throw new AuthException(AuthException.SERVER_CERT_INVALID_FORMAT);
-    }
-    String encPk=null;
-    String sessionKey=null;
-    try {
-      final MessageDigest digest=Digest.SHA256.get();
-      final byte[] salt=new byte[32];
-      Crypto.getSecureRandomSupplier().get().nextBytes(salt);
-      digest.update(salt);
-      final SecretKey symmKey=new SecretKeySpec(digest.digest(),"AES");
-      Cipher cipher=Ciphers.AES_GCM.get();
-      final byte[] iv=new byte[32];
-      Crypto.getSecureRandomSupplier().get().nextBytes(iv);
-      cipher.init(Cipher.ENCRYPT_MODE,symmKey,new IvParameterSpec(iv),Crypto.getSecureRandomSupplier().get());
-      final byte[] cipherText=cipher.doFinal(pk.getBytes());
-      encPk=new String(Base64.encode(Arrays.concatenate(iv,cipherText)));
-      final PublicKey euarePublicKey=SystemCredentials.lookup(Euare.class).getCertificate().getPublicKey();
-      cipher=Ciphers.RSA_PKCS1.get();
-      cipher.init(Cipher.WRAP_MODE,euarePublicKey,Crypto.getSecureRandomSupplier().get());
-      byte[] wrappedKeyBytes=cipher.wrap(symmKey);
-      sessionKey=new String(Base64.encode(wrappedKeyBytes));
-    }
- catch (    final Exception e) {
-      LOG.error("Failed to encrypt key",e);
-      throw Exceptions.toUndeclared(e);
-    }
-    try {
-      final ServerCertificate found=lookupServerCertificate(certName);
-      if (found != null)       throw new AuthException(AuthException.SERVER_CERT_ALREADY_EXISTS);
-    }
- catch (    final NoSuchElementException ex) {
-      ;
-    }
-catch (    final AuthException ex) {
-      if (!AuthException.SERVER_CERT_NO_SUCH_ENTITY.equals(ex.getMessage()))       throw ex;
-    }
-catch (    final Exception ex) {
-      throw ex;
-    }
-    final String certId=Identifiers.generateIdentifier("ASC");
-    ServerCertificateEntity entity=null;
-    try (final TransactionResource db=Entities.transactionFor(ServerCertificateEntity.class)){
-      final UserFullName accountAdmin=UserFullName.getInstance(this.lookupAdmin());
-      entity=new ServerCertificateEntity(accountAdmin,certName);
-      entity.setCertBody(certBody);
-      entity.setCertChain(certChain);
-      entity.setCertPath(certPath);
-      entity.setPrivateKey(encPk);
-      entity.setSessionKey(sessionKey);
-      entity.setCertId(certId);
-      Entities.persist(entity);
-      db.commit();
-    }
- catch (    final Exception ex) {
-      LOG.error("Failed to persist server certificate entity",ex);
-      throw Exceptions.toUndeclared(ex);
-    }
-    return ServerCertificates.ToServerCertificate.INSTANCE.apply(entity);
+  if (!ServerCertificateEntity.isCertificateNameValid(certName))   throw new AuthException(AuthException.INVALID_SERVER_CERT_NAME);
+  if (!ServerCertificateEntity.isCertificatePathValid(certPath))   throw new AuthException(AuthException.INVALID_SERVER_CERT_PATH);
+  try {
+    ServerCertificates.verifyCertificate(certBody,pk,certChain);
   }
+ catch (  final AuthException ex) {
+    throw ex;
+  }
+catch (  final Exception ex) {
+    throw new AuthException(AuthException.SERVER_CERT_INVALID_FORMAT);
+  }
+  String encPk=null;
+  String sessionKey=null;
+  try {
+    final MessageDigest digest=Digest.SHA256.get();
+    final byte[] salt=new byte[32];
+    Crypto.getSecureRandomSupplier().get().nextBytes(salt);
+    digest.update(salt);
+    final SecretKey symmKey=new SecretKeySpec(digest.digest(),"AES");
+    Cipher cipher=Ciphers.AES_GCM.get();
+    final byte[] iv=new byte[32];
+    Crypto.getSecureRandomSupplier().get().nextBytes(iv);
+    cipher.init(Cipher.ENCRYPT_MODE,symmKey,new IvParameterSpec(iv),Crypto.getSecureRandomSupplier().get());
+    final byte[] cipherText=cipher.doFinal(pk.getBytes());
+    encPk=new String(Base64.encode(Arrays.concatenate(iv,cipherText)));
+    final PublicKey euarePublicKey=SystemCredentials.lookup(Euare.class).getCertificate().getPublicKey();
+    cipher=Ciphers.RSA_PKCS1.get();
+    cipher.init(Cipher.WRAP_MODE,euarePublicKey,Crypto.getSecureRandomSupplier().get());
+    byte[] wrappedKeyBytes=cipher.wrap(symmKey);
+    sessionKey=new String(Base64.encode(wrappedKeyBytes));
+  }
+ catch (  final Exception e) {
+    LOG.error("Failed to encrypt key",e);
+    throw Exceptions.toUndeclared(e);
+  }
+  try {
+    final ServerCertificate found=lookupServerCertificate(certName);
+    if (found != null)     throw new AuthException(AuthException.SERVER_CERT_ALREADY_EXISTS);
+  }
+ catch (  final NoSuchElementException ex) {
+    ;
+  }
+catch (  final AuthException ex) {
+    if (!AuthException.SERVER_CERT_NO_SUCH_ENTITY.equals(ex.getMessage()))     throw ex;
+  }
+catch (  final Exception ex) {
+    throw ex;
+  }
+  final String certId=Identifiers.generateIdentifier("ASC");
+  ServerCertificateEntity entity=null;
+  try (final TransactionResource db=Entities.transactionFor(ServerCertificateEntity.class)){
+    final UserFullName accountAdmin=UserFullName.getInstance(this.lookupAdmin());
+    entity=new ServerCertificateEntity(accountAdmin,certName);
+    entity.setCertBody(certBody);
+    entity.setCertChain(certChain);
+    entity.setCertPath(certPath);
+    entity.setPrivateKey(encPk);
+    entity.setSessionKey(sessionKey);
+    entity.setCertId(certId);
+    Entities.persist(entity);
+    db.commit();
+  }
+ catch (  final Exception ex) {
+    LOG.error("Failed to persist server certificate entity",ex);
+    throw Exceptions.toUndeclared(ex);
+  }
+  return ServerCertificates.ToServerCertificate.INSTANCE.apply(entity);
 }
