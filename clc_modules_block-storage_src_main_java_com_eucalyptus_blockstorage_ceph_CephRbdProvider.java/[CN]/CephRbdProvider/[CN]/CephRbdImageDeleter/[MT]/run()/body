@@ -3,23 +3,25 @@
     Set<String> poolSet=new HashSet<String>(Arrays.asList(cachedConfig.getCephVolumePools().split(",")));
     poolSet.addAll(Arrays.asList(cachedConfig.getCephSnapshotPools().split(",")));
     for (    final String pool : poolSet) {
-      for (      String image : rbdService.listPool(pool)) {
-        if (image.startsWith(cachedConfig.getDeletedImagePrefix())) {
-          LOG.debug("Image " + image + " was marked for deletion, cleaning it up");
-          try {
-            rbdService.deleteImage(image,pool);
+      try {
+        CephRbdImageToBeDeleted search=new CephRbdImageToBeDeleted().withPoolName(pool);
+        final List<String> imagesToBeCleaned=Transactions.transform(search,IMAGE_NAME_FUNCTION);
+        rbdService.cleanUpImages(pool,cachedConfig.getDeletedImagePrefix(),imagesToBeCleaned);
+        if (imagesToBeCleaned != null && !imagesToBeCleaned.isEmpty()) {
+          Transactions.deleteAll(search,new Predicate<CephRbdImageToBeDeleted>(){
+            @Override public boolean apply(            CephRbdImageToBeDeleted arg0){
+              return imagesToBeCleaned.contains(arg0.getImageName());
+            }
           }
- catch (          CannotDeleteCephImageException e) {
-            LOG.debug("Will retry deleting image " + image + " when it has no clones/children");
-          }
-catch (          Exception e) {
-            LOG.warn("Failed to delete image " + image + ". Will keep retrying");
-          }
+);
         }
+      }
+ catch (      Throwable t) {
+        LOG.debug("Encountered error while cleaning up images in pool " + pool,t);
       }
     }
   }
  catch (  Exception e) {
-    LOG.debug("Ignoring exception during clean up of deleted images",e);
+    LOG.debug("Ignoring exception during clean up of images marked for deletion",e);
   }
 }
