@@ -1,0 +1,37 @@
+{
+  if (internetGatewayId != null && natGatewayId != null)   throw Exceptions.toUndeclared("Only one type of gateway id can be specified");
+  final EucalyptusActivityTasks client=EucalyptusActivityTasks.getInstance();
+  final List<RouteTableType> routeTables=client.describeSystemRouteTables(routeTableId,null);
+  if (routeTables == null || routeTables.size() <= 0)   throw Exceptions.toUndeclared("No route table is found - " + routeTableId);
+  final RouteTableType table=routeTables.get(0);
+  RouteType routeFound=null;
+  boolean deleteRoute=false;
+  for (  final RouteType route : table.getRouteSet().getItem()) {
+    if ("0.0.0.0/0".equals(route.getDestinationCidrBlock())) {
+      if (route.getGatewayId() != null && route.getGatewayId().equals(internetGatewayId)) {
+        routeFound=route;
+        break;
+      }
+ else       if (route.getNatGatewayId() != null && route.getNatGatewayId().equals(natGatewayId)) {
+        routeFound=route;
+        break;
+      }
+ else {
+        routeFound=route;
+        deleteRoute=true;
+      }
+    }
+  }
+  if (deleteRoute && routeFound != null) {
+    client.deleteSystemRoute(routeTableId,"0.0.0.0/0");
+    routeFound=null;
+  }
+  if (routeFound == null) {
+    if (internetGatewayId != null) {
+      client.createSystemRouteToInternetGateway(routeTableId,"0.0.0.0/0",internetGatewayId);
+    }
+ else     if (natGatewayId != null) {
+      client.createSystemRouteToNatGateway(routeTableId,"0.0.0.0/0",natGatewayId);
+    }
+  }
+}

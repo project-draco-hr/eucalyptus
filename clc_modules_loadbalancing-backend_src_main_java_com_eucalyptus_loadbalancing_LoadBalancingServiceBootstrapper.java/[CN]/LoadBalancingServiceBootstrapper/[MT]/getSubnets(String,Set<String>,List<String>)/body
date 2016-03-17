@@ -1,0 +1,24 @@
+{
+  final Queue<String> availableBlocks=new LinkedList<String>(subnetBlocks);
+  final EucalyptusActivityTasks client=EucalyptusActivityTasks.getInstance();
+  final List<SubnetType> subnets=client.describeSubnetsByZone(vpcId,null,availabilityZones);
+  final Map<String,String> azToSubnet=Maps.newHashMap();
+  for (  final String az : availabilityZones) {
+    azToSubnet.put(az,null);
+  }
+  for (  final SubnetType subnet : subnets) {
+    final String cidrBlock=subnet.getCidrBlock();
+    if (subnetBlocks.contains(cidrBlock)) {
+      azToSubnet.put(subnet.getAvailabilityZone(),subnet.getSubnetId());
+      availableBlocks.remove(cidrBlock);
+    }
+  }
+  for (  final String az : azToSubnet.keySet()) {
+    if (azToSubnet.get(az) == null) {
+      final String cidr=availableBlocks.remove();
+      final String subnet=client.createSystemSubnet(vpcId,az,cidr);
+      azToSubnet.put(az,subnet);
+    }
+  }
+  return azToSubnet;
+}

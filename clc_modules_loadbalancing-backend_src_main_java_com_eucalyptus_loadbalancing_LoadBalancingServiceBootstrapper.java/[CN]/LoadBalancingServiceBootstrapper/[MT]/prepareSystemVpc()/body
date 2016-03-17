@@ -1,0 +1,68 @@
+{
+  if (!Topology.isEnabled(Compute.class))   return false;
+  try {
+    final EucalyptusActivityTasks client=EucalyptusActivityTasks.getInstance();
+    final List<String> availabilityZones=Lists.newArrayList(Collections2.transform(client.describeAvailabilityZones(),new Function<ClusterInfoType,String>(){
+      @Nullable @Override public String apply(      @Nullable ClusterInfoType clusterInfoType){
+        return clusterInfoType.getZoneName();
+      }
+    }
+));
+    if (availabilityZones.size() > (int)(65536 / (double)NumberOfHostsPerSystemSubnet()) - 1) {
+      throw Exceptions.toUndeclared("Number of possible subnets is less than availability zones. Property HOSTS_PER_SYSTEM_SUBNET should be reduced");
+    }
+    final List<VpcType> vpcs=client.describeSystemVpcs(false,null);
+    final Map<String,VpcType> cidrToVpc=Maps.newHashMap();
+    final Map<String,String> vpcToCidr=Maps.newHashMap();
+    for (    final VpcType vpc : vpcs) {
+      if (SystemVpcCidrBlocks.contains(vpc.getCidrBlock()))       cidrToVpc.put(vpc.getCidrBlock(),vpc);
+    }
+    for (    final String cidrBlock : SystemVpcCidrBlocks) {
+      if (!cidrToVpc.containsKey(cidrBlock)) {
+        final String vpcId=client.createSystemVpc(cidrBlock);
+        final List<VpcType> result=client.describeSystemVpcs(false,Lists.newArrayList(vpcId));
+        final VpcType vpc=result.get(0);
+        cidrToVpc.put(cidrBlock,vpc);
+      }
+    }
+    if (SystemVpcCidrBlocks.size() != cidrToVpc.size()) {
+      throw new Exception("Could not find some system VPCs");
+    }
+    final Collection<String> systemVpcIds=Collections2.transform(cidrToVpc.values(),new Function<VpcType,String>(){
+      @Override public String apply(      VpcType vpcType){
+        return vpcType.getVpcId();
+      }
+    }
+);
+    for (    final String cidr : cidrToVpc.keySet()) {
+      final VpcType vpc=cidrToVpc.get(cidr);
+      vpcToCidr.put(vpc.getVpcId(),cidr);
+    }
+    final Map<String,String> azToNatGateway=Maps.newHashMap();
+    for (    final String vpcId : systemVpcIds) {
+      final String internetGatewayId=getInternetGateway(vpcId);
+      final Map<String,String> publicSubnets=getSubnets(vpcId,SystemVpcPublicSubnetBlocks.get(vpcToCidr.get(vpcId)),availabilityZones);
+      for (      final String az : publicSubnets.keySet()) {
+        final String subnetId=publicSubnets.get(az);
+        final String routeTableId=getRouteTable(vpcId,subnetId);
+        addRouteToGateway(routeTableId,internetGatewayId,null);
+        final String eipAllocationId=getElasticIp();
+        final String natGatewayId=getNatGateway(subnetId,eipAllocationId);
+        azToNatGateway.put(az,natGatewayId);
+      }
+      final Map<String,String> privateSubnets=getSubnets(vpcId,SystemVpcPrivateSubnetBlocks.get(vpcToCidr.get(vpcId)),availabilityZones);
+      for (      final String az : privateSubnets.keySet()) {
+        final String subnetId=privateSubnets.get(az);
+        final String routeTableId=getRouteTable(vpcId,subnetId);
+        if (!azToNatGateway.containsKey(az))         throw Exceptions.toUndeclared("No NAT gateway is found for AZ: " + az);
+        addRouteToGateway(routeTableId,null,azToNatGateway.get(az));
+      }
+    }
+    KnownAvailabilityZones.addAll(availabilityZones);
+  }
+ catch (  final Exception ex) {
+    LOG.error("Failed to prepare system VPC for loadbalancing service",ex);
+    return false;
+  }
+  return true;
+}
