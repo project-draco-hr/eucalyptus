@@ -73,8 +73,61 @@ case "CompleteWorkflowExecution":
 workflowExecution.closeWorkflow(WorkflowExecution.CloseStatus.Completed,WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionCompletedEventAttributes().withDecisionTaskCompletedEventId(completedId).withResult(completed.getResult())));
 break;
 case "ContinueAsNewWorkflowExecution":
+final ContinueAsNewWorkflowExecutionDecisionAttributes continueAsNew=decision.getContinueAsNewWorkflowExecutionDecisionAttributes();
+ContinueAsNewWorkflowExecutionFailedCause failedCause=null;
+if (Pending == workflowExecution.getDecisionStatus()) {
+failedCause=ContinueAsNewWorkflowExecutionFailedCause.UNHANDLED_DECISION;
+}
+WorkflowType workflowType=null;
+if (failedCause == null) try {
+workflowType=workflowTypes.lookupByExample(WorkflowType.exampleWithUniqueName(accountFullName,workflowExecution.getDomainName(),workflowExecution.getWorkflowType().getName(),MoreObjects.firstNonNull(continueAsNew.getWorkflowTypeVersion(),workflowExecution.getWorkflowType().getWorkflowVersion())),accountFullName,workflowExecution.getWorkflowType().getName(),Predicates.<WorkflowType>alwaysTrue(),Functions.<WorkflowType>identity());
+if (!WorkflowType.Status.Registered.apply(workflowType)) {
+failedCause=ContinueAsNewWorkflowExecutionFailedCause.WORKFLOW_TYPE_DEPRECATED;
+}
+}
+ catch (SwfMetadataNotFoundException e) {
+failedCause=ContinueAsNewWorkflowExecutionFailedCause.WORKFLOW_TYPE_DOES_NOT_EXIST;
+}
+catch (SwfMetadataException e) {
+throw up(e);
+}
+if (failedCause == null) {
+final Integer requestedExecutionStartToCloseTimeout=parsePeriod(continueAsNew.getExecutionStartToCloseTimeout(),-1);
+final Integer requestedTaskStartToCloseTimeout=parsePeriod(continueAsNew.getTaskStartToCloseTimeout(),-1);
+if (continueAsNew.getChildPolicy() == null && workflowType.getDefaultChildPolicy() == null) {
+failedCause=ContinueAsNewWorkflowExecutionFailedCause.DEFAULT_CHILD_POLICY_UNDEFINED;
+}
+ else if (requestedExecutionStartToCloseTimeout == null && workflowType.getDefaultExecutionStartToCloseTimeout() == null) {
+failedCause=ContinueAsNewWorkflowExecutionFailedCause.DEFAULT_EXECUTION_START_TO_CLOSE_TIMEOUT_UNDEFINED;
+}
+ else if (continueAsNew.getTaskList() == null && workflowType.getDefaultTaskList() == null) {
+failedCause=ContinueAsNewWorkflowExecutionFailedCause.DEFAULT_TASK_LIST_UNDEFINED;
+}
+ else if (requestedTaskStartToCloseTimeout == null && workflowType.getDefaultTaskStartToCloseTimeout() == null) {
+failedCause=ContinueAsNewWorkflowExecutionFailedCause.DEFAULT_TASK_START_TO_CLOSE_TIMEOUT_UNDEFINED;
+}
+ else {
+final String childPolicy=MoreObjects.firstNonNull(continueAsNew.getChildPolicy(),workflowType.getDefaultChildPolicy());
+final String taskList=continueAsNew.getTaskList() == null ? workflowType.getDefaultTaskList() : continueAsNew.getTaskList().getName();
+final Integer executionStartToCloseTimeout=MoreObjects.firstNonNull(requestedExecutionStartToCloseTimeout,workflowType.getDefaultExecutionStartToCloseTimeout());
+final Integer taskStartToCloseTimeout=MoreObjects.firstNonNull(requestedTaskStartToCloseTimeout,workflowType.getDefaultTaskStartToCloseTimeout());
+final String taskStartToCloseTimeoutStr=taskStartToCloseTimeout < 0 ? "NONE" : String.valueOf(taskStartToCloseTimeout);
+final WorkflowExecution workflowExecutionContinued=WorkflowExecution.create(userFullName,UUID.randomUUID().toString(),domain,workflowType,workflowExecution.getWorkflowId(),childPolicy,taskList,executionStartToCloseTimeout,taskStartToCloseTimeout < 0 ? null : taskStartToCloseTimeout,continueAsNew.getTagList(),Lists.newArrayList(new WorkflowExecutionStartedEventAttributes().withChildPolicy(childPolicy).withContinuedExecutionRunId(workflowExecution.getDisplayName()).withExecutionStartToCloseTimeout(String.valueOf(executionStartToCloseTimeout)).withInput(continueAsNew.getInput()).withParentInitiatedEventId(0L).withTaskList(new TaskList().withName(taskList)).withTagList(continueAsNew.getTagList()).withTaskStartToCloseTimeout(taskStartToCloseTimeoutStr).withWorkflowType(new com.eucalyptus.simpleworkflow.common.model.WorkflowType().withName(workflowType.getDisplayName()).withVersion(workflowType.getWorkflowVersion())),new DecisionTaskScheduledEventAttributes().withStartToCloseTimeout(taskStartToCloseTimeoutStr).withTaskList(new TaskList().withName(taskList))));
+try {
+workflowExecutions.save(workflowExecutionContinued);
+}
+ catch (SwfMetadataException e) {
+throw up(e);
+}
+workflowExecution.closeWorkflow(WorkflowExecution.CloseStatus.Continued_As_New,WorkflowHistoryEvent.create(workflowExecution,new WorkflowExecutionCompletedEventAttributes().withDecisionTaskCompletedEventId(completedId)));
+deleteActivities(activityTasks,accountFullName,workflowExecution);
+notificationTypeListPairs.add(Pair.pair("decision",taskList));
+}
+}
+if (failedCause != null) {
 workflowExecution.addHistoryEvent(WorkflowHistoryEvent.create(workflowExecution,new ContinueAsNewWorkflowExecutionFailedEventAttributes().withCause(ContinueAsNewWorkflowExecutionFailedCause.OPERATION_NOT_PERMITTED).withDecisionTaskCompletedEventId(completedId)));
 scheduleDecisionTask=true;
+}
 break;
 case "FailWorkflowExecution":
 final FailWorkflowExecutionDecisionAttributes failed=decision.getFailWorkflowExecutionDecisionAttributes();

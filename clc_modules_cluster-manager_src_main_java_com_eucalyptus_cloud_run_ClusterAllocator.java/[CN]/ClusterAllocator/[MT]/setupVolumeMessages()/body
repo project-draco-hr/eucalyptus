@@ -26,13 +26,31 @@
                 }
  else                 volumeSize=rootVolSizeInGb;
               }
+              final AuthContextSupplier authContextSupplier;
+              try {
+                authContextSupplier=this.allocInfo.getAuthContext();
+              }
+ catch (              AuthException e) {
+                throw new ExecutionException(e);
+              }
               final UserFullName fullName=this.allocInfo.getOwnerFullName();
               final String snapshotId=ResourceIdentifiers.tryNormalize().apply(mapping.getEbs().getSnapshotId());
               final int volSize=volumeSize;
               final BaseMessage request=this.allocInfo.getRequest();
               final Callable<Volume> createVolume=new Callable<Volume>(){
                 public Volume call() throws Exception {
-                  return Volumes.createStorageVolume(sc,fullName,snapshotId,volSize,request);
+                  final Function<Long,Volume> allocator=new Function<Long,Volume>(){
+                    @Override public Volume apply(                    Long size){
+                      try {
+                        return Volumes.createStorageVolume(sc,fullName,snapshotId,Ints.checkedCast(size),request);
+                      }
+ catch (                      ExecutionException ex) {
+                        throw Exceptions.toUndeclared(ex);
+                      }
+                    }
+                  }
+;
+                  return RestrictedTypes.allocateMeasurableResource(authContextSupplier,fullName,RestrictedTypes.getIamActionByMessageType(request),(long)volSize,allocator);
                 }
               }
 ;

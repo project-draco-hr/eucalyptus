@@ -1,0 +1,28 @@
+{
+  AWSEC2InstanceResourceAction oldAction=(AWSEC2InstanceResourceAction)oldResourceAction;
+  AWSEC2InstanceResourceAction newAction=(AWSEC2InstanceResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  Map<String,String> oldVolumeDeviceMap=getVolumeDeviceMap(oldAction);
+  Map<String,String> newVolumeDeviceMap=getVolumeDeviceMap(newAction);
+  Map<String,String> attachingVolumeDeviceMap=getAttachingVolumeDeviceMap(oldVolumeDeviceMap,newVolumeDeviceMap);
+  if (!attachingVolumeDeviceMap.isEmpty()) {
+    Map<String,String> volumeStatusMap=Maps.newHashMap();
+    Collection<String> volumeIds=attachingVolumeDeviceMap.keySet();
+    DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,newAction.info.getEffectiveUserId());
+    describeVolumesType.getFilterSet().add(Filter.filter("volume-id",volumeIds));
+    DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.sendSync(configuration,describeVolumesType);
+    for (    Volume volume : describeVolumesResponseType.getVolumeSet()) {
+      for (      AttachedVolume attachedVolume : volume.getAttachmentSet()) {
+        if (attachedVolume.getInstanceId().equals(newAction.info.getPhysicalResourceId()) && attachedVolume.getDevice().equals(attachingVolumeDeviceMap.get(volume.getVolumeId()))) {
+          volumeStatusMap.put(volume.getVolumeId(),attachedVolume.getStatus());
+        }
+      }
+    }
+    for (    String volumeId : volumeIds) {
+      if (!"attached".equals(volumeStatusMap.get(volumeId))) {
+        throw new RetryAfterConditionCheckFailedException("One or more volumes is not yet attached to the instance");
+      }
+    }
+  }
+  return newAction;
+}

@@ -1,0 +1,52 @@
+{
+  LOG.debug("Clone (and resize) ceph-rbd image parentName=" + parentName + ", snapName="+ snapName+ ", cloneName"+ cloneName+ ", size="+ size+ ", parentPoolName="+ parentPoolName);
+  return executeRbdOpInPool(new Function<CephRbdConnectionManager,String>(){
+    @Override public String apply(    final CephRbdConnectionManager parentConn){
+      try {
+        return executeRbdOpInRandomPool(new Function<CephRbdConnectionManager,String>(){
+          @Override public String apply(          CephRbdConnectionManager cloneConn){
+            RbdImage clone=null;
+            try {
+              int features=(1 << 0);
+              LOG.debug("Cloning snapshot=" + snapName + ", image="+ parentName+ ", pool="+ parentConn.getPool()+ " to image="+ cloneName+ ", pool="+ cloneConn.getPool());
+              parentConn.getRbd().clone(parentName,snapName,cloneConn.getIoContext(),cloneName,features,0);
+              if (size != null) {
+                LOG.trace("Opening image=" + cloneName + ", pool="+ cloneConn.getPool()+ ", mode=read-write");
+                clone=cloneConn.getRbd().open(cloneName);
+                LOG.debug("Resizing image=" + cloneName + ", pool="+ cloneConn.getPool()+ " to "+ size+ " bytes");
+                clone.resize(size.longValue());
+              }
+ else {
+              }
+              return cloneConn.getPool() + CephRbdInfo.POOL_IMAGE_DELIMITER + cloneName;
+            }
+ catch (            RbdException e) {
+              LOG.warn("Caught error while cloning/resizing image " + cloneName + " from source image "+ parentName+ ": "+ e.getMessage());
+              throw new EucalyptusCephException("Failed to clone/resize image " + cloneName + " from source image "+ parentName,e);
+            }
+ finally {
+              if (clone != null) {
+                try {
+                  LOG.trace("Closing image=" + cloneName + ", pool="+ cloneConn.getPool());
+                  cloneConn.getRbd().close(clone);
+                }
+ catch (                Exception e) {
+                  LOG.debug("Caught exception closing image " + cloneName,e);
+                }
+              }
+            }
+          }
+        }
+,cloneName);
+      }
+ catch (      EucalyptusCephException e) {
+        throw e;
+      }
+catch (      Exception e) {
+        LOG.warn("Caught error while cloning/resizing image " + cloneName + " from source image "+ parentName+ ": "+ e.getMessage());
+        throw new EucalyptusCephException("Failed to clone/resize image " + cloneName + " from source image "+ parentName,e);
+      }
+    }
+  }
+,parentPoolName);
+}

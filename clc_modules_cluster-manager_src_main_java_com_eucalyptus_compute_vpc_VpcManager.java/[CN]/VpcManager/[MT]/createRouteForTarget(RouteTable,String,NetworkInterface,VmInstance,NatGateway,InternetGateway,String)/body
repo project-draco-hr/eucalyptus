@@ -1,0 +1,30 @@
+{
+  NetworkInterface targetNetworkInterface=networkInterface;
+  if (instance != null) {
+    final List<NetworkInterface> enis=instance.getNetworkInterfaces();
+    if (enis.size() != 1) {
+      throw new ClientComputeException("InvalidInstanceID","Network interface not found for " + instance.getDisplayName());
+    }
+    targetNetworkInterface=enis.get(0);
+  }
+  final Route route;
+  if (targetNetworkInterface != null) {
+    if (!RestrictedTypes.filterPrivileged().apply(targetNetworkInterface) || !targetNetworkInterface.getVpc().getDisplayName().equals(routeTable.getVpc().getDisplayName())) {
+      throw new ClientComputeException("InvalidParameterValue","Network interface invalid: " + targetNetworkInterface.getDisplayName());
+    }
+    route=Route.create(routeTable,Route.RouteOrigin.CreateRoute,destinationCidr,targetNetworkInterface);
+  }
+ else   if (natGateway != null) {
+    if (!RestrictedTypes.filterPrivileged().apply(natGateway) || !natGateway.getVpcId().equals(routeTable.getVpc().getDisplayName())) {
+      throw new ClientComputeException("InvalidParameterValue","NAT gateway invalid: " + natGateway.getDisplayName());
+    }
+    route=Route.create(routeTable,Route.RouteOrigin.CreateRoute,destinationCidr,natGateway);
+  }
+ else {
+    if (internetGateway == null || internetGateway.getVpc() == null || !internetGateway.getVpc().getDisplayName().equals(routeTable.getVpc().getDisplayName())) {
+      throw new ClientComputeException("InvalidParameterValue","Internet gateway invalid: " + gatewayId);
+    }
+    route=Route.create(routeTable,Route.RouteOrigin.CreateRoute,destinationCidr,internetGateway);
+  }
+  return route;
+}

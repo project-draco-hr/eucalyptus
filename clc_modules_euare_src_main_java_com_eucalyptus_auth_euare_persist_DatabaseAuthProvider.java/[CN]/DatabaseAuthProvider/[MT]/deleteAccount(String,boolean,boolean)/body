@@ -9,29 +9,75 @@
     throw new AuthException(AuthException.ACCOUNT_DELETE_CONFLICT);
   }
   try (final TransactionResource db=Entities.transactionFor(AccountEntity.class)){
-    if (recursive) {
-      List<UserEntity> users=(List<UserEntity>)Entities.createCriteria(UserEntity.class).setFetchMode("info",FetchMode.JOIN).createCriteria("groups").add(Restrictions.eq("userGroup",true)).createCriteria("account").add(Restrictions.eq("name",accountName)).list();
-      for (      UserEntity u : users) {
-        Entities.delete(u);
-      }
-      List<InstanceProfileEntity> profiles=(List<InstanceProfileEntity>)Entities.createCriteria(InstanceProfileEntity.class).createCriteria("account").add(Restrictions.eq("name",accountName)).list();
-      for (      InstanceProfileEntity p : profiles) {
-        Entities.delete(p);
-      }
-      List<RoleEntity> roles=(List<RoleEntity>)Entities.createCriteria(RoleEntity.class).setFetchMode("policies",FetchMode.JOIN).createCriteria("account").add(Restrictions.eq("name",accountName)).list();
-      for (      RoleEntity r : roles) {
-        Entities.delete(r);
-      }
-      List<GroupEntity> groups=(List<GroupEntity>)Entities.createCriteria(GroupEntity.class).setFetchMode("policies",FetchMode.JOIN).createCriteria("account").add(Restrictions.eq("name",accountName)).list();
-      for (      GroupEntity g : groups) {
-        Entities.delete(g);
-      }
-    }
-    AccountEntity account=(AccountEntity)Entities.createCriteria(AccountEntity.class).setCacheable(true).add(Restrictions.eq("name",accountName)).uniqueResult();
-    if (account == null) {
+    final Optional<AccountEntity> account=Entities.criteriaQuery(AccountEntity.class).whereEqual(AccountEntity_.name,accountName).uniqueResultOption();
+    if (!account.isPresent()) {
       throw new NoSuchElementException("Can not find account " + accountName);
     }
-    Entities.delete(account);
+    if (recursive) {
+      Entities.delete(PolicyEntity.class).whereIn(PolicyEntity_.id,PolicyEntity.class,PolicyEntity_.id,new EntityCriteriaSubqueryCallback<PolicyEntity,String>(){
+        @Override public void restrict(        final Entities.EntityCriteriaSubquery<PolicyEntity,String> subquery){
+          subquery.join(PolicyEntity_.group).join(GroupEntity_.account).whereEqual(AccountEntity_.name,accountName);
+        }
+      }
+).delete();
+      Entities.delete(PolicyEntity.class).whereIn(PolicyEntity_.id,PolicyEntity.class,PolicyEntity_.id,new EntityCriteriaSubqueryCallback<PolicyEntity,String>(){
+        @Override public void restrict(        final Entities.EntityCriteriaSubquery<PolicyEntity,String> subquery){
+          subquery.join(PolicyEntity_.role).join(RoleEntity_.account).whereEqual(AccountEntity_.name,accountName);
+        }
+      }
+).delete();
+      Entities.delete(AccessKeyEntity.class).whereIn(AccessKeyEntity_.id,AccessKeyEntity.class,AccessKeyEntity_.id,new EntityCriteriaSubqueryCallback<AccessKeyEntity,String>(){
+        @Override public void restrict(        final Entities.EntityCriteriaSubquery<AccessKeyEntity,String> subquery){
+          subquery.join(AccessKeyEntity_.user).join(UserEntity_.groups).whereEqual(GroupEntity_.userGroup,Boolean.TRUE).join(GroupEntity_.account).whereEqual(AccountEntity_.name,accountName);
+        }
+      }
+).delete();
+      Entities.delete(CertificateEntity.class).whereIn(CertificateEntity_.id,CertificateEntity.class,CertificateEntity_.id,new EntityCriteriaSubqueryCallback<CertificateEntity,String>(){
+        @Override public void restrict(        final Entities.EntityCriteriaSubquery<CertificateEntity,String> subquery){
+          subquery.join(CertificateEntity_.user).join(UserEntity_.groups).whereEqual(GroupEntity_.userGroup,Boolean.TRUE).join(GroupEntity_.account).whereEqual(AccountEntity_.name,accountName);
+        }
+      }
+).delete();
+      Entities.delete(UserEntity.class).whereIn(UserEntity_.uniqueName,UserEntity.class,UserEntity_.uniqueName,new EntityCriteriaSubqueryCallback<UserEntity,String>(){
+        @Override public void restrict(        final Entities.EntityCriteriaSubquery<UserEntity,String> subquery){
+          subquery.join(UserEntity_.groups).whereEqual(GroupEntity_.userGroup,Boolean.TRUE).join(GroupEntity_.account).whereEqual(AccountEntity_.name,accountName);
+        }
+      }
+).delete();
+      Entities.delete(UserEntity.class).whereIn(UserEntity_.uniqueName,UserEntity.class,UserEntity_.uniqueName,new EntityCriteriaSubqueryCallback<UserEntity,String>(){
+        @Override public void restrict(        final Entities.EntityCriteriaSubquery<UserEntity,String> subquery){
+          subquery.joinLeft(UserEntity_.groups).where(Entities.restriction(GroupEntity.class).isNull(GroupEntity_.id));
+        }
+      }
+).delete();
+      Entities.delete(ServerCertificateEntity.class).where(Entities.restriction(ServerCertificateEntity.class).equal(ServerCertificateEntity_.ownerAccountNumber,account.get().getAccountNumber()).build()).delete();
+      Entities.delete(InstanceProfileEntity.class).whereIn(InstanceProfileEntity_.id,InstanceProfileEntity.class,InstanceProfileEntity_.id,new EntityCriteriaSubqueryCallback<InstanceProfileEntity,String>(){
+        @Override public void restrict(        final Entities.EntityCriteriaSubquery<InstanceProfileEntity,String> subquery){
+          subquery.join(InstanceProfileEntity_.account).whereEqual(AccountEntity_.name,accountName);
+        }
+      }
+).delete();
+      Entities.delete(RoleEntity.class).whereIn(RoleEntity_.id,RoleEntity.class,RoleEntity_.id,new EntityCriteriaSubqueryCallback<RoleEntity,String>(){
+        @Override public void restrict(        final Entities.EntityCriteriaSubquery<RoleEntity,String> subquery){
+          subquery.join(RoleEntity_.account).whereEqual(AccountEntity_.name,accountName);
+        }
+      }
+).delete();
+      Entities.delete(PolicyEntity.class).whereIn(PolicyEntity_.id,PolicyEntity.class,PolicyEntity_.id,new EntityCriteriaSubqueryCallback<PolicyEntity,String>(){
+        @Override public void restrict(        final Entities.EntityCriteriaSubquery<PolicyEntity,String> subquery){
+          subquery.where(Entities.restriction(PolicyEntity.class).isNull(PolicyEntity_.role).isNull(PolicyEntity_.group)).joinLeft(PolicyEntity_.assumeRole).where(Entities.restriction(RoleEntity.class).isNull(RoleEntity_.id));
+          ;
+        }
+      }
+).delete();
+      Entities.delete(GroupEntity.class).whereIn(GroupEntity_.id,GroupEntity.class,GroupEntity_.id,new EntityCriteriaSubqueryCallback<GroupEntity,String>(){
+        @Override public void restrict(        final Entities.EntityCriteriaSubquery<GroupEntity,String> subquery){
+          subquery.join(GroupEntity_.account).whereEqual(AccountEntity_.name,accountName);
+        }
+      }
+).delete();
+    }
+    Entities.delete(account.get());
     db.commit();
   }
  catch (  Exception e) {

@@ -1,11 +1,13 @@
 {
   for (  final String natGatewayId : listNatGatewayIds(NatGateway.State.pending)) {
+    boolean invalidate=false;
     try (final TransactionResource tx=Entities.transactionFor(NatGateway.class)){
       final NatGateway natGateway=natGateways.lookupByName(null,natGatewayId,Functions.<NatGateway>identity());
       if (natGateway.getNetworkInterface() != null && natGateway.getPublicIpAddress() == null)       try {
         logger.info("Setting up Elastic IP for pending NAT gateway " + natGatewayId);
         NatGatewayHelper.associatePublicAddress(natGateway);
         natGateway.setState(NatGateway.State.available);
+        invalidate=true;
       }
  catch (      final ComputeException e) {
         natGateway.setState(NatGateway.State.failed);
@@ -21,6 +23,10 @@
  else {
         logger.error("Error processing pending NAT gateway " + natGatewayId,e);
       }
+      continue;
+    }
+    if (invalidate) {
+      vpcInvalidator.invalidate(natGatewayId);
     }
   }
 }
