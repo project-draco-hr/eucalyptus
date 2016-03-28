@@ -1,0 +1,28 @@
+{
+  Set<String> existingZones=Sets.newHashSet();
+  if (loadBalancerDescription.getAvailabilityZones() != null) {
+    addAllIfNotNull(existingZones,loadBalancerDescription.getAvailabilityZones().getMember());
+  }
+  Set<String> newZones=Sets.newHashSet();
+  addAllIfNotNull(newZones,newAction.properties.getAvailabilityZones());
+  Set<String> oldZones=Sets.newHashSet();
+  addAllIfNotNull(oldZones,oldAction.properties.getAvailabilityZones());
+  Set<String> zonesToAdd=Sets.difference(newZones,existingZones);
+  if (!zonesToAdd.isEmpty()) {
+    EnableAvailabilityZonesForLoadBalancerType enableAvailabilityZonesForLoadBalancerType=MessageHelper.createMessage(EnableAvailabilityZonesForLoadBalancerType.class,newAction.info.getEffectiveUserId());
+    enableAvailabilityZonesForLoadBalancerType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+    AvailabilityZones availabilityZones=new AvailabilityZones();
+    availabilityZones.getMember().addAll(zonesToAdd);
+    enableAvailabilityZonesForLoadBalancerType.setAvailabilityZones(availabilityZones);
+    AsyncRequests.sendSync(configuration,enableAvailabilityZonesForLoadBalancerType);
+  }
+  Set<String> zonesToRemove=Sets.difference(Sets.intersection(oldZones,existingZones),newZones);
+  if (!zonesToRemove.isEmpty()) {
+    DisableAvailabilityZonesForLoadBalancerType disableAvailabilityZonesForLoadBalancerType=MessageHelper.createMessage(DisableAvailabilityZonesForLoadBalancerType.class,newAction.info.getEffectiveUserId());
+    disableAvailabilityZonesForLoadBalancerType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+    AvailabilityZones availabilityZones=new AvailabilityZones();
+    availabilityZones.getMember().addAll(zonesToRemove);
+    disableAvailabilityZonesForLoadBalancerType.setAvailabilityZones(availabilityZones);
+    AsyncRequests.sendSync(configuration,disableAvailabilityZonesForLoadBalancerType);
+  }
+}

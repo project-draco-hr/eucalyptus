@@ -1,0 +1,28 @@
+{
+  Set<String> existingSubnets=Sets.newHashSet();
+  if (loadBalancerDescription.getSubnets() != null) {
+    addAllIfNotNull(existingSubnets,loadBalancerDescription.getSubnets().getMember());
+  }
+  Set<String> newSubnets=Sets.newHashSet();
+  addAllIfNotNull(newSubnets,newAction.properties.getSubnets());
+  Set<String> oldSubnets=Sets.newHashSet();
+  addAllIfNotNull(oldSubnets,oldAction.properties.getSubnets());
+  Set<String> subnetsToAdd=Sets.difference(newSubnets,existingSubnets);
+  if (!subnetsToAdd.isEmpty()) {
+    AttachLoadBalancerToSubnetsType attachLoadBalancerToSubnets=MessageHelper.createMessage(AttachLoadBalancerToSubnetsType.class,newAction.info.getEffectiveUserId());
+    attachLoadBalancerToSubnets.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+    Subnets subnets=new Subnets();
+    subnets.getMember().addAll(subnetsToAdd);
+    attachLoadBalancerToSubnets.setSubnets(subnets);
+    AsyncRequests.sendSync(configuration,attachLoadBalancerToSubnets);
+  }
+  Set<String> subnetsToRemove=Sets.difference(Sets.intersection(oldSubnets,existingSubnets),newSubnets);
+  if (!subnetsToRemove.isEmpty()) {
+    DetachLoadBalancerFromSubnetsType detachLoadBalancerFromSubnetsType=MessageHelper.createMessage(DetachLoadBalancerFromSubnetsType.class,newAction.info.getEffectiveUserId());
+    detachLoadBalancerFromSubnetsType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+    Subnets subnets=new Subnets();
+    subnets.getMember().addAll(subnetsToRemove);
+    detachLoadBalancerFromSubnetsType.setSubnets(subnets);
+    AsyncRequests.sendSync(configuration,detachLoadBalancerFromSubnetsType);
+  }
+}

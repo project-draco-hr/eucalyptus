@@ -1,0 +1,212 @@
+{
+  LoadBalancerDescription loadBalancerDescription=getLoadBalancerDescription(newAction,configuration);
+  Set<String> existingPolicyNames=getPolicyNames(loadBalancerDescription);
+  Map<String,PolicyDescription> existingPolicyDescriptionMap=getPolicyDescriptionMap(newAction,configuration,existingPolicyNames);
+  Set<String> oldPolicyNames=getPolicyNames(oldAction);
+  Set<String> newPolicyNames=getPolicyNames(newAction);
+  if (newAction.properties.getAppCookieStickinessPolicy() != null) {
+    for (    ElasticLoadBalancingAppCookieStickinessPolicy policy : newAction.properties.getAppCookieStickinessPolicy()) {
+      if (!existingPolicyNames.contains(policy.getPolicyName())) {
+        createAppCookieStickinessPolicy(newAction,configuration,policy);
+      }
+    }
+  }
+  if (newAction.properties.getLbCookieStickinessPolicy() != null) {
+    for (    ElasticLoadBalancingLBCookieStickinessPolicyType policy : newAction.properties.getLbCookieStickinessPolicy()) {
+      if (!existingPolicyNames.contains(policy.getPolicyName())) {
+        createLBCookieStickinessPolicy(newAction,configuration,policy);
+      }
+    }
+  }
+  if (newAction.properties.getPolicies() != null) {
+    for (    ElasticLoadBalancingPolicyType policy : newAction.properties.getPolicies()) {
+      if (!existingPolicyNames.contains(policy.getPolicyName())) {
+        createLoadBalancerPolicy(newAction,configuration,policy);
+      }
+    }
+  }
+  for (  String policyName : oldPolicyNames) {
+    if (existingPolicyNames.contains(policyName) && !newPolicyNames.contains(policyName)) {
+      deletePolicy(newAction,configuration,policyName);
+    }
+  }
+  if (newAction.properties.getAppCookieStickinessPolicy() != null) {
+    for (    ElasticLoadBalancingAppCookieStickinessPolicy policy : newAction.properties.getAppCookieStickinessPolicy()) {
+      if (existingPolicyNames.contains(policy.getPolicyName())) {
+        boolean needsUpdate=true;
+        if (loadBalancerDescription.getPolicies() != null && loadBalancerDescription.getPolicies().getAppCookieStickinessPolicies() != null && loadBalancerDescription.getPolicies().getAppCookieStickinessPolicies().getMember() != null) {
+          for (          AppCookieStickinessPolicy appCookieStickinessPolicy : loadBalancerDescription.getPolicies().getAppCookieStickinessPolicies().getMember()) {
+            if (appCookieStickinessPolicy.getPolicyName().equals(policy.getPolicyName()) && Objects.equals(appCookieStickinessPolicy.getCookieName(),policy.getCookieName())) {
+              needsUpdate=false;
+              break;
+            }
+          }
+        }
+        if (needsUpdate) {
+          deletePolicy(newAction,configuration,policy.getPolicyName());
+          createAppCookieStickinessPolicy(newAction,configuration,policy);
+        }
+      }
+    }
+  }
+  if (newAction.properties.getLbCookieStickinessPolicy() != null) {
+    for (    ElasticLoadBalancingLBCookieStickinessPolicyType policy : newAction.properties.getLbCookieStickinessPolicy()) {
+      if (existingPolicyNames.contains(policy.getPolicyName())) {
+        boolean needsUpdate=true;
+        if (loadBalancerDescription.getPolicies() != null && loadBalancerDescription.getPolicies().getLbCookieStickinessPolicies() != null && loadBalancerDescription.getPolicies().getLbCookieStickinessPolicies().getMember() != null) {
+          for (          LBCookieStickinessPolicy lbCookieStickinessPolicy : loadBalancerDescription.getPolicies().getLbCookieStickinessPolicies().getMember()) {
+            if (lbCookieStickinessPolicy.getPolicyName().equals(policy.getPolicyName()) && Objects.equals(lbCookieStickinessPolicy.getCookieExpirationPeriod(),policy.getCookieExpirationPeriod())) {
+              needsUpdate=false;
+              break;
+            }
+          }
+        }
+        if (needsUpdate) {
+          deletePolicy(newAction,configuration,policy.getPolicyName());
+          createLBCookieStickinessPolicy(newAction,configuration,policy);
+        }
+      }
+    }
+  }
+  if (newAction.properties.getPolicies() != null) {
+    for (    ElasticLoadBalancingPolicyType policy : newAction.properties.getPolicies()) {
+      if (existingPolicyNames.contains(policy.getPolicyName())) {
+        PolicyDescription existingPolicyDescription=existingPolicyDescriptionMap.get(policy.getPolicyName());
+        boolean needsUpdate=false;
+        if (!Objects.equals(existingPolicyDescription.getPolicyTypeName(),policy.getPolicyType())) {
+          needsUpdate=true;
+        }
+ else {
+          Map<String,String> oldAttributes=Maps.newHashMap();
+          if (oldAction.properties.getAppCookieStickinessPolicy() != null) {
+            for (            ElasticLoadBalancingAppCookieStickinessPolicy oldPolicy : oldAction.properties.getAppCookieStickinessPolicy()) {
+              if (oldPolicy.getPolicyName().equals(policy.getPolicyName())) {
+                oldAttributes.put("CookieName",oldPolicy.getCookieName());
+                break;
+              }
+            }
+          }
+          if (oldAction.properties.getLbCookieStickinessPolicy() != null) {
+            for (            ElasticLoadBalancingLBCookieStickinessPolicyType oldPolicy : oldAction.properties.getLbCookieStickinessPolicy()) {
+              if (oldPolicy.getPolicyName().equals(policy.getPolicyName())) {
+                oldAttributes.put("CookieExpirationPeriod",String.valueOf(oldPolicy.getCookieExpirationPeriod()));
+                break;
+              }
+            }
+          }
+          if (oldAction.properties.getPolicies() != null) {
+            for (            ElasticLoadBalancingPolicyType oldPolicy : oldAction.properties.getPolicies()) {
+              if (oldPolicy.getPolicyName().equals(policy.getPolicyName())) {
+                for (                ElasticLoadBalancingPolicyTypeAttribute attribute : oldPolicy.getAttributes()) {
+                  oldAttributes.put(oldAttributes.get(attribute.getName()),attribute.getValue());
+                }
+                break;
+              }
+            }
+          }
+          Map<String,String> existingAttributes=Maps.newHashMap();
+          if (existingPolicyDescription.getPolicyAttributeDescriptions() != null && existingPolicyDescription.getPolicyAttributeDescriptions().getMember() != null) {
+            for (            PolicyAttributeDescription policyAttributeDescription : existingPolicyDescription.getPolicyAttributeDescriptions().getMember()) {
+              existingAttributes.put(policyAttributeDescription.getAttributeName(),policyAttributeDescription.getAttributeValue());
+            }
+          }
+          Map<String,String> newAttributes=Maps.newHashMap();
+          if (policy.getAttributes() != null) {
+            for (            ElasticLoadBalancingPolicyTypeAttribute attribute : policy.getAttributes()) {
+              newAttributes.put(newAttributes.get(attribute.getName()),attribute.getValue());
+            }
+          }
+          if (!Objects.equals(oldAttributes,newAttributes)) {
+            needsUpdate=true;
+          }
+ else {
+            for (            String attributeName : oldAttributes.keySet()) {
+              if (!existingAttributes.containsKey(attributeName) || !Objects.equals(oldAttributes.get(attributeName),existingAttributes.get(attributeName))) {
+                needsUpdate=true;
+                break;
+              }
+            }
+            for (            String attributeName : newAttributes.keySet()) {
+              if (!existingAttributes.containsKey(attributeName) || !Objects.equals(newAttributes.get(attributeName),existingAttributes.get(attributeName))) {
+                needsUpdate=true;
+                break;
+              }
+            }
+          }
+        }
+        if (needsUpdate) {
+          deletePolicy(newAction,configuration,policy.getPolicyName());
+          createLoadBalancerPolicy(newAction,configuration,policy);
+        }
+      }
+    }
+  }
+  Map<Integer,Collection<String>> newListenerPolicyMap=Maps.newHashMap();
+  Map<Integer,Collection<String>> newBackendPolicyMap=Maps.newHashMap();
+  if (newAction.properties.getListeners() != null) {
+    for (    ElasticLoadBalancingListener elasticLoadBalancingListener : newAction.properties.getListeners()) {
+      newListenerPolicyMap.put(elasticLoadBalancingListener.getLoadBalancerPort(),Sets.<String>newHashSet());
+      if (elasticLoadBalancingListener.getPolicyNames() != null) {
+        newListenerPolicyMap.get(elasticLoadBalancingListener.getLoadBalancerPort()).addAll(elasticLoadBalancingListener.getPolicyNames());
+      }
+    }
+  }
+  if (newAction.properties.getPolicies() != null) {
+    for (    ElasticLoadBalancingPolicyType policyType : newAction.properties.getPolicies()) {
+      if (policyType.getLoadBalancerPorts() != null) {
+        for (        Integer loadBalancerPort : policyType.getLoadBalancerPorts()) {
+          if (!newListenerPolicyMap.containsKey(loadBalancerPort)) {
+            throw new ValidationErrorException("Policy " + policyType.getPolicyName() + " has a load balancer port of "+ loadBalancerPort+ ", which has no listener defined");
+          }
+ else {
+            newListenerPolicyMap.get(loadBalancerPort).add(policyType.getPolicyName());
+          }
+        }
+      }
+      if (policyType.getInstancePorts() != null) {
+        for (        Integer instancePort : policyType.getInstancePorts()) {
+          if (!newBackendPolicyMap.containsKey(instancePort)) {
+            newBackendPolicyMap.put(instancePort,Sets.<String>newHashSet());
+          }
+          newBackendPolicyMap.get(instancePort).add(policyType.getPolicyName());
+        }
+      }
+    }
+  }
+  if (loadBalancerDescription.getListenerDescriptions() != null && loadBalancerDescription.getListenerDescriptions().getMember() != null) {
+    for (    ListenerDescription listenerDescription : loadBalancerDescription.getListenerDescriptions().getMember()) {
+      Set<String> policyNamesSet=Sets.newHashSet();
+      if (listenerDescription.getPolicyNames() != null && listenerDescription.getPolicyNames().getMember() != null) {
+        policyNamesSet.addAll(listenerDescription.getPolicyNames().getMember());
+      }
+      if (newListenerPolicyMap.containsKey(listenerDescription.getListener().getLoadBalancerPort())) {
+        policyNamesSet.addAll(newListenerPolicyMap.get(listenerDescription.getListener().getLoadBalancerPort()));
+      }
+      SetLoadBalancerPoliciesOfListenerType setLoadBalancerPoliciesOfListenerType=MessageHelper.createMessage(SetLoadBalancerPoliciesOfListenerType.class,newAction.info.getEffectiveUserId());
+      setLoadBalancerPoliciesOfListenerType.setLoadBalancerPort(listenerDescription.getListener().getLoadBalancerPort());
+      PolicyNames policyNames=new PolicyNames();
+      policyNames.getMember().addAll(policyNamesSet);
+      setLoadBalancerPoliciesOfListenerType.setPolicyNames(policyNames);
+      setLoadBalancerPoliciesOfListenerType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+      AsyncRequests.sendSync(configuration,setLoadBalancerPoliciesOfListenerType);
+    }
+  }
+  if (loadBalancerDescription.getBackendServerDescriptions() != null && loadBalancerDescription.getBackendServerDescriptions().getMember() != null) {
+    for (    BackendServerDescription backendServerDescription : loadBalancerDescription.getBackendServerDescriptions().getMember()) {
+      Set<String> policyNamesSet=Sets.newHashSet();
+      if (backendServerDescription.getPolicyNames() != null && backendServerDescription.getPolicyNames().getMember() != null) {
+        policyNamesSet.addAll(backendServerDescription.getPolicyNames().getMember());
+      }
+      if (newBackendPolicyMap.containsKey(backendServerDescription.getInstancePort())) {
+        policyNamesSet.addAll(newBackendPolicyMap.get(backendServerDescription.getInstancePort()));
+      }
+      SetLoadBalancerPoliciesForBackendServerType setLoadBalancerPoliciesForBackendServerType=MessageHelper.createMessage(SetLoadBalancerPoliciesForBackendServerType.class,newAction.info.getEffectiveUserId());
+      setLoadBalancerPoliciesForBackendServerType.setInstancePort(backendServerDescription.getInstancePort());
+      PolicyNames policyNames=new PolicyNames();
+      policyNames.getMember().addAll(policyNamesSet);
+      setLoadBalancerPoliciesForBackendServerType.setPolicyNames(policyNames);
+      setLoadBalancerPoliciesForBackendServerType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+      AsyncRequests.sendSync(configuration,setLoadBalancerPoliciesForBackendServerType);
+    }
+  }
+}
