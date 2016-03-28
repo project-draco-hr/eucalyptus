@@ -1,0 +1,49 @@
+{
+  Set<String> oldPolicyNames=getPolicyNames(oldAction);
+  Set<String> newPolicyNames=getPolicyNames(newAction);
+  LoadBalancerDescription loadBalancerDescription=getLoadBalancerDescription(newAction,configuration);
+  Map<Integer,Collection<String>> listenerPolicyMap=Maps.newHashMap();
+  if (loadBalancerDescription.getListenerDescriptions() != null && loadBalancerDescription.getListenerDescriptions().getMember() != null) {
+    for (    ListenerDescription listenerDescription : loadBalancerDescription.getListenerDescriptions().getMember()) {
+      Set<String> policyNames=Sets.newHashSet();
+      if (listenerDescription.getPolicyNames() != null && listenerDescription.getPolicyNames().getMember() != null) {
+        policyNames.addAll(listenerDescription.getPolicyNames().getMember());
+      }
+      policyNames.removeAll(oldPolicyNames);
+      policyNames.removeAll(newPolicyNames);
+      listenerPolicyMap.put(listenerDescription.getListener().getLoadBalancerPort(),policyNames);
+    }
+  }
+  Map<Integer,Collection<String>> backendPolicyMap=Maps.newHashMap();
+  if (loadBalancerDescription.getBackendServerDescriptions() != null && loadBalancerDescription.getBackendServerDescriptions().getMember() != null) {
+    for (    BackendServerDescription backendServerDescription : loadBalancerDescription.getBackendServerDescriptions().getMember()) {
+      Set<String> policyNames=Sets.newHashSet();
+      if (backendServerDescription.getPolicyNames() != null && backendServerDescription.getPolicyNames().getMember() != null) {
+        policyNames.addAll(backendServerDescription.getPolicyNames().getMember());
+      }
+      policyNames.removeAll(oldPolicyNames);
+      policyNames.removeAll(newPolicyNames);
+      backendPolicyMap.put(backendServerDescription.getInstancePort(),policyNames);
+    }
+  }
+  for (  Integer loadBalancerPort : listenerPolicyMap.keySet()) {
+    SetLoadBalancerPoliciesOfListenerType setLoadBalancerPoliciesOfListenerType=MessageHelper.createMessage(SetLoadBalancerPoliciesOfListenerType.class,newAction.info.getEffectiveUserId());
+    setLoadBalancerPoliciesOfListenerType.setLoadBalancerPort(loadBalancerPort);
+    PolicyNames policyNames=new PolicyNames();
+    policyNames.getMember().addAll(listenerPolicyMap.get(loadBalancerPort));
+    setLoadBalancerPoliciesOfListenerType.setPolicyNames(policyNames);
+    setLoadBalancerPoliciesOfListenerType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+    AsyncRequests.sendSync(configuration,setLoadBalancerPoliciesOfListenerType);
+  }
+  for (  Integer instancePort : backendPolicyMap.keySet()) {
+    SetLoadBalancerPoliciesForBackendServerType setLoadBalancerPoliciesForBackendServerType=MessageHelper.createMessage(SetLoadBalancerPoliciesForBackendServerType.class,newAction.info.getEffectiveUserId());
+    setLoadBalancerPoliciesForBackendServerType.setInstancePort(instancePort);
+    PolicyNames policyNames=new PolicyNames();
+    policyNames.getMember().addAll(backendPolicyMap.get(instancePort));
+    setLoadBalancerPoliciesForBackendServerType.setPolicyNames(policyNames);
+    setLoadBalancerPoliciesForBackendServerType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+    AsyncRequests.sendSync(configuration,setLoadBalancerPoliciesForBackendServerType);
+  }
+  updateListeners(oldAction,newAction,configuration);
+  updatePolicies(oldAction,newAction,configuration);
+}

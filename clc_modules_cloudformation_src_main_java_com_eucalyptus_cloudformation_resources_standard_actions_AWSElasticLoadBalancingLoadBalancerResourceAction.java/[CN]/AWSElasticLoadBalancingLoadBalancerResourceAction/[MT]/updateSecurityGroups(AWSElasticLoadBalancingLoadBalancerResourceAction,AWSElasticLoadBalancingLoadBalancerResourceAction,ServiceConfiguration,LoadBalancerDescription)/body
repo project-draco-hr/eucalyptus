@@ -1,0 +1,55 @@
+{
+  if (newAction.properties.getSecurityGroups() != null && !newAction.properties.getSecurityGroups().isEmpty()) {
+    if (loadBalancerDescription.getVpcId() == null)     throw new ValidationErrorException("Can not set Security Groups in non-vpc mode");
+    ApplySecurityGroupsToLoadBalancerType applySecurityGroupsToLoadBalancerType=MessageHelper.createMessage(ApplySecurityGroupsToLoadBalancerType.class,newAction.info.getEffectiveUserId());
+    applySecurityGroupsToLoadBalancerType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+    SecurityGroups securityGroups=new SecurityGroups();
+    securityGroups.getMember().addAll(newAction.properties.getSecurityGroups());
+    applySecurityGroupsToLoadBalancerType.setSecurityGroups(securityGroups);
+    AsyncRequests.sendSync(configuration,applySecurityGroupsToLoadBalancerType);
+  }
+ else   if (oldAction.properties.getSecurityGroups() != null && !oldAction.properties.getSecurityGroups().isEmpty()) {
+    ServiceConfiguration ec2Configuration=Topology.lookup(Compute.class);
+    if (loadBalancerDescription.getVpcId() == null)     throw new ValidationErrorException("Can not set Security Groups in non-vpc mode");
+    DescribeVpcsType describeVpcsType=MessageHelper.createMessage(DescribeVpcsType.class,newAction.info.getEffectiveUserId());
+    describeVpcsType.setFilterSet(Lists.newArrayList(Filter.filter("vpc-id",loadBalancerDescription.getVpcId())));
+    DescribeVpcsResponseType describeVpcsResponseType=AsyncRequests.sendSync(ec2Configuration,describeVpcsType);
+    if (describeVpcsResponseType == null || describeVpcsResponseType.getVpcSet() == null || describeVpcsResponseType.getVpcSet().getItem() == null || describeVpcsResponseType.getVpcSet().getItem().isEmpty()) {
+      throw new ValidationErrorException("No such vpc " + loadBalancerDescription.getVpcId());
+    }
+    boolean inDefaultVpcAndFoundElbSpecificGroup=false;
+    if (describeVpcsResponseType.getVpcSet().getItem().get(0).getIsDefault()) {
+      String defaultVpcSecurityGroupName=String.format("default_elb_%s",UUID.nameUUIDFromBytes(loadBalancerDescription.getVpcId().getBytes(StandardCharsets.UTF_8)).toString());
+      DescribeSecurityGroupsType describeSecurityGroupsType=MessageHelper.createMessage(DescribeSecurityGroupsType.class,newAction.info.getEffectiveUserId());
+      describeSecurityGroupsType.getFilterSet().add(Filter.filter("vpc-id",loadBalancerDescription.getVpcId()));
+      describeSecurityGroupsType.getFilterSet().add(Filter.filter("group-name",defaultVpcSecurityGroupName));
+      DescribeSecurityGroupsResponseType describeSecurityGroupsResponseType=AsyncRequests.sendSync(ec2Configuration,describeSecurityGroupsType);
+      if (describeSecurityGroupsResponseType != null && describeSecurityGroupsResponseType.getSecurityGroupInfo() != null && !describeSecurityGroupsResponseType.getSecurityGroupInfo().isEmpty()) {
+        ApplySecurityGroupsToLoadBalancerType applySecurityGroupsToLoadBalancerType=MessageHelper.createMessage(ApplySecurityGroupsToLoadBalancerType.class,newAction.info.getEffectiveUserId());
+        applySecurityGroupsToLoadBalancerType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+        SecurityGroups securityGroups=new SecurityGroups();
+        securityGroups.getMember().add(describeSecurityGroupsResponseType.getSecurityGroupInfo().get(0).getGroupId());
+        applySecurityGroupsToLoadBalancerType.setSecurityGroups(securityGroups);
+        AsyncRequests.sendSync(configuration,applySecurityGroupsToLoadBalancerType);
+        inDefaultVpcAndFoundElbSpecificGroup=true;
+      }
+    }
+    if (!inDefaultVpcAndFoundElbSpecificGroup) {
+      DescribeSecurityGroupsType describeSecurityGroupsType=MessageHelper.createMessage(DescribeSecurityGroupsType.class,newAction.info.getEffectiveUserId());
+      describeSecurityGroupsType.getFilterSet().add(Filter.filter("vpc-id",loadBalancerDescription.getVpcId()));
+      describeSecurityGroupsType.getFilterSet().add(Filter.filter("group-name","default"));
+      DescribeSecurityGroupsResponseType describeSecurityGroupsResponseType=AsyncRequests.sendSync(ec2Configuration,describeSecurityGroupsType);
+      if (describeSecurityGroupsResponseType != null && describeSecurityGroupsResponseType.getSecurityGroupInfo() != null && !describeSecurityGroupsResponseType.getSecurityGroupInfo().isEmpty()) {
+        ApplySecurityGroupsToLoadBalancerType applySecurityGroupsToLoadBalancerType=MessageHelper.createMessage(ApplySecurityGroupsToLoadBalancerType.class,newAction.info.getEffectiveUserId());
+        applySecurityGroupsToLoadBalancerType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+        SecurityGroups securityGroups=new SecurityGroups();
+        securityGroups.getMember().add(describeSecurityGroupsResponseType.getSecurityGroupInfo().get(0).getGroupId());
+        applySecurityGroupsToLoadBalancerType.setSecurityGroups(securityGroups);
+        AsyncRequests.sendSync(configuration,applySecurityGroupsToLoadBalancerType);
+      }
+ else {
+        throw new ValidationErrorException("Could not find default group for vpc " + loadBalancerDescription.getVpcId());
+      }
+    }
+  }
+}

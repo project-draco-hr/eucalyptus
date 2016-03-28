@@ -1,0 +1,38 @@
+{
+  Set<String> existingInstances=Sets.newHashSet();
+  if (loadBalancerDescription.getInstances() != null && loadBalancerDescription.getInstances().getMember() != null) {
+    for (    Instance instance : loadBalancerDescription.getInstances().getMember()) {
+      existingInstances.add(instance.getInstanceId());
+    }
+  }
+  Set<String> newInstances=Sets.newHashSet();
+  addAllIfNotNull(newInstances,newAction.properties.getInstances());
+  Set<String> oldInstances=Sets.newHashSet();
+  addAllIfNotNull(oldInstances,oldAction.properties.getInstances());
+  Set<String> instancesToAdd=Sets.difference(newInstances,existingInstances);
+  if (!instancesToAdd.isEmpty()) {
+    RegisterInstancesWithLoadBalancerType registerInstancesWithLoadBalancerType=MessageHelper.createMessage(RegisterInstancesWithLoadBalancerType.class,newAction.info.getEffectiveUserId());
+    registerInstancesWithLoadBalancerType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+    Instances instances=new Instances();
+    for (    String instanceId : instancesToAdd) {
+      Instance instance=new Instance();
+      instance.setInstanceId(instanceId);
+      instances.getMember().add(instance);
+    }
+    registerInstancesWithLoadBalancerType.setInstances(instances);
+    AsyncRequests.sendSync(configuration,registerInstancesWithLoadBalancerType);
+  }
+  Set<String> instancesToRemove=Sets.difference(Sets.intersection(oldInstances,existingInstances),newInstances);
+  if (!instancesToRemove.isEmpty()) {
+    DeregisterInstancesFromLoadBalancerType deregisterInstancesFromLoadBalancerType=MessageHelper.createMessage(DeregisterInstancesFromLoadBalancerType.class,newAction.info.getEffectiveUserId());
+    deregisterInstancesFromLoadBalancerType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+    Instances instances=new Instances();
+    for (    String instanceId : instancesToRemove) {
+      Instance instance=new Instance();
+      instance.setInstanceId(instanceId);
+      instances.getMember().add(instance);
+    }
+    deregisterInstancesFromLoadBalancerType.setInstances(instances);
+    AsyncRequests.sendSync(configuration,deregisterInstancesFromLoadBalancerType);
+  }
+}

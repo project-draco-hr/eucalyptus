@@ -1,0 +1,114 @@
+{
+  Set<Integer> oldLoadBalancerPorts=Sets.newHashSet();
+  if (oldAction.properties.getListeners() != null) {
+    for (    ElasticLoadBalancingListener elasticLoadBalancingListener : oldAction.properties.getListeners()) {
+      oldLoadBalancerPorts.add(elasticLoadBalancingListener.getLoadBalancerPort());
+    }
+  }
+  Set<Integer> newLoadBalancerPorts=Sets.newHashSet();
+  if (newAction.properties.getListeners() != null) {
+    for (    ElasticLoadBalancingListener elasticLoadBalancingListener : newAction.properties.getListeners()) {
+      newLoadBalancerPorts.add(elasticLoadBalancingListener.getLoadBalancerPort());
+    }
+  }
+  LoadBalancerDescription loadBalancerDescription=getLoadBalancerDescription(newAction,configuration);
+  Map<Integer,ListenerDescription> existingLoadBalancerPortMap=Maps.newHashMap();
+  if (loadBalancerDescription.getListenerDescriptions() != null && loadBalancerDescription.getListenerDescriptions().getMember() != null) {
+    for (    ListenerDescription listenerDescription : loadBalancerDescription.getListenerDescriptions().getMember()) {
+      if (listenerDescription != null && listenerDescription.getListener() != null && listenerDescription.getListener().getLoadBalancerPort() != null) {
+        existingLoadBalancerPortMap.put(listenerDescription.getListener().getLoadBalancerPort(),listenerDescription);
+      }
+    }
+  }
+  Set<Integer> existingLoadBalancerPorts=existingLoadBalancerPortMap.keySet();
+  Set<Integer> loadBalancerPortsOfListenersToAdd=Sets.difference(newLoadBalancerPorts,Sets.union(oldLoadBalancerPorts,existingLoadBalancerPorts));
+  if (newAction.properties.getListeners() != null) {
+    for (    ElasticLoadBalancingListener elasticLoadBalancingListener : newAction.properties.getListeners()) {
+      if (loadBalancerPortsOfListenersToAdd.contains(elasticLoadBalancingListener.getLoadBalancerPort())) {
+        CreateLoadBalancerListenersType createLoadBalancerListenersType=MessageHelper.createMessage(CreateLoadBalancerListenersType.class,newAction.info.getEffectiveUserId());
+        createLoadBalancerListenersType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+        Listeners listeners=new Listeners();
+        Listener listener=new Listener();
+        listener.setSSLCertificateId(elasticLoadBalancingListener.getSslCertificateId());
+        listener.setProtocol(elasticLoadBalancingListener.getProtocol());
+        listener.setLoadBalancerPort(elasticLoadBalancingListener.getLoadBalancerPort());
+        listener.setInstanceProtocol(elasticLoadBalancingListener.getInstanceProtocol());
+        listener.setInstancePort(elasticLoadBalancingListener.getInstancePort());
+        listeners.getMember().add(listener);
+        createLoadBalancerListenersType.setListeners(listeners);
+        AsyncRequests.sendSync(configuration,createLoadBalancerListenersType);
+      }
+    }
+  }
+  Set<Integer> loadBalancerPortsOfListenersToDelete=Sets.difference(Sets.intersection(oldLoadBalancerPorts,existingLoadBalancerPorts),newLoadBalancerPorts);
+  if (oldAction.properties.getListeners() != null) {
+    for (    ElasticLoadBalancingListener elasticLoadBalancingListener : oldAction.properties.getListeners()) {
+      if (loadBalancerPortsOfListenersToDelete.contains(elasticLoadBalancingListener.getLoadBalancerPort())) {
+        DeleteLoadBalancerListenersType deleteLoadBalancerListenersType=MessageHelper.createMessage(DeleteLoadBalancerListenersType.class,oldAction.info.getEffectiveUserId());
+        deleteLoadBalancerListenersType.setLoadBalancerName(oldAction.info.getPhysicalResourceId());
+        Ports loadBalancerPorts=new Ports();
+        loadBalancerPorts.getMember().add(elasticLoadBalancingListener.getLoadBalancerPort().toString());
+        deleteLoadBalancerListenersType.setLoadBalancerPorts(loadBalancerPorts);
+        AsyncRequests.sendSync(configuration,deleteLoadBalancerListenersType);
+      }
+    }
+  }
+  Set<Integer> loadBalancerPortsOfListenersToPossiblyUpdate=Sets.intersection(newLoadBalancerPorts,existingLoadBalancerPorts);
+  if (newAction.properties.getListeners() != null) {
+    for (    ElasticLoadBalancingListener elasticLoadBalancingListener : newAction.properties.getListeners()) {
+      if (loadBalancerPortsOfListenersToPossiblyUpdate.contains(elasticLoadBalancingListener.getLoadBalancerPort())) {
+        ListenerDescription existingListenerDescription=existingLoadBalancerPortMap.get(elasticLoadBalancingListener.getLoadBalancerPort());
+        Listener existingListener=existingListenerDescription.getListener();
+        boolean needToDeleteAndRecreateListener;
+        if (Objects.equals(existingListener.getInstancePort(),elasticLoadBalancingListener.getInstancePort()) && Objects.equals(existingListener.getProtocol(),elasticLoadBalancingListener.getProtocol()) && Objects.equals(existingListener.getLoadBalancerPort(),elasticLoadBalancingListener.getLoadBalancerPort())&& Objects.equals(existingListener.getInstanceProtocol(),elasticLoadBalancingListener.getInstanceProtocol())) {
+          if (Objects.equals(existingListener.getSSLCertificateId(),elasticLoadBalancingListener.getSslCertificateId())) {
+            needToDeleteAndRecreateListener=false;
+          }
+ else           if (elasticLoadBalancingListener.getSslCertificateId() == null) {
+            needToDeleteAndRecreateListener=true;
+          }
+ else {
+            SetLoadBalancerListenerSSLCertificateType setLoadBalancerListenerSSLCertificateType=MessageHelper.createMessage(SetLoadBalancerListenerSSLCertificateType.class,newAction.info.getEffectiveUserId());
+            setLoadBalancerListenerSSLCertificateType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+            setLoadBalancerListenerSSLCertificateType.setLoadBalancerPort(elasticLoadBalancingListener.getLoadBalancerPort());
+            setLoadBalancerListenerSSLCertificateType.setSSLCertificateId(elasticLoadBalancingListener.getSslCertificateId());
+            AsyncRequests.sendSync(configuration,setLoadBalancerListenerSSLCertificateType);
+            needToDeleteAndRecreateListener=false;
+          }
+        }
+ else {
+          needToDeleteAndRecreateListener=true;
+        }
+        if (needToDeleteAndRecreateListener) {
+          DeleteLoadBalancerListenersType deleteLoadBalancerListenersType=MessageHelper.createMessage(DeleteLoadBalancerListenersType.class,oldAction.info.getEffectiveUserId());
+          deleteLoadBalancerListenersType.setLoadBalancerName(oldAction.info.getPhysicalResourceId());
+          Ports loadBalancerPorts=new Ports();
+          loadBalancerPorts.getMember().add(elasticLoadBalancingListener.getLoadBalancerPort().toString());
+          deleteLoadBalancerListenersType.setLoadBalancerPorts(loadBalancerPorts);
+          AsyncRequests.sendSync(configuration,deleteLoadBalancerListenersType);
+          CreateLoadBalancerListenersType createLoadBalancerListenersType=MessageHelper.createMessage(CreateLoadBalancerListenersType.class,newAction.info.getEffectiveUserId());
+          createLoadBalancerListenersType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+          Listeners listeners=new Listeners();
+          Listener listener=new Listener();
+          listener.setSSLCertificateId(elasticLoadBalancingListener.getSslCertificateId());
+          listener.setProtocol(elasticLoadBalancingListener.getProtocol());
+          listener.setLoadBalancerPort(elasticLoadBalancingListener.getLoadBalancerPort());
+          listener.setInstanceProtocol(elasticLoadBalancingListener.getInstanceProtocol());
+          listener.setInstancePort(elasticLoadBalancingListener.getInstancePort());
+          listeners.getMember().add(listener);
+          createLoadBalancerListenersType.setListeners(listeners);
+          AsyncRequests.sendSync(configuration,createLoadBalancerListenersType);
+          SetLoadBalancerPoliciesOfListenerType setLoadBalancerPoliciesOfListenerType=MessageHelper.createMessage(SetLoadBalancerPoliciesOfListenerType.class,newAction.info.getEffectiveUserId());
+          setLoadBalancerPoliciesOfListenerType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
+          setLoadBalancerPoliciesOfListenerType.setLoadBalancerPort(elasticLoadBalancingListener.getLoadBalancerPort());
+          PolicyNames policyNames=new PolicyNames();
+          if (existingListenerDescription.getPolicyNames() != null && existingListenerDescription.getPolicyNames().getMember() != null) {
+            policyNames.getMember().addAll(existingListenerDescription.getPolicyNames().getMember());
+          }
+          setLoadBalancerPoliciesOfListenerType.setPolicyNames(policyNames);
+          AsyncRequests.sendSync(configuration,setLoadBalancerPoliciesOfListenerType);
+        }
+      }
+    }
+  }
+}

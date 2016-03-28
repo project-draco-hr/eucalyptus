@@ -1,0 +1,58 @@
+{
+  AWSElasticLoadBalancingLoadBalancerResourceAction oldAction=(AWSElasticLoadBalancingLoadBalancerResourceAction)oldResourceAction;
+  AWSElasticLoadBalancingLoadBalancerResourceAction newAction=(AWSElasticLoadBalancingLoadBalancerResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(LoadBalancing.class);
+  DescribeTagsType describeTagsType=MessageHelper.createMessage(DescribeTagsType.class,newAction.info.getEffectiveUserId());
+  LoadBalancerNamesMax20 loadBalancerNames=new LoadBalancerNamesMax20();
+  loadBalancerNames.setMember(Lists.newArrayList(newAction.info.getPhysicalResourceId()));
+  describeTagsType.setLoadBalancerNames(loadBalancerNames);
+  DescribeTagsResponseType describeTagsResponseType=AsyncRequests.sendSync(configuration,describeTagsType);
+  if (describeTagsResponseType == null || describeTagsResponseType.getDescribeTagsResult() == null || describeTagsResponseType.getDescribeTagsResult().getTagDescriptions() == null || describeTagsResponseType.getDescribeTagsResult().getTagDescriptions().getMember() == null || describeTagsResponseType.getDescribeTagsResult().getTagDescriptions().getMember().size() != 1) {
+    throw new ValidationErrorException("Can not find load balancer : " + newAction.info.getPhysicalResourceId());
+  }
+  final TagDescription tagDescription=describeTagsResponseType.getDescribeTagsResult().getTagDescriptions().getMember().get(0);
+  Set<CloudFormationResourceTag> existingTags=Sets.newLinkedHashSet();
+  if (tagDescription != null & tagDescription.getTags() != null && tagDescription.getTags().getMember() != null) {
+    for (    Tag tag : tagDescription.getTags().getMember()) {
+      CloudFormationResourceTag cfTag=new CloudFormationResourceTag();
+      cfTag.setKey(tag.getKey());
+      cfTag.setValue(tag.getValue());
+      existingTags.add(cfTag);
+    }
+  }
+  Set<CloudFormationResourceTag> newTags=Sets.newLinkedHashSet();
+  if (newAction.properties.getTags() != null) {
+    newTags.addAll(newAction.properties.getTags());
+  }
+  List<CloudFormationResourceTag> newStackTags=TagHelper.getCloudFormationResourceStackTags(newAction.getStackEntity());
+  if (newStackTags != null) {
+    newTags.addAll(newStackTags);
+  }
+  TagHelper.checkReservedCloudFormationResourceTemplateTags(newTags);
+  Set<CloudFormationResourceTag> onlyNewTags=Sets.difference(newTags,existingTags);
+  if (!onlyNewTags.isEmpty()) {
+    AddTagsType addTagsType=MessageHelper.createMessage(AddTagsType.class,newAction.info.getEffectiveUserId());
+    addTagsType.setLoadBalancerNames(getLoadBalancerNames(newAction));
+    addTagsType.setTags(TagHelper.convertToTagList(onlyNewTags));
+    AsyncRequests.<AddTagsType,AddTagsResponseType>sendSync(configuration,addTagsType);
+  }
+  Set<CloudFormationResourceTag> oldTags=Sets.newLinkedHashSet();
+  if (oldAction.properties.getTags() != null) {
+    oldTags.addAll(oldAction.properties.getTags());
+  }
+  List<CloudFormationResourceTag> oldStackTags=TagHelper.getCloudFormationResourceStackTags(oldAction.getStackEntity());
+  if (oldStackTags != null) {
+    oldTags.addAll(oldStackTags);
+  }
+  Set<String> oldTagKeys=TagHelper.getTagKeyNames(oldTags);
+  Set<String> existingTagKeys=TagHelper.getTagKeyNames(existingTags);
+  Set<String> newTagKeys=TagHelper.getTagKeyNames(newTags);
+  Set<String> tagKeysToRemove=Sets.intersection(oldTagKeys,Sets.difference(existingTagKeys,newTagKeys));
+  if (!tagKeysToRemove.isEmpty()) {
+    RemoveTagsType removeTagsType=MessageHelper.createMessage(RemoveTagsType.class,newAction.info.getEffectiveUserId());
+    removeTagsType.setLoadBalancerNames(getLoadBalancerNames(newAction));
+    removeTagsType.setTags(TagHelper.convertToTagKeyList(tagKeysToRemove));
+    AsyncRequests.<RemoveTagsType,RemoveTagsResponseType>sendSync(configuration,removeTagsType);
+  }
+  return newAction;
+}
