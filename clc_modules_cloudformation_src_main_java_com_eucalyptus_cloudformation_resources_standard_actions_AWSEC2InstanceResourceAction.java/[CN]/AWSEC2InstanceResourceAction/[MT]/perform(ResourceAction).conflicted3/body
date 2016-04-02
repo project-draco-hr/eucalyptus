@@ -1,16 +1,33 @@
 {
   AWSEC2InstanceResourceAction action=(AWSEC2InstanceResourceAction)resourceAction;
-  ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  if (action.properties.getInstanceInitiatedShutdownBehavior() != null || action.properties.getSourceDestCheck() != null) {
-    ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,action.info.getEffectiveUserId());
-    modifyInstanceAttributeType.setInstanceId(action.info.getPhysicalResourceId());
-    if (action.properties.getInstanceInitiatedShutdownBehavior() != null) {
-      modifyInstanceAttributeType.setInstanceInitiatedShutdownBehavior(convertToAttributeValueType(action.properties.getInstanceInitiatedShutdownBehavior()));
+  CreationPolicy creationPolicy=CreationPolicy.parse(action.info.getCreationPolicyJson());
+  if (creationPolicy != null && creationPolicy.getResourceSignal() != null) {
+    if (creationPolicy.getResourceSignal().getCount() != 1) {
+      throw new ValidationErrorException("ResourceSignal CreationPolicy property Count cannot be greater than 1 for EC2 instance resources");
     }
-    if (action.properties.getSourceDestCheck() != null) {
-      modifyInstanceAttributeType.setSourceDestCheck(convertToAttributeBooleanValueType(action.properties.getSourceDestCheck()));
+    Collection<SignalEntity> signals=SignalEntityManager.getSignals(action.getStackEntity().getStackId(),action.info.getAccountId(),action.info.getLogicalResourceId(),action.getStackEntity().getStackVersion());
+    int numSuccessSignals=0;
+    if (signals != null) {
+      for (      SignalEntity signal : signals) {
+        if (!Objects.equals(signal.getUniqueId(),action.info.getPhysicalResourceId()))         continue;
+        if (signal.getStatus() == SignalEntity.Status.FAILURE) {
+          throw new ResourceFailureException("Received FAILURE signal with UniqueId " + signal.getUniqueId());
+        }
+        if (!signal.getProcessed()) {
+          StackEventEntityManager.addSignalStackEvent(signal);
+          signal.setProcessed(true);
+          SignalEntityManager.updateSignal(signal);
+        }
+        numSuccessSignals++;
+      }
     }
-    AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
+    if (numSuccessSignals < creationPolicy.getResourceSignal().getCount()) {
+      long durationMs=System.currentTimeMillis() - Long.valueOf(JsonHelper.getJsonNodeFromString(action.info.getEucaCreateStartTime()).asText());
+      if (TimeUnit.MILLISECONDS.toSeconds(durationMs) > creationPolicy.getResourceSignal().getTimeout()) {
+        throw new ResourceFailureException("Failed to receive " + creationPolicy.getResourceSignal().getCount() + " resource signal(s) within the specified duration");
+      }
+      throw new RetryAfterConditionCheckFailedException("Not enough success signals yet");
+    }
   }
   return action;
 }

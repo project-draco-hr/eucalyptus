@@ -2,15 +2,48 @@
   AWSEC2InstanceResourceAction oldAction=(AWSEC2InstanceResourceAction)oldResourceAction;
   AWSEC2InstanceResourceAction newAction=(AWSEC2InstanceResourceAction)newResourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  Map<String,String> oldVolumeDeviceMap=getVolumeDeviceMap(oldAction);
-  Map<String,String> newVolumeDeviceMap=getVolumeDeviceMap(newAction);
-  Map<String,String> attachingVolumeDeviceMap=getAttachingVolumeDeviceMap(oldVolumeDeviceMap,newVolumeDeviceMap);
-  for (  String volumeId : attachingVolumeDeviceMap.keySet()) {
-    AttachVolumeType attachVolumeType=MessageHelper.createMessage(AttachVolumeType.class,newAction.info.getEffectiveUserId());
-    attachVolumeType.setVolumeId(volumeId);
-    attachVolumeType.setInstanceId(newAction.info.getPhysicalResourceId());
-    attachVolumeType.setDevice(attachingVolumeDeviceMap.get(volumeId));
-    AsyncRequests.<AttachVolumeType,AttachVolumeResponseType>sendSync(configuration,attachVolumeType);
+  DescribeTagsType describeTagsType=MessageHelper.createMessage(DescribeTagsType.class,newAction.info.getEffectiveUserId());
+  describeTagsType.setFilterSet(Lists.newArrayList(Filter.filter("resource-id",newAction.info.getPhysicalResourceId())));
+  DescribeTagsResponseType describeTagsResponseType=AsyncRequests.sendSync(configuration,describeTagsType);
+  Set<EC2Tag> existingTags=Sets.newLinkedHashSet();
+  if (describeTagsResponseType != null & describeTagsResponseType.getTagSet() != null) {
+    for (    TagInfo tagInfo : describeTagsResponseType.getTagSet()) {
+      EC2Tag tag=new EC2Tag();
+      tag.setKey(tagInfo.getKey());
+      tag.setValue(tagInfo.getValue());
+      existingTags.add(tag);
+    }
+  }
+  Set<EC2Tag> newTags=Sets.newLinkedHashSet();
+  if (newAction.properties.getTags() != null) {
+    newTags.addAll(newAction.properties.getTags());
+  }
+  List<EC2Tag> newStackTags=TagHelper.getEC2StackTags(newAction.getStackEntity());
+  if (newStackTags != null) {
+    newTags.addAll(newStackTags);
+  }
+  TagHelper.checkReservedEC2TemplateTags(newTags);
+  Set<EC2Tag> onlyNewTags=Sets.difference(newTags,existingTags);
+  if (!onlyNewTags.isEmpty()) {
+    CreateTagsType createTagsType=MessageHelper.createMessage(CreateTagsType.class,newAction.info.getEffectiveUserId());
+    createTagsType.setResourcesSet(Lists.newArrayList(newAction.info.getPhysicalResourceId()));
+    createTagsType.setTagSet(EC2Helper.createTagSet(onlyNewTags));
+    AsyncRequests.<CreateTagsType,CreateTagsResponseType>sendSync(configuration,createTagsType);
+  }
+  Set<EC2Tag> oldTags=Sets.newLinkedHashSet();
+  if (oldAction.properties.getTags() != null) {
+    oldTags.addAll(oldAction.properties.getTags());
+  }
+  List<EC2Tag> oldStackTags=TagHelper.getEC2StackTags(oldAction.getStackEntity());
+  if (oldStackTags != null) {
+    oldTags.addAll(oldStackTags);
+  }
+  Set<EC2Tag> tagsToRemove=Sets.intersection(oldTags,Sets.difference(existingTags,newTags));
+  if (!tagsToRemove.isEmpty()) {
+    DeleteTagsType deleteTagsType=MessageHelper.createMessage(DeleteTagsType.class,newAction.info.getEffectiveUserId());
+    deleteTagsType.setResourcesSet(Lists.newArrayList(newAction.info.getPhysicalResourceId()));
+    deleteTagsType.setTagSet(EC2Helper.deleteTagSet(tagsToRemove));
+    AsyncRequests.<DeleteTagsType,DeleteTagsResponseType>sendSync(configuration,deleteTagsType);
   }
   return newAction;
 }

@@ -4,22 +4,23 @@
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
   Map<String,String> oldVolumeDeviceMap=getVolumeDeviceMap(oldAction);
   Map<String,String> newVolumeDeviceMap=getVolumeDeviceMap(newAction);
-  Map<String,String> detachingVolumeDeviceMap=getDetachingVolumeDeviceMap(oldVolumeDeviceMap,newVolumeDeviceMap);
-  DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,newAction.info.getEffectiveUserId());
-  describeVolumesType.getFilterSet().add(Filter.filter("volume-id",detachingVolumeDeviceMap.keySet()));
-  DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.sendSync(configuration,describeVolumesType);
-  if (describeVolumesResponseType != null && describeVolumesResponseType.getVolumeSet() != null) {
+  Map<String,String> attachingVolumeDeviceMap=getAttachingVolumeDeviceMap(oldVolumeDeviceMap,newVolumeDeviceMap);
+  if (!attachingVolumeDeviceMap.isEmpty()) {
+    Map<String,String> volumeStatusMap=Maps.newHashMap();
+    Collection<String> volumeIds=attachingVolumeDeviceMap.keySet();
+    DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,newAction.info.getEffectiveUserId());
+    describeVolumesType.getFilterSet().add(Filter.filter("volume-id",volumeIds));
+    DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.sendSync(configuration,describeVolumesType);
     for (    Volume volume : describeVolumesResponseType.getVolumeSet()) {
-      if (!detachingVolumeDeviceMap.containsKey(volume.getVolumeId()))       continue;
-      if (volume.getAttachmentSet() != null) {
-        for (        AttachedVolume attachedVolume : volume.getAttachmentSet()) {
-          if (detachingVolumeDeviceMap.containsKey(attachedVolume.getVolumeId()) && newAction.info.getPhysicalResourceId().equals(attachedVolume.getInstanceId()) && detachingVolumeDeviceMap.get(attachedVolume.getVolumeId()).equals(attachedVolume.getDevice())) {
-            DetachVolumeType detachVolumeType=MessageHelper.createMessage(DetachVolumeType.class,newAction.info.getEffectiveUserId());
-            detachVolumeType.setVolumeId(attachedVolume.getVolumeId());
-            detachVolumeType.setInstanceId(newAction.info.getPhysicalResourceId());
-            AsyncRequests.sendSync(configuration,detachVolumeType);
-          }
+      for (      AttachedVolume attachedVolume : volume.getAttachmentSet()) {
+        if (attachedVolume.getInstanceId().equals(newAction.info.getPhysicalResourceId()) && attachedVolume.getDevice().equals(attachingVolumeDeviceMap.get(volume.getVolumeId()))) {
+          volumeStatusMap.put(volume.getVolumeId(),attachedVolume.getStatus());
         }
+      }
+    }
+    for (    String volumeId : volumeIds) {
+      if (!"attached".equals(volumeStatusMap.get(volumeId))) {
+        throw new RetryAfterConditionCheckFailedException("One or more volumes is not yet attached to the instance");
       }
     }
   }

@@ -1,33 +1,3 @@
 {
-  AWSEC2InstanceResourceAction oldAction=(AWSEC2InstanceResourceAction)oldResourceAction;
-  AWSEC2InstanceResourceAction newAction=(AWSEC2InstanceResourceAction)newResourceAction;
-  ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  Map<String,String> oldVolumeDeviceMap=getVolumeDeviceMap(oldAction);
-  Map<String,String> newVolumeDeviceMap=getVolumeDeviceMap(newAction);
-  Map<String,String> detachingVolumeDeviceMap=getDetachingVolumeDeviceMap(oldVolumeDeviceMap,newVolumeDeviceMap);
-  boolean stillAttached=false;
-  DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,newAction.info.getEffectiveUserId());
-  if (!detachingVolumeDeviceMap.isEmpty()) {
-    describeVolumesType.getFilterSet().add(Filter.filter("volume-id",detachingVolumeDeviceMap.keySet()));
-    DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.sendSync(configuration,describeVolumesType);
-    if (describeVolumesResponseType != null && describeVolumesResponseType.getVolumeSet() != null) {
-      for (      Volume volume : describeVolumesResponseType.getVolumeSet()) {
-        if (!detachingVolumeDeviceMap.containsKey(volume.getVolumeId()))         continue;
-        if (volume.getAttachmentSet() != null) {
-          for (          AttachedVolume attachedVolume : volume.getAttachmentSet()) {
-            if (detachingVolumeDeviceMap.containsKey(attachedVolume.getVolumeId()) && newAction.info.getPhysicalResourceId().equals(attachedVolume.getInstanceId()) && detachingVolumeDeviceMap.get(attachedVolume.getVolumeId()).equals(attachedVolume.getDevice())) {
-              if (!"detached".equals(attachedVolume.getStatus())) {
-                stillAttached=true;
-                break;
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-  if (stillAttached) {
-    throw new RetryAfterConditionCheckFailedException("One or more volumes is not yet detached from the instance");
-  }
-  return newAction;
+  return UpdateNoInterruptionSteps.UPDATE_TAGS.perform(oldResourceAction,newResourceAction);
 }

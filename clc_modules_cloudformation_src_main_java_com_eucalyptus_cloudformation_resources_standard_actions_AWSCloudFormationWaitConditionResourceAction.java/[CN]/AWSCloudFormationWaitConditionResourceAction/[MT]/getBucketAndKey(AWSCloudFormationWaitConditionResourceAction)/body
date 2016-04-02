@@ -1,0 +1,24 @@
+{
+  LOG.trace("Looking for handle : " + action.properties.getHandle());
+  List<StackResourceEntity> stackResourceEntityList=StackResourceEntityManager.getStackResources(action.getStackEntity().getStackId(),action.info.getAccountId(),action.getStackEntity().getStackVersion());
+  StackResourceEntity handleEntity=null;
+  for (  StackResourceEntity stackResourceEntity : stackResourceEntityList) {
+    if (stackResourceEntity.getPhysicalResourceId() != null && stackResourceEntity.getPhysicalResourceId().equals(action.properties.getHandle())) {
+      LOG.trace("found something with the same physical id, type:" + stackResourceEntity.getResourceType());
+      if (stackResourceEntity.getResourceType().equals("AWS::CloudFormation::WaitConditionHandle")) {
+        handleEntity=stackResourceEntity;
+        break;
+      }
+    }
+  }
+  if (handleEntity == null) {
+    throw new Exception("Handle URL:" + action.properties.getHandle() + " does not match a WaitConditionHandle from this stack");
+  }
+  AWSCloudFormationWaitConditionHandleResourceInfo handleResourceInfo=(AWSCloudFormationWaitConditionHandleResourceInfo)StackResourceEntityManager.getResourceInfo(handleEntity);
+  ObjectNode objectNode=(ObjectNode)JsonHelper.getJsonNodeFromString(handleResourceInfo.getEucaParts());
+  if (!"1.0".equals(objectNode.get("version").asText()))   throw new Exception("Invalid version for eucaParts");
+  String bucketName=objectNode.get("bucket").asText();
+  LOG.trace("bucketName=" + bucketName);
+  String keyName=objectNode.get("key").asText();
+  return new BucketAndKey(bucketName,keyName);
+}
