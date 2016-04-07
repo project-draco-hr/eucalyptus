@@ -1,33 +1,21 @@
 {
   AWSEC2InstanceResourceAction action=(AWSEC2InstanceResourceAction)resourceAction;
-  CreationPolicy creationPolicy=CreationPolicy.parse(action.info.getCreationPolicyJson());
-  if (creationPolicy != null && creationPolicy.getResourceSignal() != null) {
-    if (creationPolicy.getResourceSignal().getCount() != 1) {
-      throw new ValidationErrorException("ResourceSignal CreationPolicy property Count cannot be greater than 1 for EC2 instance resources");
-    }
-    Collection<SignalEntity> signals=SignalEntityManager.getSignals(action.getStackEntity().getStackId(),action.info.getAccountId(),action.info.getLogicalResourceId(),action.getStackEntity().getStackVersion());
-    int numSuccessSignals=0;
-    if (signals != null) {
-      for (      SignalEntity signal : signals) {
-        if (!Objects.equals(signal.getUniqueId(),action.info.getPhysicalResourceId()))         continue;
-        if (signal.getStatus() == SignalEntity.Status.FAILURE) {
-          throw new ResourceFailureException("Received FAILURE signal with UniqueId " + signal.getUniqueId());
-        }
-        if (!signal.getProcessed()) {
-          StackEventEntityManager.addSignalStackEvent(signal);
-          signal.setProcessed(true);
-          SignalEntityManager.updateSignal(signal);
-        }
-        numSuccessSignals++;
-      }
-    }
-    if (numSuccessSignals < creationPolicy.getResourceSignal().getCount()) {
-      long durationMs=System.currentTimeMillis() - Long.valueOf(JsonHelper.getJsonNodeFromString(action.info.getEucaCreateStartTime()).asText());
-      if (TimeUnit.MILLISECONDS.toSeconds(durationMs) > creationPolicy.getResourceSignal().getTimeout()) {
-        throw new ResourceFailureException("Failed to receive " + creationPolicy.getResourceSignal().getCount() + " resource signal(s) within the specified duration");
-      }
-      throw new RetryAfterConditionCheckFailedException("Not enough success signals yet");
-    }
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  DescribeInstancesType describeInstancesType=MessageHelper.createMessage(DescribeInstancesType.class,action.info.getEffectiveUserId());
+  describeInstancesType.getFilterSet().add(Filter.filter("instance-id",action.info.getPhysicalResourceId()));
+  DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.sendSync(configuration,describeInstancesType);
+  if (describeInstancesResponseType.getReservationSet().size() == 0) {
+    throw new RetryAfterConditionCheckFailedException("Instance " + action.info.getPhysicalResourceId() + " does not yet exist");
   }
-  return action;
+  RunningInstancesItemType runningInstancesItemType=describeInstancesResponseType.getReservationSet().get(0).getInstancesSet().get(0);
+  if ("running".equals(runningInstancesItemType.getStateName())) {
+    action.info.setPrivateIp(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getPrivateIpAddress())));
+    action.info.setPublicIp(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getIpAddress())));
+    action.info.setAvailabilityZone(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getPlacement())));
+    action.info.setPrivateDnsName(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getPrivateDnsName())));
+    action.info.setPublicDnsName(JsonHelper.getStringFromJsonNode(new TextNode(runningInstancesItemType.getDnsName())));
+    action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
+    return action;
+  }
+  throw new RetryAfterConditionCheckFailedException(("Instance " + action.info.getPhysicalResourceId() + " is not yet running, currently "+ runningInstancesItemType.getStateName()));
 }

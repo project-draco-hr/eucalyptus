@@ -49,6 +49,19 @@
       throw new ValidationErrorException("Stack:" + stackId + " is in "+ previousStackEntity.getStackStatus().toString()+ " state and can not be updated.");
     }
     int previousStackVersion=previousStackEntity.getStackVersion();
+    if (request.getTags() != null && request.getTags().getMember() != null) {
+      for (      Tag tag : request.getTags().getMember()) {
+        if (Strings.isNullOrEmpty(tag.getKey()) || Strings.isNullOrEmpty(tag.getValue())) {
+          throw new ValidationErrorException("Tags can not be null or empty");
+        }
+ else         if (tag.getKey().startsWith("aws:")) {
+          throw new ValidationErrorException("Invalid tag key.  \"aws:\" is a reserved prefix.");
+        }
+ else         if (tag.getKey().startsWith("euca:")) {
+          throw new ValidationErrorException("Invalid tag key.  \"euca:\" is a reserved prefix.");
+        }
+      }
+    }
     final PseudoParameterValues nextPseudoParameterValues=new PseudoParameterValues();
     nextPseudoParameterValues.setAccountId(accountId);
     nextPseudoParameterValues.setStackName(stackName);
@@ -97,6 +110,20 @@
     }
  else     if (!previousTemplate.getResourceInfoMap().keySet().equals(nextTemplate.getResourceInfoMap().keySet())) {
       requiresUpdate=true;
+    }
+ else     if (request.getTags() != null && request.getTags().getMember() != null) {
+      Map<String,String> previousTagsMap=Maps.newHashMap();
+      Map<String,String> nextTagsMap=Maps.newHashMap();
+      List<Tag> previousTags=StackEntityHelper.jsonToTags(previousStackEntity.getTagsJson());
+      for (      Tag tag : previousTags) {
+        previousTagsMap.put(tag.getKey(),tag.getValue());
+      }
+      for (      Tag tag : request.getTags().getMember()) {
+        nextTagsMap.put(tag.getKey(),tag.getValue());
+      }
+      if (!previousTagsMap.equals(nextTagsMap)) {
+        requiresUpdate=true;
+      }
     }
  else {
       for (      String fieldName : previousTemplate.getResourceInfoMap().keySet()) {

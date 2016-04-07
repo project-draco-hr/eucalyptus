@@ -1,5 +1,46 @@
 {
   AWSElasticLoadBalancingLoadBalancerResourceAction action=(AWSElasticLoadBalancingLoadBalancerResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(LoadBalancing.class);
+  CreateLoadBalancerType createLoadBalancerType=MessageHelper.createMessage(CreateLoadBalancerType.class,action.info.getEffectiveUserId());
+  if (action.properties.getLoadBalancerName() == null) {
+    createLoadBalancerType.setLoadBalancerName(action.getDefaultPhysicalResourceId(32));
+  }
+ else {
+    createLoadBalancerType.setLoadBalancerName(action.properties.getLoadBalancerName());
+  }
+  if (action.properties.getAvailabilityZones() != null && !action.properties.getAvailabilityZones().isEmpty()) {
+    AvailabilityZones availabilityZones=new AvailabilityZones();
+    ArrayList<String> member=Lists.newArrayList(action.properties.getAvailabilityZones());
+    availabilityZones.setMember(member);
+    createLoadBalancerType.setAvailabilityZones(availabilityZones);
+  }
+  if (action.properties.getListeners() != null) {
+    Listeners listeners=new Listeners();
+    ArrayList<Listener> member=Lists.newArrayList();
+    for (    ElasticLoadBalancingListener elasticLoadBalancingListener : action.properties.getListeners()) {
+      Listener listener=convertListener(elasticLoadBalancingListener);
+      member.add(listener);
+    }
+    listeners.setMember(member);
+    createLoadBalancerType.setListeners(listeners);
+  }
+  createLoadBalancerType.setScheme(action.properties.getScheme());
+  if (action.properties.getSecurityGroups() != null && !action.properties.getSecurityGroups().isEmpty()) {
+    SecurityGroups securityGroups=new SecurityGroups();
+    ArrayList<String> member=Lists.newArrayList(action.properties.getSecurityGroups());
+    securityGroups.setMember(member);
+    createLoadBalancerType.setSecurityGroups(securityGroups);
+  }
+  if (action.properties.getSubnets() != null && !action.properties.getSubnets().isEmpty()) {
+    Subnets subnets=new Subnets();
+    ArrayList<String> member=Lists.newArrayList(action.properties.getSubnets());
+    subnets.setMember(member);
+    createLoadBalancerType.setSubnets(subnets);
+  }
+  CreateLoadBalancerResponseType createLoadBalancerResponseType=AsyncRequests.<CreateLoadBalancerType,CreateLoadBalancerResponseType>sendSync(configuration,createLoadBalancerType);
+  action.info.setPhysicalResourceId(createLoadBalancerType.getLoadBalancerName());
+  action.info.setCreatedEnoughToDelete(true);
+  action.info.setDnsName(JsonHelper.getStringFromJsonNode(new TextNode(createLoadBalancerResponseType.getCreateLoadBalancerResult().getDnsName())));
+  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
   return action;
 }

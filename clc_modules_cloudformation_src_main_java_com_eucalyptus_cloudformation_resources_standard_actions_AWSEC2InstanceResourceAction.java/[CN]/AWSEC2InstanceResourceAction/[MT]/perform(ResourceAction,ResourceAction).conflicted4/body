@@ -1,3 +1,16 @@
 {
-  return UpdateNoInterruptionSteps.WAIT_UNTIL_OLD_VOLUMES_NOT_ATTACHED.perform(oldResourceAction,newResourceAction);
+  AWSEC2InstanceResourceAction oldAction=(AWSEC2InstanceResourceAction)oldResourceAction;
+  AWSEC2InstanceResourceAction newAction=(AWSEC2InstanceResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  Map<String,String> oldVolumeDeviceMap=getVolumeDeviceMap(oldAction);
+  Map<String,String> newVolumeDeviceMap=getVolumeDeviceMap(newAction);
+  Map<String,String> attachingVolumeDeviceMap=getAttachingVolumeDeviceMap(oldVolumeDeviceMap,newVolumeDeviceMap);
+  for (  String volumeId : attachingVolumeDeviceMap.keySet()) {
+    AttachVolumeType attachVolumeType=MessageHelper.createMessage(AttachVolumeType.class,newAction.info.getEffectiveUserId());
+    attachVolumeType.setVolumeId(volumeId);
+    attachVolumeType.setInstanceId(newAction.info.getPhysicalResourceId());
+    attachVolumeType.setDevice(attachingVolumeDeviceMap.get(volumeId));
+    AsyncRequests.<AttachVolumeType,AttachVolumeResponseType>sendSync(configuration,attachVolumeType);
+  }
+  return newAction;
 }

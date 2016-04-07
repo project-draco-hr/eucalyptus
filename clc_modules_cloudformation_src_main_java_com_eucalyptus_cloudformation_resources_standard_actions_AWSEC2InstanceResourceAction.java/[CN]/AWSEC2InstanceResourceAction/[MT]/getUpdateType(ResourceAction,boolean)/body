@@ -1,0 +1,95 @@
+{
+  AWSEC2InstanceResourceAction otherAction=(AWSEC2InstanceResourceAction)resourceAction;
+  if (info.getPhysicalResourceId() == null) {
+    throw new ValidationErrorException("Can not call update on this instance.  It was never created");
+  }
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  DescribeInstancesType describeInstancesType=MessageHelper.createMessage(DescribeInstancesType.class,info.getEffectiveUserId());
+  describeInstancesType.getFilterSet().add(Filter.filter("instance-id",info.getPhysicalResourceId()));
+  DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.sendSync(configuration,describeInstancesType);
+  if (describeInstancesResponseType.getReservationSet().size() == 0) {
+    throw new ValidationErrorException("Instance " + info.getPhysicalResourceId() + " does not exist");
+  }
+  RunningInstancesItemType runningInstancesItemType=describeInstancesResponseType.getReservationSet().get(0).getInstancesSet().get(0);
+  boolean isVpc=runningInstancesItemType.getVpcId() != null;
+  boolean isEbs="ebs".equals(runningInstancesItemType.getRootDeviceType());
+  UpdateType updateType=info.supportsTags() && stackTagsChanged ? UpdateType.NO_INTERRUPTION : UpdateType.NONE;
+  if (!Objects.equals(properties.getAdditionalInfo(),otherAction.properties.getAdditionalInfo())) {
+    updateType=updateType.max(updateType,isEbs ? UpdateType.SOME_INTERRUPTION : UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getAvailabilityZone(),otherAction.properties.getAvailabilityZone())) {
+    updateType=updateType.max(updateType,UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getBlockDeviceMappings(),otherAction.properties.getBlockDeviceMappings())) {
+    if (onlyChangedDeleteOnTerminate(properties.getBlockDeviceMappings(),otherAction.properties.getBlockDeviceMappings())) {
+      updateType=updateType.max(updateType,UpdateType.NO_INTERRUPTION);
+    }
+ else {
+      updateType=updateType.max(updateType,UpdateType.NEEDS_REPLACEMENT);
+    }
+  }
+  if (!Objects.equals(properties.getDisableApiTermination(),otherAction.properties.getDisableApiTermination())) {
+    updateType=updateType.max(updateType,UpdateType.NO_INTERRUPTION);
+  }
+  if (!Objects.equals(properties.getEbsOptimized(),otherAction.properties.getEbsOptimized())) {
+    updateType=updateType.max(updateType,isEbs ? UpdateType.SOME_INTERRUPTION : UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getIamInstanceProfile(),otherAction.properties.getIamInstanceProfile())) {
+    updateType=updateType.max(updateType,UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getImageId(),otherAction.properties.getImageId())) {
+    updateType=updateType.max(updateType,UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getInstanceInitiatedShutdownBehavior(),otherAction.properties.getInstanceInitiatedShutdownBehavior())) {
+    updateType=updateType.max(updateType,UpdateType.NO_INTERRUPTION);
+  }
+  if (!Objects.equals(properties.getInstanceType(),otherAction.properties.getInstanceType())) {
+    updateType=updateType.max(updateType,isEbs ? UpdateType.SOME_INTERRUPTION : UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getKernelId(),otherAction.properties.getKernelId())) {
+    updateType=updateType.max(updateType,isEbs ? UpdateType.SOME_INTERRUPTION : UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getKeyName(),otherAction.properties.getKeyName())) {
+    updateType=updateType.max(updateType,UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getMonitoring(),otherAction.properties.getMonitoring())) {
+    updateType=updateType.max(updateType,UpdateType.NO_INTERRUPTION);
+  }
+  if (!Objects.equals(properties.getNetworkInterfaces(),otherAction.properties.getNetworkInterfaces())) {
+    updateType=updateType.max(updateType,UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getPlacementGroupName(),otherAction.properties.getPlacementGroupName())) {
+    updateType=updateType.max(updateType,UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getPrivateIpAddress(),otherAction.properties.getPrivateIpAddress())) {
+    updateType=updateType.max(updateType,UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getRamdiskId(),otherAction.properties.getRamdiskId())) {
+    updateType=updateType.max(updateType,isEbs ? UpdateType.SOME_INTERRUPTION : UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getSecurityGroupIds(),otherAction.properties.getSecurityGroupIds())) {
+    updateType=updateType.max(updateType,isVpc ? UpdateType.NO_INTERRUPTION : UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getSecurityGroups(),otherAction.properties.getSecurityGroups())) {
+    updateType=updateType.max(updateType,UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getSourceDestCheck(),otherAction.properties.getSourceDestCheck())) {
+    updateType=updateType.max(updateType,UpdateType.NO_INTERRUPTION);
+  }
+  if (!Objects.equals(properties.getSubnetId(),otherAction.properties.getSubnetId())) {
+    updateType=updateType.max(updateType,UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getTags(),otherAction.properties.getTags())) {
+    updateType=updateType.max(updateType,UpdateType.NO_INTERRUPTION);
+  }
+  if (!Objects.equals(properties.getTenancy(),otherAction.properties.getTenancy())) {
+    updateType=updateType.max(updateType,UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getUserData(),otherAction.properties.getUserData())) {
+    updateType=updateType.max(updateType,isEbs ? UpdateType.SOME_INTERRUPTION : UpdateType.NEEDS_REPLACEMENT);
+  }
+  if (!Objects.equals(properties.getVolumes(),otherAction.properties.getVolumes())) {
+    updateType=updateType.max(updateType,UpdateType.NO_INTERRUPTION);
+  }
+  return updateType;
+}
