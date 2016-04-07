@@ -72,25 +72,43 @@ catch (  Exception ex) {
  catch (    final Exception ex) {
       asgFound=false;
     }
+    final List<String> availabilityZones=Lists.newArrayList(availabilityZone);
+    String vpcZoneIdentifier=null;
+    String systemVpcZoneIdentifier=null;
     if (!asgFound || updateLaunchConfig) {
       try {
-        final Set<String> securityGroupNamesOrIds=Sets.newHashSet(eventSecurityGroupIds);
-        if (securityGroupNamesOrIds.isEmpty()) {
-          if (!lb.getSecurityGroupIdsToNames().isEmpty()) {
-            securityGroupNamesOrIds.addAll(lb.getSecurityGroupIdsToNames().keySet());
-          }
+        vpcZoneIdentifier=zoneToSubnetIdMap.isEmpty() ? null : Strings.emptyToNull(Joiner.on(',').skipNulls().join(Iterables.transform(availabilityZones,Functions.forMap(zoneToSubnetIdMap))));
+        if (vpcZoneIdentifier != null)         systemVpcZoneIdentifier=LoadBalancingSystemVpcs.getSystemVpcSubnetId(vpcZoneIdentifier);
+ else         systemVpcZoneIdentifier=null;
+      }
+ catch (      final Exception ex) {
+        throw new EventHandlerException("Failed to look up subnet ID",ex);
+      }
+      try {
+        Set<String> securityGroupNamesOrIds=null;
+        if (systemVpcZoneIdentifier == null) {
+          securityGroupNamesOrIds=Sets.newHashSet(eventSecurityGroupIds);
+          if (securityGroupNamesOrIds.isEmpty()) {
+            if (!lb.getSecurityGroupIdsToNames().isEmpty()) {
+              securityGroupNamesOrIds.addAll(lb.getSecurityGroupIdsToNames().keySet());
+            }
  else {
-            final StoredResult<String> sgroupSetup=this.getChain().findHandler(SecurityGroupSetup.class);
-            final List<String> group=sgroupSetup.getResult();
-            if (!group.isEmpty()) {
-              securityGroupNamesOrIds.add(group.get(0));
+              final StoredResult<String> sgroupSetup=this.getChain().findHandler(SecurityGroupSetup.class);
+              final List<String> group=sgroupSetup.getResult();
+              if (!group.isEmpty()) {
+                securityGroupNamesOrIds.add(group.get(0));
+              }
             }
           }
+        }
+ else {
+          securityGroupNamesOrIds=Sets.newHashSet();
+          securityGroupNamesOrIds.add(LoadBalancingSystemVpcs.getSecurityGroupId(systemVpcZoneIdentifier));
         }
         final String keyName=KEYNAME != null && KEYNAME.length() > 0 ? KEYNAME : null;
         final String userData=B64.standard.encString(String.format("%s\n%s",getCredentialsString(),getLoadBalancerUserData(INIT_SCRIPT,lb.getOwnerAccountNumber())));
         launchConfigName=getLaunchConfigName(lb.getOwnerAccountNumber(),lb.getDisplayName(),availabilityZone);
-        EucalyptusActivityTasks.getInstance().createLaunchConfiguration(IMAGE,INSTANCE_TYPE,instanceProfileName,launchConfigName,securityGroupNamesOrIds,keyName,userData,zoneToSubnetIdMap.isEmpty() ? null : lb.getScheme() != LoadBalancer.Scheme.Internal,lb.useSystemAccount());
+        EucalyptusActivityTasks.getInstance().createLaunchConfiguration(IMAGE,INSTANCE_TYPE,instanceProfileName,launchConfigName,securityGroupNamesOrIds,keyName,userData,zoneToSubnetIdMap.isEmpty() ? null : false,lb.useSystemAccount());
         this.createdLaunchConfigNames.add(launchConfigName);
       }
  catch (      Exception ex) {
@@ -101,9 +119,7 @@ catch (  Exception ex) {
     Integer capacity=EventHandlerChainNew.getCapacityPerZone();
     if (!asgFound) {
       try {
-        final List<String> availabilityZones=Lists.newArrayList(availabilityZone);
-        final String vpcZoneIdentifier=zoneToSubnetIdMap.isEmpty() ? null : Strings.emptyToNull(Joiner.on(',').skipNulls().join(Iterables.transform(availabilityZones,Functions.forMap(zoneToSubnetIdMap))));
-        EucalyptusActivityTasks.getInstance().createAutoScalingGroup(groupName,availabilityZones,vpcZoneIdentifier,capacity,launchConfigName,TagCreator.TAG_KEY,TagCreator.TAG_VALUE,lb.useSystemAccount());
+        EucalyptusActivityTasks.getInstance().createAutoScalingGroup(groupName,availabilityZones,systemVpcZoneIdentifier,capacity,launchConfigName,TagCreator.TAG_KEY,TagCreator.TAG_VALUE,lb.useSystemAccount());
         this.createdAsgNames.add(groupName);
       }
  catch (      Exception ex) {
@@ -112,7 +128,6 @@ catch (  Exception ex) {
     }
  else {
       try {
-        final List<String> availabilityZones=Lists.newArrayList(availabilityZone);
         EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(groupName,availabilityZones,capacity,launchConfigName,lb.useSystemAccount());
       }
  catch (      Exception ex) {
@@ -132,7 +147,7 @@ catch (  Exception ex) {
         if (capacity != null)         group.setCapacity(capacity);
       }
  catch (      NoSuchElementException ex) {
-        final LoadBalancerAutoScalingGroup group=LoadBalancerAutoScalingGroup.newInstance(lbEntity,availabilityZone,groupName,launchConfigName);
+        final LoadBalancerAutoScalingGroup group=LoadBalancerAutoScalingGroup.newInstance(lbEntity,availabilityZone,vpcZoneIdentifier,systemVpcZoneIdentifier,groupName,launchConfigName);
         if (capacity != null)         group.setCapacity(capacity);
         Entities.persist(group);
       }
