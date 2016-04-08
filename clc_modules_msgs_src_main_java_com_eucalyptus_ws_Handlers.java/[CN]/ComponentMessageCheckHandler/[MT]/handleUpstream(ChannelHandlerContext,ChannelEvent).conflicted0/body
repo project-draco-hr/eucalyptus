@@ -1,28 +1,15 @@
 {
-  try {
-    ConcurrentMap<String,Object> info=getChannelInfo(ctx);
-    if (e instanceof ChannelStateEvent) {
-      upstreamChannelStateEvent((ChannelStateEvent)e,info);
-    }
-    if (ctx.getPipeline().getLast() instanceof AsyncRequestHandler) {
-      AsyncRequestHandler requestHandler=(AsyncRequestHandler)ctx.getPipeline().getLast();
-      info.putIfAbsent("pipeline",ctx.getPipeline().getClass());
-      info.putIfAbsent("silent.requesthandler",requestHandler);
-      if (requestHandler != null && requestHandler.getRequest() != null && requestHandler.getRequest().get() != null) {
-        info.putIfAbsent("request.message",Objects.firstNonNull(requestHandler.getRequest().get(),NULLPROXY).getClass());
+  if (channelEvent instanceof MessageEvent && componentIdClass != null) {
+    final BaseMessage message=BaseMessage.extractMessage(channelEvent);
+    final ComponentMessage componentMessage=message == null ? null : Ats.inClassHierarchy(message.getClass()).get(ComponentMessage.class);
+    if (message != null && (componentMessage == null || !componentIdClass.equals(componentMessage.value()))) {
+      LOG.warn(String.format("Message %s does not match pipeline component %s",message.getClass(),componentIdClass.getSimpleName()));
+      final BaseMessage baseMessage=BaseMessage.extractMessage(channelEvent);
+      if (baseMessage != null) {
+        Contexts.clear(Contexts.lookup(baseMessage.getCorrelationId()));
       }
-    }
- else     if (e instanceof ExceptionEvent) {
-      info.putIfAbsent("exception",((ExceptionEvent)e).getCause());
-    }
- else     if (e instanceof MessageEvent) {
-      final Object message=Objects.firstNonNull(((MessageEvent)e).getMessage(),NULLPROXY);
-      info.putIfAbsent("silent.request",message);
-      info.putIfAbsent("request.type",message.getClass());
+      throw new WebServicesException(HttpResponseStatus.FORBIDDEN);
     }
   }
- catch (  Exception e1) {
-    LOG.debug(e1);
-  }
-  ctx.sendUpstream(e);
+  channelHandlerContext.sendUpstream(channelEvent);
 }
