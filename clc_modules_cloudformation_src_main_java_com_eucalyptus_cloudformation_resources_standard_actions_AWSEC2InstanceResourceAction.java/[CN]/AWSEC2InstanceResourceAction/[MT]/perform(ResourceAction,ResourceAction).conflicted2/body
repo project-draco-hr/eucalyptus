@@ -2,15 +2,26 @@
   AWSEC2InstanceResourceAction oldAction=(AWSEC2InstanceResourceAction)oldResourceAction;
   AWSEC2InstanceResourceAction newAction=(AWSEC2InstanceResourceAction)newResourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  DescribeInstancesType describeInstancesType=MessageHelper.createMessage(DescribeInstancesType.class,newAction.info.getEffectiveUserId());
-  describeInstancesType.getFilterSet().add(Filter.filter("instance-id",newAction.info.getPhysicalResourceId()));
-  DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.sendSync(configuration,describeInstancesType);
-  if (describeInstancesResponseType.getReservationSet().size() == 0)   throw new ValidationErrorException("Instance " + newAction.info.getPhysicalResourceId() + " not found.");
-  if ("terminated".equals(describeInstancesResponseType.getReservationSet().get(0).getInstancesSet().get(0).getStateName())) {
-    new ValidationErrorException("Instance " + newAction.info.getPhysicalResourceId() + " terminated.");
+  Map<String,String> oldVolumeDeviceMap=getVolumeDeviceMap(oldAction);
+  Map<String,String> newVolumeDeviceMap=getVolumeDeviceMap(newAction);
+  Map<String,String> detachingVolumeDeviceMap=getDetachingVolumeDeviceMap(oldVolumeDeviceMap,newVolumeDeviceMap);
+  DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,newAction.info.getEffectiveUserId());
+  describeVolumesType.getFilterSet().add(Filter.filter("volume-id",detachingVolumeDeviceMap.keySet()));
+  DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.sendSync(configuration,describeVolumesType);
+  if (describeVolumesResponseType != null && describeVolumesResponseType.getVolumeSet() != null) {
+    for (    Volume volume : describeVolumesResponseType.getVolumeSet()) {
+      if (!detachingVolumeDeviceMap.containsKey(volume.getVolumeId()))       continue;
+      if (volume.getAttachmentSet() != null) {
+        for (        AttachedVolume attachedVolume : volume.getAttachmentSet()) {
+          if (detachingVolumeDeviceMap.containsKey(attachedVolume.getVolumeId()) && newAction.info.getPhysicalResourceId().equals(attachedVolume.getInstanceId()) && detachingVolumeDeviceMap.get(attachedVolume.getVolumeId()).equals(attachedVolume.getDevice())) {
+            DetachVolumeType detachVolumeType=MessageHelper.createMessage(DetachVolumeType.class,newAction.info.getEffectiveUserId());
+            detachVolumeType.setVolumeId(attachedVolume.getVolumeId());
+            detachVolumeType.setInstanceId(newAction.info.getPhysicalResourceId());
+            AsyncRequests.sendSync(configuration,detachVolumeType);
+          }
+        }
+      }
+    }
   }
-  if ("stopped".equals(describeInstancesResponseType.getReservationSet().get(0).getInstancesSet().get(0).getStateName())) {
-    return newAction;
-  }
-  throw new RetryAfterConditionCheckFailedException(("Instance " + newAction.info.getPhysicalResourceId() + " is not yet stopped, currently "+ describeInstancesResponseType.getReservationSet().get(0).getInstancesSet().get(0).getStateName()));
+  return newAction;
 }

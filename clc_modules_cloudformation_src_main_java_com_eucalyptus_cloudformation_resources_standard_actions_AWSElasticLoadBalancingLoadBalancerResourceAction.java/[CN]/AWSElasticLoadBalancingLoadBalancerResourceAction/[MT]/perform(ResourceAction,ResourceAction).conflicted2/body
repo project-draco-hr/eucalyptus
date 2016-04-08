@@ -2,38 +2,21 @@
   AWSElasticLoadBalancingLoadBalancerResourceAction oldAction=(AWSElasticLoadBalancingLoadBalancerResourceAction)oldResourceAction;
   AWSElasticLoadBalancingLoadBalancerResourceAction newAction=(AWSElasticLoadBalancingLoadBalancerResourceAction)newResourceAction;
   ServiceConfiguration configuration=Topology.lookup(LoadBalancing.class);
-  ModifyLoadBalancerAttributesType modifyLoadBalancerAttributesType=MessageHelper.createMessage(ModifyLoadBalancerAttributesType.class,newAction.info.getEffectiveUserId());
-  LoadBalancerAttributes loadBalancerAttributes=new LoadBalancerAttributes();
-  AccessLog accessLog=new AccessLog();
-  if (newAction.properties.getAccessLoggingPolicy() != null) {
-    accessLog.setEnabled(newAction.properties.getAccessLoggingPolicy().getEnabled());
-    accessLog.setEmitInterval(newAction.properties.getAccessLoggingPolicy().getEmitInterval());
-    accessLog.setS3BucketName(newAction.properties.getAccessLoggingPolicy().getS3BucketName());
-    accessLog.setS3BucketPrefix(newAction.properties.getAccessLoggingPolicy().getS3BucketPrefix());
+  checkForDuplicatePolicyNames(newAction);
+  DescribeLoadBalancersType describeLoadBalancersType=MessageHelper.createMessage(DescribeLoadBalancersType.class,newAction.info.getEffectiveUserId());
+  describeLoadBalancersType.setLoadBalancerNames(getLoadBalancerNames(newAction));
+  DescribeLoadBalancersResponseType describeLoadBalancersResponseType=AsyncRequests.<DescribeLoadBalancersType,DescribeLoadBalancersResponseType>sendSync(configuration,describeLoadBalancersType);
+  if (describeLoadBalancersResponseType == null || describeLoadBalancersResponseType.getDescribeLoadBalancersResult() == null && describeLoadBalancersResponseType.getDescribeLoadBalancersResult().getLoadBalancerDescriptions() == null && describeLoadBalancersResponseType.getDescribeLoadBalancersResult().getLoadBalancerDescriptions().getMember() == null && describeLoadBalancersResponseType.getDescribeLoadBalancersResult().getLoadBalancerDescriptions().getMember().size() != 1) {
+    throw new ValidationErrorException("Can not find load balancer : " + newAction.info.getPhysicalResourceId());
   }
- else {
-    accessLog=new AccessLog();
-    accessLog.setEnabled(false);
+  LoadBalancerDescription loadBalancerDescription=describeLoadBalancersResponseType.getDescribeLoadBalancersResult().getLoadBalancerDescriptions().getMember().get(0);
+  updateAZs(oldAction,newAction,configuration,loadBalancerDescription);
+  updateInstances(oldAction,newAction,configuration,loadBalancerDescription);
+  updateSecurityGroups(oldAction,newAction,configuration,loadBalancerDescription);
+  updateSubnets(oldAction,newAction,configuration,loadBalancerDescription);
+  if (newAction.properties.getHealthCheck() != null) {
+    configureHealthCheck(newAction,configuration);
   }
-  ConnectionSettings connectionSettings=new ConnectionSettings();
-  if (newAction.properties.getConnectionSettings() != null) {
-    connectionSettings.setIdleTimeout(newAction.properties.getConnectionSettings().getIdleTimeout());
-  }
- else {
-    connectionSettings.setIdleTimeout(60);
-  }
-  CrossZoneLoadBalancing crossZoneLoadBalancing=new CrossZoneLoadBalancing();
-  if (newAction.properties.getCrossZone() != null) {
-    crossZoneLoadBalancing.setEnabled(newAction.properties.getCrossZone());
-  }
- else {
-    crossZoneLoadBalancing.setEnabled(false);
-  }
-  loadBalancerAttributes.setAccessLog(accessLog);
-  loadBalancerAttributes.setConnectionSettings(connectionSettings);
-  loadBalancerAttributes.setCrossZoneLoadBalancing(crossZoneLoadBalancing);
-  modifyLoadBalancerAttributesType.setLoadBalancerAttributes(loadBalancerAttributes);
-  modifyLoadBalancerAttributesType.setLoadBalancerName(newAction.info.getPhysicalResourceId());
-  AsyncRequests.<ModifyLoadBalancerAttributesType,ModifyLoadBalancerAttributesResponseType>sendSync(configuration,modifyLoadBalancerAttributesType);
+  updateListenersAndPolicies(oldAction,newAction,configuration);
   return newAction;
 }

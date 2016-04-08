@@ -1,55 +1,5 @@
 {
   AWSElasticLoadBalancingLoadBalancerResourceAction action=(AWSElasticLoadBalancingLoadBalancerResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(LoadBalancing.class);
-  Multimap<Integer,String> listenerPolicyMap=HashMultimap.create();
-  Multimap<Integer,String> backendPolicyMap=HashMultimap.create();
-  Set<Integer> listenerPorts=Sets.newHashSet();
-  if (action.properties.getListeners() != null) {
-    for (    ElasticLoadBalancingListener elasticLoadBalancingListener : action.properties.getListeners()) {
-      listenerPorts.add(elasticLoadBalancingListener.getLoadBalancerPort());
-      if (elasticLoadBalancingListener.getPolicyNames() != null) {
-        listenerPolicyMap.putAll(elasticLoadBalancingListener.getLoadBalancerPort(),elasticLoadBalancingListener.getPolicyNames());
-      }
-    }
-  }
-  if (action.properties.getPolicies() != null) {
-    for (    ElasticLoadBalancingPolicyType policyType : action.properties.getPolicies()) {
-      if (policyType.getLoadBalancerPorts() != null) {
-        for (        Integer loadBalancerPort : policyType.getLoadBalancerPorts()) {
-          if (!listenerPorts.contains(loadBalancerPort)) {
-            throw new ValidationErrorException("Policy " + policyType.getPolicyName() + " has a load balancer port of "+ loadBalancerPort+ ", which has no listener defined");
-          }
- else {
-            listenerPolicyMap.put(loadBalancerPort,policyType.getPolicyName());
-          }
-        }
-      }
-      if (policyType.getInstancePorts() != null) {
-        for (        Integer instancePort : policyType.getInstancePorts()) {
-          backendPolicyMap.put(instancePort,policyType.getPolicyName());
-        }
-      }
-    }
-  }
-  for (  Integer listenerLBPort : listenerPolicyMap.keySet()) {
-    ArrayList<String> policyNamesStr=Lists.newArrayList(listenerPolicyMap.get(listenerLBPort));
-    SetLoadBalancerPoliciesOfListenerType setLoadBalancerPoliciesOfListenerType=MessageHelper.createMessage(SetLoadBalancerPoliciesOfListenerType.class,action.info.getEffectiveUserId());
-    setLoadBalancerPoliciesOfListenerType.setLoadBalancerName(action.info.getPhysicalResourceId());
-    setLoadBalancerPoliciesOfListenerType.setLoadBalancerPort(listenerLBPort);
-    PolicyNames policyNames=new PolicyNames();
-    policyNames.setMember(policyNamesStr);
-    setLoadBalancerPoliciesOfListenerType.setPolicyNames(policyNames);
-    AsyncRequests.<SetLoadBalancerPoliciesOfListenerType,SetLoadBalancerPoliciesOfListenerResponseType>sendSync(configuration,setLoadBalancerPoliciesOfListenerType);
-  }
-  for (  Integer backendInstancePort : backendPolicyMap.keySet()) {
-    ArrayList<String> policyNamesStr=Lists.newArrayList(backendPolicyMap.get(backendInstancePort));
-    SetLoadBalancerPoliciesForBackendServerType setLoadBalancerPoliciesForBackendServerType=MessageHelper.createMessage(SetLoadBalancerPoliciesForBackendServerType.class,action.info.getEffectiveUserId());
-    setLoadBalancerPoliciesForBackendServerType.setLoadBalancerName(action.info.getPhysicalResourceId());
-    setLoadBalancerPoliciesForBackendServerType.setInstancePort(backendInstancePort);
-    PolicyNames policyNames=new PolicyNames();
-    policyNames.setMember(policyNamesStr);
-    setLoadBalancerPoliciesForBackendServerType.setPolicyNames(policyNames);
-    AsyncRequests.<SetLoadBalancerPoliciesForBackendServerType,SetLoadBalancerPoliciesForBackendServerResponseType>sendSync(configuration,setLoadBalancerPoliciesForBackendServerType);
-  }
-  return action;
+  return describeLoadBalancerToGetAttributes(action,configuration);
 }

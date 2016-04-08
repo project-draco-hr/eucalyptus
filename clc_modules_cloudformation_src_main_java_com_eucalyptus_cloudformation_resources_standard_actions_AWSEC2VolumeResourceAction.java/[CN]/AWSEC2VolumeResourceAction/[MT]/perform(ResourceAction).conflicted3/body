@@ -1,29 +1,16 @@
 {
   AWSEC2VolumeResourceAction action=(AWSEC2VolumeResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  CreateVolumeType createVolumeType=MessageHelper.createMessage(CreateVolumeType.class,action.info.getEffectiveUserId());
-  createVolumeType.setAvailabilityZone(action.properties.getAvailabilityZone());
-  if (action.properties.getEncrypted() != null) {
-    createVolumeType.setEncrypted(action.properties.getEncrypted());
-  }
-  if (action.properties.getIops() != null) {
-    createVolumeType.setIops(action.properties.getIops());
-  }
-  if (action.properties.getSize() != null) {
-    createVolumeType.setSize(action.properties.getSize());
-  }
-  if (action.properties.getSnapshotId() != null) {
-    createVolumeType.setSnapshotId(action.properties.getSnapshotId());
-  }
-  if (action.properties.getVolumeType() != null) {
-    createVolumeType.setVolumeType(action.properties.getVolumeType());
+  if (volumeDeleted(action,configuration))   return action;
+  if (!("Snapshot".equals(action.info.getDeletionPolicy())))   return action;
+  CreateSnapshotType createSnapshotType=MessageHelper.createMessage(CreateSnapshotType.class,action.info.getEffectiveUserId());
+  createSnapshotType.setVolumeId(action.info.getPhysicalResourceId());
+  CreateSnapshotResponseType createSnapshotResponseType=AsyncRequests.<CreateSnapshotType,CreateSnapshotResponseType>sendSync(configuration,createSnapshotType);
+  if (createSnapshotResponseType.getSnapshot() == null || createSnapshotResponseType.getSnapshot().getSnapshotId() == null) {
+    throw new ResourceFailureException("Unable to create snapshot on delete for volume " + action.info.getPhysicalResourceId());
   }
  else {
-    createVolumeType.setVolumeType("standard");
+    action.info.setSnapshotIdForDelete(JsonHelper.getStringFromJsonNode(new TextNode(createSnapshotResponseType.getSnapshot().getSnapshotId())));
   }
-  CreateVolumeResponseType createVolumeResponseType=AsyncRequests.<CreateVolumeType,CreateVolumeResponseType>sendSync(configuration,createVolumeType);
-  action.info.setPhysicalResourceId(createVolumeResponseType.getVolume().getVolumeId());
-  action.info.setCreatedEnoughToDelete(true);
-  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
   return action;
 }
