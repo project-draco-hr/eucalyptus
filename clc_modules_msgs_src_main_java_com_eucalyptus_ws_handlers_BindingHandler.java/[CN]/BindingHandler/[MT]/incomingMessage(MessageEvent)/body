@@ -8,18 +8,16 @@
       OMElement elem=httpMessage.getOmMessage();
       OMNamespace omNs=elem.getNamespace();
       namespace=omNs.getNamespaceURI();
-      if (namespacePattern != null && !namespacePattern.matcher(namespace).matches()) {
+      if (context.namespaceMismatch(namespace)) {
         throw new WebServicesException("Invalid request");
       }
-      this.binding=BindingManager.getBinding(namespace,component);
-      msgType=this.binding.getElementClass(httpMessage.getOmMessage().getLocalName());
+      context.updateBindingForNamespace(namespace);
+      msgType=this.context.getBinding().getElementClass(httpMessage.getOmMessage().getLocalName());
     }
  catch (    BindingException ex) {
-      if (this.defaultBinding != null) {
-        this.namespace=namespace;
-        this.binding=this.defaultBinding;
+      if (this.context.updateForDefaultBinding(namespace)) {
         try {
-          msgType=this.binding.getElementClass(httpMessage.getOmMessage().getLocalName());
+          msgType=this.context.getBinding().getElementClass(httpMessage.getOmMessage().getLocalName());
         }
  catch (        Exception ex1) {
           throw new WebServicesException("Failed to find binding for namespace: " + namespace + " due to: "+ ex.getMessage(),ex);
@@ -29,7 +27,7 @@
 catch (    Exception e1) {
       LOG.error(e1.getMessage() + " while attempting to bind: " + httpMessage.getOmMessage());
       Logs.extreme().error(httpMessage.getSoapEnvelope().toString(),e1);
-      if (this.binding == null) {
+      if (this.context.getBinding() == null) {
         throw new WebServicesException(e1);
       }
  else {
@@ -39,19 +37,19 @@ catch (    Exception e1) {
     try {
       if (httpMessage instanceof MappingHttpRequest) {
         if (msgType != null) {
-          msg=(BaseMessage)this.binding.fromOM(httpMessage.getOmMessage(),msgType);
+          msg=(BaseMessage)this.context.getBinding().fromOM(httpMessage.getOmMessage(),msgType);
         }
  else {
-          msg=(BaseMessage)this.binding.fromOM(httpMessage.getOmMessage());
+          msg=(BaseMessage)this.context.getBinding().fromOM(httpMessage.getOmMessage());
         }
       }
  else {
-        msg=(BaseMessage)this.binding.fromOM(httpMessage.getOmMessage());
+        msg=(BaseMessage)this.context.getBinding().fromOM(httpMessage.getOmMessage());
       }
     }
  catch (    Exception e1) {
       try {
-        msg=(BaseMessage)this.binding.fromOM(httpMessage.getOmMessage(),this.namespace);
+        msg=(BaseMessage)this.context.getBinding().fromOM(httpMessage.getOmMessage(),this.context.getNamespace());
       }
  catch (      Exception ex) {
         LOG.warn("FAILED TO PARSE:\n" + httpMessage.getMessageString());
