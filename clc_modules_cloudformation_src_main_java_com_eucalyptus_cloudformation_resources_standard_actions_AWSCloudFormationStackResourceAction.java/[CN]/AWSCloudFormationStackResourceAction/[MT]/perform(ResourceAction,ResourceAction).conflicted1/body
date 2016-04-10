@@ -1,55 +1,6 @@
 {
   AWSCloudFormationStackResourceAction newAction=(AWSCloudFormationStackResourceAction)newResourceAction;
   AWSCloudFormationStackResourceAction oldAction=(AWSCloudFormationStackResourceAction)oldResourceAction;
-  ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
-  UpdateStackType updateStackType=MessageHelper.createMessage(UpdateStackType.class,newAction.info.getEffectiveUserId());
-  String stackName=newAction.info.getPhysicalResourceId();
-  updateStackType.setStackName(stackName);
-  if (newAction.properties.getNotificationARNs() != null) {
-    ResourceList notificationARNs=new ResourceList();
-    notificationARNs.getMember().addAll(newAction.properties.getNotificationARNs());
-    updateStackType.setNotificationARNs(notificationARNs);
-  }
-  if (newAction.properties.getTags() != null) {
-    Tags tags=new Tags();
-    for (    CloudFormationResourceTag cloudFormationResourceTag : newAction.properties.getTags()) {
-      Tag tag=new Tag();
-      tag.setKey(cloudFormationResourceTag.getKey());
-      tag.setValue(cloudFormationResourceTag.getValue());
-      tags.getMember().add(tag);
-    }
-    ResourceList notificationARNs=new ResourceList();
-    notificationARNs.getMember().addAll(newAction.properties.getNotificationARNs());
-    updateStackType.setTags(tags);
-  }
-  if (newAction.properties.getParameters() != null) {
-    Parameters parameters=new Parameters();
-    updateStackType.setParameters(parameters);
-    if (!newAction.properties.getParameters().isObject()) {
-      throw new ValidationErrorException("Invalid Parameters value " + newAction.properties.getParameters());
-    }
-    for (    String paramName : Lists.newArrayList(newAction.properties.getParameters().fieldNames())) {
-      JsonNode paramValue=newAction.properties.getParameters().get(paramName);
-      if (!paramValue.isValueNode()) {
-        throw new ValidationErrorException("All Parameters must have String values for nested stacks");
-      }
- else {
-        Parameter parameter=new Parameter();
-        parameter.setParameterKey(paramName);
-        parameter.setParameterValue(paramValue.asText());
-        parameters.getMember().add(parameter);
-      }
-    }
-  }
-  updateStackType.setTemplateURL(newAction.properties.getTemplateURL());
-  ResourceList capabilities=new ResourceList();
-  List<String> stackCapabilities=StackEntityHelper.jsonToCapabilities(newAction.getStackEntity().getCapabilitiesJson());
-  if (stackCapabilities != null) {
-    capabilities.getMember().addAll(stackCapabilities);
-  }
-  updateStackType.setCapabilities(capabilities);
-  UpdateStackResponseType createStackResponseType=AsyncRequests.<UpdateStackType,UpdateStackResponseType>sendSync(configuration,updateStackType);
-  newAction.info.setPhysicalResourceId(createStackResponseType.getUpdateStackResult().getStackId());
-  newAction.info.setCreatedEnoughToDelete(true);
+  StackUpdateWorkflowSignalEntityManager.addSignal(newAction.info.getPhysicalResourceId(),newAction.getStackEntity().getAccountId(),newAction.getStackEntity().getStackId(),StackUpdateWorkflowSignalEntity.Signal.ROLLBACK);
   return newAction;
 }

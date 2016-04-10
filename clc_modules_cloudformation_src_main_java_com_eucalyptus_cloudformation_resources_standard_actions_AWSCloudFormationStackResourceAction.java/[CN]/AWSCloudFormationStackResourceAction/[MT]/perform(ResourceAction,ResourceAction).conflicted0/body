@@ -1,10 +1,26 @@
 {
   AWSCloudFormationStackResourceAction newAction=(AWSCloudFormationStackResourceAction)newResourceAction;
   AWSCloudFormationStackResourceAction oldAction=(AWSCloudFormationStackResourceAction)oldResourceAction;
-  String outerStackArn=StackResourceEntityManager.findOuterStackArnIfExists(newAction.getStackEntity().getStackId(),newAction.getStackEntity().getAccountId());
-  if (outerStackArn == null) {
-    throw new ValidationErrorException("Unable to find outer stack for stack " + newAction.getStackEntity().getStackId());
+  ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
+  DescribeStacksType describeStacksType=MessageHelper.createMessage(DescribeStacksType.class,newAction.info.getEffectiveUserId());
+  describeStacksType.setStackName(newAction.info.getPhysicalResourceId());
+  DescribeStacksResponseType describeStacksResponseType=AsyncRequests.<DescribeStacksType,DescribeStacksResponseType>sendSync(configuration,describeStacksType);
+  if (describeStacksResponseType.getDescribeStacksResult() == null || describeStacksResponseType.getDescribeStacksResult().getStacks() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().size() != 1) {
+    throw new ResourceFailureException("Not exactly one stack returned for stack " + newAction.info.getPhysicalResourceId());
   }
-  StackUpdateWorkflowSignalEntityManager.addSignal(newAction.getStackEntity().getStackId(),newAction.getStackEntity().getAccountId(),outerStackArn,StackUpdateWorkflowSignalEntity.Signal.ROLLBACK);
+  String status=describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().get(0).getStackStatus();
+  String statusReason=describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().get(0).getStackStatusReason();
+  if (status == null) {
+    throw new ResourceFailureException("Null status for stack " + newAction.info.getPhysicalResourceId());
+  }
+  if (!status.startsWith("UPDATE")) {
+    throw new ResourceFailureException("Stack " + newAction.info.getPhysicalResourceId() + " is no longer being updated.");
+  }
+  if (status.startsWith("UPDATE_ROLLBACK") || status.startsWith("UPDATE_FAILED")) {
+    throw new ResourceFailureException("Failed to update stack " + newAction.info.getPhysicalResourceId() + "."+ statusReason);
+  }
+  if (status.equals(Status.UPDATE_IN_PROGRESS.toString())) {
+    throw new RetryAfterConditionCheckFailedException("Stack " + newAction.info.getPhysicalResourceId() + " is still being updated.");
+  }
   return newAction;
 }
