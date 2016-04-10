@@ -141,6 +141,16 @@
         }
       }
     }
+    String outerStackArn=StackResourceEntityManager.findOuterStackArnIfExists(stackId,accountId);
+    if (outerStackArn != null) {
+      requiresUpdate=true;
+    }
+    for (    ResourceInfo resourceInfo : nextTemplate.getResourceInfoMap().values()) {
+      if (resourceInfo.getAllowedByCondition() == Boolean.TRUE && resourceInfo.getType().equals("AWS::CloudFormation::Stack")) {
+        requiresUpdate=true;
+        break;
+      }
+    }
     if (!requiresUpdate) {
       throw new ValidationErrorException("No updates are to be performed.");
     }
@@ -167,7 +177,7 @@
     WorkflowDescriptionTemplate monitorUpdateStackWorkflowDescriptionTemplate=new MonitorUpdateStackWorkflowDescriptionTemplate();
     InterfaceBasedWorkflowClient<MonitorUpdateStackWorkflow> monitorUpdateStackWorkflowClient=monitorUpdateStackWorkflowClientFactory.getNewWorkflowClient(MonitorUpdateStackWorkflow.class,monitorUpdateStackWorkflowDescriptionTemplate,stackWorkflowTags);
     MonitorUpdateStackWorkflow monitorUpdateStackWorkflow=new MonitorUpdateStackWorkflowClient(monitorUpdateStackWorkflowClient);
-    monitorUpdateStackWorkflow.monitorUpdateStack(nextStackEntity.getStackId(),nextStackEntity.getAccountId(),StackEntityHelper.resourceDependencyManagerToJson(previousTemplate.getResourceDependencyManager()),nextStackEntity.getResourceDependencyManagerJson(),userId,nextStackEntity.getStackVersion());
+    monitorUpdateStackWorkflow.monitorUpdateStack(nextStackEntity.getStackId(),nextStackEntity.getAccountId(),StackEntityHelper.resourceDependencyManagerToJson(previousTemplate.getResourceDependencyManager()),nextStackEntity.getResourceDependencyManagerJson(),userId,nextStackEntity.getStackVersion(),outerStackArn != null ? outerStackArn : "");
     StackWorkflowEntityManager.addOrUpdateStackWorkflowEntity(stackId,StackWorkflowEntity.WorkflowType.MONITOR_UPDATE_STACK_WORKFLOW,CloudFormationProperties.SWF_DOMAIN,monitorUpdateStackWorkflowClient.getWorkflowExecution().getWorkflowId(),monitorUpdateStackWorkflowClient.getWorkflowExecution().getRunId());
     UpdateStackResult updateStackResult=new UpdateStackResult();
     updateStackResult.setStackId(stackId);
