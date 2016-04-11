@@ -8,19 +8,12 @@
   if (describeStacksResponseType.getDescribeStacksResult() == null || describeStacksResponseType.getDescribeStacksResult().getStacks() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().size() != 1) {
     throw new ResourceFailureException("Not exactly one stack returned for stack " + newAction.info.getPhysicalResourceId());
   }
-  String status=describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().get(0).getStackStatus();
-  String statusReason=describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().get(0).getStackStatusReason();
-  if (status == null) {
-    throw new ResourceFailureException("Null status for stack " + newAction.info.getPhysicalResourceId());
+  Outputs outputs=describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().get(0).getOutputs();
+  if (outputs != null && outputs.getMember() != null && !outputs.getMember().isEmpty()) {
+    for (    Output output : outputs.getMember()) {
+      newAction.info.getOutputAttributes().put("Outputs." + output.getOutputKey(),JsonHelper.getStringFromJsonNode(new TextNode(output.getOutputValue())));
+    }
   }
-  if (!status.startsWith("UPDATE")) {
-    throw new ResourceFailureException("Stack " + newAction.info.getPhysicalResourceId() + " is no longer being updated.");
-  }
-  if (status.startsWith("UPDATE_ROLLBACK") || status.startsWith("UPDATE_FAILED")) {
-    throw new ResourceFailureException("Failed to update stack " + newAction.info.getPhysicalResourceId() + "."+ statusReason);
-  }
-  if (status.equals(Status.UPDATE_IN_PROGRESS.toString())) {
-    throw new RetryAfterConditionCheckFailedException("Stack " + newAction.info.getPhysicalResourceId() + " is still being updated.");
-  }
+  newAction.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(newAction.info.getPhysicalResourceId())));
   return newAction;
 }
