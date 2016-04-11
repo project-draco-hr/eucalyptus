@@ -1,0 +1,51 @@
+{
+  final NetworkInfo info=context.getNetworkInfo();
+  final Pair<Long,String> lastAppliedVersion=getLastAppliedVersion();
+  boolean alreadyApplied=false;
+  if (lastAppliedVersion != null) {
+    info.setAppliedTime(Timestamps.formatIso8601Timestamp(new Date(lastAppliedVersion.getLeft())));
+    info.setAppliedVersion(lastAppliedVersion.getRight());
+    MarshallingApplicatorHelper.clearMarshalledNetworkInfoCache(context);
+    alreadyApplied=info.getVersion().equals(lastAppliedVersion.getRight());
+  }
+  chain.applyNext(context);
+  boolean applied=false;
+  final Path path=BaseDirectory.RUN.getChildFile(APPLIED_VERSION_FILE).toPath();
+  final long until=System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(NetworkGroups.MAX_BROADCAST_APPLY);
+  long now;
+  waitloop:   while (!alreadyApplied && (now=System.currentTimeMillis()) < until)   try {
+    final WatchKey key=getWatchService().poll(until - now,TimeUnit.MILLISECONDS);
+    if (key != null)     try {
+      for (      final WatchEvent<?> event : key.pollEvents()) {
+        if (path.getFileName().equals(event.context())) {
+          try {
+            final Pair<Long,String> appliedVersion=readAppliedVersion(path);
+            if (!info.getVersion().equals(appliedVersion.getRight())) {
+              continue waitloop;
+            }
+            info.setAppliedTime(Timestamps.formatIso8601Timestamp(new Date(appliedVersion.getLeft())));
+            info.setAppliedVersion(appliedVersion.getRight());
+            MarshallingApplicatorHelper.clearMarshalledNetworkInfoCache(context);
+            applied=true;
+            break waitloop;
+          }
+ catch (          IOException e) {
+            logger.error("Error reading last applied network broadcast version");
+          }
+        }
+      }
+    }
+  finally {
+      key.reset();
+    }
+  }
+ catch (  InterruptedException e) {
+    break;
+  }
+  if (applied) {
+    chain.applyNext(context);
+  }
+ else   if (!alreadyApplied) {
+    faultSupplier.get();
+  }
+}
