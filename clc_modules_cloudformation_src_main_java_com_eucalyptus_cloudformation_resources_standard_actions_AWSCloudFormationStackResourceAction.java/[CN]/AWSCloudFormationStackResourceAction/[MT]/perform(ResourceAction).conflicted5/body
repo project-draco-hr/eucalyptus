@@ -5,10 +5,11 @@
     if (noUpdatesToPerform)     return action;
   }
   ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
-  String status=getStackStatusAndReason(action,configuration).getStatus();
-  if (!Status.UPDATE_COMPLETE_CLEANUP_IN_PROGRESS.toString().equals(status)) {
-    throw new ResourceFailureException("Update cleanup stack called when status is " + status + " for stack "+ action.info.getPhysicalResourceId());
+  StatusAndReason statusAndReason=getStackStatusAndReason(action,configuration);
+  String status=statusAndReason.getStatus();
+  if (Status.UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS.toString().equals(status)) {
+    action.info.getEucaAttributes().put(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS,JsonHelper.getStringFromJsonNode(new TextNode("true")));
+    UpdateStackPartsWorkflowKickOff.kickOffUpdateRollbackCleanupStackWorkflow(action.info.getPhysicalResourceId(),action.info.getAccountId(),action.info.getEffectiveUserId());
   }
-  UpdateStackPartsWorkflowKickOff.kickOffUpdateCleanupStackWorkflow(action.info.getPhysicalResourceId(),action.info.getAccountId(),action.info.getEffectiveUserId());
   return action;
 }
