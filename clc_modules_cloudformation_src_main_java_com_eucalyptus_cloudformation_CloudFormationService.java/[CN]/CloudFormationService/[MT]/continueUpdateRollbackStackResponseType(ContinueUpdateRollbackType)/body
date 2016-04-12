@@ -18,7 +18,8 @@
     if (!RestrictedTypes.filterPrivileged().apply(stackEntity)) {
       throw new AccessDeniedException("Not authorized.");
     }
-    if (StackResourceEntityManager.findOuterStackArnIfExists(stackEntity.getStackId(),accountId) != null) {
+    String outerStackArn=StackResourceEntityManager.findOuterStackArnIfExists(stackEntity.getStackId(),accountId);
+    if (outerStackArn != null) {
       throw new ValidationErrorException("Failed to rollback: RollbackUpdatedStack cannot be invoked on child stacks");
     }
     final String stackAccountId=stackEntity.getAccountId();
@@ -26,7 +27,7 @@
       throw new ValidationErrorException("Stack " + stackEntity.getStackId() + " is in "+ stackEntity.getStackStatus()+ " state and can not continue to update rollback.");
     }
     boolean existingOpenContinueUpdateRollbackWorkflow=false;
-    List<StackWorkflowEntity> continueUpdateRollbackWorkflows=StackWorkflowEntityManager.getStackWorkflowEntities(stackEntity.getStackId(),StackWorkflowEntity.WorkflowType.CONTINUE_UPDATE_ROLLBACK_WORKFLOW);
+    List<StackWorkflowEntity> continueUpdateRollbackWorkflows=StackWorkflowEntityManager.getStackWorkflowEntities(stackEntity.getStackId(),StackWorkflowEntity.WorkflowType.UPDATE_ROLLBACK_STACK_WORKFLOW);
     if (continueUpdateRollbackWorkflows != null && !continueUpdateRollbackWorkflows.isEmpty()) {
       if (continueUpdateRollbackWorkflows.size() > 1) {
         throw new ValidationErrorException("More than one continue update rollback workflow exists for " + stackEntity.getStackId());
@@ -52,14 +53,14 @@
     }
     if (!existingOpenContinueUpdateRollbackWorkflow) {
       String stackId=stackEntity.getStackId();
+      StackUpdateInfoEntity stackUpdateInfoEntity=StackUpdateInfoEntityManager.getStackUpdateInfoEntity(stackId,accountId);
       StackWorkflowTags stackWorkflowTags=new StackWorkflowTags(stackId,stackName,stackAccountId,accountAlias);
-      StackUpdateRollbackInfoEntity stackUpdateRollbackInfoEntity=StackUpdateRollbackInfoEntityManager.getStackUpdateRollbackInfoEntity(stackId,accountId);
       WorkflowClientFactory workflowClientFactory=new WorkflowClientFactory(WorkflowClientManager.getSimpleWorkflowClient(),CloudFormationProperties.SWF_DOMAIN,CloudFormationProperties.SWF_TASKLIST);
-      WorkflowDescriptionTemplate workflowDescriptionTemplate=new ContinueUpdateRollbackWorkflowDescriptionTemplate();
-      InterfaceBasedWorkflowClient<ContinueUpdateRollbackWorkflow> client=workflowClientFactory.getNewWorkflowClient(ContinueUpdateRollbackWorkflow.class,workflowDescriptionTemplate,stackWorkflowTags);
-      ContinueUpdateRollbackWorkflow continueUpdateRollbackWorkflow=new ContinueUpdateRollbackWorkflowClient(client);
-      continueUpdateRollbackWorkflow.continueUpdateRollback(stackId,accountId,stackUpdateRollbackInfoEntity.getOldResourceDependencyManagerJson(),stackUpdateRollbackInfoEntity.getResourceDependencyManagerJson(),userId,stackUpdateRollbackInfoEntity.getRolledBackStackVersion().intValue());
-      StackWorkflowEntityManager.addOrUpdateStackWorkflowEntity(stackEntity.getStackId(),StackWorkflowEntity.WorkflowType.CONTINUE_UPDATE_ROLLBACK_WORKFLOW,CloudFormationProperties.SWF_DOMAIN,client.getWorkflowExecution().getWorkflowId(),client.getWorkflowExecution().getRunId());
+      WorkflowDescriptionTemplate workflowDescriptionTemplate=new UpdateRollbackStackWorkflowDescriptionTemplate();
+      InterfaceBasedWorkflowClient<UpdateRollbackStackWorkflow> client=workflowClientFactory.getNewWorkflowClient(UpdateRollbackStackWorkflow.class,workflowDescriptionTemplate,stackWorkflowTags);
+      UpdateRollbackStackWorkflow updateRollbackStackWorkflow=new UpdateRollbackStackWorkflowClient(client);
+      updateRollbackStackWorkflow.performUpdateRollbackStack(stackId,accountId,outerStackArn,stackUpdateInfoEntity.getOldResourceDependencyManagerJson(),userId,stackUpdateInfoEntity.getUpdatedStackVersion().intValue() + 1);
+      StackWorkflowEntityManager.addOrUpdateStackWorkflowEntity(stackEntity.getStackId(),StackWorkflowEntity.WorkflowType.UPDATE_ROLLBACK_STACK_WORKFLOW,CloudFormationProperties.SWF_DOMAIN,client.getWorkflowExecution().getWorkflowId(),client.getWorkflowExecution().getRunId());
     }
   }
  catch (  Exception ex) {

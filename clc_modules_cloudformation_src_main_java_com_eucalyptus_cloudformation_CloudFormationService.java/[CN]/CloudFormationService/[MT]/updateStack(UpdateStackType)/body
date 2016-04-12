@@ -5,7 +5,7 @@
     final User user=ctx.getUser();
     final String userId=user.getUserId();
     final String accountId=user.getAccountNumber();
-    final String accountName=ctx.getAccountAlias();
+    final String accountAlias=ctx.getAccountAlias();
     final String stackName=request.getStackName();
     if (stackName == null) {
       throw new ValidationErrorException("StackName must not be null");
@@ -166,7 +166,9 @@
       stackResourceEntity.setResourceVersion(nextStackEntity.getStackVersion());
       StackResourceEntityManager.addStackResource(stackResourceEntity);
     }
-    StackWorkflowTags stackWorkflowTags=new StackWorkflowTags(stackId,stackName,accountId,accountName);
+    String previousResourceDependencyManagerJson=StackEntityHelper.resourceDependencyManagerToJson(previousTemplate.getResourceDependencyManager());
+    StackUpdateInfoEntityManager.createUpdateInfo(stackId,accountId,previousResourceDependencyManagerJson,nextStackEntity.getResourceDependencyManagerJson(),nextStackEntity.getStackVersion(),stackName,accountAlias);
+    StackWorkflowTags stackWorkflowTags=new StackWorkflowTags(stackId,stackName,accountId,accountAlias);
     WorkflowClientFactory updateStackWorkflowClientFactory=new WorkflowClientFactory(WorkflowClientManager.getSimpleWorkflowClient(),CloudFormationProperties.SWF_DOMAIN,CloudFormationProperties.SWF_TASKLIST);
     WorkflowDescriptionTemplate updateStackWorkflowDescriptionTemplate=new UpdateStackWorkflowDescriptionTemplate();
     InterfaceBasedWorkflowClient<UpdateStackWorkflow> updateStackWorkflowClient=updateStackWorkflowClientFactory.getNewWorkflowClient(UpdateStackWorkflow.class,updateStackWorkflowDescriptionTemplate,stackWorkflowTags);
@@ -177,7 +179,7 @@
     WorkflowDescriptionTemplate monitorUpdateStackWorkflowDescriptionTemplate=new MonitorUpdateStackWorkflowDescriptionTemplate();
     InterfaceBasedWorkflowClient<MonitorUpdateStackWorkflow> monitorUpdateStackWorkflowClient=monitorUpdateStackWorkflowClientFactory.getNewWorkflowClient(MonitorUpdateStackWorkflow.class,monitorUpdateStackWorkflowDescriptionTemplate,stackWorkflowTags);
     MonitorUpdateStackWorkflow monitorUpdateStackWorkflow=new MonitorUpdateStackWorkflowClient(monitorUpdateStackWorkflowClient);
-    monitorUpdateStackWorkflow.monitorUpdateStack(nextStackEntity.getStackId(),nextStackEntity.getAccountId(),StackEntityHelper.resourceDependencyManagerToJson(previousTemplate.getResourceDependencyManager()),nextStackEntity.getResourceDependencyManagerJson(),userId,nextStackEntity.getStackVersion(),outerStackArn != null ? outerStackArn : "");
+    monitorUpdateStackWorkflow.monitorUpdateStack(nextStackEntity.getStackId(),nextStackEntity.getAccountId(),previousResourceDependencyManagerJson,nextStackEntity.getResourceDependencyManagerJson(),userId,nextStackEntity.getStackVersion(),outerStackArn);
     StackWorkflowEntityManager.addOrUpdateStackWorkflowEntity(stackId,StackWorkflowEntity.WorkflowType.MONITOR_UPDATE_STACK_WORKFLOW,CloudFormationProperties.SWF_DOMAIN,monitorUpdateStackWorkflowClient.getWorkflowExecution().getWorkflowId(),monitorUpdateStackWorkflowClient.getWorkflowExecution().getRunId());
     UpdateStackResult updateStackResult=new UpdateStackResult();
     updateStackResult.setStackId(stackId);

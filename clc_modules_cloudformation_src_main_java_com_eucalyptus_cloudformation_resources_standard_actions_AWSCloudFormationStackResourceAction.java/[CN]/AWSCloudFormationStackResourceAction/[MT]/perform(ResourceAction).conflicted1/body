@@ -1,5 +1,25 @@
 {
   AWSCloudFormationStackResourceAction action=(AWSCloudFormationStackResourceAction)resourceAction;
-  StackUpdateWorkflowSignalEntityManager.addSignal(action.info.getPhysicalResourceId(),action.getStackEntity().getAccountId(),action.getStackEntity().getStackId(),StackUpdateWorkflowSignalEntity.Signal.CLEANUP);
+  ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
+  DescribeStacksType describeStacksType=MessageHelper.createMessage(DescribeStacksType.class,action.info.getEffectiveUserId());
+  describeStacksType.setStackName(action.info.getPhysicalResourceId());
+  DescribeStacksResponseType describeStacksResponseType=AsyncRequests.<DescribeStacksType,DescribeStacksResponseType>sendSync(configuration,describeStacksType);
+  if (describeStacksResponseType.getDescribeStacksResult() == null || describeStacksResponseType.getDescribeStacksResult().getStacks() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().size() != 1) {
+    throw new ResourceFailureException("Not exactly one stack returned for stack " + action.info.getPhysicalResourceId());
+  }
+  String status=describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().get(0).getStackStatus();
+  String statusReason=describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().get(0).getStackStatusReason();
+  if (status == null) {
+    throw new ResourceFailureException("Null status for stack " + action.info.getPhysicalResourceId());
+  }
+  if (!status.startsWith("CREATE")) {
+    throw new ResourceFailureException("Stack " + action.info.getPhysicalResourceId() + " is no longer being created.");
+  }
+  if (status.equals(Status.CREATE_FAILED.toString())) {
+    throw new ResourceFailureException("Failed to create stack " + action.info.getPhysicalResourceId() + "."+ statusReason);
+  }
+  if (status.equals(Status.CREATE_IN_PROGRESS.toString())) {
+    throw new RetryAfterConditionCheckFailedException("Stack " + action.info.getPhysicalResourceId() + " is still being created.");
+  }
   return action;
 }

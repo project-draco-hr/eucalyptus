@@ -1,0 +1,13 @@
+{
+  StackUpdateInfoEntity stackUpdateInfoEntity=StackUpdateInfoEntityManager.getStackUpdateInfoEntity(stackId,accountId);
+  if (stackUpdateInfoEntity == null) {
+    throw new ResourceFailureException("Unable to find update info record for stack " + stackId);
+  }
+  StackWorkflowTags stackWorkflowTags=new StackWorkflowTags(stackUpdateInfoEntity.getStackId(),stackUpdateInfoEntity.getStackName(),stackUpdateInfoEntity.getAccountId(),stackUpdateInfoEntity.getAccountAlias());
+  WorkflowClientFactory updateCleanupStackWorkflowClientFactory=new WorkflowClientFactory(WorkflowClientManager.getSimpleWorkflowClient(),CloudFormationProperties.SWF_DOMAIN,CloudFormationProperties.SWF_TASKLIST);
+  WorkflowDescriptionTemplate updateCleanupStackWorkflowDescriptionTemplate=new UpdateCleanupStackWorkflowDescriptionTemplate();
+  InterfaceBasedWorkflowClient<UpdateCleanupStackWorkflow> updateCleanupStackWorkflowClient=updateCleanupStackWorkflowClientFactory.getNewWorkflowClient(UpdateCleanupStackWorkflow.class,updateCleanupStackWorkflowDescriptionTemplate,stackWorkflowTags);
+  UpdateCleanupStackWorkflow updateCleanupStackWorkflow=new UpdateCleanupStackWorkflowClient(updateCleanupStackWorkflowClient);
+  updateCleanupStackWorkflow.performUpdateCleanupStack(stackUpdateInfoEntity.getStackId(),stackUpdateInfoEntity.getAccountId(),stackUpdateInfoEntity.getOldResourceDependencyManagerJson(),effectiveUserId,stackUpdateInfoEntity.getUpdatedStackVersion());
+  StackWorkflowEntityManager.addOrUpdateStackWorkflowEntity(stackUpdateInfoEntity.getStackId(),StackWorkflowEntity.WorkflowType.UPDATE_CLEANUP_STACK_WORKFLOW,CloudFormationProperties.SWF_DOMAIN,updateCleanupStackWorkflowClient.getWorkflowExecution().getWorkflowId(),updateCleanupStackWorkflowClient.getWorkflowExecution().getRunId());
+}
