@@ -1,0 +1,19 @@
+{
+  AWSCloudFormationStackResourceAction action=(AWSCloudFormationStackResourceAction)resourceAction;
+  if (action.info.getEucaAttributes().containsKey(AWSCloudFormationStackResourceInfo.EUCA_NO_UPDATES_TO_PERFORM)) {
+    boolean noUpdatesToPerform=Boolean.valueOf(JsonHelper.getJsonNodeFromString(action.info.getEucaAttributes().get(AWSCloudFormationStackResourceInfo.EUCA_NO_UPDATES_TO_PERFORM)).asText());
+    if (noUpdatesToPerform)     return action;
+  }
+  ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
+  String status=getStackStatusAndReason(action,configuration).getStatus();
+  if (status == null) {
+    throw new ResourceFailureException("Null status for stack " + action.info.getPhysicalResourceId());
+  }
+  if (!status.startsWith("UPDATE")) {
+    throw new ResourceFailureException("Stack " + action.info.getPhysicalResourceId() + " is no longer being updated.");
+  }
+  if (status.equals(Status.UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS.toString())) {
+    throw new RetryAfterConditionCheckFailedException("Stack " + action.info.getPhysicalResourceId() + " is still being rolled back clean up.");
+  }
+  return action;
+}
