@@ -1,58 +1,16 @@
 {
   AWSCloudFormationStackResourceAction action=(AWSCloudFormationStackResourceAction)resourceAction;
-  ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
-  CreateStackType createStackType=MessageHelper.createMessage(CreateStackType.class,action.info.getEffectiveUserId());
-  String stackName=action.getDefaultPhysicalResourceId();
-  createStackType.setStackName(stackName);
-  if (action.properties.getTimeoutInMinutes() != null) {
-    createStackType.setTimeoutInMinutes(action.properties.getTimeoutInMinutes());
-  }
-  if (action.properties.getNotificationARNs() != null) {
-    ResourceList notificationARNs=new ResourceList();
-    notificationARNs.getMember().addAll(action.properties.getNotificationARNs());
-    createStackType.setNotificationARNs(notificationARNs);
-  }
-  if (action.properties.getTags() != null) {
-    Tags tags=new Tags();
-    for (    CloudFormationResourceTag cloudFormationResourceTag : action.properties.getTags()) {
-      Tag tag=new Tag();
-      tag.setKey(cloudFormationResourceTag.getKey());
-      tag.setValue(cloudFormationResourceTag.getValue());
-      tags.getMember().add(tag);
-    }
-    ResourceList notificationARNs=new ResourceList();
-    notificationARNs.getMember().addAll(action.properties.getNotificationARNs());
-    createStackType.setTags(tags);
-  }
-  createStackType.setDisableRollback(true);
-  if (action.properties.getParameters() != null) {
-    Parameters parameters=new Parameters();
-    createStackType.setParameters(parameters);
-    if (!action.properties.getParameters().isObject()) {
-      throw new ValidationErrorException("Invalid Parameters value " + action.properties.getParameters());
-    }
-    for (    String paramName : Lists.newArrayList(action.properties.getParameters().fieldNames())) {
-      JsonNode paramValue=action.properties.getParameters().get(paramName);
-      if (!paramValue.isValueNode()) {
-        throw new ValidationErrorException("All Parameters must have String values for nested stacks");
-      }
- else {
-        Parameter parameter=new Parameter();
-        parameter.setParameterKey(paramName);
-        parameter.setParameterValue(paramValue.asText());
-        parameters.getMember().add(parameter);
+  if (action.info.getEucaAttributes().containsKey(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_COMPLETE_CLEANUP_IN_PROGRESS)) {
+    boolean deleteStatusUpdateCompleteCleanupInProgress=Boolean.valueOf(JsonHelper.getJsonNodeFromString(action.info.getEucaAttributes().get(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_COMPLETE_CLEANUP_IN_PROGRESS)).asText());
+    if (!deleteStatusUpdateCompleteCleanupInProgress) {
+      ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
+      StatusAndReason statusAndReason=getStackStatusAndReason(action,configuration);
+      String status=statusAndReason.getStatus();
+      if (Status.UPDATE_COMPLETE_CLEANUP_IN_PROGRESS.toString().equals(status) || Status.UPDATE_ROLLBACK_IN_PROGRESS.toString().equals(status)) {
+        throw new RetryAfterConditionCheckFailedException("Stack " + action.info.getPhysicalResourceId() + " is still being rolled back.");
       }
     }
+    action.info.getEucaAttributes().remove(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_COMPLETE_CLEANUP_IN_PROGRESS);
   }
-  createStackType.setTemplateURL(action.properties.getTemplateURL());
-  ResourceList capabilities=new ResourceList();
-  List<String> stackCapabilities=StackEntityHelper.jsonToCapabilities(action.getStackEntity().getCapabilitiesJson());
-  if (stackCapabilities != null) {
-    capabilities.getMember().addAll(stackCapabilities);
-  }
-  createStackType.setCapabilities(capabilities);
-  CreateStackResponseType createStackResponseType=AsyncRequests.<CreateStackType,CreateStackResponseType>sendSync(configuration,createStackType);
-  action.info.setPhysicalResourceId(createStackResponseType.getCreateStackResult().getStackId());
-  action.info.setCreatedEnoughToDelete(true);
   return action;
 }
