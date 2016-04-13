@@ -1,14 +1,16 @@
 {
   AWSCloudFormationStackResourceAction action=(AWSCloudFormationStackResourceAction)resourceAction;
-  ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
-  StatusAndReason statusAndReason=getStackStatusAndReason(action,configuration);
-  String status=statusAndReason.getStatus();
-  if (Status.UPDATE_COMPLETE_CLEANUP_IN_PROGRESS.toString().equals(status) || Status.UPDATE_ROLLBACK_IN_PROGRESS.toString().equals(status)) {
-    action.info.getEucaAttributes().put(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_COMPLETE_CLEANUP_IN_PROGRESS,JsonHelper.getStringFromJsonNode(new TextNode("true")));
-    UpdateStackPartsWorkflowKickOff.kickOffUpdateRollbackStackWorkflow(action.info.getPhysicalResourceId(),action.info.getAccountId(),action.getStackEntity().getStackId(),action.info.getEffectiveUserId());
-  }
- else {
-    action.info.getEucaAttributes().remove(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_COMPLETE_CLEANUP_IN_PROGRESS);
+  if (action.info.getEucaAttributes().containsKey(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS)) {
+    boolean deleteStatusUpdateCompleteCleanupInProgress=Boolean.valueOf(JsonHelper.getJsonNodeFromString(action.info.getEucaAttributes().get(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS)).asText());
+    if (deleteStatusUpdateCompleteCleanupInProgress) {
+      ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
+      StatusAndReason statusAndReason=getStackStatusAndReason(action,configuration);
+      String status=statusAndReason.getStatus();
+      if (Status.UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS.toString().equals(status)) {
+        throw new RetryAfterConditionCheckFailedException("Stack " + action.info.getPhysicalResourceId() + " is still being rolled back clean up.");
+      }
+    }
+    action.info.getEucaAttributes().remove(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS);
   }
   return action;
 }

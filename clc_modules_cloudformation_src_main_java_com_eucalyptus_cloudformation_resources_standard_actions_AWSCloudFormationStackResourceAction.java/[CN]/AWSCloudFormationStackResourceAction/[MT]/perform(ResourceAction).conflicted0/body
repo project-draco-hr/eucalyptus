@@ -1,18 +1,18 @@
 {
   AWSCloudFormationStackResourceAction action=(AWSCloudFormationStackResourceAction)resourceAction;
+  if (StacksWithNoUpdateToPerformEntityManager.isStackWithNoUpdateToPerform(action.info.getPhysicalResourceId(),action.info.getAccountId())) {
+    return action;
+  }
   ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
-  DescribeStacksType describeStacksType=MessageHelper.createMessage(DescribeStacksType.class,action.info.getEffectiveUserId());
-  describeStacksType.setStackName(action.info.getPhysicalResourceId());
-  DescribeStacksResponseType describeStacksResponseType=AsyncRequests.<DescribeStacksType,DescribeStacksResponseType>sendSync(configuration,describeStacksType);
-  if (describeStacksResponseType.getDescribeStacksResult() == null || describeStacksResponseType.getDescribeStacksResult().getStacks() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().size() != 1) {
-    throw new ResourceFailureException("Not exactly one stack returned for stack " + action.info.getPhysicalResourceId());
+  String status=getStackStatusAndReason(action,configuration).getStatus();
+  if (status == null) {
+    throw new ResourceFailureException("Null status for stack " + action.info.getPhysicalResourceId());
   }
-  Outputs outputs=describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().get(0).getOutputs();
-  if (outputs != null && outputs.getMember() != null && !outputs.getMember().isEmpty()) {
-    for (    Output output : outputs.getMember()) {
-      action.info.getOutputAttributes().put("Outputs." + output.getOutputKey(),JsonHelper.getStringFromJsonNode(new TextNode(output.getOutputValue())));
-    }
+  if (!status.startsWith("UPDATE")) {
+    throw new ResourceFailureException("Stack " + action.info.getPhysicalResourceId() + " is no longer being updated.");
   }
-  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
+  if (status.equals(Status.UPDATE_COMPLETE_CLEANUP_IN_PROGRESS.toString())) {
+    throw new RetryAfterConditionCheckFailedException("Stack " + action.info.getPhysicalResourceId() + " is still being cleaned up.");
+  }
   return action;
 }

@@ -1,18 +1,14 @@
 {
   AWSCloudFormationStackResourceAction action=(AWSCloudFormationStackResourceAction)resourceAction;
-  if (StacksWithNoUpdateToPerformEntityManager.isStackWithNoUpdateToPerform(action.info.getPhysicalResourceId(),action.info.getAccountId())) {
-    return action;
-  }
   ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
-  String status=getStackStatusAndReason(action,configuration).getStatus();
-  if (status == null) {
-    throw new ResourceFailureException("Null status for stack " + action.info.getPhysicalResourceId());
+  StatusAndReason statusAndReason=getStackStatusAndReason(action,configuration);
+  String status=statusAndReason.getStatus();
+  if (Status.UPDATE_COMPLETE_CLEANUP_IN_PROGRESS.toString().equals(status) || Status.UPDATE_ROLLBACK_IN_PROGRESS.toString().equals(status)) {
+    action.info.getEucaAttributes().put(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_COMPLETE_CLEANUP_IN_PROGRESS,JsonHelper.getStringFromJsonNode(new TextNode("true")));
+    UpdateStackPartsWorkflowKickOff.kickOffUpdateRollbackStackWorkflow(action.info.getPhysicalResourceId(),action.info.getAccountId(),action.getStackEntity().getStackId(),action.info.getEffectiveUserId());
   }
-  if (!status.startsWith("UPDATE")) {
-    throw new ResourceFailureException("Stack " + action.info.getPhysicalResourceId() + " is no longer being updated.");
-  }
-  if (status.equals(Status.UPDATE_COMPLETE_CLEANUP_IN_PROGRESS.toString())) {
-    throw new RetryAfterConditionCheckFailedException("Stack " + action.info.getPhysicalResourceId() + " is still being cleaned up.");
+ else {
+    action.info.getEucaAttributes().remove(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_COMPLETE_CLEANUP_IN_PROGRESS);
   }
   return action;
 }
