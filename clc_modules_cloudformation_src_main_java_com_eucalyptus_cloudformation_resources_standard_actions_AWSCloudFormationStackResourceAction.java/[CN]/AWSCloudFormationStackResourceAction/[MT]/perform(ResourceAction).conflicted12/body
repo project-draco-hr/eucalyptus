@@ -6,9 +6,14 @@
   }
   ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
   String status=getStackStatusAndReason(action,configuration).getStatus();
-  if (!Status.UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS.toString().equals(status)) {
-    throw new ResourceFailureException("Update rollback cleanup stack called when status is " + status + " for stack "+ action.info.getPhysicalResourceId());
+  if (status == null) {
+    throw new ResourceFailureException("Null status for stack " + action.info.getPhysicalResourceId());
   }
-  UpdateStackPartsWorkflowKickOff.kickOffUpdateRollbackCleanupStackWorkflow(action.info.getPhysicalResourceId(),action.info.getAccountId(),action.info.getEffectiveUserId());
+  if (!status.startsWith("UPDATE")) {
+    throw new ResourceFailureException("Stack " + action.info.getPhysicalResourceId() + " is no longer being updated.");
+  }
+  if (status.equals(Status.UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS.toString())) {
+    throw new RetryAfterConditionCheckFailedException("Stack " + action.info.getPhysicalResourceId() + " is still being rolled back clean up.");
+  }
   return action;
 }
