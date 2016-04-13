@@ -1,0 +1,25 @@
+{
+  AWSCloudFormationStackResourceAction newAction=(AWSCloudFormationStackResourceAction)newResourceAction;
+  AWSCloudFormationStackResourceAction oldAction=(AWSCloudFormationStackResourceAction)oldResourceAction;
+  if (oldAction.info.getEucaAttributes().containsKey(AWSCloudFormationStackResourceInfo.EUCA_NO_UPDATES_TO_PERFORM)) {
+    boolean noUpdatesToPerform=Boolean.valueOf(JsonHelper.getJsonNodeFromString(oldAction.info.getEucaAttributes().get(AWSCloudFormationStackResourceInfo.EUCA_NO_UPDATES_TO_PERFORM)).asText());
+    if (noUpdatesToPerform)     return newAction;
+  }
+  ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
+  StatusAndReason statusAndReason=getStackStatusAndReason(newAction,configuration);
+  String status=statusAndReason.getStatus();
+  String statusReason=statusAndReason.getReason();
+  if (status == null) {
+    throw new ResourceFailureException("Null status for stack " + newAction.info.getPhysicalResourceId());
+  }
+  if (!status.startsWith("UPDATE")) {
+    throw new ResourceFailureException("Stack " + newAction.info.getPhysicalResourceId() + " is no longer being updated.");
+  }
+  if (status.equals(Status.UPDATE_ROLLBACK_FAILED.toString())) {
+    throw new ResourceFailureException("Failed to update rollback " + newAction.info.getPhysicalResourceId() + "."+ statusReason);
+  }
+  if (status.equals(Status.UPDATE_ROLLBACK_IN_PROGRESS.toString())) {
+    throw new RetryAfterConditionCheckFailedException("Stack " + newAction.info.getPhysicalResourceId() + " is still being rolled back.");
+  }
+  return newAction;
+}
