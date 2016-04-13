@@ -5,8 +5,8 @@
     final User user=ctx.getUser();
     final String userId=user.getUserId();
     final String accountId=user.getAccountNumber();
-    final String accountName=ctx.getAccountAlias();
-    final String stackName=request.getStackName();
+    final String accountAlias=ctx.getAccountAlias();
+    String stackName=request.getStackName();
     if (stackName == null) {
       throw new ValidationErrorException("StackName must not be null");
     }
@@ -45,6 +45,7 @@
       throw new ValidationErrorException("Stack " + stackName + " does not exist");
     }
     final String stackId=previousStackEntity.getStackId();
+    stackName=previousStackEntity.getStackName();
     if (previousStackEntity.getStackStatus() != Status.CREATE_COMPLETE && previousStackEntity.getStackStatus() != Status.UPDATE_COMPLETE && previousStackEntity.getStackStatus() != Status.UPDATE_ROLLBACK_COMPLETE) {
       throw new ValidationErrorException("Stack:" + stackId + " is in "+ previousStackEntity.getStackStatus().toString()+ " state and can not be updated.");
     }
@@ -111,19 +112,8 @@
  else     if (!previousTemplate.getResourceInfoMap().keySet().equals(nextTemplate.getResourceInfoMap().keySet())) {
       requiresUpdate=true;
     }
- else     if (request.getTags() != null && request.getTags().getMember() != null) {
-      Map<String,String> previousTagsMap=Maps.newHashMap();
-      Map<String,String> nextTagsMap=Maps.newHashMap();
-      List<Tag> previousTags=StackEntityHelper.jsonToTags(previousStackEntity.getTagsJson());
-      for (      Tag tag : previousTags) {
-        previousTagsMap.put(tag.getKey(),tag.getValue());
-      }
-      for (      Tag tag : request.getTags().getMember()) {
-        nextTagsMap.put(tag.getKey(),tag.getValue());
-      }
-      if (!previousTagsMap.equals(nextTagsMap)) {
-        requiresUpdate=true;
-      }
+ else     if (tagsHaveChanged(request,previousStackEntity)) {
+      requiresUpdate=true;
     }
  else {
       for (      String fieldName : previousTemplate.getResourceInfoMap().keySet()) {
@@ -141,10 +131,17 @@
         }
       }
     }
+    for (    ResourceInfo resourceInfo : nextTemplate.getResourceInfoMap().values()) {
+      if (resourceInfo.getAllowedByCondition() == Boolean.TRUE && resourceInfo.getType().equals("AWS::CloudFormation::Stack")) {
+        requiresUpdate=true;
+        break;
+      }
+    }
     if (!requiresUpdate) {
-      throw new ValidationErrorException("No updates are to be performed.");
+      throw new ValidationErrorException(NO_UPDATES_ARE_TO_BE_PERFORMED);
     }
     final StackEntity nextStackEntity=StackEntityManager.checkValidUpdateStatusAndUpdateStack(stackId,accountId,nextTemplate,nextTemplateText,request,previousStackVersion);
+    String outerStackArn=StackResourceEntityManager.findOuterStackArnIfExists(stackId,accountId);
     for (    ResourceInfo resourceInfo : nextTemplate.getResourceInfoMap().values()) {
       StackResourceEntity stackResourceEntity=new StackResourceEntity();
       stackResourceEntity=StackResourceEntityManager.updateResourceInfo(stackResourceEntity,resourceInfo);
@@ -156,7 +153,9 @@
       stackResourceEntity.setResourceVersion(nextStackEntity.getStackVersion());
       StackResourceEntityManager.addStackResource(stackResourceEntity);
     }
-    StackWorkflowTags stackWorkflowTags=new StackWorkflowTags(stackId,stackName,accountId,accountName);
+    String previousResourceDependencyManagerJson=StackEntityHelper.resourceDependencyManagerToJson(previousTemplate.getResourceDependencyManager());
+    StackUpdateInfoEntityManager.createUpdateInfo(stackId,accountId,previousResourceDependencyManagerJson,nextStackEntity.getResourceDependencyManagerJson(),nextStackEntity.getStackVersion(),stackName,accountAlias);
+    StackWorkflowTags stackWorkflowTags=new StackWorkflowTags(stackId,stackName,accountId,accountAlias);
     WorkflowClientFactory updateStackWorkflowClientFactory=new WorkflowClientFactory(WorkflowClientManager.getSimpleWorkflowClient(),CloudFormationProperties.SWF_DOMAIN,CloudFormationProperties.SWF_TASKLIST);
     WorkflowDescriptionTemplate updateStackWorkflowDescriptionTemplate=new UpdateStackWorkflowDescriptionTemplate();
     InterfaceBasedWorkflowClient<UpdateStackWorkflow> updateStackWorkflowClient=updateStackWorkflowClientFactory.getNewWorkflowClient(UpdateStackWorkflow.class,updateStackWorkflowDescriptionTemplate,stackWorkflowTags);
@@ -167,7 +166,7 @@
     WorkflowDescriptionTemplate monitorUpdateStackWorkflowDescriptionTemplate=new MonitorUpdateStackWorkflowDescriptionTemplate();
     InterfaceBasedWorkflowClient<MonitorUpdateStackWorkflow> monitorUpdateStackWorkflowClient=monitorUpdateStackWorkflowClientFactory.getNewWorkflowClient(MonitorUpdateStackWorkflow.class,monitorUpdateStackWorkflowDescriptionTemplate,stackWorkflowTags);
     MonitorUpdateStackWorkflow monitorUpdateStackWorkflow=new MonitorUpdateStackWorkflowClient(monitorUpdateStackWorkflowClient);
-    monitorUpdateStackWorkflow.monitorUpdateStack(nextStackEntity.getStackId(),nextStackEntity.getAccountId(),StackEntityHelper.resourceDependencyManagerToJson(previousTemplate.getResourceDependencyManager()),nextStackEntity.getResourceDependencyManagerJson(),userId,nextStackEntity.getStackVersion());
+    monitorUpdateStackWorkflow.monitorUpdateStack(nextStackEntity.getStackId(),nextStackEntity.getAccountId(),userId,nextStackEntity.getStackVersion(),outerStackArn);
     StackWorkflowEntityManager.addOrUpdateStackWorkflowEntity(stackId,StackWorkflowEntity.WorkflowType.MONITOR_UPDATE_STACK_WORKFLOW,CloudFormationProperties.SWF_DOMAIN,monitorUpdateStackWorkflowClient.getWorkflowExecution().getWorkflowId(),monitorUpdateStackWorkflowClient.getWorkflowExecution().getRunId());
     UpdateStackResult updateStackResult=new UpdateStackResult();
     updateStackResult.setStackId(stackId);
