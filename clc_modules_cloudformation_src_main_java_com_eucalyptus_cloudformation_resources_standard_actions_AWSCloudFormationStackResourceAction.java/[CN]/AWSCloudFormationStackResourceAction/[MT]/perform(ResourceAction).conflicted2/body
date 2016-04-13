@@ -1,25 +1,20 @@
 {
   AWSCloudFormationStackResourceAction action=(AWSCloudFormationStackResourceAction)resourceAction;
-  ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
-  if (action.info.getCreatedEnoughToDelete() != Boolean.TRUE)   return action;
-  DescribeStacksType describeStacksType=MessageHelper.createMessage(DescribeStacksType.class,action.info.getEffectiveUserId());
-  describeStacksType.setStackName(action.info.getPhysicalResourceId());
-  DescribeStacksResponseType describeStacksResponseType=AsyncRequests.<DescribeStacksType,DescribeStacksResponseType>sendSync(configuration,describeStacksType);
-  if (describeStacksResponseType.getDescribeStacksResult() == null || describeStacksResponseType.getDescribeStacksResult().getStacks() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().isEmpty()) {
-    return action;
+  if (action.info.getEucaAttributes().containsKey(AWSCloudFormationStackResourceInfo.EUCA_NO_UPDATES_TO_PERFORM)) {
+    boolean noUpdatesToPerform=Boolean.valueOf(JsonHelper.getJsonNodeFromString(action.info.getEucaAttributes().get(AWSCloudFormationStackResourceInfo.EUCA_NO_UPDATES_TO_PERFORM)).asText());
+    if (noUpdatesToPerform)     return action;
   }
-  if (describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().size() > 1) {
-    throw new ResourceFailureException("More than one stack returned for stack " + action.info.getPhysicalResourceId());
+  if (action.info.getEucaAttributes().containsKey(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_COMPLETE_CLEANUP_IN_PROGRESS)) {
+    boolean deleteStatusUpdateCompleteCleanupInProgress=Boolean.valueOf(JsonHelper.getJsonNodeFromString(action.info.getEucaAttributes().get(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_COMPLETE_CLEANUP_IN_PROGRESS)).asText());
+    if (!deleteStatusUpdateCompleteCleanupInProgress) {
+      ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
+      StatusAndReason statusAndReason=getStackStatusAndReason(action,configuration);
+      String status=statusAndReason.getStatus();
+      if (Status.UPDATE_COMPLETE_CLEANUP_IN_PROGRESS.toString().equals(status) || Status.UPDATE_ROLLBACK_IN_PROGRESS.toString().equals(status)) {
+        throw new RetryAfterConditionCheckFailedException("Stack " + action.info.getPhysicalResourceId() + " is still being rolled back.");
+      }
+    }
+    action.info.getEucaAttributes().remove(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_COMPLETE_CLEANUP_IN_PROGRESS);
   }
-  String status=describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().get(0).getStackStatus();
-  if (status == null) {
-    throw new ResourceFailureException("Null status for stack " + action.info.getPhysicalResourceId());
-  }
-  if (status.equals(Status.DELETE_COMPLETE.toString())) {
-    return action;
-  }
-  DeleteStackType deleteStackType=MessageHelper.createMessage(DeleteStackType.class,action.info.getEffectiveUserId());
-  deleteStackType.setStackName(action.info.getPhysicalResourceId());
-  AsyncRequests.<DeleteStackType,DeleteStackResponseType>sendSync(configuration,deleteStackType);
   return action;
 }

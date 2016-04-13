@@ -1,31 +1,15 @@
 {
   AWSCloudFormationStackResourceAction action=(AWSCloudFormationStackResourceAction)resourceAction;
+  if (action.info.getEucaAttributes().containsKey(AWSCloudFormationStackResourceInfo.EUCA_NO_UPDATES_TO_PERFORM)) {
+    boolean noUpdatesToPerform=Boolean.valueOf(JsonHelper.getJsonNodeFromString(action.info.getEucaAttributes().get(AWSCloudFormationStackResourceInfo.EUCA_NO_UPDATES_TO_PERFORM)).asText());
+    if (noUpdatesToPerform)     return action;
+  }
   ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
-  if (action.info.getCreatedEnoughToDelete() != Boolean.TRUE)   return action;
-  DescribeStacksType describeStacksType=MessageHelper.createMessage(DescribeStacksType.class,action.info.getEffectiveUserId());
-  describeStacksType.setStackName(action.info.getPhysicalResourceId());
-  DescribeStacksResponseType describeStacksResponseType=AsyncRequests.<DescribeStacksType,DescribeStacksResponseType>sendSync(configuration,describeStacksType);
-  if (describeStacksResponseType.getDescribeStacksResult() == null || describeStacksResponseType.getDescribeStacksResult().getStacks() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().isEmpty()) {
-    return action;
+  StatusAndReason statusAndReason=getStackStatusAndReason(action,configuration);
+  String status=statusAndReason.getStatus();
+  if (Status.UPDATE_COMPLETE_CLEANUP_IN_PROGRESS.toString().equals(status) || Status.UPDATE_ROLLBACK_IN_PROGRESS.toString().equals(status)) {
+    action.info.getEucaAttributes().put(AWSCloudFormationStackResourceInfo.EUCA_DELETE_STATUS_UPDATE_COMPLETE_CLEANUP_IN_PROGRESS,JsonHelper.getStringFromJsonNode(new TextNode("true")));
+    UpdateStackPartsWorkflowKickOff.kickOffUpdateRollbackStackWorkflow(action.info.getPhysicalResourceId(),action.info.getAccountId(),action.getStackEntity().getStackId(),action.info.getEffectiveUserId());
   }
-  if (describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().size() > 1) {
-    throw new ResourceFailureException("More than one stack returned for stack " + action.info.getPhysicalResourceId());
-  }
-  String status=describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().get(0).getStackStatus();
-  if (status == null) {
-    throw new ResourceFailureException("Null status for stack " + action.info.getPhysicalResourceId());
-  }
-  if (status.equals(Status.DELETE_IN_PROGRESS.toString())) {
-    throw new RetryAfterConditionCheckFailedException("Stack " + action.info.getPhysicalResourceId() + " is still being deleted.");
-  }
-  if (status.endsWith("IN_PROGRESS")) {
-    throw new ResourceFailureException("Stack " + action.info.getPhysicalResourceId() + " is in the middle of "+ status+ ", not deleting");
-  }
-  if (status.equals(Status.DELETE_COMPLETE.toString())) {
-    return action;
-  }
-  if (status.equals(Status.DELETE_FAILED.toString())) {
-    throw new ResourceFailureException("Deleting stack " + action.info.getPhysicalResourceId() + " failed");
-  }
-  throw new RetryAfterConditionCheckFailedException("Stack " + action.info.getPhysicalResourceId() + " current status is "+ status+ ", maybe not yet started deleting?");
+  return action;
 }
