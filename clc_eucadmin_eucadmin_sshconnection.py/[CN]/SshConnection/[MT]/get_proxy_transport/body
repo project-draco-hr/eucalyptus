@@ -1,0 +1,29 @@
+def get_proxy_transport(self, proxy_host=None, dest_host=None, port=22, proxy_username='root', proxy_password=None, proxy_keypath=None, priv_key_file=None, verbose=True):
+    "\n\n\n        :param priv_key_file: private key file. If 'None' will check global self.priv_key_file, \n                              standard locations (~/.ssh/id_{rsa,dsa}.pub), and ssh-agent's\n                              stored keys.\n        :param verbose: print debug\n        :param proxy_host: hostname of ssh proxy\n        :param port: ssh proxy port\n        :param dest_host: end host to connect to\n        :param proxy_username: proxy username for ssh authentication\n        :param proxy_password: proxy password for ssh authentication\n        :param proxy_keypath: local path to key used for ssh authentication\n        :return: paramiko transport\n        "
+    proxy_host = ((proxy_host or self.proxy), port)
+    dest_host = ((dest_host or self.host), port)
+    proxy_username = (proxy_username or self.proxy_username)
+    proxy_password = (proxy_password or self.proxy_password)
+    proxy_keypath = (proxy_keypath or self.proxy_keypath)
+    ssh = paramiko.SSHClient()
+    if (self.use_pub_keys or (proxy_keypath is not None) or ((proxy_username is not None) and (proxy_password is not None))):
+        p_transport = paramiko.Transport(proxy_host)
+        ssh._transport = p_transport
+        p_transport.start_client()
+        if proxy_keypath:
+            priv_key = paramiko.RSAKey.from_private_key_file(proxy_keypath)
+            p_transport.auth_publickey(proxy_username, priv_key)
+        elif proxy_password:
+            p_transport.auth_password(proxy_username, proxy_password)
+        else:
+            priv_key_files = []
+            file = (priv_key_file or self.priv_key_file)
+            if (file and os.path.isfile(file)):
+                priv_key_files.append(file)
+            self.debug(('Proxy auth -Using local keys, no keypath/password provided, trying:' + str((file or ''))), verbose=verbose)
+            ssh._auth(proxy_username, None, None, priv_key_files, True, True)
+            p_transport = ssh._transport
+        channel = p_transport.open_channel('direct-tcpip', dest_host, ('127.0.0.1', 0))
+        return paramiko.Transport(channel)
+    else:
+        raise Exception('Need either a keypath or username+password to create ssh proxy connection')

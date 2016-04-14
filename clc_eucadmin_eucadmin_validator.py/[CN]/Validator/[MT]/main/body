@@ -1,0 +1,40 @@
+def main(self):
+    self.log.debug(('Reading configuration files: %s' % self.admincfg.validator_config_path))
+    data = read_validator_config(files=self.admincfg.validator_config_path.split(':'))
+    result = {}
+    self.log.debug(('Script search path is %s' % self.admincfg.validator_script_path))
+    for script in data.get(self.stage, {}).get(self.component, []):
+        for dirpath in self.admincfg.validator_script_path.split(':'):
+            scriptPath = os.path.join(dirpath, script)
+            if os.path.exists(scriptPath):
+                self.log.debug(('Running script: %s' % scriptPath))
+                return_val = run_script(scriptPath)
+                try:
+                    result[script] = json.loads(return_val)
+                except Exception as e:
+                    self.log.error(('Script %s did not return valid JSON.' % scriptPath))
+                    self.log.debug(('returned data was %s' % return_val))
+                    break
+                for level in LOGLEVELS:
+                    if result[script].has_key(level):
+                        if (not self.subtask):
+                            self.log.log(logging.getLevelName(level.upper()), ('%s: %s' % (script, result[script][level])))
+                break
+        if (not result.has_key(script)):
+            self.log.error(('script %s not found' % script))
+    if ((self.component == 'CLC') and self.traverse):
+        ds = DescribeServices(url='http://localhost:8773')
+        data = ds.main()
+        hosts = []
+        for service in data['euca:DescribeServicesResponseType']['euca:serviceStatuses']:
+            hostname = urllib.splitport(urlparse.urlparse(service['euca:serviceId']['euca:uri']).netloc)[0]
+            status = service['euca:localState']
+            component_type = service['euca:serviceId']['euca:type']
+            if COMPONENT_MAP.get(component_type):
+                hosts.append((hostname, component_type, status))
+        for (host, component_type, status) in hosts:
+            result['-'.join([host, component_type])] = self.run_remote(host, component_type, self.stage, traverse=self.traverse, dbg=True)
+    elif ((self.component == 'CC') and self.traverse):
+        for host in self.euca_conf['NODES'].split():
+            result[host] = self.run_remote(host, 'NC', self.stage, dbg=True)
+    return result

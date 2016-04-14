@@ -1,0 +1,22 @@
+def main(self, **args):
+    obj = DescribeServices(debug=self.args.get('debug'))
+    services = obj.main(all=True, filter_type='node', **args)
+    service_statuses = services['euca:DescribeServicesResponseType']['euca:serviceStatuses']
+    nodes = {}
+    for service in service_statuses:
+        sid = service['euca:serviceId']
+        hostname = sid.get('euca:hostName')
+        nodes[sid['euca:name']] = {'partition': sid['euca:partition'], 'name': sid['euca:name'], 'hostname': hostname, 'state': service['euca:localState'], 'details': service['euca:details'], 'instances': {}, }
+    obj = DescribeInstances(InstanceId=['verbose'], debug=self.args.get('debug'))
+    inst_response = obj.main(**args)
+    reservations = inst_response['DescribeInstancesResponse']['reservationSet']
+    for reservation in reservations:
+        for instance in reservation.get('instancesSet', []):
+            i_info = {}
+            for tag in instance.get('tagSet', []):
+                if ((tag['key'] == 'euca:node') and (tag['value'] in nodes)):
+                    node = nodes[tag['value']]
+                    node['instances'][instance['instanceId']] = i_info
+                elif (tag['key'] == 'euca:node:migration:destination'):
+                    i_info['migration_dest'] = tag['value']
+    return nodes

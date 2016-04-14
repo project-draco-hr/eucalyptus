@@ -1,0 +1,20 @@
+def install_service_image(service_name, metadata, pack_filename, bucket, show_progress=False):
+    if ((service_name not in metadata.get('services')) or {}):
+        raise ValueError('no image data for service "{0}"'.format(service_name))
+    service_to_profile_map = {'database.worker': 'database-worker', 'imaging.worker': 'imaging-worker', 'loadbalancing.worker': 'loadbalancing-worker', }
+    assert (service_name in service_to_profile_map)
+    process = subprocess.Popen(('euimage-install-pack', '--profile', service_to_profile_map[service_name], '--bucket', bucket, ('--progress' if show_progress else '--no-progress'), pack_filename), stdout=subprocess.PIPE)
+    (output, _) = process.communicate()
+    if (process.poll() != 0):
+        raise subprocess.CalledProcessError(process.poll(), 'euimage-install-pack', output=output)
+    for line in output.splitlines():
+        if ('IMAGE' in line):
+            image_id = line.partition('IMAGE')[2].strip()
+        if image_id:
+            break
+    else:
+        raise RuntimeError('euimage-install-pack did not output an image ID')
+    prop_name = metadata['services'][service_name].get('set-image-property')
+    if prop_name:
+        subprocess.check_call(('euca-modify-property', '-p', '{0}={1}'.format(prop_name, image_id)))
+    return image_id
