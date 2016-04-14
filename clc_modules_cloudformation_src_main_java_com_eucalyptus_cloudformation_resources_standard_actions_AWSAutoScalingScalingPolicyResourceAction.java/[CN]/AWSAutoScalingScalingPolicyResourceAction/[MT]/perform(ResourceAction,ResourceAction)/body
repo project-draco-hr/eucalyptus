@@ -1,0 +1,23 @@
+{
+  AWSAutoScalingScalingPolicyResourceAction oldAction=(AWSAutoScalingScalingPolicyResourceAction)oldResourceAction;
+  AWSAutoScalingScalingPolicyResourceAction newAction=(AWSAutoScalingScalingPolicyResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
+  if (!Objects.equals(oldAction.properties.getAutoScalingGroupName(),newAction.properties.getAutoScalingGroupName())) {
+    DeletePolicyType deletePolicyType=MessageHelper.createMessage(DeletePolicyType.class,newAction.info.getEffectiveUserId());
+    deletePolicyType.setPolicyName(oldAction.info.getPhysicalResourceId());
+    deletePolicyType.setAutoScalingGroupName(oldAction.properties.getAutoScalingGroupName());
+    AsyncRequests.<DeletePolicyType,DeletePolicyResponseType>sendSync(configuration,deletePolicyType);
+  }
+  String policyName=getPolicyNameFromArn(oldAction.info.getPhysicalResourceId());
+  PutScalingPolicyType putScalingPolicyType=MessageHelper.createMessage(PutScalingPolicyType.class,newAction.info.getEffectiveUserId());
+  putScalingPolicyType.setAutoScalingGroupName(newAction.properties.getAutoScalingGroupName());
+  putScalingPolicyType.setAdjustmentType(newAction.properties.getAdjustmentType());
+  putScalingPolicyType.setCooldown(newAction.properties.getCooldown());
+  putScalingPolicyType.setPolicyName(policyName);
+  putScalingPolicyType.setScalingAdjustment(newAction.properties.getScalingAdjustment());
+  PutScalingPolicyResponseType putScalingPolicyResponseType=AsyncRequests.<PutScalingPolicyType,PutScalingPolicyResponseType>sendSync(configuration,putScalingPolicyType);
+  newAction.info.setPhysicalResourceId(putScalingPolicyResponseType.getPutScalingPolicyResult().getPolicyARN());
+  newAction.info.setCreatedEnoughToDelete(true);
+  newAction.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(newAction.info.getPhysicalResourceId())));
+  return newAction;
+}
