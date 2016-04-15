@@ -1,0 +1,27 @@
+{
+  final NetworkInfo netInfo=context.getNetworkInfo();
+  final String networkInfo=MarshallingApplicatorHelper.getMarshalledNetworkInfo(context);
+  final String encodedNetworkInfo=new String(B64.standard.enc(networkInfo.getBytes(Charsets.UTF_8)),Charsets.UTF_8);
+  final BroadcastNetworkInfoCallback callback=new BroadcastNetworkInfoCallback(encodedNetworkInfo,netInfo.getVersion(),netInfo.getAppliedVersion());
+  for (  final com.eucalyptus.cluster.Cluster cluster : context.getClusters()) {
+    final Long broadcastTime=System.currentTimeMillis();
+    if (null == activeBroadcastMap.putIfAbsent(cluster.getPartition(),broadcastTime)) {
+      try {
+        AsyncRequests.newRequest(callback.newInstance()).then(new UnconditionalCallback<BroadcastNetworkInfoResponseType>(){
+          @Override public void fire(){
+            activeBroadcastMap.remove(cluster.getPartition(),broadcastTime);
+          }
+        }
+).dispatch(cluster.getConfiguration());
+      }
+ catch (      Exception e) {
+        activeBroadcastMap.remove(cluster.getPartition(),broadcastTime);
+        logger.error("Error broadcasting network information to cluster (" + cluster.getPartition() + ") ("+ cluster.getName()+ ")",e);
+      }
+    }
+ else {
+      logger.warn("Skipping network information broadcast for active partition " + cluster.getPartition());
+    }
+  }
+  chain.applyNext(context);
+}
