@@ -1,0 +1,55 @@
+{
+  AWSAutoScalingAutoScalingGroupResourceAction oldAction=(AWSAutoScalingAutoScalingGroupResourceAction)oldResourceAction;
+  AWSAutoScalingAutoScalingGroupResourceAction newAction=(AWSAutoScalingAutoScalingGroupResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
+  DescribeTagsType describeTagsType=MessageHelper.createMessage(DescribeTagsType.class,newAction.info.getEffectiveUserId());
+  Filters filters=new Filters();
+  Filter filter=new Filter();
+  filter.setName("auto-scaling-group");
+  Values values=new Values();
+  values.getMember().add(newAction.info.getPhysicalResourceId());
+  filter.setValues(values);
+  filters.getMember().add(filter);
+  describeTagsType.setFilters(filters);
+  DescribeTagsResponseType describeTagsResponseType=AsyncRequests.sendSync(configuration,describeTagsType);
+  Set<AutoScalingTag> existingTags=Sets.newLinkedHashSet();
+  if (describeTagsResponseType != null & describeTagsResponseType.getDescribeTagsResult() != null && describeTagsResponseType.getDescribeTagsResult().getTags() != null && describeTagsResponseType.getDescribeTagsResult().getTags().getMember() != null) {
+    for (    TagDescription tagDescription : describeTagsResponseType.getDescribeTagsResult().getTags().getMember()) {
+      AutoScalingTag tag=new AutoScalingTag();
+      tag.setKey(tagDescription.getKey());
+      tag.setValue(tagDescription.getValue());
+      tag.setPropagateAtLaunch(tagDescription.getPropagateAtLaunch());
+      existingTags.add(tag);
+    }
+  }
+  Set<AutoScalingTag> newTags=Sets.newLinkedHashSet();
+  if (newAction.properties.getTags() != null) {
+    newTags.addAll(newAction.properties.getTags());
+  }
+  List<AutoScalingTag> newStackTags=TagHelper.getAutoScalingStackTags(newAction.getStackEntity());
+  if (newStackTags != null) {
+    newTags.addAll(newStackTags);
+  }
+  TagHelper.checkReservedAutoScalingTemplateTags(newTags);
+  Set<AutoScalingTag> onlyNewTags=Sets.difference(newTags,existingTags);
+  if (!onlyNewTags.isEmpty()) {
+    CreateOrUpdateTagsType createOrUpdateTagsType=MessageHelper.createMessage(CreateOrUpdateTagsType.class,newAction.info.getEffectiveUserId());
+    createOrUpdateTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(newAction.info.getPhysicalResourceId(),onlyNewTags));
+    AsyncRequests.<CreateOrUpdateTagsType,CreateOrUpdateTagsResponseType>sendSync(configuration,createOrUpdateTagsType);
+  }
+  Set<AutoScalingTag> oldTags=Sets.newLinkedHashSet();
+  if (oldAction.properties.getTags() != null) {
+    oldTags.addAll(oldAction.properties.getTags());
+  }
+  List<AutoScalingTag> oldStackTags=TagHelper.getAutoScalingStackTags(oldAction.getStackEntity());
+  if (oldStackTags != null) {
+    oldTags.addAll(oldStackTags);
+  }
+  Set<AutoScalingTag> tagsToRemove=Sets.intersection(oldTags,Sets.difference(existingTags,newTags));
+  if (!tagsToRemove.isEmpty()) {
+    DeleteTagsType deleteTagsType=MessageHelper.createMessage(DeleteTagsType.class,newAction.info.getEffectiveUserId());
+    deleteTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(newAction.info.getPhysicalResourceId(),tagsToRemove));
+    AsyncRequests.<DeleteTagsType,DeleteTagsResponseType>sendSync(configuration,deleteTagsType);
+  }
+  return newAction;
+}
