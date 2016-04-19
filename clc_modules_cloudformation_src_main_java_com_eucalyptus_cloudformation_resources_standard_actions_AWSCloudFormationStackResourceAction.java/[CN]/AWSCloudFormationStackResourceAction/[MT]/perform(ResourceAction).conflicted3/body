@@ -1,31 +1,16 @@
 {
   AWSCloudFormationStackResourceAction action=(AWSCloudFormationStackResourceAction)resourceAction;
+  if (StacksWithNoUpdateToPerformEntityManager.isStackWithNoUpdateToPerform(action.info.getPhysicalResourceId(),action.info.getAccountId())) {
+    return action;
+  }
+  if (StackUpdateInfoEntityManager.hasNoUpdateInfoRecord(action.info.getPhysicalResourceId(),action.info.getAccountId())) {
+    return action;
+  }
   ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
-  if (action.info.getCreatedEnoughToDelete() != Boolean.TRUE)   return action;
-  DescribeStacksType describeStacksType=MessageHelper.createMessage(DescribeStacksType.class,action.info.getEffectiveUserId());
-  describeStacksType.setStackName(action.info.getPhysicalResourceId());
-  DescribeStacksResponseType describeStacksResponseType=AsyncRequests.<DescribeStacksType,DescribeStacksResponseType>sendSync(configuration,describeStacksType);
-  if (describeStacksResponseType.getDescribeStacksResult() == null || describeStacksResponseType.getDescribeStacksResult().getStacks() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().isEmpty()) {
-    return action;
+  String status=getStackStatusAndReason(action,configuration).getStatus();
+  if (!Status.UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS.toString().equals(status)) {
+    throw new ResourceFailureException("Update rollback cleanup stack called when status is " + status + " for stack "+ action.info.getPhysicalResourceId());
   }
-  if (describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().size() > 1) {
-    throw new ResourceFailureException("More than one stack returned for stack " + action.info.getPhysicalResourceId());
-  }
-  String status=describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().get(0).getStackStatus();
-  if (status == null) {
-    throw new ResourceFailureException("Null status for stack " + action.info.getPhysicalResourceId());
-  }
-  if (status.equals(Status.DELETE_IN_PROGRESS.toString())) {
-    throw new RetryAfterConditionCheckFailedException("Stack " + action.info.getPhysicalResourceId() + " is still being deleted.");
-  }
-  if (status.endsWith("IN_PROGRESS")) {
-    throw new ResourceFailureException("Stack " + action.info.getPhysicalResourceId() + " is in the middle of "+ status+ ", not deleting");
-  }
-  if (status.equals(Status.DELETE_COMPLETE.toString())) {
-    return action;
-  }
-  if (status.equals(Status.DELETE_FAILED.toString())) {
-    throw new ResourceFailureException("Deleting stack " + action.info.getPhysicalResourceId() + " failed");
-  }
-  throw new RetryAfterConditionCheckFailedException("Stack " + action.info.getPhysicalResourceId() + " current status is "+ status+ ", maybe not yet started deleting?");
+  UpdateStackPartsWorkflowKickOff.kickOffUpdateRollbackCleanupStackWorkflow(action.info.getPhysicalResourceId(),action.info.getAccountId(),action.info.getEffectiveUserId());
+  return action;
 }
