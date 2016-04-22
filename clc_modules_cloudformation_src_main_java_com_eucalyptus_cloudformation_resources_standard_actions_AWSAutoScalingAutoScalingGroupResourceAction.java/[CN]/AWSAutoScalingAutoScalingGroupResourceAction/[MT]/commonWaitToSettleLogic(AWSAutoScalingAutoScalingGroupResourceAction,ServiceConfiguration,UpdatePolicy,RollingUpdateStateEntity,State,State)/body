@@ -1,0 +1,36 @@
+{
+  if (!settled(configuration,newAction)) {
+    throw new NotAResourceFailureException("Autoscaling group is not yet settled, trying again");
+  }
+  Set<String> previousInstanceIds=Sets.newHashSet(Splitter.on(',').omitEmptyStrings().trimResults().split(rollingUpdateStateEntity.getPreviousRunningInstanceIds()));
+  AutoScalingGroupType autoScalingGroupType=getExistingUniqueAutoscalingGroupType(configuration,newAction);
+  Set<String> allRunningInstanceIds=Sets.newHashSet();
+  if (autoScalingGroupType.getInstances() != null && autoScalingGroupType.getInstances().getMember() != null) {
+    for (    Instance instance : autoScalingGroupType.getInstances().getMember()) {
+      if (instance.getLifecycleState().equals("InService")) {
+        allRunningInstanceIds.add(instance.getInstanceId());
+      }
+    }
+  }
+  rollingUpdateStateEntity.setPreviousRunningInstanceIds(Joiner.on(',').join(allRunningInstanceIds));
+  Set<String> newInstanceIds=Sets.difference(allRunningInstanceIds,previousInstanceIds);
+  if (!newInstanceIds.isEmpty()) {
+    if (updatePolicy.getAutoScalingRollingUpdate().isWaitOnResourceSignals()) {
+      addStackEventForRollingUpdate(newAction,"New instance(s) added to autoscaling group - Waiting on " + newInstanceIds.size() + " resource signal(s) with a timeout of "+ updatePolicy.getAutoScalingRollingUpdate().getPauseTime()+ ".");
+      rollingUpdateStateEntity.setNumNeededSignalsThisBatch(newInstanceIds.size());
+      rollingUpdateStateEntity.setNumReceivedSignalsThisBatch(0);
+      rollingUpdateStateEntity.setSignalCutoffTimestamp(new Date(System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(Duration.parse(updatePolicy.getAutoScalingRollingUpdate().getPauseTime()).getSeconds())));
+    }
+ else {
+      if (Duration.parse(updatePolicy.getAutoScalingRollingUpdate().getPauseTime()).getSeconds() > 0) {
+        addStackEventForRollingUpdate(newAction,"New instance(s) added to autoscaling group - Pausing for " + updatePolicy.getAutoScalingRollingUpdate().getPauseTime() + ".");
+      }
+      rollingUpdateStateEntity.setSignalCutoffTimestamp(new Date(System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(Duration.parse(updatePolicy.getAutoScalingRollingUpdate().getPauseTime()).getSeconds())));
+    }
+    rollingUpdateStateEntity.setState(nextSignalState);
+  }
+ else {
+    rollingUpdateStateEntity.setState(nextNonSignalState);
+  }
+  return rollingUpdateStateEntity;
+}

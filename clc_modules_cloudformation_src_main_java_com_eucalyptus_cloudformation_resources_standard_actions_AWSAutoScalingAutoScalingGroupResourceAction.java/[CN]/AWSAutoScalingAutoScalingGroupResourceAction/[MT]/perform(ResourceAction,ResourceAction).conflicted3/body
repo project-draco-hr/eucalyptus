@@ -1,0 +1,52 @@
+{
+  AWSAutoScalingAutoScalingGroupResourceAction oldAction=(AWSAutoScalingAutoScalingGroupResourceAction)oldResourceAction;
+  AWSAutoScalingAutoScalingGroupResourceAction newAction=(AWSAutoScalingAutoScalingGroupResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
+  Map<String,Collection<String>> existingNotificationConfigurations=Maps.newHashMap();
+  DescribeNotificationConfigurationsType describeNotificationConfigurationsType=MessageHelper.createMessage(DescribeNotificationConfigurationsType.class,newAction.info.getEffectiveUserId());
+  AutoScalingGroupNames autoScalingGroupNames=new AutoScalingGroupNames();
+  autoScalingGroupNames.getMember().add(newAction.info.getPhysicalResourceId());
+  describeNotificationConfigurationsType.setAutoScalingGroupNames(autoScalingGroupNames);
+  DescribeNotificationConfigurationsResponseType describeNotificationConfigurationsResponseType=AsyncRequests.sendSync(configuration,describeNotificationConfigurationsType);
+  if (describeNotificationConfigurationsResponseType != null && describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult() != null && describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult().getNotificationConfigurations() != null && describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult().getNotificationConfigurations().getMember() != null) {
+    for (    NotificationConfiguration notificationConfiguration : describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult().getNotificationConfigurations().getMember()) {
+      if (!existingNotificationConfigurations.containsKey(notificationConfiguration.getTopicARN())) {
+        existingNotificationConfigurations.put(notificationConfiguration.getTopicARN(),Sets.newHashSet());
+      }
+      existingNotificationConfigurations.get(notificationConfiguration.getTopicARN()).add(notificationConfiguration.getNotificationType());
+    }
+  }
+  Map<String,Collection<String>> newNotificationConfigurations=Maps.newHashMap();
+  if (newAction.properties.getNotificationConfigurations() != null) {
+    for (    AutoScalingNotificationConfiguration notificationConfiguration : newAction.properties.getNotificationConfigurations()) {
+      newNotificationConfigurations.put(notificationConfiguration.getTopicARN(),Sets.newHashSet(notificationConfiguration.getNotificationTypes()));
+    }
+  }
+  Map<String,Collection<String>> oldNotificationConfigurations=Maps.newHashMap();
+  if (newAction.properties.getNotificationConfigurations() != null) {
+    for (    AutoScalingNotificationConfiguration notificationConfiguration : newAction.properties.getNotificationConfigurations()) {
+      oldNotificationConfigurations.put(notificationConfiguration.getTopicARN(),Sets.newHashSet(notificationConfiguration.getNotificationTypes()));
+    }
+  }
+  for (  String topicArn : newNotificationConfigurations.keySet()) {
+    if (!existingNotificationConfigurations.containsKey(topicArn) || !existingNotificationConfigurations.get(topicArn).equals(newNotificationConfigurations.get(topicArn))) {
+      PutNotificationConfigurationType putNotificationConfigurationType=MessageHelper.createMessage(PutNotificationConfigurationType.class,newAction.info.getEffectiveUserId());
+      putNotificationConfigurationType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
+      putNotificationConfigurationType.setTopicARN(topicArn);
+      AutoScalingNotificationTypes autoScalingNotificationTypes=new AutoScalingNotificationTypes();
+      ArrayList<String> member=Lists.newArrayList(newNotificationConfigurations.get(topicArn));
+      autoScalingNotificationTypes.setMember(member);
+      putNotificationConfigurationType.setNotificationTypes(autoScalingNotificationTypes);
+      sendSyncWithRetryOnScalingEvent(configuration,putNotificationConfigurationType);
+    }
+  }
+  for (  String topicArn : oldNotificationConfigurations.keySet()) {
+    if (existingNotificationConfigurations.containsKey(topicArn) && !newNotificationConfigurations.containsKey(topicArn)) {
+      DeleteNotificationConfigurationType deleteNotificationConfigurationType=MessageHelper.createMessage(DeleteNotificationConfigurationType.class,newAction.info.getEffectiveUserId());
+      deleteNotificationConfigurationType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
+      deleteNotificationConfigurationType.setTopicARN(topicArn);
+      sendSyncWithRetryOnScalingEvent(configuration,deleteNotificationConfigurationType);
+    }
+  }
+  return newAction;
+}

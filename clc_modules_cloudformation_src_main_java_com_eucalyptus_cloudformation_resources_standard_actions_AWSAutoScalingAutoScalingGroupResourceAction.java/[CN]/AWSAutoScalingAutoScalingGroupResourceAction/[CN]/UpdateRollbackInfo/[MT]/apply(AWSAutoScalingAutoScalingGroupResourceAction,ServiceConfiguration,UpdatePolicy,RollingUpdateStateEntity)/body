@@ -1,0 +1,24 @@
+{
+  AutoScalingGroupType autoScalingGroupType=getExistingUniqueAutoscalingGroupType(configuration,newAction);
+  int numExpectedSignals=autoScalingGroupType.getDesiredCapacity();
+  Set<String> allRunningInstanceIds=Sets.newHashSet();
+  if (autoScalingGroupType.getInstances() != null && autoScalingGroupType.getInstances().getMember() != null) {
+    Set<String> instanceIds=Sets.newHashSet();
+    for (    Instance instance : autoScalingGroupType.getInstances().getMember()) {
+      instanceIds.add(instance.getInstanceId());
+    }
+    Map<String,String> subnetMap=getSubnetMap(instanceIds,newAction.info.getEffectiveUserId());
+    for (    Instance instance : autoScalingGroupType.getInstances().getMember()) {
+      if (instance.getLifecycleState().equals("InService")) {
+        allRunningInstanceIds.add(instance.getInstanceId());
+        if (!doesInstanceNeedReplacement(instance,subnetMap,autoScalingGroupType)) {
+          numExpectedSignals--;
+        }
+      }
+    }
+  }
+  rollingUpdateStateEntity.setPreviousRunningInstanceIds(Joiner.on(',').join(allRunningInstanceIds));
+  rollingUpdateStateEntity.setNumExpectedTotalSignals(numExpectedSignals);
+  rollingUpdateStateEntity.setState(State.FIRST_WAIT_TO_SETTLE);
+  return rollingUpdateStateEntity;
+}

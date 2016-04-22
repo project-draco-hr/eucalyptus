@@ -1,0 +1,16 @@
+{
+  AWSAutoScalingAutoScalingGroupResourceAction oldAction=(AWSAutoScalingAutoScalingGroupResourceAction)oldResourceAction;
+  AWSAutoScalingAutoScalingGroupResourceAction newAction=(AWSAutoScalingAutoScalingGroupResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
+  if (newAction.info.getUpdatePolicyJson() == null)   return newAction;
+  UpdatePolicy updatePolicy=UpdatePolicy.parse(newAction.info.getUpdatePolicyJson());
+  if (updatePolicy.getAutoScalingRollingUpdate() == null)   return newAction;
+  RollingUpdateStateEntity rollingUpdateStateEntity=RollingUpdateStateEntityManager.getRollingUpdateStateEntity(newAction.info.getAccountId(),newAction.getStackEntity().getStackId(),newAction.info.getLogicalResourceId());
+  if (rollingUpdateStateEntity.getNeedsRollbackUpdate() != Boolean.TRUE)   return newAction;
+  while (rollingUpdateStateEntity.getState() != UpdateRollbackInfo.State.DONE) {
+    LOG.info("Evaluating loop action on state " + rollingUpdateStateEntity.getState());
+    rollingUpdateStateEntity=(rollingUpdateStateEntity.getState().apply(newAction,configuration,updatePolicy,rollingUpdateStateEntity));
+    rollingUpdateStateEntity=RollingUpdateStateEntityManager.updateRollingUpdateStateEntity(rollingUpdateStateEntity);
+  }
+  return newAction;
+}

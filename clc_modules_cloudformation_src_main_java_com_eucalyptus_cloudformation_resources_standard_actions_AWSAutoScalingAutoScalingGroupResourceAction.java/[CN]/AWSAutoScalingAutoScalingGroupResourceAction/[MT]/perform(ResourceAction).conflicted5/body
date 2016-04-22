@@ -1,19 +1,17 @@
 {
   AWSAutoScalingAutoScalingGroupResourceAction action=(AWSAutoScalingAutoScalingGroupResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
-  String effectiveAdminUserId=Accounts.lookupPrincipalByAccountNumber(Accounts.lookupPrincipalByUserId(action.info.getEffectiveUserId()).getAccountNumber()).getUserId();
-  CreateOrUpdateTagsType createSystemTagsType=MessageHelper.createPrivilegedMessage(CreateOrUpdateTagsType.class,effectiveAdminUserId);
-  createSystemTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(action.info.getPhysicalResourceId(),TagHelper.getAutoScalingSystemTags(action.info,action.getStackEntity())));
-  AsyncRequests.<CreateOrUpdateTagsType,CreateOrUpdateTagsResponseType>sendSync(configuration,createSystemTagsType);
-  List<AutoScalingTag> tags=TagHelper.getAutoScalingStackTags(action.getStackEntity());
-  if (action.properties.getTags() != null && !action.properties.getTags().isEmpty()) {
-    TagHelper.checkReservedAutoScalingTemplateTags(action.properties.getTags());
-    tags.addAll(action.properties.getTags());
-  }
-  if (!tags.isEmpty()) {
-    CreateOrUpdateTagsType createOrUpdateTagsType=MessageHelper.createMessage(CreateOrUpdateTagsType.class,action.info.getEffectiveUserId());
-    createOrUpdateTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(action.info.getPhysicalResourceId(),tags));
-    AsyncRequests.<CreateOrUpdateTagsType,CreateOrUpdateTagsResponseType>sendSync(configuration,createOrUpdateTagsType);
+  if (action.properties.getNotificationConfigurations() != null) {
+    for (    AutoScalingNotificationConfiguration notificationConfiguration : action.properties.getNotificationConfigurations()) {
+      PutNotificationConfigurationType putNotificationConfigurationType=MessageHelper.createMessage(PutNotificationConfigurationType.class,action.info.getEffectiveUserId());
+      putNotificationConfigurationType.setAutoScalingGroupName(action.info.getPhysicalResourceId());
+      putNotificationConfigurationType.setTopicARN(notificationConfiguration.getTopicARN());
+      AutoScalingNotificationTypes autoScalingNotificationTypes=new AutoScalingNotificationTypes();
+      ArrayList<String> member=Lists.newArrayList(notificationConfiguration.getNotificationTypes());
+      autoScalingNotificationTypes.setMember(member);
+      putNotificationConfigurationType.setNotificationTypes(autoScalingNotificationTypes);
+      sendSyncWithRetryOnScalingEvent(configuration,putNotificationConfigurationType);
+    }
   }
   return action;
 }

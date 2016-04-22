@@ -1,51 +1,19 @@
 {
   AWSAutoScalingAutoScalingGroupResourceAction action=(AWSAutoScalingAutoScalingGroupResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
-  CreationPolicy creationPolicy=CreationPolicy.parse(action.info.getCreationPolicyJson());
-  if (creationPolicy != null && creationPolicy.getResourceSignal() != null) {
-    Set<String> instanceIds=Sets.newHashSet();
-    DescribeAutoScalingGroupsType describeAutoScalingGroupsType=MessageHelper.createMessage(DescribeAutoScalingGroupsType.class,action.info.getEffectiveUserId());
-    AutoScalingGroupNames autoScalingGroupNames=new AutoScalingGroupNames();
-    autoScalingGroupNames.getMember().add(action.info.getPhysicalResourceId());
-    describeAutoScalingGroupsType.setAutoScalingGroupNames(autoScalingGroupNames);
-    DescribeAutoScalingGroupsResponseType describeAutoScalingGroupsResponseType=AsyncRequests.sendSync(configuration,describeAutoScalingGroupsType);
-    if (describeAutoScalingGroupsResponseType != null && describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult() != null && describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult().getAutoScalingGroups() != null && describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember() != null) {
-      for (      AutoScalingGroupType autoScalingGroupType : describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember()) {
-        if (!Objects.equals(autoScalingGroupType.getAutoScalingGroupName(),action.info.getPhysicalResourceId()))         continue;
-        if (autoScalingGroupType.getInstances() != null && autoScalingGroupType.getInstances().getMember() != null) {
-          for (          Instance instance : autoScalingGroupType.getInstances().getMember()) {
-            instanceIds.add(instance.getInstanceId());
-          }
-        }
-      }
-    }
-    Collection<SignalEntity> signals=SignalEntityManager.getSignals(action.getStackEntity().getStackId(),action.info.getAccountId(),action.info.getLogicalResourceId(),action.getStackEntity().getStackVersion());
-    int numSuccessSignals=0;
-    if (signals != null) {
-      for (      SignalEntity signal : signals) {
-        if (signal.getProcessed() && signal.getStatus() == SignalEntity.Status.SUCCESS) {
-          numSuccessSignals++;
-          continue;
-        }
-        if (!instanceIds.contains(signal.getUniqueId()))         continue;
-        if (signal.getStatus() == SignalEntity.Status.FAILURE) {
-          throw new ResourceFailureException("Received FAILURE signal with UniqueId " + signal.getUniqueId());
-        }
-        if (!signal.getProcessed()) {
-          StackEventEntityManager.addSignalStackEvent(signal);
-          signal.setProcessed(true);
-          SignalEntityManager.updateSignal(signal);
-        }
-        numSuccessSignals++;
-      }
-    }
-    if (numSuccessSignals < creationPolicy.getResourceSignal().getCount()) {
-      long durationMs=System.currentTimeMillis() - Long.valueOf(JsonHelper.getJsonNodeFromString(action.info.getEucaCreateStartTime()).asText());
-      if (TimeUnit.MILLISECONDS.toSeconds(durationMs) > creationPolicy.getResourceSignal().getTimeout()) {
-        throw new ResourceFailureException("Failed to receive " + creationPolicy.getResourceSignal().getCount() + " resource signal(s) within the specified duration");
-      }
-      throw new RetryAfterConditionCheckFailedException("Not enough success signals yet");
-    }
+  String effectiveAdminUserId=Accounts.lookupPrincipalByAccountNumber(Accounts.lookupPrincipalByUserId(action.info.getEffectiveUserId()).getAccountNumber()).getUserId();
+  CreateOrUpdateTagsType createSystemTagsType=MessageHelper.createPrivilegedMessage(CreateOrUpdateTagsType.class,effectiveAdminUserId);
+  createSystemTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(action.info.getPhysicalResourceId(),TagHelper.getAutoScalingSystemTags(action.info,action.getStackEntity())));
+  sendSyncWithRetryOnScalingEvent(configuration,createSystemTagsType);
+  List<AutoScalingTag> tags=TagHelper.getAutoScalingStackTags(action.getStackEntity());
+  if (action.properties.getTags() != null && !action.properties.getTags().isEmpty()) {
+    TagHelper.checkReservedAutoScalingTemplateTags(action.properties.getTags());
+    tags.addAll(action.properties.getTags());
+  }
+  if (!tags.isEmpty()) {
+    CreateOrUpdateTagsType createOrUpdateTagsType=MessageHelper.createMessage(CreateOrUpdateTagsType.class,action.info.getEffectiveUserId());
+    createOrUpdateTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(action.info.getPhysicalResourceId(),tags));
+    sendSyncWithRetryOnScalingEvent(configuration,createOrUpdateTagsType);
   }
   return action;
 }
