@@ -2,54 +2,51 @@
   AWSAutoScalingAutoScalingGroupResourceAction oldAction=(AWSAutoScalingAutoScalingGroupResourceAction)oldResourceAction;
   AWSAutoScalingAutoScalingGroupResourceAction newAction=(AWSAutoScalingAutoScalingGroupResourceAction)newResourceAction;
   ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
-  DescribeTagsType describeTagsType=MessageHelper.createMessage(DescribeTagsType.class,newAction.info.getEffectiveUserId());
-  Filters filters=new Filters();
-  Filter filter=new Filter();
-  filter.setName("auto-scaling-group");
-  Values values=new Values();
-  values.getMember().add(newAction.info.getPhysicalResourceId());
-  filter.setValues(values);
-  filters.getMember().add(filter);
-  describeTagsType.setFilters(filters);
-  DescribeTagsResponseType describeTagsResponseType=AsyncRequests.sendSync(configuration,describeTagsType);
-  Set<AutoScalingTag> existingTags=Sets.newLinkedHashSet();
-  if (describeTagsResponseType != null & describeTagsResponseType.getDescribeTagsResult() != null && describeTagsResponseType.getDescribeTagsResult().getTags() != null && describeTagsResponseType.getDescribeTagsResult().getTags().getMember() != null) {
-    for (    TagDescription tagDescription : describeTagsResponseType.getDescribeTagsResult().getTags().getMember()) {
-      AutoScalingTag tag=new AutoScalingTag();
-      tag.setKey(tagDescription.getKey());
-      tag.setValue(tagDescription.getValue());
-      tag.setPropagateAtLaunch(tagDescription.getPropagateAtLaunch());
-      existingTags.add(tag);
+  Map<String,Collection<String>> existingNotificationConfigurations=Maps.newHashMap();
+  DescribeNotificationConfigurationsType describeNotificationConfigurationsType=MessageHelper.createMessage(DescribeNotificationConfigurationsType.class,newAction.info.getEffectiveUserId());
+  AutoScalingGroupNames autoScalingGroupNames=new AutoScalingGroupNames();
+  autoScalingGroupNames.getMember().add(newAction.info.getPhysicalResourceId());
+  describeNotificationConfigurationsType.setAutoScalingGroupNames(autoScalingGroupNames);
+  DescribeNotificationConfigurationsResponseType describeNotificationConfigurationsResponseType=AsyncRequests.sendSync(configuration,describeNotificationConfigurationsType);
+  if (describeNotificationConfigurationsResponseType != null && describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult() != null && describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult().getNotificationConfigurations() != null && describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult().getNotificationConfigurations().getMember() != null) {
+    for (    NotificationConfiguration notificationConfiguration : describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult().getNotificationConfigurations().getMember()) {
+      if (!existingNotificationConfigurations.containsKey(notificationConfiguration.getTopicARN())) {
+        existingNotificationConfigurations.put(notificationConfiguration.getTopicARN(),Sets.newHashSet());
+      }
+      existingNotificationConfigurations.get(notificationConfiguration.getTopicARN()).add(notificationConfiguration.getNotificationType());
     }
   }
-  Set<AutoScalingTag> newTags=Sets.newLinkedHashSet();
-  if (newAction.properties.getTags() != null) {
-    newTags.addAll(newAction.properties.getTags());
+  Map<String,Collection<String>> newNotificationConfigurations=Maps.newHashMap();
+  if (newAction.properties.getNotificationConfigurations() != null) {
+    for (    AutoScalingNotificationConfiguration notificationConfiguration : newAction.properties.getNotificationConfigurations()) {
+      newNotificationConfigurations.put(notificationConfiguration.getTopicARN(),Sets.newHashSet(notificationConfiguration.getNotificationTypes()));
+    }
   }
-  List<AutoScalingTag> newStackTags=TagHelper.getAutoScalingStackTags(newAction.getStackEntity());
-  if (newStackTags != null) {
-    newTags.addAll(newStackTags);
+  Map<String,Collection<String>> oldNotificationConfigurations=Maps.newHashMap();
+  if (newAction.properties.getNotificationConfigurations() != null) {
+    for (    AutoScalingNotificationConfiguration notificationConfiguration : newAction.properties.getNotificationConfigurations()) {
+      oldNotificationConfigurations.put(notificationConfiguration.getTopicARN(),Sets.newHashSet(notificationConfiguration.getNotificationTypes()));
+    }
   }
-  TagHelper.checkReservedAutoScalingTemplateTags(newTags);
-  Set<AutoScalingTag> onlyNewTags=Sets.difference(newTags,existingTags);
-  if (!onlyNewTags.isEmpty()) {
-    CreateOrUpdateTagsType createOrUpdateTagsType=MessageHelper.createMessage(CreateOrUpdateTagsType.class,newAction.info.getEffectiveUserId());
-    createOrUpdateTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(newAction.info.getPhysicalResourceId(),onlyNewTags));
-    sendSyncWithRetryOnScalingEvent(configuration,createOrUpdateTagsType);
+  for (  String topicArn : newNotificationConfigurations.keySet()) {
+    if (!existingNotificationConfigurations.containsKey(topicArn) || !existingNotificationConfigurations.get(topicArn).equals(newNotificationConfigurations.get(topicArn))) {
+      PutNotificationConfigurationType putNotificationConfigurationType=MessageHelper.createMessage(PutNotificationConfigurationType.class,newAction.info.getEffectiveUserId());
+      putNotificationConfigurationType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
+      putNotificationConfigurationType.setTopicARN(topicArn);
+      AutoScalingNotificationTypes autoScalingNotificationTypes=new AutoScalingNotificationTypes();
+      ArrayList<String> member=Lists.newArrayList(newNotificationConfigurations.get(topicArn));
+      autoScalingNotificationTypes.setMember(member);
+      putNotificationConfigurationType.setNotificationTypes(autoScalingNotificationTypes);
+      sendSyncWithRetryOnScalingEvent(configuration,putNotificationConfigurationType);
+    }
   }
-  Set<AutoScalingTag> oldTags=Sets.newLinkedHashSet();
-  if (oldAction.properties.getTags() != null) {
-    oldTags.addAll(oldAction.properties.getTags());
-  }
-  List<AutoScalingTag> oldStackTags=TagHelper.getAutoScalingStackTags(oldAction.getStackEntity());
-  if (oldStackTags != null) {
-    oldTags.addAll(oldStackTags);
-  }
-  Set<AutoScalingTag> tagsToRemove=Sets.intersection(oldTags,Sets.difference(existingTags,newTags));
-  if (!tagsToRemove.isEmpty()) {
-    DeleteTagsType deleteTagsType=MessageHelper.createMessage(DeleteTagsType.class,newAction.info.getEffectiveUserId());
-    deleteTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(newAction.info.getPhysicalResourceId(),tagsToRemove));
-    sendSyncWithRetryOnScalingEvent(configuration,deleteTagsType);
+  for (  String topicArn : oldNotificationConfigurations.keySet()) {
+    if (existingNotificationConfigurations.containsKey(topicArn) && !newNotificationConfigurations.containsKey(topicArn)) {
+      DeleteNotificationConfigurationType deleteNotificationConfigurationType=MessageHelper.createMessage(DeleteNotificationConfigurationType.class,newAction.info.getEffectiveUserId());
+      deleteNotificationConfigurationType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
+      deleteNotificationConfigurationType.setTopicARN(topicArn);
+      sendSyncWithRetryOnScalingEvent(configuration,deleteNotificationConfigurationType);
+    }
   }
   return newAction;
 }

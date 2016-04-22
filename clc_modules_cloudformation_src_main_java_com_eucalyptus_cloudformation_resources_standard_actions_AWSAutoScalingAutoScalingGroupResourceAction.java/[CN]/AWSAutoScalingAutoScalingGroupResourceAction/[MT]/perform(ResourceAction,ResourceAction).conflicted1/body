@@ -2,37 +2,54 @@
   AWSAutoScalingAutoScalingGroupResourceAction oldAction=(AWSAutoScalingAutoScalingGroupResourceAction)oldResourceAction;
   AWSAutoScalingAutoScalingGroupResourceAction newAction=(AWSAutoScalingAutoScalingGroupResourceAction)newResourceAction;
   ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
-  String autoScalingGroupName=newAction.info.getPhysicalResourceId();
-  UpdateAutoScalingGroupType updateAutoScalingGroupType=MessageHelper.createMessage(UpdateAutoScalingGroupType.class,newAction.info.getEffectiveUserId());
-  updateAutoScalingGroupType.setAutoScalingGroupName(autoScalingGroupName);
-  if (newAction.properties.getInstanceId() != null) {
-    throw new ValidationErrorException("InstanceId not supported");
-  }
-  if (newAction.properties.getLaunchConfigurationName() == null) {
-    throw new ValidationErrorException("LaunchConfiguration required (as InstanceId not supported)");
-  }
-  if (newAction.properties.getAvailabilityZones() != null) {
-    updateAutoScalingGroupType.setAvailabilityZones(new AvailabilityZones(newAction.properties.getAvailabilityZones()));
-  }
-  if (newAction.info.getUpdatePolicyJson() != null) {
-    UpdatePolicy updatePolicy=UpdatePolicy.parse(newAction.info.getUpdatePolicyJson());
-    if (updatePolicy != null && updatePolicy.getAutoScalingRollingUpdate() != null && updatePolicy.getAutoScalingRollingUpdate().getMinInstancesInService() >= newAction.properties.getMaxSize()) {
-      throw new ValidationErrorException("MinInstancesInService must be less than the autoscaling group's MaxSize");
+  DescribeTagsType describeTagsType=MessageHelper.createMessage(DescribeTagsType.class,newAction.info.getEffectiveUserId());
+  Filters filters=new Filters();
+  Filter filter=new Filter();
+  filter.setName("auto-scaling-group");
+  Values values=new Values();
+  values.getMember().add(newAction.info.getPhysicalResourceId());
+  filter.setValues(values);
+  filters.getMember().add(filter);
+  describeTagsType.setFilters(filters);
+  DescribeTagsResponseType describeTagsResponseType=AsyncRequests.sendSync(configuration,describeTagsType);
+  Set<AutoScalingTag> existingTags=Sets.newLinkedHashSet();
+  if (describeTagsResponseType != null & describeTagsResponseType.getDescribeTagsResult() != null && describeTagsResponseType.getDescribeTagsResult().getTags() != null && describeTagsResponseType.getDescribeTagsResult().getTags().getMember() != null) {
+    for (    TagDescription tagDescription : describeTagsResponseType.getDescribeTagsResult().getTags().getMember()) {
+      AutoScalingTag tag=new AutoScalingTag();
+      tag.setKey(tagDescription.getKey());
+      tag.setValue(tagDescription.getValue());
+      tag.setPropagateAtLaunch(tagDescription.getPropagateAtLaunch());
+      existingTags.add(tag);
     }
   }
-  updateAutoScalingGroupType.setDefaultCooldown(newAction.properties.getCooldown());
-  updateAutoScalingGroupType.setDesiredCapacity(newAction.properties.getDesiredCapacity());
-  updateAutoScalingGroupType.setHealthCheckGracePeriod(newAction.properties.getHealthCheckGracePeriod());
-  updateAutoScalingGroupType.setHealthCheckType(newAction.properties.getHealthCheckType());
-  updateAutoScalingGroupType.setLaunchConfigurationName(newAction.properties.getLaunchConfigurationName());
-  updateAutoScalingGroupType.setMaxSize(newAction.properties.getMaxSize());
-  updateAutoScalingGroupType.setMinSize(newAction.properties.getMinSize());
-  if (newAction.properties.getTerminationPolicies() != null) {
-    updateAutoScalingGroupType.setTerminationPolicies(new TerminationPolicies(newAction.properties.getTerminationPolicies()));
+  Set<AutoScalingTag> newTags=Sets.newLinkedHashSet();
+  if (newAction.properties.getTags() != null) {
+    newTags.addAll(newAction.properties.getTags());
   }
-  if (newAction.properties.getVpcZoneIdentifier() != null) {
-    updateAutoScalingGroupType.setVpcZoneIdentifier(Strings.emptyToNull(Joiner.on(",").join(newAction.properties.getVpcZoneIdentifier())));
+  List<AutoScalingTag> newStackTags=TagHelper.getAutoScalingStackTags(newAction.getStackEntity());
+  if (newStackTags != null) {
+    newTags.addAll(newStackTags);
   }
-  sendSyncWithRetryOnScalingEvent(configuration,updateAutoScalingGroupType);
+  TagHelper.checkReservedAutoScalingTemplateTags(newTags);
+  Set<AutoScalingTag> onlyNewTags=Sets.difference(newTags,existingTags);
+  if (!onlyNewTags.isEmpty()) {
+    CreateOrUpdateTagsType createOrUpdateTagsType=MessageHelper.createMessage(CreateOrUpdateTagsType.class,newAction.info.getEffectiveUserId());
+    createOrUpdateTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(newAction.info.getPhysicalResourceId(),onlyNewTags));
+    sendSyncWithRetryOnScalingEvent(configuration,createOrUpdateTagsType);
+  }
+  Set<AutoScalingTag> oldTags=Sets.newLinkedHashSet();
+  if (oldAction.properties.getTags() != null) {
+    oldTags.addAll(oldAction.properties.getTags());
+  }
+  List<AutoScalingTag> oldStackTags=TagHelper.getAutoScalingStackTags(oldAction.getStackEntity());
+  if (oldStackTags != null) {
+    oldTags.addAll(oldStackTags);
+  }
+  Set<AutoScalingTag> tagsToRemove=Sets.intersection(oldTags,Sets.difference(existingTags,newTags));
+  if (!tagsToRemove.isEmpty()) {
+    DeleteTagsType deleteTagsType=MessageHelper.createMessage(DeleteTagsType.class,newAction.info.getEffectiveUserId());
+    deleteTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(newAction.info.getPhysicalResourceId(),tagsToRemove));
+    sendSyncWithRetryOnScalingEvent(configuration,deleteTagsType);
+  }
   return newAction;
 }
