@@ -14,6 +14,12 @@
   if (newAction.properties.getAvailabilityZones() != null) {
     updateAutoScalingGroupType.setAvailabilityZones(new AvailabilityZones(newAction.properties.getAvailabilityZones()));
   }
+  if (newAction.info.getUpdatePolicyJson() != null) {
+    UpdatePolicy updatePolicy=UpdatePolicy.parse(newAction.info.getUpdatePolicyJson());
+    if (updatePolicy != null && updatePolicy.getAutoScalingRollingUpdate() != null && updatePolicy.getAutoScalingRollingUpdate().getMinInstancesInService() >= newAction.properties.getMaxSize()) {
+      throw new ValidationErrorException("MinInstancesInService must be less than the autoscaling group's MaxSize");
+    }
+  }
   updateAutoScalingGroupType.setDefaultCooldown(newAction.properties.getCooldown());
   updateAutoScalingGroupType.setDesiredCapacity(newAction.properties.getDesiredCapacity());
   updateAutoScalingGroupType.setHealthCheckGracePeriod(newAction.properties.getHealthCheckGracePeriod());
@@ -27,6 +33,6 @@
   if (newAction.properties.getVpcZoneIdentifier() != null) {
     updateAutoScalingGroupType.setVpcZoneIdentifier(Strings.emptyToNull(Joiner.on(",").join(newAction.properties.getVpcZoneIdentifier())));
   }
-  AsyncRequests.<UpdateAutoScalingGroupType,UpdateAutoScalingGroupResponseType>sendSync(configuration,updateAutoScalingGroupType);
+  sendSyncWithRetryOnScalingEvent(configuration,updateAutoScalingGroupType);
   return newAction;
 }

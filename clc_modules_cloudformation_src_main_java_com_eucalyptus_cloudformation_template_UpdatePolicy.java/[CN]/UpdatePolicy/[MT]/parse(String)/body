@@ -1,0 +1,44 @@
+{
+  if (updatePolicyJson == null)   return null;
+  UpdatePolicy updatePolicy=new UpdatePolicy();
+  JsonNode updatePolicyJsonNode=JsonHelper.getJsonNodeFromString(updatePolicyJson);
+  if (!updatePolicyJsonNode.isObject()) {
+    throw new ValidationErrorException("UpdatePolicy is not a JSON object");
+  }
+  JsonNode autoScalingRollingUpdateJsonNode=JsonHelper.checkObject(updatePolicyJsonNode,"AutoScalingRollingUpdate");
+  if (autoScalingRollingUpdateJsonNode != null) {
+    AutoScalingRollingUpdate autoScalingRollingUpdate=new AutoScalingRollingUpdate();
+    updatePolicy.setAutoScalingRollingUpdate(autoScalingRollingUpdate);
+    autoScalingRollingUpdate.setMaxBatchSize(parseIntOrDefault(autoScalingRollingUpdateJsonNode,"MaxBatchSize",autoScalingRollingUpdate.getMaxBatchSize()));
+    if (autoScalingRollingUpdate.getMaxBatchSize() < 1) {
+      throw new ValidationErrorException("MaxBatchSize must be a number greater than 0");
+    }
+    autoScalingRollingUpdate.setMinInstancesInService(parseIntOrDefault(autoScalingRollingUpdateJsonNode,"MinInstancesInService",autoScalingRollingUpdate.getMinInstancesInService()));
+    autoScalingRollingUpdate.setMinSuccessfulInstancesPercent(parseIntOrDefault(autoScalingRollingUpdateJsonNode,"MinSuccessfulInstancesPercent",autoScalingRollingUpdate.getMinSuccessfulInstancesPercent()));
+    autoScalingRollingUpdate.setWaitOnResourceSignals(Boolean.parseBoolean(JsonHelper.getString(autoScalingRollingUpdateJsonNode,"WaitOnResourceSignals")));
+    if (!autoScalingRollingUpdate.isWaitOnResourceSignals() && JsonHelper.getString(autoScalingRollingUpdateJsonNode,"MinSuccessfulInstancesPercent") != null) {
+      throw new ValidationErrorException("Can not set MinSuccessfulInstancesPercent greater than zero and not set WaitOnResourceSignals");
+    }
+    String pauseTime=JsonHelper.getString(autoScalingRollingUpdateJsonNode,"PauseTime");
+    if (pauseTime == null)     pauseTime=autoScalingRollingUpdate.isWaitOnResourceSignals() ? "PT5M" : "PT0S";
+    try {
+      Duration.parse(pauseTime).getSeconds();
+      autoScalingRollingUpdate.setPauseTime(pauseTime);
+    }
+ catch (    DateTimeParseException ex) {
+      throw new ValidationErrorException("PauseTime must be an ISO-8601 compliant duration");
+    }
+    JsonNode suspendProcessesNode=JsonHelper.checkArray(autoScalingRollingUpdateJsonNode,"SuspendProcesses");
+    if (suspendProcessesNode != null) {
+      for (int i=0; i < suspendProcessesNode.size(); i++) {
+        JsonNode childNode=((ArrayNode)suspendProcessesNode).get(i);
+        if (!childNode.isTextual()) {
+          throw new ValidationErrorException("SuspendProcesses must be a list of strings");
+        }
+        String suspendedProcessName=childNode.asText();
+        autoScalingRollingUpdate.getSuspendProcesses().add(suspendedProcessName);
+      }
+    }
+  }
+  return updatePolicy;
+}

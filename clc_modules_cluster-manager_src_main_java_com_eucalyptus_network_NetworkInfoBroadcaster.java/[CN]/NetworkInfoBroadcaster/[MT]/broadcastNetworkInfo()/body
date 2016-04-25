@@ -4,6 +4,7 @@
     final List<com.eucalyptus.cluster.Cluster> clusters=Clusters.getInstance().listValues();
     final NetworkInfoSource source=cacheSource();
     final Set<String> dirtyPublicAddresses=PublicAddresses.dirtySnapshot();
+    final Set<RouteKey> invalidStateRoutes=Sets.newHashSetWithExpectedSize(50);
     final int sourceFingerprint=fingerprint(source,clusters,dirtyPublicAddresses,NetworkGroups.NETWORK_CONFIGURATION);
     final NetworkInfo info=NetworkInfoBroadcasts.buildNetworkConfiguration(networkConfiguration,source,Suppliers.ofInstance(clusters),new Supplier<String>(){
       @Override public String get(){
@@ -15,8 +16,11 @@
         return NetworkConfigurations.loadSystemNameservers(defaultServers);
       }
     }
-,dirtyPublicAddresses);
+,dirtyPublicAddresses,invalidStateRoutes);
     info.setVersion(BaseEncoding.base16().lowerCase().encode(Ints.toByteArray(sourceFingerprint)));
+    if (!invalidStateRoutes.isEmpty()) {
+      vpcRouteStateInvalidator.accept(invalidStateRoutes);
+    }
     Applicators.apply(clusters,info);
   }
  catch (  ApplicatorException e) {

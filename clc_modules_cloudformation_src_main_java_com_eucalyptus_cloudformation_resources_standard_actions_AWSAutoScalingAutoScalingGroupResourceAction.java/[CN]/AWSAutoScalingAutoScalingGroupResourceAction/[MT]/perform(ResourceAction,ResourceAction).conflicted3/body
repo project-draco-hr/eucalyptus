@@ -1,0 +1,56 @@
+{
+  AWSAutoScalingAutoScalingGroupResourceAction oldAction=(AWSAutoScalingAutoScalingGroupResourceAction)oldResourceAction;
+  AWSAutoScalingAutoScalingGroupResourceAction newAction=(AWSAutoScalingAutoScalingGroupResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
+  if (newAction.info.getUpdatePolicyJson() == null)   return newAction;
+  UpdatePolicy updatePolicy=UpdatePolicy.parse(newAction.info.getUpdatePolicyJson());
+  if (updatePolicy.getAutoScalingRollingUpdate() == null)   return newAction;
+  RollingUpdateStateEntityManager.deleteRollingUpdateStateEntity(newAction.info.getAccountId(),newAction.getStackEntity().getStackId(),newAction.info.getLogicalResourceId());
+  RollingUpdateStateEntity rollingUpdateStateEntity=RollingUpdateStateEntityManager.createRollingUpdateStateEntity(newAction.info.getAccountId(),newAction.getStackEntity().getStackId(),newAction.info.getLogicalResourceId());
+  AutoScalingGroupType autoScalingGroupType=getExistingUniqueAutoscalingGroupType(configuration,newAction);
+  Set<String> badSuspendedProcesses=Sets.newHashSet();
+  Set<String> possibleBadSuspendedProcesses=ImmutableSet.of("Launch","Terminate");
+  Set<String> alreadySuspendedProcesses=Sets.newHashSet();
+  if (autoScalingGroupType.getSuspendedProcesses() != null && autoScalingGroupType.getSuspendedProcesses().getMember() != null) {
+    for (    SuspendedProcessType suspendedProcessType : autoScalingGroupType.getSuspendedProcesses().getMember()) {
+      alreadySuspendedProcesses.add(suspendedProcessType.getProcessName());
+    }
+  }
+  for (  String possibleBadSuspendedProcess : possibleBadSuspendedProcesses) {
+    if (alreadySuspendedProcesses.contains(possibleBadSuspendedProcess) || updatePolicy.getAutoScalingRollingUpdate().getSuspendProcesses().contains(possibleBadSuspendedProcess)) {
+      badSuspendedProcesses.add(possibleBadSuspendedProcess);
+    }
+  }
+  if (!badSuspendedProcesses.isEmpty()) {
+    throw new ResourceFailureException("Autoscaling rolling updates cannot be performed because the " + badSuspendedProcesses + " process(es) have been suspended; please resume these processes and then retry the update.");
+  }
+  Set<String> instanceIds=Sets.newHashSet();
+  for (  Instance instance : autoScalingGroupType.getInstances().getMember()) {
+    instanceIds.add(instance.getInstanceId());
+  }
+  Map<String,String> subnetMap=getSubnetMap(instanceIds,newAction.info.getEffectiveUserId());
+  for (  Instance instance : autoScalingGroupType.getInstances().getMember()) {
+    if (doesInstanceNeedReplacement(instance,subnetMap,newAction)) {
+      rollingUpdateStateEntity.setNeedsRollbackUpdate(true);
+      RollingUpdateStateEntityManager.updateRollingUpdateStateEntity(rollingUpdateStateEntity);
+      break;
+    }
+  }
+  if (rollingUpdateStateEntity.getNeedsRollbackUpdate() != Boolean.TRUE)   return newAction;
+  rollingUpdateStateEntity.setAlreadySuspendedProcessNames(Joiner.on(',').join(alreadySuspendedProcesses));
+  if (!updatePolicy.getAutoScalingRollingUpdate().getSuspendProcesses().isEmpty()) {
+    SuspendProcessesType suspendProcessesType=MessageHelper.createMessage(SuspendProcessesType.class,newAction.info.getEffectiveUserId());
+    suspendProcessesType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
+    ProcessNames processNames=new ProcessNames();
+    for (    String suspendProcess : updatePolicy.getAutoScalingRollingUpdate().getSuspendProcesses()) {
+      if (!alreadySuspendedProcesses.contains(suspendProcess)) {
+        processNames.getMember().add(suspendProcess);
+      }
+    }
+    if (!processNames.getMember().isEmpty()) {
+      sendSyncWithRetryOnScalingEvent(configuration,suspendProcessesType);
+    }
+  }
+  RollingUpdateStateEntityManager.updateRollingUpdateStateEntity(rollingUpdateStateEntity);
+  return newAction;
+}
