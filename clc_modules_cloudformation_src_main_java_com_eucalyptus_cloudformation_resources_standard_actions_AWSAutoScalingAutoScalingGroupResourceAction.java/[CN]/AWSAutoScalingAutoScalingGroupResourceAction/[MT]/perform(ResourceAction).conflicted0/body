@@ -1,21 +1,51 @@
 {
   AWSAutoScalingAutoScalingGroupResourceAction action=(AWSAutoScalingAutoScalingGroupResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
-  if (groupDoesNotExist(configuration,action))   return action;
-  DescribeAutoScalingGroupsType describeAutoScalingGroupsType=MessageHelper.createMessage(DescribeAutoScalingGroupsType.class,action.info.getEffectiveUserId());
-  AutoScalingGroupNames autoScalingGroupNames=new AutoScalingGroupNames();
-  ArrayList<String> member=Lists.newArrayList(action.info.getPhysicalResourceId());
-  autoScalingGroupNames.setMember(member);
-  describeAutoScalingGroupsType.setAutoScalingGroupNames(autoScalingGroupNames);
-  DescribeAutoScalingGroupsResponseType describeAutoScalingGroupsResponseType=AsyncRequests.<DescribeAutoScalingGroupsType,DescribeAutoScalingGroupsResponseType>sendSync(configuration,describeAutoScalingGroupsType);
-  if (action.doesGroupNotExist(describeAutoScalingGroupsResponseType)) {
-    return action;
-  }
- else {
-    AutoScalingGroupType firstGroup=describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember().get(0);
-    if (firstGroup.getInstances() == null || firstGroup.getInstances().getMember() == null || firstGroup.getInstances().getMember().isEmpty()) {
-      return action;
+  CreationPolicy creationPolicy=CreationPolicy.parse(action.info.getCreationPolicyJson());
+  if (creationPolicy != null && creationPolicy.getResourceSignal() != null) {
+    Set<String> instanceIds=Sets.newHashSet();
+    DescribeAutoScalingGroupsType describeAutoScalingGroupsType=MessageHelper.createMessage(DescribeAutoScalingGroupsType.class,action.info.getEffectiveUserId());
+    AutoScalingGroupNames autoScalingGroupNames=new AutoScalingGroupNames();
+    autoScalingGroupNames.getMember().add(action.info.getPhysicalResourceId());
+    describeAutoScalingGroupsType.setAutoScalingGroupNames(autoScalingGroupNames);
+    DescribeAutoScalingGroupsResponseType describeAutoScalingGroupsResponseType=AsyncRequests.sendSync(configuration,describeAutoScalingGroupsType);
+    if (describeAutoScalingGroupsResponseType != null && describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult() != null && describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult().getAutoScalingGroups() != null && describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember() != null) {
+      for (      AutoScalingGroupType autoScalingGroupType : describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember()) {
+        if (!Objects.equals(autoScalingGroupType.getAutoScalingGroupName(),action.info.getPhysicalResourceId()))         continue;
+        if (autoScalingGroupType.getInstances() != null && autoScalingGroupType.getInstances().getMember() != null) {
+          for (          Instance instance : autoScalingGroupType.getInstances().getMember()) {
+            instanceIds.add(instance.getInstanceId());
+          }
+        }
+      }
+    }
+    Collection<SignalEntity> signals=SignalEntityManager.getSignals(action.getStackEntity().getStackId(),action.info.getAccountId(),action.info.getLogicalResourceId(),action.getStackEntity().getStackVersion());
+    int numSuccessSignals=0;
+    if (signals != null) {
+      for (      SignalEntity signal : signals) {
+        if (signal.getProcessed() && signal.getStatus() == SignalEntity.Status.SUCCESS) {
+          numSuccessSignals++;
+          continue;
+        }
+        if (!instanceIds.contains(signal.getUniqueId()))         continue;
+        if (signal.getStatus() == SignalEntity.Status.FAILURE) {
+          throw new ResourceFailureException("Received FAILURE signal with UniqueId " + signal.getUniqueId());
+        }
+        if (!signal.getProcessed()) {
+          StackEventEntityManager.addSignalStackEvent(signal);
+          signal.setProcessed(true);
+          SignalEntityManager.updateSignal(signal);
+        }
+        numSuccessSignals++;
+      }
+    }
+    if (numSuccessSignals < creationPolicy.getResourceSignal().getCount()) {
+      long durationMs=System.currentTimeMillis() - Long.valueOf(JsonHelper.getJsonNodeFromString(action.info.getEucaCreateStartTime()).asText());
+      if (TimeUnit.MILLISECONDS.toSeconds(durationMs) > creationPolicy.getResourceSignal().getTimeout()) {
+        throw new ResourceFailureException("Failed to receive " + creationPolicy.getResourceSignal().getCount() + " resource signal(s) within the specified duration");
+      }
+      throw new RetryAfterConditionCheckFailedException("Not enough success signals yet");
     }
   }
-  throw new RetryAfterConditionCheckFailedException("Autoscaling group " + action.info.getPhysicalResourceId() + " still has instances");
+  return action;
 }
