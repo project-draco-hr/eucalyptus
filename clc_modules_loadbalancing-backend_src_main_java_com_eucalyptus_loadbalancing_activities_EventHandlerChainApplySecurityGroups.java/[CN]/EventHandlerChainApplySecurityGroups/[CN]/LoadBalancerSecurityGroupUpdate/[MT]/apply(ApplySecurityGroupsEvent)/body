@@ -17,7 +17,17 @@ catch (  Exception ex) {
       final AutoScalingGroupsType autoScalingGroupsType=describeAutoScalingGroupsResult.getAutoScalingGroups();
       if (autoScalingGroupsType != null && autoScalingGroupsType.getMember() != null && !autoScalingGroupsType.getMember().isEmpty() && autoScalingGroupsType.getMember().get(0).getInstances() != null) {
         for (        final Instance instance : autoScalingGroupsType.getMember().get(0).getInstances().getMember()) {
-          EucalyptusActivityTasks.getInstance().modifySecurityGroups(instance.getInstanceId(),evt.getSecurityGroupIdsToNames().keySet(),lb.useSystemAccount());
+          final String userVpcEni=lookupSecondaryNetworkInterface(instance.getInstanceId());
+          if (userVpcEni == null) {
+            throw new EventHandlerException("Failed to lookup user VPC network interface");
+          }
+          try {
+            final List<String> sgroupIds=Lists.newArrayList(evt.getSecurityGroupIdsToNames().keySet());
+            EucalyptusActivityTasks.getInstance().modifyNetworkInterfaceSecurityGroups(userVpcEni,sgroupIds);
+          }
+ catch (          final Exception ex) {
+            throw new EventHandlerException("Failed to set security groups to network interface",ex);
+          }
         }
       }
     }
