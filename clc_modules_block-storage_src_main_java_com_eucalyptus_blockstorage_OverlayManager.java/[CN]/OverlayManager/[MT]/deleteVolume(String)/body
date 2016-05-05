@@ -1,24 +1,19 @@
 {
   LVMVolumeInfo foundLVMVolumeInfo=null;
 {
-    final VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-    try {
+    try (VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
       foundLVMVolumeInfo=volumeManager.getVolumeInfo(volumeId);
-    }
-  finally {
       volumeManager.finish();
     }
-  }
+   }
   if (foundLVMVolumeInfo != null) {
     boolean isReadyForDelete=false;
     int retryCount=0;
     VolumeOpMonitor monitor=getMonitor(foundLVMVolumeInfo.getVolumeId());
-    VolumeMetadataManager outerVolumeManager=null;
     do {
-      LOG.debug("Trying to lock volume for export detection" + volumeId);
+      LOG.debug("Trying to lock volume for export detection and deletion " + volumeId);
 synchronized (monitor) {
-        final VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-        try {
+        try (final VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
           foundLVMVolumeInfo=volumeManager.getVolumeInfo(volumeId);
           if (exportManager.isExported(foundLVMVolumeInfo)) {
             LOG.error("Cannot delete volume " + volumeId + " because it is currently exported");
@@ -27,19 +22,21 @@ synchronized (monitor) {
  else {
             LOG.debug("Volume " + volumeId + " is prepped for deletion");
             isReadyForDelete=true;
+            LOG.debug("Deleting volume " + volumeId);
+            File volFile=new File(DirectStorageInfo.getStorageInfo().getVolumesDir() + File.separator + volumeId);
+            if (volFile.exists()) {
+              if (!volFile.delete()) {
+                LOG.error("Unable to delete: " + volFile.getAbsolutePath());
+                throw new EucalyptusCloudException("Unable to delete volume file: " + volFile.getAbsolutePath());
+              }
+            }
+            volumeManager.remove(volumeManager.getVolumeInfo(volumeId));
+            volumeManager.finish();
             break;
           }
         }
  catch (        Exception e) {
-          LOG.error("Error trying to check volume status",e);
-        }
- finally {
-          if (isReadyForDelete) {
-            outerVolumeManager=volumeManager;
-          }
- else {
-            volumeManager.abort();
-          }
+          LOG.warn("Error cleaning up volume " + volumeId,e);
         }
         LOG.debug("Lap: " + retryCount++);
       }
@@ -53,36 +50,11 @@ synchronized (monitor) {
       }
     }
  while (!isReadyForDelete && retryCount < 20);
-    LOG.debug("Trying to lock volume for volume deletion" + volumeId);
-synchronized (monitor) {
-      if (isReadyForDelete) {
-        try {
-          LOG.debug("Deleting volume " + volumeId);
-          File volFile=new File(DirectStorageInfo.getStorageInfo().getVolumesDir() + File.separator + volumeId);
-          if (volFile.exists()) {
-            if (!volFile.delete()) {
-              LOG.error("Unable to delete: " + volFile.getAbsolutePath());
-              throw new EucalyptusCloudException("Unable to delete volume file: " + volFile.getAbsolutePath());
-            }
-          }
-          outerVolumeManager.remove(foundLVMVolumeInfo);
-          try {
-            outerVolumeManager.finish();
-          }
- catch (          Exception e) {
-            LOG.error("Error deleting volume " + volumeId + ", failed to commit DB transaction",e);
-          }
-        }
-  finally {
-          outerVolumeManager.abort();
-        }
-      }
- else {
-        LOG.error("All attempts to cleanup volume " + volumeId + " failed");
-        throw new EucalyptusCloudException("Unable to delete volume: " + volumeId + ". All attempts to cleanup the volume failed");
-      }
-    }
     removeMonitor(volumeId);
+    if (!isReadyForDelete) {
+      LOG.error("All attempts to cleanup volume " + volumeId + " failed");
+      throw new EucalyptusCloudException("Unable to delete volume: " + volumeId + ". All attempts to cleanup the volume failed");
+    }
   }
  else {
     throw new EucalyptusCloudException("Unable to find volume: " + volumeId);

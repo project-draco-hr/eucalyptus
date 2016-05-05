@@ -1,63 +1,64 @@
 {
   LOG.info("Initiating SC Reload of iSCSI targets");
-  VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-  List<LVMVolumeInfo> volumeInfos=volumeManager.getAllVolumeInfos();
-  LOG.info("SC Reload found " + volumeInfos.size() + " volumes in the DB");
-  for (  LVMVolumeInfo foundVolumeInfo : volumeInfos) {
-    String loDevName=foundVolumeInfo.getLoDevName();
-    if (loDevName != null) {
-      String loFileName=foundVolumeInfo.getVolumeId();
-      LOG.info("SC Reload: found volume " + loFileName + " was exported at last shutdown. Ensuring export restored");
-      String absoluteLoFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + PATH_SEPARATOR + loFileName;
-      if (!new File(absoluteLoFileName).exists()) {
-        LOG.error("SC Reload: Backing volume: " + absoluteLoFileName + " not found. Invalidating volume.");
-        foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
-        continue;
+  try (VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
+    List<LVMVolumeInfo> volumeInfos=volumeManager.getAllVolumeInfos();
+    LOG.info("SC Reload found " + volumeInfos.size() + " volumes in the DB");
+    for (    LVMVolumeInfo foundVolumeInfo : volumeInfos) {
+      String loDevName=foundVolumeInfo.getLoDevName();
+      if (loDevName != null) {
+        String loFileName=foundVolumeInfo.getVolumeId();
+        LOG.info("SC Reload: found volume " + loFileName + " was exported at last shutdown. Ensuring export restored");
+        String absoluteLoFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + PATH_SEPARATOR + loFileName;
+        if (!new File(absoluteLoFileName).exists()) {
+          LOG.error("SC Reload: Backing volume: " + absoluteLoFileName + " not found. Invalidating volume.");
+          foundVolumeInfo.setStatus(StorageProperties.Status.failed.toString());
+          continue;
+        }
+        try {
+          String returnValue=getLoopback(loDevName);
+          if (returnValue.length() <= 0) {
+            LOG.info("SC Reload: volume " + loFileName + " previously used loopback "+ loDevName+ ". No conflict detected, reusing same loopback");
+            createLoopback(absoluteLoFileName,loDevName);
+          }
+ else {
+            if (!returnValue.contains(loFileName)) {
+              String newLoDev=createLoopback(absoluteLoFileName);
+              foundVolumeInfo.setLoDevName(newLoDev);
+              LOG.info("SC Reload: volume " + loFileName + " previously used loopback "+ loDevName+ ", but loopback already in used by something else. Using new loopback: "+ newLoDev);
+            }
+ else {
+              LOG.info("SC Reload: Detection of loopback for volume " + loFileName + " got "+ returnValue+ ". Appears that loopback is already in-place. No losetup needed for this volume.");
+            }
+          }
+        }
+ catch (        EucalyptusCloudException ex) {
+          String error="Unable to run command: " + ex.getMessage();
+          LOG.error(error);
+        }
       }
+    }
+    try {
+      LOG.info("SC Reload: Scanning volume groups. This might take a little while...");
+      LVMWrapper.scanVolumeGroups();
+    }
+ catch (    EucalyptusCloudException e) {
+      LOG.error(e);
+    }
+    LOG.info("SC Reload: ensuring configured volumes are exported via iSCSI targets");
+    for (    LVMVolumeInfo foundVolumeInfo : volumeInfos) {
       try {
-        String returnValue=getLoopback(loDevName);
-        if (returnValue.length() <= 0) {
-          LOG.info("SC Reload: volume " + loFileName + " previously used loopback "+ loDevName+ ". No conflict detected, reusing same loopback");
-          createLoopback(absoluteLoFileName,loDevName);
+        if (foundVolumeInfo.getLoDevName() != null && foundVolumeInfo.getVgName() != null) {
+          LOG.info("SC Reload: exporting " + foundVolumeInfo.getVolumeId() + " in VG: "+ foundVolumeInfo.getVgName());
+          volumeManager.exportVolume(foundVolumeInfo);
         }
  else {
-          if (!returnValue.contains(loFileName)) {
-            String newLoDev=createLoopback(absoluteLoFileName);
-            foundVolumeInfo.setLoDevName(newLoDev);
-            LOG.info("SC Reload: volume " + loFileName + " previously used loopback "+ loDevName+ ", but loopback already in used by something else. Using new loopback: "+ newLoDev);
-          }
- else {
-            LOG.info("SC Reload: Detection of loopback for volume " + loFileName + " got "+ returnValue+ ". Appears that loopback is already in-place. No losetup needed for this volume.");
-          }
+          LOG.info("SC Reload: no loopback configured for " + foundVolumeInfo.getVolumeId() + ". Skipping export for this volume.");
         }
       }
  catch (      EucalyptusCloudException ex) {
-        String error="Unable to run command: " + ex.getMessage();
-        LOG.error(error);
+        LOG.error("SC Reload: Unable to reload volume: " + foundVolumeInfo.getVolumeId() + ex.getMessage());
       }
     }
+    volumeManager.finish();
   }
-  try {
-    LOG.info("SC Reload: Scanning volume groups. This might take a little while...");
-    LVMWrapper.scanVolumeGroups();
-  }
- catch (  EucalyptusCloudException e) {
-    LOG.error(e);
-  }
-  LOG.info("SC Reload: ensuring configured volumes are exported via iSCSI targets");
-  for (  LVMVolumeInfo foundVolumeInfo : volumeInfos) {
-    try {
-      if (foundVolumeInfo.getLoDevName() != null && foundVolumeInfo.getVgName() != null) {
-        LOG.info("SC Reload: exporting " + foundVolumeInfo.getVolumeId() + " in VG: "+ foundVolumeInfo.getVgName());
-        volumeManager.exportVolume(foundVolumeInfo);
-      }
- else {
-        LOG.info("SC Reload: no loopback configured for " + foundVolumeInfo.getVolumeId() + ". Skipping export for this volume.");
-      }
-    }
- catch (    EucalyptusCloudException ex) {
-      LOG.error("SC Reload: Unable to reload volume: " + foundVolumeInfo.getVolumeId() + ex.getMessage());
-    }
-  }
-  volumeManager.finish();
-}
+ }

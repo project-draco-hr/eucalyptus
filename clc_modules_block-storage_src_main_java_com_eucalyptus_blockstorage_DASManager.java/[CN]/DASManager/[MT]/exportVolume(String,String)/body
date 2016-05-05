@@ -8,45 +8,43 @@
   }
   LVMVolumeInfo lvmVolumeInfo=null;
 {
-    final VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-    try {
+    try (final VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
       lvmVolumeInfo=volumeManager.getVolumeInfo(volumeId);
-    }
-  finally {
       volumeManager.finish();
     }
-  }
+   }
   if (lvmVolumeInfo != null) {
     VolumeOpMonitor monitor=getMonitor(volumeId);
 synchronized (monitor) {
-      final VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-      try {
-        lvmVolumeInfo=volumeManager.getVolumeInfo(volumeId);
-        String lvName=lvmVolumeInfo.getLvName();
-        if (lvmVolumeInfo.getVgName() == null) {
-          lvmVolumeInfo.setVgName(volumeGroup);
-        }
+      try (final VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
         try {
-          volumeManager.exportVolume(lvmVolumeInfo,volumeGroup,lvName);
+          lvmVolumeInfo=volumeManager.getVolumeInfo(volumeId);
+          String lvName=lvmVolumeInfo.getLvName();
+          if (lvmVolumeInfo.getVgName() == null) {
+            lvmVolumeInfo.setVgName(volumeGroup);
+          }
+          try {
+            volumeManager.exportVolume(lvmVolumeInfo,volumeGroup,lvName);
+          }
+ catch (          EucalyptusCloudException ex) {
+            LOG.error("Unable to export volume " + volumeId,ex);
+            throw ex;
+          }
         }
- catch (        EucalyptusCloudException ex) {
-          LOG.error("Unable to export volume " + volumeId,ex);
-          throw ex;
+ catch (        Exception ex) {
+          LOG.error("Failed to attach volume " + volumeId,ex);
+          throw new EucalyptusCloudException("Failed to attach volume " + volumeId,ex);
         }
-      }
- catch (      Exception ex) {
-        LOG.error("Failed to attach volume " + volumeId,ex);
-        throw new EucalyptusCloudException("Failed to attach volume " + volumeId,ex);
-      }
  finally {
-        try {
-          volumeManager.finish();
-        }
- catch (        Exception e) {
-          LOG.error("Unable to commit the database transaction after an attempt to attach volume " + volumeId,e);
+          try {
+            volumeManager.finish();
+          }
+ catch (          Exception e) {
+            LOG.error("Unable to commit the database transaction after an attempt to attach volume " + volumeId,e);
+          }
         }
       }
-    }
+     }
   }
   return getVolumeConnectionString(volumeId);
 }

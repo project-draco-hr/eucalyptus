@@ -2,76 +2,78 @@
   if (snapshotPointId != null) {
     throw new EucalyptusCloudException("Synchronous snapshot points not supported in Overlay storage manager");
   }
-  VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-  LVMVolumeInfo foundLVMVolumeInfo=volumeManager.getVolumeInfo(volumeId);
-  StorageResource snapInfo=null;
-  if (foundLVMVolumeInfo != null) {
-    LVMVolumeInfo snapshotInfo=volumeManager.getVolumeInfo();
-    snapshotInfo.setVolumeId(snapshotId);
-    String vgName=foundLVMVolumeInfo.getVgName();
-    String lvName=generateLVName(snapshotId);
-    String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ foundLVMVolumeInfo.getLvName();
-    int size=foundLVMVolumeInfo.getSize();
-    long snapshotSize=(size * StorageProperties.GB) / 2;
-    String rawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId+ Crypto.getRandom(6);
-    volumeManager.finish();
-    try {
-      VolumeOpMonitor monitor=getMonitor(volumeId);
-      String absoluteVolLVName=lvmRootDirectory + PATH_SEPARATOR + foundLVMVolumeInfo.getVgName()+ PATH_SEPARATOR+ foundLVMVolumeInfo.getLvName();
-      String volLoDevName=foundLVMVolumeInfo.getLoDevName();
-      boolean tearDown=false;
+  try (VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
+    LVMVolumeInfo foundLVMVolumeInfo=volumeManager.getVolumeInfo(volumeId);
+    StorageResource snapInfo=null;
+    if (foundLVMVolumeInfo != null) {
+      LVMVolumeInfo snapshotInfo=volumeManager.getVolumeInfo();
+      snapshotInfo.setVolumeId(snapshotId);
+      String vgName=foundLVMVolumeInfo.getVgName();
+      String lvName=generateLVName(snapshotId);
+      String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ foundLVMVolumeInfo.getLvName();
+      int size=foundLVMVolumeInfo.getSize();
+      long snapshotSize=(size * StorageProperties.GB) / 2;
+      String rawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId+ Crypto.getRandom(6);
+      volumeManager.finish();
+      try {
+        VolumeOpMonitor monitor=getMonitor(volumeId);
+        String absoluteVolLVName=lvmRootDirectory + PATH_SEPARATOR + foundLVMVolumeInfo.getVgName()+ PATH_SEPARATOR+ foundLVMVolumeInfo.getLvName();
+        String volLoDevName=foundLVMVolumeInfo.getLoDevName();
+        boolean tearDown=false;
 synchronized (monitor) {
-        if (!LVMWrapper.logicalVolumeExists(absoluteVolLVName)) {
-          volLoDevName=createLoopback(DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId);
-          LVMWrapper.enableLogicalVolume(absoluteVolLVName);
-          tearDown=true;
-        }
-        snapshotInfo.setStatus(StorageProperties.Status.pending.toString());
-        snapshotInfo.setSize(size);
-        snapshotInfo.setSnapshotOf(volumeId);
-        volumeManager=new VolumeMetadataManager();
-        volumeManager.add(snapshotInfo);
-        volumeManager.finish();
-        String loDevName=createLoopback(rawFileName,snapshotSize);
-        createSnapshotLogicalVolume(loDevName,vgName,absoluteLVName,lvName);
-        String snapRawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + snapshotId;
-        String absoluteSnapLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
-        duplicateLogicalVolume(absoluteSnapLVName,snapRawFileName);
-        String returnValue=LVMWrapper.removeLogicalVolume(absoluteSnapLVName);
-        if (returnValue.length() == 0) {
-          throw new EucalyptusCloudException("Unable to remove logical volume " + absoluteSnapLVName);
-        }
-        returnValue=LVMWrapper.reduceVolumeGroup(vgName,loDevName);
-        if (returnValue.length() == 0) {
-          throw new EucalyptusCloudException("Unable to reduce volume group " + vgName + " logical volume: "+ loDevName);
-        }
-        returnValue=LVMWrapper.removePhysicalVolume(loDevName);
-        if (returnValue.length() == 0) {
-          throw new EucalyptusCloudException("Unable to remove physical volume " + loDevName);
-        }
-        returnValue=removeLoopback(loDevName);
-        if (!(new File(rawFileName)).delete()) {
-          LOG.error("Unable to remove temporary snapshot file: " + rawFileName);
-        }
-        if (tearDown) {
-          LOG.info("Snapshot complete. Detaching loop device" + volLoDevName);
-          LVMWrapper.disableLogicalVolume(absoluteVolLVName);
-          removeLoopback(volLoDevName);
-        }
-        snapInfo=new FileResource(snapshotId,snapRawFileName);
-        volumeManager=new VolumeMetadataManager();
-        LVMVolumeInfo foundSnapshotInfo=volumeManager.getVolumeInfo(snapshotId);
-        foundSnapshotInfo.setLoFileName(snapRawFileName);
-        foundSnapshotInfo.setStatus(StorageProperties.Status.available.toString());
-        volumeManager.finish();
+          if (!LVMWrapper.logicalVolumeExists(absoluteVolLVName)) {
+            volLoDevName=createLoopback(DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId);
+            LVMWrapper.enableLogicalVolume(absoluteVolLVName);
+            tearDown=true;
+          }
+          snapshotInfo.setStatus(StorageProperties.Status.pending.toString());
+          snapshotInfo.setSize(size);
+          snapshotInfo.setSnapshotOf(volumeId);
+          try (VolumeMetadataManager nestedVolumeManager=new VolumeMetadataManager()){
+            nestedVolumeManager.add(snapshotInfo);
+            nestedVolumeManager.finish();
+          }
+           String loDevName=createLoopback(rawFileName,snapshotSize);
+          createSnapshotLogicalVolume(loDevName,vgName,absoluteLVName,lvName);
+          String snapRawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + snapshotId;
+          String absoluteSnapLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
+          duplicateLogicalVolume(absoluteSnapLVName,snapRawFileName);
+          String returnValue=LVMWrapper.removeLogicalVolume(absoluteSnapLVName);
+          if (returnValue.length() == 0) {
+            throw new EucalyptusCloudException("Unable to remove logical volume " + absoluteSnapLVName);
+          }
+          returnValue=LVMWrapper.reduceVolumeGroup(vgName,loDevName);
+          if (returnValue.length() == 0) {
+            throw new EucalyptusCloudException("Unable to reduce volume group " + vgName + " logical volume: "+ loDevName);
+          }
+          returnValue=LVMWrapper.removePhysicalVolume(loDevName);
+          if (returnValue.length() == 0) {
+            throw new EucalyptusCloudException("Unable to remove physical volume " + loDevName);
+          }
+          returnValue=removeLoopback(loDevName);
+          if (!(new File(rawFileName)).delete()) {
+            LOG.error("Unable to remove temporary snapshot file: " + rawFileName);
+          }
+          if (tearDown) {
+            LOG.info("Snapshot complete. Detaching loop device" + volLoDevName);
+            LVMWrapper.disableLogicalVolume(absoluteVolLVName);
+            removeLoopback(volLoDevName);
+          }
+          snapInfo=new FileResource(snapshotId,snapRawFileName);
+          try (VolumeMetadataManager nestedVolumeManager=new VolumeMetadataManager()){
+            LVMVolumeInfo foundSnapshotInfo=nestedVolumeManager.getVolumeInfo(snapshotId);
+            foundSnapshotInfo.setLoFileName(snapRawFileName);
+            foundSnapshotInfo.setStatus(StorageProperties.Status.available.toString());
+            nestedVolumeManager.finish();
+          }
+         }
+      }
+ catch (      EucalyptusCloudException ex) {
+        String error="Unable to run command: " + ex.getMessage();
+        LOG.error(error);
+        throw new EucalyptusCloudException(error);
       }
     }
- catch (    EucalyptusCloudException ex) {
-      if (volumeManager != null)       volumeManager.abort();
-      String error="Unable to run command: " + ex.getMessage();
-      LOG.error(error);
-      throw new EucalyptusCloudException(error);
-    }
+    return snapInfo;
   }
-  return snapInfo;
-}
+ }

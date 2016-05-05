@@ -2,24 +2,19 @@
   updateVolumeGroup();
   LVMVolumeInfo foundLVMVolumeInfo=null;
 {
-    final VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-    try {
+    try (final VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
       foundLVMVolumeInfo=volumeManager.getVolumeInfo(volumeId);
-    }
-  finally {
       volumeManager.finish();
     }
-  }
+   }
   if (foundLVMVolumeInfo != null) {
     boolean isReadyForDelete=false;
     int retryCount=0;
     VolumeOpMonitor monitor=getMonitor(foundLVMVolumeInfo.getVolumeId());
-    VolumeMetadataManager outerVolumeManager=null;
     do {
-      LOG.debug("Trying to lock volume for export detection" + volumeId);
+      LOG.debug("Trying to lock volume for export detection and deletion " + volumeId);
 synchronized (monitor) {
-        final VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-        try {
+        try (final VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
           foundLVMVolumeInfo=volumeManager.getVolumeInfo(volumeId);
           if (exportManager.isExported(foundLVMVolumeInfo)) {
             LOG.error("Cannot delete volume " + volumeId + " because it is currently exported");
@@ -28,19 +23,35 @@ synchronized (monitor) {
  else {
             LOG.debug("Volume " + volumeId + " is prepped for deletion");
             isReadyForDelete=true;
+            LOG.info("Deleting volume " + volumeId);
+            String lvName=foundLVMVolumeInfo.getLvName();
+            String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + volumeGroup+ PATH_SEPARATOR+ lvName;
+            String returnValue="";
+            for (int i=0; i < 5; ++i) {
+              returnValue=LVMWrapper.removeLogicalVolume(absoluteLVName);
+              if (returnValue.length() != 0) {
+                if (returnValue.contains("successfully removed")) {
+                  break;
+                }
+              }
+              try {
+                Thread.sleep(500);
+              }
+ catch (              InterruptedException e) {
+                LOG.error(e);
+                break;
+              }
+            }
+            if (returnValue.length() == 0) {
+              throw new EucalyptusCloudException("Unable to remove logical volume " + absoluteLVName);
+            }
+            volumeManager.remove(foundLVMVolumeInfo);
+            volumeManager.finish();
             break;
           }
         }
  catch (        Exception e) {
-          LOG.error("Error trying to check volume status",e);
-        }
- finally {
-          if (isReadyForDelete) {
-            outerVolumeManager=volumeManager;
-          }
- else {
-            volumeManager.abort();
-          }
+          LOG.warn("Error cleaning up volume " + volumeId,e);
         }
         LOG.debug("Lap: " + retryCount++);
       }
@@ -54,50 +65,11 @@ synchronized (monitor) {
       }
     }
  while (!isReadyForDelete && retryCount < 20);
-    LOG.debug("Trying to lock volume for volume deletion" + volumeId);
-synchronized (monitor) {
-      if (isReadyForDelete) {
-        try {
-          LOG.info("Deleting volume " + volumeId);
-          String lvName=foundLVMVolumeInfo.getLvName();
-          String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + volumeGroup+ PATH_SEPARATOR+ lvName;
-          String returnValue="";
-          for (int i=0; i < 5; ++i) {
-            returnValue=LVMWrapper.removeLogicalVolume(absoluteLVName);
-            if (returnValue.length() != 0) {
-              if (returnValue.contains("successfully removed")) {
-                break;
-              }
-            }
-            try {
-              Thread.sleep(500);
-            }
- catch (            InterruptedException e) {
-              LOG.error(e);
-              break;
-            }
-          }
-          if (returnValue.length() == 0) {
-            throw new EucalyptusCloudException("Unable to remove logical volume " + absoluteLVName);
-          }
-          outerVolumeManager.remove(foundLVMVolumeInfo);
-          try {
-            outerVolumeManager.finish();
-          }
- catch (          Exception e) {
-            LOG.error("Error deleting volume " + volumeId + ", failed to commit DB transaction",e);
-          }
-        }
-  finally {
-          outerVolumeManager.abort();
-        }
-      }
- else {
-        LOG.error("All attempts to cleanup volume " + volumeId + " failed");
-        throw new EucalyptusCloudException("Unable to delete volume: " + volumeId + ". All attempts to cleanup the volume failed");
-      }
-    }
     removeMonitor(volumeId);
+    if (!isReadyForDelete) {
+      LOG.error("All attempts to cleanup volume " + volumeId + " failed");
+      throw new EucalyptusCloudException("Unable to delete volume: " + volumeId + ". All attempts to cleanup the volume failed");
+    }
   }
  else {
     throw new EucalyptusCloudException("Unable to find volume: " + volumeId);

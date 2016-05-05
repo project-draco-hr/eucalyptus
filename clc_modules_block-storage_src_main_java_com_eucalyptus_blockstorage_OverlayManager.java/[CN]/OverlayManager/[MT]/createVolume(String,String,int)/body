@@ -1,66 +1,55 @@
 {
-  VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-  LVMVolumeInfo foundSnapshotInfo=volumeManager.getVolumeInfo(snapshotId);
-  if (foundSnapshotInfo != null) {
-    String status=foundSnapshotInfo.getStatus();
-    if (status.equals(StorageProperties.Status.available.toString())) {
-      String vgName=generateVGName(volumeId);
-      String lvName=generateLVName(volumeId);
-      String loFileName=foundSnapshotInfo.getLoFileName();
-      String snapId=foundSnapshotInfo.getVolumeId();
-      LVMVolumeInfo lvmVolumeInfo=volumeManager.getVolumeInfo();
-      volumeManager.finish();
-      try {
-        String rawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId;
-        File snapshotFile=new File(DirectStorageInfo.getStorageInfo().getVolumesDir() + PATH_SEPARATOR + snapId);
-        assert(snapshotFile.exists());
-        long absoluteSize;
-        if (size <= 0 || size == foundSnapshotInfo.getSize()) {
-          size=(int)(snapshotFile.length() / StorageProperties.GB);
-          absoluteSize=snapshotFile.length() + LVM_HEADER_LENGTH;
-        }
- else {
-          absoluteSize=size * StorageProperties.GB + LVM_HEADER_LENGTH;
-        }
-        String loDevName=createLoopback(rawFileName,absoluteSize);
-        lvmVolumeInfo.setVolumeId(volumeId);
-        lvmVolumeInfo.setLoDevName(loDevName);
-        createLogicalVolume(volumeId,loDevName,vgName,lvName);
-        String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
-        duplicateLogicalVolume(loFileName,absoluteLVName);
-        lvmVolumeInfo.setVgName(vgName);
-        lvmVolumeInfo.setLvName(lvName);
-        lvmVolumeInfo.setStatus(StorageProperties.Status.available.toString());
-        lvmVolumeInfo.setSize(size);
-        LVMWrapper.disableLogicalVolume(absoluteLVName);
-        removeLoopback(loDevName);
-        lvmVolumeInfo.setLoDevName(null);
-        volumeManager=new VolumeMetadataManager();
-        volumeManager.add(lvmVolumeInfo);
-      }
- catch (      EucalyptusCloudException ex) {
-        String error="Unable to run command: " + ex.getMessage();
-        LOG.error(error);
-        throw new EucalyptusCloudException(error);
-      }
- finally {
+  try (VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
+    LVMVolumeInfo foundSnapshotInfo=volumeManager.getVolumeInfo(snapshotId);
+    if (foundSnapshotInfo != null) {
+      String status=foundSnapshotInfo.getStatus();
+      if (status.equals(StorageProperties.Status.available.toString())) {
+        String vgName=generateVGName(volumeId);
+        String lvName=generateLVName(volumeId);
+        String loFileName=foundSnapshotInfo.getLoFileName();
+        String snapId=foundSnapshotInfo.getVolumeId();
+        LVMVolumeInfo lvmVolumeInfo=volumeManager.getVolumeInfo();
+        volumeManager.finish();
         try {
-          if (volumeManager != null) {
-            volumeManager.finish();
+          String rawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId;
+          File snapshotFile=new File(DirectStorageInfo.getStorageInfo().getVolumesDir() + PATH_SEPARATOR + snapId);
+          assert(snapshotFile.exists());
+          long absoluteSize;
+          if (size <= 0 || size == foundSnapshotInfo.getSize()) {
+            size=(int)(snapshotFile.length() / StorageProperties.GB);
+            absoluteSize=snapshotFile.length() + LVM_HEADER_LENGTH;
           }
  else {
-            LOG.error("Cannot commit to db. MetadataManager is null");
+            absoluteSize=size * StorageProperties.GB + LVM_HEADER_LENGTH;
           }
-        }
- catch (        final Throwable e) {
-          LOG.error("Volume: " + volumeId + " could not commit db transaction. "+ e.getMessage());
+          String loDevName=createLoopback(rawFileName,absoluteSize);
+          lvmVolumeInfo.setVolumeId(volumeId);
+          lvmVolumeInfo.setLoDevName(loDevName);
+          createLogicalVolume(volumeId,loDevName,vgName,lvName);
+          String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
+          duplicateLogicalVolume(loFileName,absoluteLVName);
+          lvmVolumeInfo.setVgName(vgName);
+          lvmVolumeInfo.setLvName(lvName);
+          lvmVolumeInfo.setStatus(StorageProperties.Status.available.toString());
+          lvmVolumeInfo.setSize(size);
+          LVMWrapper.disableLogicalVolume(absoluteLVName);
+          removeLoopback(loDevName);
+          lvmVolumeInfo.setLoDevName(null);
+          try (VolumeMetadataManager nestedVolumeManager=new VolumeMetadataManager()){
+            nestedVolumeManager.add(lvmVolumeInfo);
+            nestedVolumeManager.finish();
+          }
+         }
+ catch (        EucalyptusCloudException ex) {
+          String error="Unable to run command: " + ex.getMessage();
+          LOG.error(error);
+          throw new EucalyptusCloudException(error);
         }
       }
     }
-  }
  else {
-    volumeManager.abort();
-    throw new EucalyptusCloudException("Unable to find snapshot: " + snapshotId);
+      throw new EucalyptusCloudException("Unable to find snapshot: " + snapshotId);
+    }
   }
-  return size;
+   return size;
 }

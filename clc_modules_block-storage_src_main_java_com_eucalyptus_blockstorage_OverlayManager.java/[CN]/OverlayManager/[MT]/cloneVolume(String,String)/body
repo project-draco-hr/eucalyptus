@@ -1,64 +1,55 @@
 {
-  VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-  LVMVolumeInfo foundVolumeInfo=volumeManager.getVolumeInfo(parentVolumeId);
-  if (foundVolumeInfo != null) {
-    String vgName=generateVGName(volumeId);
-    String lvName=generateLVName(volumeId);
-    String parentVgName=foundVolumeInfo.getVgName();
-    String parentLvName=foundVolumeInfo.getLvName();
-    LVMVolumeInfo lvmVolumeInfo=volumeManager.getVolumeInfo();
-    int size=foundVolumeInfo.getSize();
-    volumeManager.finish();
-    try {
-      String rawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId;
-      File parentVolumeFile=new File(DirectStorageInfo.getStorageInfo().getVolumesDir() + PATH_SEPARATOR + parentVolumeId);
-      assert(parentVolumeFile.exists());
-      long absoluteSize=parentVolumeFile.length();
-      String loDevName=createLoopback(rawFileName,absoluteSize);
-      lvmVolumeInfo.setLoDevName(loDevName);
-      createLogicalVolume(volumeId,loDevName,vgName,lvName);
-      String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
-      String absoluteParentLVName=lvmRootDirectory + PATH_SEPARATOR + parentVgName+ PATH_SEPARATOR+ parentLvName;
-      duplicateLogicalVolume(absoluteParentLVName,absoluteLVName);
+  try (VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
+    LVMVolumeInfo foundVolumeInfo=volumeManager.getVolumeInfo(parentVolumeId);
+    if (foundVolumeInfo != null) {
+      String vgName=generateVGName(volumeId);
+      String lvName=generateLVName(volumeId);
+      String parentVgName=foundVolumeInfo.getVgName();
+      String parentLvName=foundVolumeInfo.getLvName();
+      LVMVolumeInfo lvmVolumeInfo=volumeManager.getVolumeInfo();
+      int size=foundVolumeInfo.getSize();
+      volumeManager.finish();
       try {
-        volumeManager.exportVolume(lvmVolumeInfo,vgName,lvName);
-      }
- catch (      EucalyptusCloudException ex) {
-        String returnValue=LVMWrapper.removeLogicalVolume(absoluteLVName);
-        returnValue=LVMWrapper.removeVolumeGroup(vgName);
-        returnValue=LVMWrapper.removePhysicalVolume(loDevName);
-        removeLoopback(loDevName);
-        lvmVolumeInfo.setLoDevName(null);
-        throw ex;
-      }
-      lvmVolumeInfo.setVolumeId(volumeId);
-      lvmVolumeInfo.setPvName(loDevName);
-      lvmVolumeInfo.setVgName(vgName);
-      lvmVolumeInfo.setLvName(lvName);
-      lvmVolumeInfo.setStatus(StorageProperties.Status.available.toString());
-      lvmVolumeInfo.setSize(size);
-      volumeManager=new VolumeMetadataManager();
-      volumeManager.add(lvmVolumeInfo);
-    }
- catch (    EucalyptusCloudException ex) {
-      volumeManager.abort();
-      String error="Unable to run command: " + ex.getMessage();
-      LOG.error(error);
-      throw new EucalyptusCloudException(error);
-    }
- finally {
-      if (null != volumeManager) {
+        String rawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId;
+        File parentVolumeFile=new File(DirectStorageInfo.getStorageInfo().getVolumesDir() + PATH_SEPARATOR + parentVolumeId);
+        assert(parentVolumeFile.exists());
+        long absoluteSize=parentVolumeFile.length();
+        String loDevName=createLoopback(rawFileName,absoluteSize);
+        lvmVolumeInfo.setLoDevName(loDevName);
+        createLogicalVolume(volumeId,loDevName,vgName,lvName);
+        String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
+        String absoluteParentLVName=lvmRootDirectory + PATH_SEPARATOR + parentVgName+ PATH_SEPARATOR+ parentLvName;
+        duplicateLogicalVolume(absoluteParentLVName,absoluteLVName);
         try {
-          volumeManager.finish();
+          volumeManager.exportVolume(lvmVolumeInfo,vgName,lvName);
         }
- catch (        final Throwable e) {
-          LOG.error("Error committing to db.",e);
+ catch (        EucalyptusCloudException ex) {
+          String returnValue=LVMWrapper.removeLogicalVolume(absoluteLVName);
+          returnValue=LVMWrapper.removeVolumeGroup(vgName);
+          returnValue=LVMWrapper.removePhysicalVolume(loDevName);
+          removeLoopback(loDevName);
+          lvmVolumeInfo.setLoDevName(null);
+          throw ex;
         }
+        lvmVolumeInfo.setVolumeId(volumeId);
+        lvmVolumeInfo.setPvName(loDevName);
+        lvmVolumeInfo.setVgName(vgName);
+        lvmVolumeInfo.setLvName(lvName);
+        lvmVolumeInfo.setStatus(StorageProperties.Status.available.toString());
+        lvmVolumeInfo.setSize(size);
+        try (VolumeMetadataManager nestedVolumeManager=new VolumeMetadataManager()){
+          nestedVolumeManager.add(lvmVolumeInfo);
+          nestedVolumeManager.finish();
+        }
+       }
+ catch (      EucalyptusCloudException ex) {
+        String error="Unable to run command: " + ex.getMessage();
+        LOG.error(error);
+        throw new EucalyptusCloudException(error);
       }
     }
-  }
  else {
-    volumeManager.abort();
-    throw new EucalyptusCloudException("Unable to find volume: " + parentVolumeId);
+      throw new EucalyptusCloudException("Unable to find volume: " + parentVolumeId);
+    }
   }
-}
+ }

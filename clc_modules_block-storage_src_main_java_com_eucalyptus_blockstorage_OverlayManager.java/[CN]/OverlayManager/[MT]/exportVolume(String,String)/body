@@ -1,58 +1,56 @@
 {
   LVMVolumeInfo lvmVolumeInfo=null;
 {
-    final VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-    try {
+    try (final VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
       lvmVolumeInfo=volumeManager.getVolumeInfo(volumeId);
-    }
-  finally {
       volumeManager.finish();
     }
-  }
+   }
   if (lvmVolumeInfo != null) {
     String rawFileName=DirectStorageInfo.getStorageInfo().getVolumesDir() + "/" + volumeId;
     VolumeOpMonitor monitor=getMonitor(volumeId);
 synchronized (monitor) {
-      final VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-      try {
-        lvmVolumeInfo=volumeManager.getVolumeInfo(volumeId);
-        String loDevName=lvmVolumeInfo.getLoDevName();
-        if (loDevName == null) {
+      try (final VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
+        try {
+          lvmVolumeInfo=volumeManager.getVolumeInfo(volumeId);
+          String loDevName=lvmVolumeInfo.getLoDevName();
+          if (loDevName == null) {
+            try {
+              loDevName=createLoopback(rawFileName);
+              lvmVolumeInfo.setLoDevName(loDevName);
+            }
+ catch (            EucalyptusCloudException ex) {
+              LOG.error("Unable to create loop back device for " + volumeId,ex);
+              throw ex;
+            }
+          }
+          String vgName=lvmVolumeInfo.getVgName();
+          String lvName=lvmVolumeInfo.getLvName();
+          String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
+          LVMWrapper.enableLogicalVolume(absoluteLVName);
           try {
-            loDevName=createLoopback(rawFileName);
-            lvmVolumeInfo.setLoDevName(loDevName);
+            volumeManager.exportVolume(lvmVolumeInfo,vgName,lvName);
+            lvmVolumeInfo.setCleanup(false);
           }
  catch (          EucalyptusCloudException ex) {
-            LOG.error("Unable to create loop back device for " + volumeId,ex);
+            LOG.error("Unable to export volume " + volumeId,ex);
             throw ex;
           }
         }
-        String vgName=lvmVolumeInfo.getVgName();
-        String lvName=lvmVolumeInfo.getLvName();
-        String absoluteLVName=lvmRootDirectory + PATH_SEPARATOR + vgName+ PATH_SEPARATOR+ lvName;
-        LVMWrapper.enableLogicalVolume(absoluteLVName);
-        try {
-          volumeManager.exportVolume(lvmVolumeInfo,vgName,lvName);
-          lvmVolumeInfo.setCleanup(false);
+ catch (        Exception ex) {
+          LOG.error("Failed to attach volume " + volumeId,ex);
+          throw new EucalyptusCloudException("Failed to attach volume " + volumeId,ex);
         }
- catch (        EucalyptusCloudException ex) {
-          LOG.error("Unable to export volume " + volumeId,ex);
-          throw ex;
-        }
-      }
- catch (      Exception ex) {
-        LOG.error("Failed to attach volume " + volumeId,ex);
-        throw new EucalyptusCloudException("Failed to attach volume " + volumeId,ex);
-      }
  finally {
-        try {
-          volumeManager.finish();
-        }
- catch (        Exception e) {
-          LOG.error("Unable to commit the database transaction after an attempt to attach volume " + volumeId,e);
+          try {
+            volumeManager.finish();
+          }
+ catch (          Exception e) {
+            LOG.error("Unable to commit the database transaction after an attempt to attach volume " + volumeId,e);
+          }
         }
       }
-    }
+     }
   }
   return getVolumeConnectionString(volumeId);
 }

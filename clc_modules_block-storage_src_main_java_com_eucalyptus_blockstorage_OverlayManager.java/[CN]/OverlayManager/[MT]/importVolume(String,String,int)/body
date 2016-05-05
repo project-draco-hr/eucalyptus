@@ -1,19 +1,22 @@
 {
-  VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-  LVMVolumeInfo volInfo=volumeManager.getVolumeInfo(volumeId);
-  if (volInfo != null) {
+  try (VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
+    LVMVolumeInfo volInfo=volumeManager.getVolumeInfo(volumeId);
+    if (volInfo != null) {
+      volumeManager.finish();
+      throw new EucalyptusCloudException("Volume " + volumeId + " already exists. Import failed.");
+    }
     volumeManager.finish();
-    throw new EucalyptusCloudException("Volume " + volumeId + " already exists. Import failed.");
-  }
-  volumeManager.finish();
-  createVolume(volumeId,size);
-  volumeManager=new VolumeMetadataManager();
-  LVMVolumeInfo volumeInfo=volumeManager.getVolumeInfo(volumeId);
-  if (volumeInfo != null) {
-    SystemUtil.run(new String[]{StorageProperties.EUCA_ROOT_WRAPPER,"dd","if=" + volumePath,"of=" + lvmRootDirectory + File.separator+ volumeInfo.getVgName()+ File.separator+ volumeInfo.getLvName(),"bs=" + StorageProperties.blockSize});
-  }
+    createVolume(volumeId,size);
+    try (VolumeMetadataManager nestedVolumeManager=new VolumeMetadataManager()){
+      LVMVolumeInfo volumeInfo=nestedVolumeManager.getVolumeInfo(volumeId);
+      if (volumeInfo != null) {
+        SystemUtil.run(new String[]{StorageProperties.EUCA_ROOT_WRAPPER,"dd","if=" + volumePath,"of=" + lvmRootDirectory + File.separator+ volumeInfo.getVgName()+ File.separator+ volumeInfo.getLvName(),"bs=" + StorageProperties.blockSize});
+        nestedVolumeManager.finish();
+      }
  else {
-    volumeManager.abort();
-    throw new EucalyptusCloudException("Unable to find volume with id: " + volumeId);
-  }
-}
+        nestedVolumeManager.abort();
+        throw new EucalyptusCloudException("Unable to find volume with id: " + volumeId);
+      }
+    }
+   }
+ }

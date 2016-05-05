@@ -1,41 +1,42 @@
 {
-  VolumeMetadataManager volumeManager=new VolumeMetadataManager();
-  try {
-    LVMVolumeInfo foundLVMVolumeInfo=volumeManager.getVolumeInfo(volumeId);
-    if (foundLVMVolumeInfo != null) {
-      LOG.info("Unexporting volume " + volumeId + " from all clients");
-      VolumeOpMonitor monitor=getMonitor(volumeId);
+  try (VolumeMetadataManager volumeManager=new VolumeMetadataManager()){
+    try {
+      LVMVolumeInfo foundLVMVolumeInfo=volumeManager.getVolumeInfo(volumeId);
+      if (foundLVMVolumeInfo != null) {
+        LOG.info("Unexporting volume " + volumeId + " from all clients");
+        VolumeOpMonitor monitor=getMonitor(volumeId);
 synchronized (monitor) {
-        try {
-          LOG.info("Unexporting volume " + foundLVMVolumeInfo.getVolumeId());
           try {
-            String path=lvmRootDirectory + PATH_SEPARATOR + volumeGroup+ PATH_SEPARATOR+ foundLVMVolumeInfo.getLvName();
-            if (LVMWrapper.logicalVolumeExists(path)) {
-              exportManager.cleanup(foundLVMVolumeInfo);
+            LOG.info("Unexporting volume " + foundLVMVolumeInfo.getVolumeId());
+            try {
+              String path=lvmRootDirectory + PATH_SEPARATOR + volumeGroup+ PATH_SEPARATOR+ foundLVMVolumeInfo.getLvName();
+              if (LVMWrapper.logicalVolumeExists(path)) {
+                exportManager.cleanup(foundLVMVolumeInfo);
+              }
+              foundLVMVolumeInfo.setStatus("available");
+              LOG.info("Done cleaning up: " + foundLVMVolumeInfo.getVolumeId());
             }
-            foundLVMVolumeInfo.setStatus("available");
-            LOG.info("Done cleaning up: " + foundLVMVolumeInfo.getVolumeId());
+ catch (            EucalyptusCloudException ee) {
+              LOG.error("Failed to unexport from all hosts for " + volumeId,ee);
+              throw ee;
+            }
           }
- catch (          EucalyptusCloudException ee) {
-            LOG.error(ee,ee);
-            throw ee;
-          }
-        }
   finally {
-          monitor.notifyAll();
+            monitor.notifyAll();
+          }
         }
       }
-    }
  else {
-      volumeManager.abort();
-      throw new EucalyptusCloudException("Unable to find volume: " + volumeId);
+        volumeManager.abort();
+        throw new EucalyptusCloudException("Unable to find volume: " + volumeId);
+      }
+    }
+ catch (    Exception e) {
+      LOG.error("Failed to unexport volume " + volumeId);
+      throw new EucalyptusCloudException("Failed to unexport volume " + volumeId);
+    }
+ finally {
+      volumeManager.finish();
     }
   }
- catch (  Exception e) {
-    LOG.error("Failed to unexport volume " + volumeId);
-    throw new EucalyptusCloudException("Failed to unexport volume " + volumeId);
-  }
- finally {
-    volumeManager.finish();
-  }
-}
+ }
