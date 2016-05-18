@@ -2,54 +2,55 @@
   AWSAutoScalingAutoScalingGroupResourceAction oldAction=(AWSAutoScalingAutoScalingGroupResourceAction)oldResourceAction;
   AWSAutoScalingAutoScalingGroupResourceAction newAction=(AWSAutoScalingAutoScalingGroupResourceAction)newResourceAction;
   ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
-  DescribeTagsType describeTagsType=MessageHelper.createMessage(DescribeTagsType.class,newAction.info.getEffectiveUserId());
-  Filters filters=new Filters();
-  Filter filter=new Filter();
-  filter.setName("auto-scaling-group");
-  Values values=new Values();
-  values.getMember().add(newAction.info.getPhysicalResourceId());
-  filter.setValues(values);
-  filters.getMember().add(filter);
-  describeTagsType.setFilters(filters);
-  DescribeTagsResponseType describeTagsResponseType=AsyncRequests.sendSync(configuration,describeTagsType);
-  Set<AutoScalingTag> existingTags=Sets.newLinkedHashSet();
-  if (describeTagsResponseType != null & describeTagsResponseType.getDescribeTagsResult() != null && describeTagsResponseType.getDescribeTagsResult().getTags() != null && describeTagsResponseType.getDescribeTagsResult().getTags().getMember() != null) {
-    for (    TagDescription tagDescription : describeTagsResponseType.getDescribeTagsResult().getTags().getMember()) {
-      AutoScalingTag tag=new AutoScalingTag();
-      tag.setKey(tagDescription.getKey());
-      tag.setValue(tagDescription.getValue());
-      tag.setPropagateAtLaunch(tagDescription.getPropagateAtLaunch());
-      existingTags.add(tag);
+  if (newAction.info.getUpdatePolicyJson() == null)   return newAction;
+  UpdatePolicy updatePolicy=UpdatePolicy.parse(newAction.info.getUpdatePolicyJson());
+  if (updatePolicy.getAutoScalingRollingUpdate() == null)   return newAction;
+  RollingUpdateStateEntityManager.deleteRollingUpdateStateEntity(newAction.info.getAccountId(),newAction.getStackEntity().getStackId(),newAction.info.getLogicalResourceId());
+  RollingUpdateStateEntity rollingUpdateStateEntity=RollingUpdateStateEntityManager.createRollingUpdateStateEntity(newAction.info.getAccountId(),newAction.getStackEntity().getStackId(),newAction.info.getLogicalResourceId());
+  AutoScalingGroupType autoScalingGroupType=getExistingUniqueAutoscalingGroupType(configuration,newAction);
+  Set<String> badSuspendedProcesses=Sets.newHashSet();
+  Set<String> possibleBadSuspendedProcesses=ImmutableSet.of("Launch","Terminate");
+  Set<String> alreadySuspendedProcesses=Sets.newHashSet();
+  if (autoScalingGroupType.getSuspendedProcesses() != null && autoScalingGroupType.getSuspendedProcesses().getMember() != null) {
+    for (    SuspendedProcessType suspendedProcessType : autoScalingGroupType.getSuspendedProcesses().getMember()) {
+      alreadySuspendedProcesses.add(suspendedProcessType.getProcessName());
     }
   }
-  Set<AutoScalingTag> newTags=Sets.newLinkedHashSet();
-  if (newAction.properties.getTags() != null) {
-    newTags.addAll(newAction.properties.getTags());
+  for (  String possibleBadSuspendedProcess : possibleBadSuspendedProcesses) {
+    if (alreadySuspendedProcesses.contains(possibleBadSuspendedProcess) || updatePolicy.getAutoScalingRollingUpdate().getSuspendProcesses().contains(possibleBadSuspendedProcess)) {
+      badSuspendedProcesses.add(possibleBadSuspendedProcess);
+    }
   }
-  List<AutoScalingTag> newStackTags=TagHelper.getAutoScalingStackTags(newAction.getStackEntity());
-  if (newStackTags != null) {
-    newTags.addAll(newStackTags);
+  if (!badSuspendedProcesses.isEmpty()) {
+    throw new ResourceFailureException("Autoscaling rolling updates cannot be performed because the " + badSuspendedProcesses + " process(es) have been suspended; please resume these processes and then retry the update.");
   }
-  TagHelper.checkReservedAutoScalingTemplateTags(newTags);
-  Set<AutoScalingTag> onlyNewTags=Sets.difference(newTags,existingTags);
-  if (!onlyNewTags.isEmpty()) {
-    CreateOrUpdateTagsType createOrUpdateTagsType=MessageHelper.createMessage(CreateOrUpdateTagsType.class,newAction.info.getEffectiveUserId());
-    createOrUpdateTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(newAction.info.getPhysicalResourceId(),onlyNewTags));
-    sendSyncWithRetryOnScalingEvent(configuration,createOrUpdateTagsType);
+  Set<String> instanceIds=Sets.newHashSet();
+  for (  Instance instance : autoScalingGroupType.getInstances().getMember()) {
+    instanceIds.add(instance.getInstanceId());
   }
-  Set<AutoScalingTag> oldTags=Sets.newLinkedHashSet();
-  if (oldAction.properties.getTags() != null) {
-    oldTags.addAll(oldAction.properties.getTags());
+  Map<String,String> subnetMap=getSubnetMap(instanceIds,newAction.info.getEffectiveUserId());
+  for (  Instance instance : autoScalingGroupType.getInstances().getMember()) {
+    if (doesInstanceNeedReplacement(instance,subnetMap,newAction)) {
+      rollingUpdateStateEntity.setNeedsRollbackUpdate(true);
+      RollingUpdateStateEntityManager.updateRollingUpdateStateEntity(rollingUpdateStateEntity);
+      break;
+    }
   }
-  List<AutoScalingTag> oldStackTags=TagHelper.getAutoScalingStackTags(oldAction.getStackEntity());
-  if (oldStackTags != null) {
-    oldTags.addAll(oldStackTags);
+  if (rollingUpdateStateEntity.getNeedsRollbackUpdate() != Boolean.TRUE)   return newAction;
+  rollingUpdateStateEntity.setAlreadySuspendedProcessNames(Joiner.on(',').join(alreadySuspendedProcesses));
+  if (!updatePolicy.getAutoScalingRollingUpdate().getSuspendProcesses().isEmpty()) {
+    SuspendProcessesType suspendProcessesType=MessageHelper.createMessage(SuspendProcessesType.class,newAction.info.getEffectiveUserId());
+    suspendProcessesType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
+    ProcessNames processNames=new ProcessNames();
+    for (    String suspendProcess : updatePolicy.getAutoScalingRollingUpdate().getSuspendProcesses()) {
+      if (!alreadySuspendedProcesses.contains(suspendProcess)) {
+        processNames.getMember().add(suspendProcess);
+      }
+    }
+    if (!processNames.getMember().isEmpty()) {
+      sendSyncWithRetryOnScalingEvent(configuration,suspendProcessesType);
+    }
   }
-  Set<AutoScalingTag> tagsToRemove=Sets.intersection(oldTags,Sets.difference(existingTags,newTags));
-  if (!tagsToRemove.isEmpty()) {
-    DeleteTagsType deleteTagsType=MessageHelper.createMessage(DeleteTagsType.class,newAction.info.getEffectiveUserId());
-    deleteTagsType.setTags(convertAutoScalingTagsToCreateOrUpdateTags(newAction.info.getPhysicalResourceId(),tagsToRemove));
-    sendSyncWithRetryOnScalingEvent(configuration,deleteTagsType);
-  }
+  RollingUpdateStateEntityManager.updateRollingUpdateStateEntity(rollingUpdateStateEntity);
   return newAction;
 }
