@@ -1,9 +1,17 @@
 {
   AWSAutoScalingAutoScalingGroupResourceAction action=(AWSAutoScalingAutoScalingGroupResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
-  if (groupDoesNotExist(configuration,action))   return action;
-  DeleteAutoScalingGroupType deleteAutoScalingGroupType=MessageHelper.createMessage(DeleteAutoScalingGroupType.class,action.info.getEffectiveUserId());
-  deleteAutoScalingGroupType.setAutoScalingGroupName(action.info.getPhysicalResourceId());
-  sendSyncWithRetryOnScalingEvent(configuration,deleteAutoScalingGroupType);
+  if (action.properties.getNotificationConfigurations() != null) {
+    for (    AutoScalingNotificationConfiguration notificationConfiguration : action.properties.getNotificationConfigurations()) {
+      PutNotificationConfigurationType putNotificationConfigurationType=MessageHelper.createMessage(PutNotificationConfigurationType.class,action.info.getEffectiveUserId());
+      putNotificationConfigurationType.setAutoScalingGroupName(action.info.getPhysicalResourceId());
+      putNotificationConfigurationType.setTopicARN(notificationConfiguration.getTopicARN());
+      AutoScalingNotificationTypes autoScalingNotificationTypes=new AutoScalingNotificationTypes();
+      ArrayList<String> member=Lists.newArrayList(notificationConfiguration.getNotificationTypes());
+      autoScalingNotificationTypes.setMember(member);
+      putNotificationConfigurationType.setNotificationTypes(autoScalingNotificationTypes);
+      sendSyncWithRetryOnScalingEvent(configuration,putNotificationConfigurationType);
+    }
+  }
   return action;
 }

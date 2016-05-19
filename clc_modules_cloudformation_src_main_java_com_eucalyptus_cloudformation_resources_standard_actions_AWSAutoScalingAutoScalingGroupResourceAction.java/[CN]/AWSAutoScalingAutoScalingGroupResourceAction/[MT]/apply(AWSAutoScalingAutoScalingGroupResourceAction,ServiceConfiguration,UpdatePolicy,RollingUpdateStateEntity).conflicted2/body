@@ -1,3 +1,63 @@
 {
-  return commonWaitToSettleLogic(newAction,configuration,updatePolicy,rollingUpdateStateEntity,State.FIRST_WAIT_FOR_SIGNALS,State.DETERMINE_TERMINATE_INFO_AND_RESIZE);
+  AutoScalingGroupType autoScalingGroupType=getExistingUniqueAutoscalingGroupType(configuration,newAction);
+  rollingUpdateStateEntity.setMinSize(autoScalingGroupType.getMinSize());
+  rollingUpdateStateEntity.setMaxSize(autoScalingGroupType.getMaxSize());
+  rollingUpdateStateEntity.setDesiredCapacity(autoScalingGroupType.getDesiredCapacity());
+  if (autoScalingGroupType.getInstances() != null && autoScalingGroupType.getInstances().getMember() != null) {
+    Set<String> instanceIds=Sets.newHashSet();
+    for (    Instance instance : autoScalingGroupType.getInstances().getMember()) {
+      instanceIds.add(instance.getInstanceId());
+    }
+    Map<String,String> subnetMap=getSubnetMap(instanceIds,newAction.info.getEffectiveUserId());
+    Set<String> obsoleteInstanceIds=Sets.newHashSet();
+    for (    Instance instance : autoScalingGroupType.getInstances().getMember()) {
+      if (doesInstanceNeedReplacement(instance,subnetMap,autoScalingGroupType)) {
+        obsoleteInstanceIds.add(instance.getInstanceId());
+      }
+    }
+    rollingUpdateStateEntity.setNumOriginalObsoleteInstances(obsoleteInstanceIds.size());
+    rollingUpdateStateEntity.setObsoleteInstanceIds(Joiner.on(',').join(obsoleteInstanceIds));
+    Set<String> previousRunningInstanceIds=Sets.newHashSet();
+    for (    Instance instance : autoScalingGroupType.getInstances().getMember()) {
+      if (instance.getLifecycleState().equals("InService")) {
+        previousRunningInstanceIds.add(instance.getInstanceId());
+      }
+    }
+    rollingUpdateStateEntity.setPreviousRunningInstanceIds(Joiner.on(',').join(previousRunningInstanceIds));
+  }
+ else {
+    rollingUpdateStateEntity.setNumOriginalObsoleteInstances(0);
+    rollingUpdateStateEntity.setObsoleteInstanceIds("");
+    rollingUpdateStateEntity.setPreviousRunningInstanceIds("");
+  }
+  if (rollingUpdateStateEntity.getNumOriginalObsoleteInstances() == 0) {
+    rollingUpdateStateEntity.setState(State.RESUME_PROCESSES);
+    return rollingUpdateStateEntity;
+  }
+  int batchSize=Math.min(Math.min(rollingUpdateStateEntity.getNumOriginalObsoleteInstances(),updatePolicy.getAutoScalingRollingUpdate().getMaxBatchSize()),rollingUpdateStateEntity.getDesiredCapacity() - updatePolicy.getAutoScalingRollingUpdate().getMinInstancesInService() + (rollingUpdateStateEntity.getDesiredCapacity() - rollingUpdateStateEntity.getNumOriginalObsoleteInstances()));
+  int tempDesiredCapacity=Math.max(batchSize + updatePolicy.getAutoScalingRollingUpdate().getMinInstancesInService(),rollingUpdateStateEntity.getDesiredCapacity());
+  rollingUpdateStateEntity.setBatchSize(batchSize);
+  rollingUpdateStateEntity.setTempDesiredCapacity(tempDesiredCapacity);
+  StringBuilder message=new StringBuilder("Rollling update initiated.  " + "Terminating " + rollingUpdateStateEntity.getNumOriginalObsoleteInstances() + " instance(s) in batches of "+ batchSize);
+  if (updatePolicy.getAutoScalingRollingUpdate().getMinInstancesInService() > 0) {
+    message.append(", while keeping at least " + updatePolicy.getAutoScalingRollingUpdate().getMinInstancesInService() + " in service.");
+  }
+ else {
+    message.append(".");
+  }
+  if (updatePolicy.getAutoScalingRollingUpdate().isWaitOnResourceSignals()) {
+    message.append("  Waiting on resource signals with a timeout of " + updatePolicy.getAutoScalingRollingUpdate().getPauseTime() + " when new instances are added to the autoscaling group.");
+  }
+ else   if (Duration.parse(updatePolicy.getAutoScalingRollingUpdate().getPauseTime()).getSeconds() > 0) {
+    message.append("  Pausing for " + updatePolicy.getAutoScalingRollingUpdate().getPauseTime() + " when new instances are added to the autoscaling group.");
+  }
+  addStackEventForRollingUpdate(newAction,message.toString());
+  UpdateAutoScalingGroupType updateAutoScalingGroupType=MessageHelper.createMessage(UpdateAutoScalingGroupType.class,newAction.info.getEffectiveUserId());
+  updateAutoScalingGroupType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
+  updateAutoScalingGroupType.setDesiredCapacity(tempDesiredCapacity);
+  updateAutoScalingGroupType.setMinSize(tempDesiredCapacity);
+  sendSyncWithRetryOnScalingEvent(configuration,updateAutoScalingGroupType);
+  addStackEventForRollingUpdate(newAction,"Temporarily setting autoscaling group MinSize and DesiredCapacity to " + tempDesiredCapacity + ".");
+  rollingUpdateStateEntity.setState(State.WAIT_TO_SETTLE);
+  return rollingUpdateStateEntity;
 }
