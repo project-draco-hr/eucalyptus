@@ -1,18 +1,29 @@
 {
-  Set<String> alreadySuspendedProcesses=Sets.newHashSet(Splitter.on(',').omitEmptyStrings().trimResults().split(rollingUpdateStateEntity.getAlreadySuspendedProcessNames()));
-  if (!updatePolicy.getAutoScalingRollingUpdate().getSuspendProcesses().isEmpty()) {
-    ResumeProcessesType resumeProcessesType=MessageHelper.createMessage(ResumeProcessesType.class,newAction.info.getEffectiveUserId());
-    resumeProcessesType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
-    ProcessNames processNames=new ProcessNames();
-    for (    String suspendProcess : updatePolicy.getAutoScalingRollingUpdate().getSuspendProcesses()) {
-      if (!alreadySuspendedProcesses.contains(suspendProcess)) {
-        processNames.getMember().add(suspendProcess);
-      }
-    }
-    if (!processNames.getMember().isEmpty()) {
-      sendSyncWithRetryOnScalingEvent(configuration,resumeProcessesType);
+  Collection<ObsoleteInstance> obsoleteInstances=ObsoleteInstance.jsonToObsoleteInstances(rollingUpdateStateEntity.getObsoleteInstancesJson());
+  Set<String> terminatingInstanceIds=Sets.newHashSet();
+  for (  ObsoleteInstance obsoleteInstance : obsoleteInstances) {
+    if (obsoleteInstance.getLastKnownState() == TerminationState.TERMINATING) {
+      terminatingInstanceIds.add(obsoleteInstance.getInstanceId());
     }
   }
-  rollingUpdateStateEntity.setState(State.DONE);
-  return rollingUpdateStateEntity;
+  if (!isAllTerminated(terminatingInstanceIds,newAction.info.getEffectiveUserId())) {
+    throw new NotAResourceFailureException("Still waiting on terminating instances");
+  }
+ else {
+    int numTerminatedInstances=0;
+    for (    ObsoleteInstance obsoleteInstance : obsoleteInstances) {
+      if (obsoleteInstance.getLastKnownState() == TerminationState.TERMINATING) {
+        obsoleteInstance.setLastKnownState(TerminationState.TERMINATED);
+        numTerminatedInstances++;
+      }
+ else       if (obsoleteInstance.getLastKnownState() == TerminationState.TERMINATING) {
+        numTerminatedInstances++;
+      }
+    }
+    int progress=obsoleteInstances.size() == 0 ? 100 : 100 * numTerminatedInstances / obsoleteInstances.size();
+    addStackEventForRollingUpdate(newAction,"Successfully terminated instance(s) " + terminatingInstanceIds + " (Progress "+ progress+ "%).");
+    rollingUpdateStateEntity.setObsoleteInstancesJson(ObsoleteInstance.obsoleteInstancesToJson(obsoleteInstances));
+    rollingUpdateStateEntity.setState(State.WAIT_TO_SETTLE);
+    return rollingUpdateStateEntity;
+  }
 }
