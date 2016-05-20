@@ -60,11 +60,11 @@ catch (  Exception ex) {
   if (!sc.equals(scVm)) {
     throw new EucalyptusCloudException("Can only attach volumes in the same zone: " + volumeId);
   }
-  if (VmState.STOPPED.equals(vm.getState())) {
+  if (VmState.STOPPED.apply(vm)) {
     String rootDevice=vm.getBootRecord().getMachine().getRootDeviceName();
     VmInstances.addPersistentVolume(vm,deviceName,volume,rootDevice.equals(deviceName),false);
   }
- else {
+ else   if (VmState.RUNNING.apply(vm)) {
     ServiceConfiguration ccConfig=Topology.lookup(ClusterController.class,vm.lookupPartition());
     GetVolumeTokenResponseType scGetTokenResponse;
     try {
@@ -84,6 +84,9 @@ catch (  Exception ex) {
     VmInstances.addTransientVolume(vm,deviceName,token,volume);
     final VolumeAttachCallback cb=new VolumeAttachCallback(attachVolume);
     AsyncRequests.newRequest(cb).dispatch(ccConfig);
+  }
+ else {
+    throw new ClientComputeException("IncorrectState","Instance '" + instanceId + "' is not 'running'");
   }
   EventRecord.here(VolumeManager.class,EventClass.VOLUME,EventType.VOLUME_ATTACH).withDetails(volume.getOwner().toString(),volume.getDisplayName(),"instance",vm.getInstanceId()).withDetails("partition",vm.getPartition().toString()).info();
   reply.setAttachedVolume(new AttachedVolume(volume.getDisplayName(),vm.getInstanceId(),request.getDevice()));
