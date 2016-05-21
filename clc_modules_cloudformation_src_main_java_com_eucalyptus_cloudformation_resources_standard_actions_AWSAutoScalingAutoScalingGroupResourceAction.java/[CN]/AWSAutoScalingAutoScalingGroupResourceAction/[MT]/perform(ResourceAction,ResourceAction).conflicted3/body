@@ -2,51 +2,37 @@
   AWSAutoScalingAutoScalingGroupResourceAction oldAction=(AWSAutoScalingAutoScalingGroupResourceAction)oldResourceAction;
   AWSAutoScalingAutoScalingGroupResourceAction newAction=(AWSAutoScalingAutoScalingGroupResourceAction)newResourceAction;
   ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
-  Map<String,Collection<String>> existingNotificationConfigurations=Maps.newHashMap();
-  DescribeNotificationConfigurationsType describeNotificationConfigurationsType=MessageHelper.createMessage(DescribeNotificationConfigurationsType.class,newAction.info.getEffectiveUserId());
-  AutoScalingGroupNames autoScalingGroupNames=new AutoScalingGroupNames();
-  autoScalingGroupNames.getMember().add(newAction.info.getPhysicalResourceId());
-  describeNotificationConfigurationsType.setAutoScalingGroupNames(autoScalingGroupNames);
-  DescribeNotificationConfigurationsResponseType describeNotificationConfigurationsResponseType=AsyncRequests.sendSync(configuration,describeNotificationConfigurationsType);
-  if (describeNotificationConfigurationsResponseType != null && describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult() != null && describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult().getNotificationConfigurations() != null && describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult().getNotificationConfigurations().getMember() != null) {
-    for (    NotificationConfiguration notificationConfiguration : describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult().getNotificationConfigurations().getMember()) {
-      if (!existingNotificationConfigurations.containsKey(notificationConfiguration.getTopicARN())) {
-        existingNotificationConfigurations.put(notificationConfiguration.getTopicARN(),Sets.newHashSet());
-      }
-      existingNotificationConfigurations.get(notificationConfiguration.getTopicARN()).add(notificationConfiguration.getNotificationType());
+  String autoScalingGroupName=newAction.info.getPhysicalResourceId();
+  UpdateAutoScalingGroupType updateAutoScalingGroupType=MessageHelper.createMessage(UpdateAutoScalingGroupType.class,newAction.info.getEffectiveUserId());
+  updateAutoScalingGroupType.setAutoScalingGroupName(autoScalingGroupName);
+  if (newAction.properties.getInstanceId() != null) {
+    throw new ValidationErrorException("InstanceId not supported");
+  }
+  if (newAction.properties.getLaunchConfigurationName() == null) {
+    throw new ValidationErrorException("LaunchConfiguration required (as InstanceId not supported)");
+  }
+  if (newAction.properties.getAvailabilityZones() != null) {
+    updateAutoScalingGroupType.setAvailabilityZones(new AvailabilityZones(newAction.properties.getAvailabilityZones()));
+  }
+  if (newAction.info.getUpdatePolicyJson() != null) {
+    UpdatePolicy updatePolicy=UpdatePolicy.parse(newAction.info.getUpdatePolicyJson());
+    if (updatePolicy != null && updatePolicy.getAutoScalingRollingUpdate() != null && updatePolicy.getAutoScalingRollingUpdate().getMinInstancesInService() >= newAction.properties.getMaxSize()) {
+      throw new ValidationErrorException("MinInstancesInService must be less than the autoscaling group's MaxSize");
     }
   }
-  Map<String,Collection<String>> newNotificationConfigurations=Maps.newHashMap();
-  if (newAction.properties.getNotificationConfigurations() != null) {
-    for (    AutoScalingNotificationConfiguration notificationConfiguration : newAction.properties.getNotificationConfigurations()) {
-      newNotificationConfigurations.put(notificationConfiguration.getTopicARN(),Sets.newHashSet(notificationConfiguration.getNotificationTypes()));
-    }
+  updateAutoScalingGroupType.setDefaultCooldown(newAction.properties.getCooldown());
+  updateAutoScalingGroupType.setDesiredCapacity(newAction.properties.getDesiredCapacity());
+  updateAutoScalingGroupType.setHealthCheckGracePeriod(newAction.properties.getHealthCheckGracePeriod());
+  updateAutoScalingGroupType.setHealthCheckType(newAction.properties.getHealthCheckType());
+  updateAutoScalingGroupType.setLaunchConfigurationName(newAction.properties.getLaunchConfigurationName());
+  updateAutoScalingGroupType.setMaxSize(newAction.properties.getMaxSize());
+  updateAutoScalingGroupType.setMinSize(newAction.properties.getMinSize());
+  if (newAction.properties.getTerminationPolicies() != null) {
+    updateAutoScalingGroupType.setTerminationPolicies(new TerminationPolicies(newAction.properties.getTerminationPolicies()));
   }
-  Map<String,Collection<String>> oldNotificationConfigurations=Maps.newHashMap();
-  if (newAction.properties.getNotificationConfigurations() != null) {
-    for (    AutoScalingNotificationConfiguration notificationConfiguration : newAction.properties.getNotificationConfigurations()) {
-      oldNotificationConfigurations.put(notificationConfiguration.getTopicARN(),Sets.newHashSet(notificationConfiguration.getNotificationTypes()));
-    }
+  if (newAction.properties.getVpcZoneIdentifier() != null) {
+    updateAutoScalingGroupType.setVpcZoneIdentifier(Strings.emptyToNull(Joiner.on(",").join(newAction.properties.getVpcZoneIdentifier())));
   }
-  for (  String topicArn : newNotificationConfigurations.keySet()) {
-    if (!existingNotificationConfigurations.containsKey(topicArn) || !existingNotificationConfigurations.get(topicArn).equals(newNotificationConfigurations.get(topicArn))) {
-      PutNotificationConfigurationType putNotificationConfigurationType=MessageHelper.createMessage(PutNotificationConfigurationType.class,newAction.info.getEffectiveUserId());
-      putNotificationConfigurationType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
-      putNotificationConfigurationType.setTopicARN(topicArn);
-      AutoScalingNotificationTypes autoScalingNotificationTypes=new AutoScalingNotificationTypes();
-      ArrayList<String> member=Lists.newArrayList(newNotificationConfigurations.get(topicArn));
-      autoScalingNotificationTypes.setMember(member);
-      putNotificationConfigurationType.setNotificationTypes(autoScalingNotificationTypes);
-      sendSyncWithRetryOnScalingEvent(configuration,putNotificationConfigurationType);
-    }
-  }
-  for (  String topicArn : oldNotificationConfigurations.keySet()) {
-    if (existingNotificationConfigurations.containsKey(topicArn) && !newNotificationConfigurations.containsKey(topicArn)) {
-      DeleteNotificationConfigurationType deleteNotificationConfigurationType=MessageHelper.createMessage(DeleteNotificationConfigurationType.class,newAction.info.getEffectiveUserId());
-      deleteNotificationConfigurationType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
-      deleteNotificationConfigurationType.setTopicARN(topicArn);
-      sendSyncWithRetryOnScalingEvent(configuration,deleteNotificationConfigurationType);
-    }
-  }
+  sendSyncWithRetryOnScalingEvent(configuration,updateAutoScalingGroupType);
   return newAction;
 }
