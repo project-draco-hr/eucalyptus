@@ -8,41 +8,57 @@
       return rollingUpdateStateEntity;
     }
   }
-  AutoScalingGroupType autoScalingGroupType=getExistingUniqueAutoscalingGroupType(configuration,newAction);
-  Set<String> allRunningInstanceIds=Sets.newHashSet();
-  if (autoScalingGroupType.getInstances() != null && autoScalingGroupType.getInstances().getMember() != null) {
-    for (    Instance instance : autoScalingGroupType.getInstances().getMember()) {
-      if (instance.getLifecycleState().equals("InService")) {
-        allRunningInstanceIds.add(instance.getInstanceId());
-      }
-    }
-  }
+  Set<String> currentBatchInstanceIds=Sets.newHashSet(Splitter.on(',').omitEmptyStrings().trimResults().split(rollingUpdateStateEntity.getCurrentBatchInstanceIds()));
+  Set<String> unsignaledCurrentBatchInstanceIds=Sets.newHashSet(currentBatchInstanceIds);
   Collection<SignalEntity> signals=SignalEntityManager.getSignals(newAction.getStackEntity().getStackId(),newAction.info.getAccountId(),newAction.info.getLogicalResourceId(),newAction.getStackEntity().getStackVersion());
   for (  SignalEntity signal : signals) {
-    if (signal.getProcessed())     continue;
-    if (!allRunningInstanceIds.contains(signal.getUniqueId()))     continue;
-    StackEventEntityManager.addSignalStackEvent(signal);
-    signal.setProcessed(true);
-    SignalEntityManager.updateSignal(signal);
-    if (signal.getStatus() == SignalEntity.Status.FAILURE) {
-      rollingUpdateStateEntity.setNumFailureSignals(rollingUpdateStateEntity.getNumFailureSignals() + 1);
+    if (unsignaledCurrentBatchInstanceIds.contains(signal.getUniqueId())) {
+      if (!signal.getProcessed()) {
+        StackEventEntityManager.addSignalStackEvent(signal);
+        signal.setProcessed(true);
+        SignalEntityManager.updateSignal(signal);
+      }
+      unsignaledCurrentBatchInstanceIds.remove(signal.getUniqueId());
     }
  else {
-      rollingUpdateStateEntity.setNumSuccessSignals(rollingUpdateStateEntity.getNumSuccessSignals() + 1);
+      ;
     }
-    rollingUpdateStateEntity.setNumReceivedSignalsThisBatch(rollingUpdateStateEntity.getNumReceivedSignalsThisBatch() + 1);
   }
-  if (rollingUpdateStateEntity.getNumReceivedSignalsThisBatch() < rollingUpdateStateEntity.getNumNeededSignalsThisBatch()) {
+  if (!unsignaledCurrentBatchInstanceIds.isEmpty()) {
     if (new Date().before(rollingUpdateStateEntity.getSignalCutoffTimestamp())) {
       throw new NotAResourceFailureException("Still waiting for resource signals");
     }
  else {
-      addStackEventForRollingUpdate(newAction,"Failed to receive " + rollingUpdateStateEntity.getNumNeededSignalsThisBatch() + ".  Each resource signal timeout is counted as a FAILURE.");
-      rollingUpdateStateEntity.setNumFailureSignals(rollingUpdateStateEntity.getNumFailureSignals() + rollingUpdateStateEntity.getNumNeededSignalsThisBatch() - rollingUpdateStateEntity.getNumReceivedSignalsThisBatch());
+      addStackEventForRollingUpdate(newAction,"Failed to receive " + currentBatchInstanceIds.size() + " signals.  Each resource signal timeout is counted as a FAILURE.");
+      for (      String instanceId : unsignaledCurrentBatchInstanceIds) {
+        SignalEntity signalEntity=new SignalEntity();
+        signalEntity.setStackId(newAction.getStackEntity().getStackId());
+        signalEntity.setAccountId(newAction.info.getAccountId());
+        signalEntity.setLogicalResourceId(newAction.info.getLogicalResourceId());
+        signalEntity.setResourceVersion(newAction.getStackEntity().getStackVersion());
+        signalEntity.setStatus(SignalEntity.Status.FAILURE);
+        signalEntity.setProcessed(true);
+        signalEntity.setUniqueId(instanceId);
+        SignalEntityManager.addSignal(signalEntity);
+      }
     }
   }
-  if (rollingUpdateStateEntity.getNumFailureSignals() > rollingUpdateStateEntity.getNumExpectedTotalSignals() * updatePolicy.getAutoScalingRollingUpdate().getMinSuccessfulInstancesPercent() / 100) {
-    throw new ResourceFailureException("Received " + rollingUpdateStateEntity.getNumFailureSignals() + " FAILURE signal(s) out of "+ rollingUpdateStateEntity.getNumExpectedTotalSignals()+ ". Unable to satisfy "+ updatePolicy.getAutoScalingRollingUpdate().getMinSuccessfulInstancesPercent()+ "% MinSuccessfulInstancesPercent requirement");
+  int numSuccessSignals=0;
+  int numFailureSignals=0;
+  signals=SignalEntityManager.getSignals(newAction.getStackEntity().getStackId(),newAction.info.getAccountId(),newAction.info.getLogicalResourceId(),newAction.getStackEntity().getStackVersion());
+  for (  SignalEntity signal : signals) {
+    if (!signal.getProcessed())     continue;
+    if (signal.getStatus() == SignalEntity.Status.SUCCESS) {
+      numSuccessSignals++;
+    }
+ else {
+      numFailureSignals++;
+    }
+  }
+  double minNumSuccessSignals=updatePolicy.getAutoScalingRollingUpdate().getMinSuccessfulInstancesPercent() / 100.0 * rollingUpdateStateEntity.getNumExpectedTotalSignals();
+  double maxNumFailureSignals=rollingUpdateStateEntity.getNumExpectedTotalSignals() - minNumSuccessSignals;
+  if (numFailureSignals > maxNumFailureSignals) {
+    throw new ResourceFailureException("Received " + numFailureSignals + " FAILURE signal(s) out of "+ rollingUpdateStateEntity.getNumExpectedTotalSignals()+ ". Unable to satisfy "+ updatePolicy.getAutoScalingRollingUpdate().getMinSuccessfulInstancesPercent()+ "% MinSuccessfulInstancesPercent requirement");
   }
   rollingUpdateStateEntity.setState(nextState);
   return rollingUpdateStateEntity;
