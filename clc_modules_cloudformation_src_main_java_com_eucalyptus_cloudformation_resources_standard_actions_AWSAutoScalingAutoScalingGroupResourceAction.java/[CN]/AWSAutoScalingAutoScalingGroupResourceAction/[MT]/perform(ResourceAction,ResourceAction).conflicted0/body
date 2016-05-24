@@ -1,52 +1,57 @@
 {
   AWSAutoScalingAutoScalingGroupResourceAction oldAction=(AWSAutoScalingAutoScalingGroupResourceAction)oldResourceAction;
   AWSAutoScalingAutoScalingGroupResourceAction newAction=(AWSAutoScalingAutoScalingGroupResourceAction)newResourceAction;
+  SignalEntityManager.deleteSignals(newAction.getStackEntity().getStackId(),newAction.info.getAccountId(),newAction.info.getLogicalResourceId());
   ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
-  Map<String,Collection<String>> existingNotificationConfigurations=Maps.newHashMap();
-  DescribeNotificationConfigurationsType describeNotificationConfigurationsType=MessageHelper.createMessage(DescribeNotificationConfigurationsType.class,newAction.info.getEffectiveUserId());
-  AutoScalingGroupNames autoScalingGroupNames=new AutoScalingGroupNames();
-  autoScalingGroupNames.getMember().add(newAction.info.getPhysicalResourceId());
-  describeNotificationConfigurationsType.setAutoScalingGroupNames(autoScalingGroupNames);
-  DescribeNotificationConfigurationsResponseType describeNotificationConfigurationsResponseType=AsyncRequests.sendSync(configuration,describeNotificationConfigurationsType);
-  if (describeNotificationConfigurationsResponseType != null && describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult() != null && describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult().getNotificationConfigurations() != null && describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult().getNotificationConfigurations().getMember() != null) {
-    for (    NotificationConfiguration notificationConfiguration : describeNotificationConfigurationsResponseType.getDescribeNotificationConfigurationsResult().getNotificationConfigurations().getMember()) {
-      if (!existingNotificationConfigurations.containsKey(notificationConfiguration.getTopicARN())) {
-        existingNotificationConfigurations.put(notificationConfiguration.getTopicARN(),Sets.newHashSet());
+  if (newAction.info.getUpdatePolicyJson() == null)   return newAction;
+  UpdatePolicy updatePolicy=UpdatePolicy.parse(newAction.info.getUpdatePolicyJson());
+  if (updatePolicy.getAutoScalingRollingUpdate() == null)   return newAction;
+  RollingUpdateStateEntityManager.deleteRollingUpdateStateEntity(newAction.info.getAccountId(),newAction.getStackEntity().getStackId(),newAction.info.getLogicalResourceId());
+  RollingUpdateStateEntity rollingUpdateStateEntity=RollingUpdateStateEntityManager.createRollingUpdateStateEntity(newAction.info.getAccountId(),newAction.getStackEntity().getStackId(),newAction.info.getLogicalResourceId());
+  AutoScalingGroupType autoScalingGroupType=getExistingUniqueAutoscalingGroupType(configuration,newAction);
+  Set<String> badSuspendedProcesses=Sets.newHashSet();
+  Set<String> possibleBadSuspendedProcesses=ImmutableSet.of("Launch","Terminate");
+  Set<String> alreadySuspendedProcesses=Sets.newHashSet();
+  if (autoScalingGroupType.getSuspendedProcesses() != null && autoScalingGroupType.getSuspendedProcesses().getMember() != null) {
+    for (    SuspendedProcessType suspendedProcessType : autoScalingGroupType.getSuspendedProcesses().getMember()) {
+      alreadySuspendedProcesses.add(suspendedProcessType.getProcessName());
+    }
+  }
+  for (  String possibleBadSuspendedProcess : possibleBadSuspendedProcesses) {
+    if (alreadySuspendedProcesses.contains(possibleBadSuspendedProcess) || updatePolicy.getAutoScalingRollingUpdate().getSuspendProcesses().contains(possibleBadSuspendedProcess)) {
+      badSuspendedProcesses.add(possibleBadSuspendedProcess);
+    }
+  }
+  if (!badSuspendedProcesses.isEmpty()) {
+    throw new ResourceFailureException("Autoscaling rolling updates cannot be performed because the " + badSuspendedProcesses + " process(es) have been suspended; please resume these processes and then retry the update.");
+  }
+  Set<String> instanceIds=Sets.newHashSet();
+  for (  Instance instance : autoScalingGroupType.getInstances().getMember()) {
+    instanceIds.add(instance.getInstanceId());
+  }
+  Map<String,String> subnetMap=getSubnetMap(instanceIds,newAction.info.getEffectiveUserId());
+  for (  Instance instance : autoScalingGroupType.getInstances().getMember()) {
+    if (doesInstanceNeedReplacement(instance,subnetMap,newAction)) {
+      rollingUpdateStateEntity.setNeedsRollbackUpdate(true);
+      RollingUpdateStateEntityManager.updateRollingUpdateStateEntity(rollingUpdateStateEntity);
+      break;
+    }
+  }
+  if (rollingUpdateStateEntity.getNeedsRollbackUpdate() != Boolean.TRUE)   return newAction;
+  rollingUpdateStateEntity.setAlreadySuspendedProcessNames(Joiner.on(',').join(alreadySuspendedProcesses));
+  if (!updatePolicy.getAutoScalingRollingUpdate().getSuspendProcesses().isEmpty()) {
+    SuspendProcessesType suspendProcessesType=MessageHelper.createMessage(SuspendProcessesType.class,newAction.info.getEffectiveUserId());
+    suspendProcessesType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
+    ProcessNames processNames=new ProcessNames();
+    for (    String suspendProcess : updatePolicy.getAutoScalingRollingUpdate().getSuspendProcesses()) {
+      if (!alreadySuspendedProcesses.contains(suspendProcess)) {
+        processNames.getMember().add(suspendProcess);
       }
-      existingNotificationConfigurations.get(notificationConfiguration.getTopicARN()).add(notificationConfiguration.getNotificationType());
+    }
+    if (!processNames.getMember().isEmpty()) {
+      sendSyncWithRetryOnScalingEvent(configuration,suspendProcessesType);
     }
   }
-  Map<String,Collection<String>> newNotificationConfigurations=Maps.newHashMap();
-  if (newAction.properties.getNotificationConfigurations() != null) {
-    for (    AutoScalingNotificationConfiguration notificationConfiguration : newAction.properties.getNotificationConfigurations()) {
-      newNotificationConfigurations.put(notificationConfiguration.getTopicARN(),Sets.newHashSet(notificationConfiguration.getNotificationTypes()));
-    }
-  }
-  Map<String,Collection<String>> oldNotificationConfigurations=Maps.newHashMap();
-  if (newAction.properties.getNotificationConfigurations() != null) {
-    for (    AutoScalingNotificationConfiguration notificationConfiguration : newAction.properties.getNotificationConfigurations()) {
-      oldNotificationConfigurations.put(notificationConfiguration.getTopicARN(),Sets.newHashSet(notificationConfiguration.getNotificationTypes()));
-    }
-  }
-  for (  String topicArn : newNotificationConfigurations.keySet()) {
-    if (!existingNotificationConfigurations.containsKey(topicArn) || !existingNotificationConfigurations.get(topicArn).equals(newNotificationConfigurations.get(topicArn))) {
-      PutNotificationConfigurationType putNotificationConfigurationType=MessageHelper.createMessage(PutNotificationConfigurationType.class,newAction.info.getEffectiveUserId());
-      putNotificationConfigurationType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
-      putNotificationConfigurationType.setTopicARN(topicArn);
-      AutoScalingNotificationTypes autoScalingNotificationTypes=new AutoScalingNotificationTypes();
-      ArrayList<String> member=Lists.newArrayList(newNotificationConfigurations.get(topicArn));
-      autoScalingNotificationTypes.setMember(member);
-      putNotificationConfigurationType.setNotificationTypes(autoScalingNotificationTypes);
-      sendSyncWithRetryOnScalingEvent(configuration,putNotificationConfigurationType);
-    }
-  }
-  for (  String topicArn : oldNotificationConfigurations.keySet()) {
-    if (existingNotificationConfigurations.containsKey(topicArn) && !newNotificationConfigurations.containsKey(topicArn)) {
-      DeleteNotificationConfigurationType deleteNotificationConfigurationType=MessageHelper.createMessage(DeleteNotificationConfigurationType.class,newAction.info.getEffectiveUserId());
-      deleteNotificationConfigurationType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
-      deleteNotificationConfigurationType.setTopicARN(topicArn);
-      sendSyncWithRetryOnScalingEvent(configuration,deleteNotificationConfigurationType);
-    }
-  }
+  RollingUpdateStateEntityManager.updateRollingUpdateStateEntity(rollingUpdateStateEntity);
   return newAction;
 }

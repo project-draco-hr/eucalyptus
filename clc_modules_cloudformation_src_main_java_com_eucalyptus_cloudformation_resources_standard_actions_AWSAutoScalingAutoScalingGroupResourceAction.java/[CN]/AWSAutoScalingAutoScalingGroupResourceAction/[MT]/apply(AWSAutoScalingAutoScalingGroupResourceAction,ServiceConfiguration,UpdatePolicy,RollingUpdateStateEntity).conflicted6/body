@@ -1,21 +1,27 @@
 {
-  Set<String> obsoleteInstanceIds=Sets.newHashSet(Splitter.on(',').omitEmptyStrings().trimResults().split(rollingUpdateStateEntity.getObsoleteInstanceIds()));
+  Collection<ObsoleteInstance> obsoleteInstances=ObsoleteInstance.jsonToObsoleteInstances(rollingUpdateStateEntity.getObsoleteInstancesJson());
+  Collection<String> obsoleteButStillRunningInstanceIds=Lists.newArrayList();
+  for (  ObsoleteInstance obsoleteInstance : obsoleteInstances) {
+    if (obsoleteInstance.getLastKnownState() == TerminationState.RUNNING) {
+      obsoleteButStillRunningInstanceIds.add(obsoleteInstance.getInstanceId());
+    }
+  }
   AutoScalingGroupType autoScalingGroupType=getExistingUniqueAutoscalingGroupType(configuration,newAction);
-  if (obsoleteInstanceIds.isEmpty()) {
+  if (obsoleteButStillRunningInstanceIds.isEmpty()) {
     rollingUpdateStateEntity.setState(State.RESUME_PROCESSES);
     return rollingUpdateStateEntity;
   }
  else {
-    boolean isLastRound=(obsoleteInstanceIds.size() <= rollingUpdateStateEntity.getBatchSize());
-    Set<String> terminatingInstanceIds=Sets.newHashSet();
-    int numToTerminate=0;
-    for (    String obsoleteInstanceId : obsoleteInstanceIds) {
-      terminatingInstanceIds.add(obsoleteInstanceId);
-      if (++numToTerminate == rollingUpdateStateEntity.getBatchSize())       break;
+    boolean isLastRound=(obsoleteButStillRunningInstanceIds.size() <= rollingUpdateStateEntity.getBatchSize());
+    List<String> terminatingInstanceIds=Lists.newArrayList();
+    for (    ObsoleteInstance obsoleteInstance : obsoleteInstances) {
+      if (obsoleteInstance.getLastKnownState() == TerminationState.RUNNING) {
+        obsoleteInstance.setLastKnownState(TerminationState.TERMINATING);
+        terminatingInstanceIds.add(obsoleteInstance.getInstanceId());
+        if (terminatingInstanceIds.size() == rollingUpdateStateEntity.getBatchSize())         break;
+      }
     }
-    obsoleteInstanceIds.removeAll(terminatingInstanceIds);
-    rollingUpdateStateEntity.setTerminatingInstanceIds(Joiner.on(',').join(terminatingInstanceIds));
-    rollingUpdateStateEntity.setObsoleteInstanceIds(Joiner.on(',').join(obsoleteInstanceIds));
+    rollingUpdateStateEntity.setObsoleteInstancesJson(ObsoleteInstance.obsoleteInstancesToJson(obsoleteInstances));
     Set<String> allRunningInstanceIds=Sets.newHashSet();
     if (autoScalingGroupType.getInstances() != null && autoScalingGroupType.getInstances().getMember() != null) {
       for (      Instance instance : autoScalingGroupType.getInstances().getMember()) {
