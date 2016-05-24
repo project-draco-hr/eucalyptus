@@ -1,62 +1,18 @@
 {
-  Set<String> obsoleteInstanceIds=Sets.newHashSet(Splitter.on(',').omitEmptyStrings().trimResults().split(rollingUpdateStateEntity.getObsoleteInstanceIds()));
-  AutoScalingGroupType autoScalingGroupType=getExistingUniqueAutoscalingGroupType(configuration,newAction);
-  if (obsoleteInstanceIds.isEmpty()) {
-    rollingUpdateStateEntity.setState(State.RESUME_PROCESSES);
-    return rollingUpdateStateEntity;
-  }
- else {
-    boolean isLastRound=(obsoleteInstanceIds.size() <= rollingUpdateStateEntity.getBatchSize());
-    Set<String> terminatingInstanceIds=Sets.newHashSet();
-    int numToTerminate=0;
-    for (    String obsoleteInstanceId : obsoleteInstanceIds) {
-      terminatingInstanceIds.add(obsoleteInstanceId);
-      if (++numToTerminate == rollingUpdateStateEntity.getBatchSize())       break;
-    }
-    obsoleteInstanceIds.removeAll(terminatingInstanceIds);
-    rollingUpdateStateEntity.setTerminatingInstanceIds(Joiner.on(',').join(terminatingInstanceIds));
-    rollingUpdateStateEntity.setObsoleteInstanceIds(Joiner.on(',').join(obsoleteInstanceIds));
-    Set<String> allRunningInstanceIds=Sets.newHashSet();
-    if (autoScalingGroupType.getInstances() != null && autoScalingGroupType.getInstances().getMember() != null) {
-      for (      Instance instance : autoScalingGroupType.getInstances().getMember()) {
-        if (instance.getLifecycleState().equals("InService")) {
-          allRunningInstanceIds.add(instance.getInstanceId());
-        }
+  Set<String> alreadySuspendedProcesses=Sets.newHashSet(Splitter.on(',').omitEmptyStrings().trimResults().split(rollingUpdateStateEntity.getAlreadySuspendedProcessNames()));
+  if (!updatePolicy.getAutoScalingRollingUpdate().getSuspendProcesses().isEmpty()) {
+    ResumeProcessesType resumeProcessesType=MessageHelper.createMessage(ResumeProcessesType.class,newAction.info.getEffectiveUserId());
+    resumeProcessesType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
+    ProcessNames processNames=new ProcessNames();
+    for (    String suspendProcess : updatePolicy.getAutoScalingRollingUpdate().getSuspendProcesses()) {
+      if (!alreadySuspendedProcesses.contains(suspendProcess)) {
+        processNames.getMember().add(suspendProcess);
       }
     }
-    int replacementNum;
-    if (!isLastRound) {
-      replacementNum=terminatingInstanceIds.size();
-    }
- else {
-      int numGood=allRunningInstanceIds.size() - terminatingInstanceIds.size();
-      replacementNum=numGood > rollingUpdateStateEntity.getDesiredCapacity() ? 0 : rollingUpdateStateEntity.getDesiredCapacity() - numGood;
-    }
-    addStackEventForRollingUpdate(newAction,"Terminating instance(s) " + terminatingInstanceIds + "; replacing with "+ replacementNum+ " new instance(s).");
-    for (    String terminatingInstanceId : terminatingInstanceIds) {
-      TerminateInstanceInAutoScalingGroupType terminateInstanceInAutoScalingGroupType=MessageHelper.createMessage(TerminateInstanceInAutoScalingGroupType.class,newAction.info.getEffectiveUserId());
-      terminateInstanceInAutoScalingGroupType.setInstanceId(terminatingInstanceId);
-      terminateInstanceInAutoScalingGroupType.setShouldDecrementDesiredCapacity(false);
-      try {
-        sendSyncWithRetryOnScalingEvent(configuration,terminateInstanceInAutoScalingGroupType);
-      }
- catch (      final Exception e) {
-        final Optional<AsyncExceptions.AsyncWebServiceError> error=AsyncExceptions.asWebServiceError(e);
-        if (error.isPresent()) switch (Strings.nullToEmpty(error.get().getCode())) {
-case "ValidationError":
-          continue;
-      }
-      throw e;
+    if (!processNames.getMember().isEmpty()) {
+      sendSyncWithRetryOnScalingEvent(configuration,resumeProcessesType);
     }
   }
-  if (isLastRound) {
-    UpdateAutoScalingGroupType updateAutoScalingGroupType=MessageHelper.createMessage(UpdateAutoScalingGroupType.class,newAction.info.getEffectiveUserId());
-    updateAutoScalingGroupType.setAutoScalingGroupName(newAction.info.getPhysicalResourceId());
-    updateAutoScalingGroupType.setDesiredCapacity(rollingUpdateStateEntity.getDesiredCapacity());
-    updateAutoScalingGroupType.setMinSize(rollingUpdateStateEntity.getMinSize());
-    sendSyncWithRetryOnScalingEvent(configuration,updateAutoScalingGroupType);
-  }
-  rollingUpdateStateEntity.setState(State.WAIT_FOR_TERMINATE);
+  rollingUpdateStateEntity.setState(State.DONE);
   return rollingUpdateStateEntity;
-}
 }
