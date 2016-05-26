@@ -1,16 +1,25 @@
 {
   AWSCloudFormationStackResourceAction action=(AWSCloudFormationStackResourceAction)resourceAction;
-  if (StacksWithNoUpdateToPerformEntityManager.isStackWithNoUpdateToPerform(action.info.getPhysicalResourceId(),action.info.getAccountId())) {
-    return action;
-  }
-  if (StackUpdateInfoEntityManager.hasNoUpdateInfoRecord(action.info.getPhysicalResourceId(),action.info.getAccountId())) {
-    return action;
-  }
   ServiceConfiguration configuration=Topology.lookup(CloudFormation.class);
-  String status=getStackStatusAndReason(action,configuration).getStatus();
-  if (!Status.UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS.toString().equals(status)) {
-    throw new ResourceFailureException("Update rollback cleanup stack called when status is " + status + " for stack "+ action.info.getPhysicalResourceId());
+  if (!Boolean.TRUE.equals(action.info.getCreatedEnoughToDelete()))   return action;
+  DescribeStacksType describeStacksType=MessageHelper.createMessage(DescribeStacksType.class,action.info.getEffectiveUserId());
+  describeStacksType.setStackName(action.info.getPhysicalResourceId());
+  DescribeStacksResponseType describeStacksResponseType=AsyncRequests.<DescribeStacksType,DescribeStacksResponseType>sendSync(configuration,describeStacksType);
+  if (describeStacksResponseType.getDescribeStacksResult() == null || describeStacksResponseType.getDescribeStacksResult().getStacks() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember() == null || describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().isEmpty()) {
+    return action;
   }
-  UpdateStackPartsWorkflowKickOff.kickOffUpdateRollbackCleanupStackWorkflow(action.info.getPhysicalResourceId(),action.info.getAccountId(),action.info.getEffectiveUserId());
+  if (describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().size() > 1) {
+    throw new ResourceFailureException("More than one stack returned for stack " + action.info.getPhysicalResourceId());
+  }
+  String status=describeStacksResponseType.getDescribeStacksResult().getStacks().getMember().get(0).getStackStatus();
+  if (status == null) {
+    throw new ResourceFailureException("Null status for stack " + action.info.getPhysicalResourceId());
+  }
+  if (status.equals(Status.DELETE_COMPLETE.toString())) {
+    return action;
+  }
+  DeleteStackType deleteStackType=MessageHelper.createMessage(DeleteStackType.class,action.info.getEffectiveUserId());
+  deleteStackType.setStackName(action.info.getPhysicalResourceId());
+  AsyncRequests.<DeleteStackType,DeleteStackResponseType>sendSync(configuration,deleteStackType);
   return action;
 }

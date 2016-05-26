@@ -2,84 +2,32 @@
   AWSEC2InstanceResourceAction oldAction=(AWSEC2InstanceResourceAction)oldResourceAction;
   AWSEC2InstanceResourceAction newAction=(AWSEC2InstanceResourceAction)newResourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  DescribeInstancesType describeInstancesType=MessageHelper.createMessage(DescribeInstancesType.class,newAction.info.getEffectiveUserId());
-  describeInstancesType.getFilterSet().add(Filter.filter("instance-id",newAction.info.getPhysicalResourceId()));
-  DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.sendSync(configuration,describeInstancesType);
-  if (describeInstancesResponseType.getReservationSet().size() == 0) {
-    throw new ValidationErrorException("Instance " + newAction.info.getPhysicalResourceId() + " does not exist");
-  }
-  RunningInstancesItemType runningInstancesItemType=describeInstancesResponseType.getReservationSet().get(0).getInstancesSet().get(0);
-  DescribeInstanceAttributeType describeInstanceAttributeType1=MessageHelper.createMessage(DescribeInstanceAttributeType.class,newAction.info.getEffectiveUserId());
-  describeInstanceAttributeType1.setInstanceId(newAction.info.getPhysicalResourceId());
-  describeInstanceAttributeType1.setAttribute("ebsOptimized");
-  DescribeInstanceAttributeResponseType describeInstanceAttributeResponseType1=AsyncRequests.sendSync(configuration,describeInstanceAttributeType1);
-  if (!Objects.equals(describeInstanceAttributeResponseType1.getEbsOptimized(),newAction.properties.getEbsOptimized())) {
-    if (newAction.properties.getEbsOptimized() != null) {
-      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
-      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
-      modifyInstanceAttributeType.setEbsOptimized(convertToAttributeBooleanFlatValueType(newAction.properties.getEbsOptimized()));
-      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
-    }
- else {
-      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
-      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
-      modifyInstanceAttributeType.setEbsOptimized(convertToAttributeBooleanFlatValueType(false));
-      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
-    }
-  }
-  if (!Objects.equals(runningInstancesItemType.getInstanceType(),newAction.properties.getInstanceType())) {
-    if (newAction.properties.getInstanceType() != null) {
-      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
-      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
-      modifyInstanceAttributeType.setInstanceType(convertToAttributeValueType(newAction.properties.getInstanceType()));
-      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
-    }
- else {
-      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
-      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
-      modifyInstanceAttributeType.setInstanceType(convertToAttributeValueType("m1.small"));
-      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
+  Map<String,String> oldVolumeDeviceMap=getVolumeDeviceMap(oldAction);
+  Map<String,String> newVolumeDeviceMap=getVolumeDeviceMap(newAction);
+  Map<String,String> detachingVolumeDeviceMap=getDetachingVolumeDeviceMap(oldVolumeDeviceMap,newVolumeDeviceMap);
+  boolean stillAttached=false;
+  DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,newAction.info.getEffectiveUserId());
+  if (!detachingVolumeDeviceMap.isEmpty()) {
+    describeVolumesType.getFilterSet().add(Filter.filter("volume-id",detachingVolumeDeviceMap.keySet()));
+    DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.sendSync(configuration,describeVolumesType);
+    if (describeVolumesResponseType != null && describeVolumesResponseType.getVolumeSet() != null) {
+      for (      Volume volume : describeVolumesResponseType.getVolumeSet()) {
+        if (!detachingVolumeDeviceMap.containsKey(volume.getVolumeId()))         continue;
+        if (volume.getAttachmentSet() != null) {
+          for (          AttachedVolume attachedVolume : volume.getAttachmentSet()) {
+            if (detachingVolumeDeviceMap.containsKey(attachedVolume.getVolumeId()) && newAction.info.getPhysicalResourceId().equals(attachedVolume.getInstanceId()) && detachingVolumeDeviceMap.get(attachedVolume.getVolumeId()).equals(attachedVolume.getDevice())) {
+              if (!"detached".equals(attachedVolume.getStatus())) {
+                stillAttached=true;
+                break;
+              }
+            }
+          }
+        }
+      }
     }
   }
-  if (!Objects.equals(runningInstancesItemType.getKernel(),newAction.properties.getKernelId())) {
-    if (newAction.properties.getKernelId() != null) {
-      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
-      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
-      modifyInstanceAttributeType.setKernel(convertToAttributeValueType(newAction.properties.getKernelId()));
-      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
-    }
- else {
-      resetInstanceAttribute(configuration,newAction,"kernel");
-    }
-  }
-  if (!Objects.equals(runningInstancesItemType.getRamdisk(),newAction.properties.getRamdiskId())) {
-    if (newAction.properties.getRamdiskId() != null) {
-      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
-      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
-      modifyInstanceAttributeType.setRamdisk(convertToAttributeValueType(newAction.properties.getRamdiskId()));
-      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
-    }
- else {
-      resetInstanceAttribute(configuration,newAction,"ramdisk");
-    }
-  }
-  DescribeInstanceAttributeType describeInstanceAttributeType2=MessageHelper.createMessage(DescribeInstanceAttributeType.class,newAction.info.getEffectiveUserId());
-  describeInstanceAttributeType2.setInstanceId(newAction.info.getPhysicalResourceId());
-  describeInstanceAttributeType2.setAttribute("userData");
-  DescribeInstanceAttributeResponseType describeInstanceAttributeResponseType2=AsyncRequests.sendSync(configuration,describeInstanceAttributeType2);
-  if (!Objects.equals(Strings.nullToEmpty(describeInstanceAttributeResponseType2.getUserData()),Strings.nullToEmpty(newAction.properties.getUserData()))) {
-    if (newAction.properties.getUserData() != null) {
-      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
-      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
-      modifyInstanceAttributeType.setUserData(convertToAttributeValueType(newAction.properties.getUserData()));
-      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
-    }
- else {
-      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
-      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
-      modifyInstanceAttributeType.setUserData(convertToAttributeValueType(""));
-      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
-    }
+  if (stillAttached) {
+    throw new RetryAfterConditionCheckFailedException("One or more volumes is not yet detached from the instance");
   }
   return newAction;
 }

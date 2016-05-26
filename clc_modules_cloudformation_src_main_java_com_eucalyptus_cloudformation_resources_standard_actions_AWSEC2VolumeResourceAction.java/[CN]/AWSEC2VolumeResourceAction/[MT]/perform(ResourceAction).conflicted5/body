@@ -2,8 +2,15 @@
   AWSEC2VolumeResourceAction action=(AWSEC2VolumeResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
   if (volumeDeleted(action,configuration))   return action;
-  DeleteVolumeType deleteVolumeType=MessageHelper.createMessage(DeleteVolumeType.class,action.info.getEffectiveUserId());
-  deleteVolumeType.setVolumeId(action.info.getPhysicalResourceId());
-  AsyncRequests.<DeleteVolumeType,DeleteVolumeResponseType>sendSync(configuration,deleteVolumeType);
+  if (!("Snapshot".equals(action.info.getDeletionPolicy())))   return action;
+  CreateSnapshotType createSnapshotType=MessageHelper.createMessage(CreateSnapshotType.class,action.info.getEffectiveUserId());
+  createSnapshotType.setVolumeId(action.info.getPhysicalResourceId());
+  CreateSnapshotResponseType createSnapshotResponseType=AsyncRequests.<CreateSnapshotType,CreateSnapshotResponseType>sendSync(configuration,createSnapshotType);
+  if (createSnapshotResponseType.getSnapshot() == null || createSnapshotResponseType.getSnapshot().getSnapshotId() == null) {
+    throw new ResourceFailureException("Unable to create snapshot on delete for volume " + action.info.getPhysicalResourceId());
+  }
+ else {
+    action.info.setSnapshotIdForDelete(JsonHelper.getStringFromJsonNode(new TextNode(createSnapshotResponseType.getSnapshot().getSnapshotId())));
+  }
   return action;
 }

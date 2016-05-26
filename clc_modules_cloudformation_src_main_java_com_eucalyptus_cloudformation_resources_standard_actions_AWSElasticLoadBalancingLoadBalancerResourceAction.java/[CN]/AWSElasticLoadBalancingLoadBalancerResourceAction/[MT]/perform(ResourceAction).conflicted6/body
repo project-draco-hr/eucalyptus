@@ -1,46 +1,34 @@
 {
-  AWSElasticLoadBalancingLoadBalancerResourceAction action=(AWSElasticLoadBalancingLoadBalancerResourceAction)resourceAction;
-  ServiceConfiguration configuration=Topology.lookup(LoadBalancing.class);
-  CreateLoadBalancerType createLoadBalancerType=MessageHelper.createMessage(CreateLoadBalancerType.class,action.info.getEffectiveUserId());
-  if (action.properties.getLoadBalancerName() == null) {
-    createLoadBalancerType.setLoadBalancerName(action.getDefaultPhysicalResourceId(32));
-  }
- else {
-    createLoadBalancerType.setLoadBalancerName(action.properties.getLoadBalancerName());
-  }
-  if (action.properties.getAvailabilityZones() != null && !action.properties.getAvailabilityZones().isEmpty()) {
-    AvailabilityZones availabilityZones=new AvailabilityZones();
-    ArrayList<String> member=Lists.newArrayList(action.properties.getAvailabilityZones());
-    availabilityZones.setMember(member);
-    createLoadBalancerType.setAvailabilityZones(availabilityZones);
-  }
-  if (action.properties.getListeners() != null) {
-    Listeners listeners=new Listeners();
-    ArrayList<Listener> member=Lists.newArrayList();
-    for (    ElasticLoadBalancingListener elasticLoadBalancingListener : action.properties.getListeners()) {
-      Listener listener=convertListener(elasticLoadBalancingListener);
-      member.add(listener);
+  final AWSElasticLoadBalancingLoadBalancerResourceAction action=(AWSElasticLoadBalancingLoadBalancerResourceAction)resourceAction;
+  final ServiceConfiguration configuration=Topology.lookup(LoadBalancing.class);
+  final boolean accessLogging=action.properties.getAccessLoggingPolicy() != null;
+  final boolean crossZone=action.properties.getCrossZone() != null && Boolean.TRUE.equals(action.properties.getCrossZone());
+  final boolean idleTimeout=action.properties.getConnectionSettings() != null && action.properties.getConnectionSettings().getIdleTimeout() != null;
+  if (accessLogging || crossZone || idleTimeout) {
+    ModifyLoadBalancerAttributesType modifyLoadBalancerAttributesType=MessageHelper.createMessage(ModifyLoadBalancerAttributesType.class,action.info.getEffectiveUserId());
+    modifyLoadBalancerAttributesType.setLoadBalancerName(action.info.getPhysicalResourceId());
+    LoadBalancerAttributes loadBalancerAttributes=new LoadBalancerAttributes();
+    if (accessLogging) {
+      final ElasticLoadBalancingAccessLoggingPolicy accessLoggingPolicy=action.properties.getAccessLoggingPolicy();
+      final AccessLog accessLog=new AccessLog();
+      accessLog.setEnabled(accessLoggingPolicy.getEnabled());
+      accessLog.setEmitInterval(accessLoggingPolicy.getEmitInterval());
+      accessLog.setS3BucketName(accessLoggingPolicy.getS3BucketName());
+      accessLog.setS3BucketPrefix(accessLoggingPolicy.getS3BucketPrefix());
+      loadBalancerAttributes.setAccessLog(accessLog);
     }
-    listeners.setMember(member);
-    createLoadBalancerType.setListeners(listeners);
+    if (crossZone) {
+      CrossZoneLoadBalancing crossZoneLoadBalancing=new CrossZoneLoadBalancing();
+      crossZoneLoadBalancing.setEnabled(Boolean.TRUE);
+      loadBalancerAttributes.setCrossZoneLoadBalancing(crossZoneLoadBalancing);
+    }
+    if (idleTimeout) {
+      ConnectionSettings connectionSettings=new ConnectionSettings();
+      connectionSettings.setIdleTimeout(action.properties.getConnectionSettings().getIdleTimeout());
+      loadBalancerAttributes.setConnectionSettings(connectionSettings);
+    }
+    modifyLoadBalancerAttributesType.setLoadBalancerAttributes(loadBalancerAttributes);
+    AsyncRequests.<ModifyLoadBalancerAttributesType,ModifyLoadBalancerAttributesResponseType>sendSync(configuration,modifyLoadBalancerAttributesType);
   }
-  createLoadBalancerType.setScheme(action.properties.getScheme());
-  if (action.properties.getSecurityGroups() != null && !action.properties.getSecurityGroups().isEmpty()) {
-    SecurityGroups securityGroups=new SecurityGroups();
-    ArrayList<String> member=Lists.newArrayList(action.properties.getSecurityGroups());
-    securityGroups.setMember(member);
-    createLoadBalancerType.setSecurityGroups(securityGroups);
-  }
-  if (action.properties.getSubnets() != null && !action.properties.getSubnets().isEmpty()) {
-    Subnets subnets=new Subnets();
-    ArrayList<String> member=Lists.newArrayList(action.properties.getSubnets());
-    subnets.setMember(member);
-    createLoadBalancerType.setSubnets(subnets);
-  }
-  CreateLoadBalancerResponseType createLoadBalancerResponseType=AsyncRequests.<CreateLoadBalancerType,CreateLoadBalancerResponseType>sendSync(configuration,createLoadBalancerType);
-  action.info.setPhysicalResourceId(createLoadBalancerType.getLoadBalancerName());
-  action.info.setCreatedEnoughToDelete(true);
-  action.info.setDnsName(JsonHelper.getStringFromJsonNode(new TextNode(createLoadBalancerResponseType.getCreateLoadBalancerResult().getDnsName())));
-  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
   return action;
 }

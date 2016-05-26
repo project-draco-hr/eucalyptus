@@ -1,20 +1,29 @@
 {
   AWSEC2VolumeResourceAction action=(AWSEC2VolumeResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  if (volumeDeleted(action,configuration))   return action;
-  if (!("Snapshot".equals(action.info.getDeletionPolicy())))   return action;
-  DescribeSnapshotsType describeSnapshotsType=MessageHelper.createMessage(DescribeSnapshotsType.class,action.info.getEffectiveUserId());
-  String snapshotId=JsonHelper.getJsonNodeFromString(action.info.getSnapshotIdForDelete()).asText();
-  describeSnapshotsType.getFilterSet().add(Filter.filter("snapshot-id",snapshotId));
-  DescribeSnapshotsResponseType describeSnapshotsResponseType=AsyncRequests.sendSync(configuration,describeSnapshotsType);
-  if (describeSnapshotsResponseType.getSnapshotSet() == null || describeSnapshotsResponseType.getSnapshotSet().isEmpty()) {
-    throw new RetryAfterConditionCheckFailedException("Snapshot " + snapshotId + " not yet complete");
+  CreateVolumeType createVolumeType=MessageHelper.createMessage(CreateVolumeType.class,action.info.getEffectiveUserId());
+  createVolumeType.setAvailabilityZone(action.properties.getAvailabilityZone());
+  if (action.properties.getEncrypted() != null) {
+    createVolumeType.setEncrypted(action.properties.getEncrypted());
   }
-  if ("error".equals(describeSnapshotsResponseType.getSnapshotSet().get(0).getStatus())) {
-    throw new ResourceFailureException("Error creating snapshot " + snapshotId + ", while deleting volume "+ action.info.getPhysicalResourceId());
+  if (action.properties.getIops() != null) {
+    createVolumeType.setIops(action.properties.getIops());
   }
- else   if (!"completed".equals(describeSnapshotsResponseType.getSnapshotSet().get(0).getStatus())) {
-    throw new RetryAfterConditionCheckFailedException("Snapshot " + snapshotId + " not yet complete");
+  if (action.properties.getSize() != null) {
+    createVolumeType.setSize(action.properties.getSize());
   }
+  if (action.properties.getSnapshotId() != null) {
+    createVolumeType.setSnapshotId(action.properties.getSnapshotId());
+  }
+  if (action.properties.getVolumeType() != null) {
+    createVolumeType.setVolumeType(action.properties.getVolumeType());
+  }
+ else {
+    createVolumeType.setVolumeType("standard");
+  }
+  CreateVolumeResponseType createVolumeResponseType=AsyncRequests.<CreateVolumeType,CreateVolumeResponseType>sendSync(configuration,createVolumeType);
+  action.info.setPhysicalResourceId(createVolumeResponseType.getVolume().getVolumeId());
+  action.info.setCreatedEnoughToDelete(true);
+  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
   return action;
 }
