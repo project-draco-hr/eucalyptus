@@ -1,51 +1,38 @@
 {
   AWSAutoScalingAutoScalingGroupResourceAction action=(AWSAutoScalingAutoScalingGroupResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(AutoScaling.class);
-  CreationPolicy creationPolicy=CreationPolicy.parse(action.info.getCreationPolicyJson());
-  if (creationPolicy != null && creationPolicy.getResourceSignal() != null) {
-    Set<String> instanceIds=Sets.newHashSet();
-    DescribeAutoScalingGroupsType describeAutoScalingGroupsType=MessageHelper.createMessage(DescribeAutoScalingGroupsType.class,action.info.getEffectiveUserId());
-    AutoScalingGroupNames autoScalingGroupNames=new AutoScalingGroupNames();
-    autoScalingGroupNames.getMember().add(action.info.getPhysicalResourceId());
-    describeAutoScalingGroupsType.setAutoScalingGroupNames(autoScalingGroupNames);
-    DescribeAutoScalingGroupsResponseType describeAutoScalingGroupsResponseType=AsyncRequests.sendSync(configuration,describeAutoScalingGroupsType);
-    if (describeAutoScalingGroupsResponseType != null && describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult() != null && describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult().getAutoScalingGroups() != null && describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember() != null) {
-      for (      AutoScalingGroupType autoScalingGroupType : describeAutoScalingGroupsResponseType.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember()) {
-        if (!Objects.equals(autoScalingGroupType.getAutoScalingGroupName(),action.info.getPhysicalResourceId()))         continue;
-        if (autoScalingGroupType.getInstances() != null && autoScalingGroupType.getInstances().getMember() != null) {
-          for (          Instance instance : autoScalingGroupType.getInstances().getMember()) {
-            instanceIds.add(instance.getInstanceId());
-          }
-        }
-      }
-    }
-    Collection<SignalEntity> signals=SignalEntityManager.getSignals(action.getStackEntity().getStackId(),action.info.getAccountId(),action.info.getLogicalResourceId(),action.getStackEntity().getStackVersion());
-    int numSuccessSignals=0;
-    if (signals != null) {
-      for (      SignalEntity signal : signals) {
-        if (signal.getProcessed() && signal.getStatus() == SignalEntity.Status.SUCCESS) {
-          numSuccessSignals++;
-          continue;
-        }
-        if (!instanceIds.contains(signal.getUniqueId()))         continue;
-        if (signal.getStatus() == SignalEntity.Status.FAILURE) {
-          throw new ResourceFailureException("Received FAILURE signal with UniqueId " + signal.getUniqueId());
-        }
-        if (!signal.getProcessed()) {
-          StackEventEntityManager.addSignalStackEvent(signal);
-          signal.setProcessed(true);
-          SignalEntityManager.updateSignal(signal);
-        }
-        numSuccessSignals++;
-      }
-    }
-    if (numSuccessSignals < creationPolicy.getResourceSignal().getCount()) {
-      long durationMs=System.currentTimeMillis() - Long.valueOf(JsonHelper.getJsonNodeFromString(action.info.getEucaCreateStartTime()).asText());
-      if (TimeUnit.MILLISECONDS.toSeconds(durationMs) > creationPolicy.getResourceSignal().getTimeout()) {
-        throw new ResourceFailureException("Failed to receive " + creationPolicy.getResourceSignal().getCount() + " resource signal(s) within the specified duration");
-      }
-      throw new RetryAfterConditionCheckFailedException("Not enough success signals yet");
-    }
+  String autoScalingGroupName=action.getDefaultPhysicalResourceId();
+  CreateAutoScalingGroupType createAutoScalingGroupType=MessageHelper.createMessage(CreateAutoScalingGroupType.class,action.info.getEffectiveUserId());
+  createAutoScalingGroupType.setAutoScalingGroupName(autoScalingGroupName);
+  if (action.properties.getInstanceId() != null) {
+    throw new ValidationErrorException("InstanceId not supported");
   }
+  if (action.properties.getLaunchConfigurationName() == null) {
+    throw new ValidationErrorException("LaunchConfiguration required (as InstanceId not supported)");
+  }
+  if (action.properties.getAvailabilityZones() != null) {
+    createAutoScalingGroupType.setAvailabilityZones(new AvailabilityZones(action.properties.getAvailabilityZones()));
+  }
+  createAutoScalingGroupType.setDefaultCooldown(action.properties.getCooldown());
+  createAutoScalingGroupType.setDesiredCapacity(action.properties.getDesiredCapacity());
+  createAutoScalingGroupType.setHealthCheckGracePeriod(action.properties.getHealthCheckGracePeriod());
+  createAutoScalingGroupType.setHealthCheckType(action.properties.getHealthCheckType());
+  createAutoScalingGroupType.setLaunchConfigurationName(action.properties.getLaunchConfigurationName());
+  if (action.properties.getLoadBalancerNames() != null) {
+    createAutoScalingGroupType.setLoadBalancerNames(new LoadBalancerNames(action.properties.getLoadBalancerNames()));
+  }
+  createAutoScalingGroupType.setMaxSize(action.properties.getMaxSize());
+  createAutoScalingGroupType.setMinSize(action.properties.getMinSize());
+  if (action.properties.getTerminationPolicies() != null) {
+    createAutoScalingGroupType.setTerminationPolicies(new TerminationPolicies(action.properties.getTerminationPolicies()));
+  }
+  if (action.properties.getVpcZoneIdentifier() != null) {
+    createAutoScalingGroupType.setVpcZoneIdentifier(Strings.emptyToNull(Joiner.on(",").join(action.properties.getVpcZoneIdentifier())));
+  }
+  AsyncRequests.<CreateAutoScalingGroupType,CreateAutoScalingGroupResponseType>sendSync(configuration,createAutoScalingGroupType);
+  action.info.setPhysicalResourceId(autoScalingGroupName);
+  action.info.setCreatedEnoughToDelete(true);
+  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
+  action.info.setEucaCreateStartTime(JsonHelper.getStringFromJsonNode(new TextNode("" + System.currentTimeMillis())));
   return action;
 }

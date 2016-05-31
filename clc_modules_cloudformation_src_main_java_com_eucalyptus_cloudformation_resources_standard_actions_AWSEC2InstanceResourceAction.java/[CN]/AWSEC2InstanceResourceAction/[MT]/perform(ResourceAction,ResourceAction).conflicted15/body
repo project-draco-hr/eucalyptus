@@ -1,3 +1,87 @@
 {
-  return UpdateNoInterruptionSteps.DETACH_OLD_VOLUMES.perform(oldResourceAction,newResourceAction);
+  AWSEC2InstanceResourceAction oldAction=(AWSEC2InstanceResourceAction)oldResourceAction;
+  AWSEC2InstanceResourceAction newAction=(AWSEC2InstanceResourceAction)newResourceAction;
+  ServiceConfiguration configuration=Topology.lookup(Compute.class);
+  DescribeInstancesType describeInstancesType=MessageHelper.createMessage(DescribeInstancesType.class,newAction.info.getEffectiveUserId());
+  describeInstancesType.getFilterSet().add(Filter.filter("instance-id",newAction.info.getPhysicalResourceId()));
+  DescribeInstancesResponseType describeInstancesResponseType=AsyncRequests.sendSync(configuration,describeInstancesType);
+  if (describeInstancesResponseType.getReservationSet().size() == 0) {
+    throw new ValidationErrorException("Instance " + newAction.info.getPhysicalResourceId() + " does not exist");
+  }
+  RunningInstancesItemType runningInstancesItemType=describeInstancesResponseType.getReservationSet().get(0).getInstancesSet().get(0);
+  if (!blockDeviceMappingsDeleteOnTerminateEquals(runningInstancesItemType.getBlockDevices(),newAction.properties.getBlockDeviceMappings())) {
+    if (newAction.properties.getBlockDeviceMappings() != null && !newAction.properties.getBlockDeviceMappings().isEmpty()) {
+      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
+      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
+      modifyInstanceAttributeType.setBlockDeviceMappingSet(convertToBlockMappingWithDeleteOnTerminateValues(newAction.properties.getBlockDeviceMappings()));
+      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
+    }
+ else {
+      if (oldAction.properties.getBlockDeviceMappings() != null && !oldAction.properties.getBlockDeviceMappings().isEmpty()) {
+        throw new ValidationErrorException("Unable to update block device mappings.  Null value somehow equated with non-null value");
+      }
+    }
+  }
+  if (!Objects.equals(runningInstancesItemType.getDisableApiTermination(),newAction.properties.getDisableApiTermination())) {
+    if (newAction.properties.getDisableApiTermination() != null) {
+      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
+      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
+      modifyInstanceAttributeType.setDisableApiTermination(convertToAttributeBooleanValueType(newAction.properties.getDisableApiTermination()));
+      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
+    }
+ else {
+      resetInstanceAttribute(configuration,newAction,"disableApiTermination");
+    }
+  }
+  if (!Objects.equals(BoolToString(runningInstancesItemType.getInstanceInitiatedShutdownBehavior()),newAction.properties.getInstanceInitiatedShutdownBehavior())) {
+    if (newAction.properties.getInstanceInitiatedShutdownBehavior() != null) {
+      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
+      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
+      modifyInstanceAttributeType.setInstanceInitiatedShutdownBehavior(convertToAttributeValueType(newAction.properties.getInstanceInitiatedShutdownBehavior()));
+      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
+    }
+ else {
+      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
+      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
+      modifyInstanceAttributeType.setInstanceInitiatedShutdownBehavior(convertToAttributeValueType("stop"));
+      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
+    }
+  }
+  if (runningInstancesItemType.getVpcId() != null) {
+    List<String> newGroups=defaultSecurityGroupInVpcIfNullOrEmpty(configuration,runningInstancesItemType.getVpcId(),newAction.info.getEffectiveUserId(),newAction.properties.getSecurityGroupIds());
+    if (!groupIdsEquals(runningInstancesItemType.getGroupSet(),newGroups)) {
+      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
+      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
+      modifyInstanceAttributeType.setGroupIdSet(convertToGroupIdSet(newGroups));
+      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
+    }
+  }
+  if (!Objects.equals(runningInstancesItemType.getMonitoring(),BoolToString(newAction.properties.getMonitoring()))) {
+    if (!Boolean.TRUE.equals(newAction.properties.getMonitoring())) {
+      UnmonitorInstancesType unmonitorInstancesType=MessageHelper.createMessage(UnmonitorInstancesType.class,newAction.info.getEffectiveUserId());
+      unmonitorInstancesType.setInstancesSet(Lists.newArrayList(newAction.info.getPhysicalResourceId()));
+      AsyncRequests.sendSync(configuration,unmonitorInstancesType);
+    }
+ else {
+      MonitorInstancesType monitorInstancesType=MessageHelper.createMessage(MonitorInstancesType.class,newAction.info.getEffectiveUserId());
+      monitorInstancesType.setInstancesSet(Lists.newArrayList(newAction.info.getPhysicalResourceId()));
+      AsyncRequests.sendSync(configuration,monitorInstancesType);
+    }
+  }
+  DescribeInstanceAttributeType describeInstanceAttributeType=MessageHelper.createMessage(DescribeInstanceAttributeType.class,newAction.info.getEffectiveUserId());
+  describeInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
+  describeInstanceAttributeType.setAttribute("sourceDestCheck");
+  DescribeInstanceAttributeResponseType describeInstanceAttributeResponseType=AsyncRequests.sendSync(configuration,describeInstanceAttributeType);
+  if (!Objects.equals(describeInstanceAttributeResponseType.getSourceDestCheck(),newAction.properties.getSourceDestCheck())) {
+    if (newAction.properties.getSourceDestCheck() != null) {
+      ModifyInstanceAttributeType modifyInstanceAttributeType=MessageHelper.createMessage(ModifyInstanceAttributeType.class,newAction.info.getEffectiveUserId());
+      modifyInstanceAttributeType.setInstanceId(newAction.info.getPhysicalResourceId());
+      modifyInstanceAttributeType.setSourceDestCheck(convertToAttributeBooleanValueType(newAction.properties.getSourceDestCheck()));
+      AsyncRequests.sendSync(configuration,modifyInstanceAttributeType);
+    }
+ else {
+      resetInstanceAttribute(configuration,newAction,"sourceDestCheck");
+    }
+  }
+  return newAction;
 }

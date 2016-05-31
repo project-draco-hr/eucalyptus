@@ -1,12 +1,20 @@
 {
   AWSEC2NatGatewayResourceAction action=(AWSEC2NatGatewayResourceAction)resourceAction;
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
-  CreateNatGatewayType createNatGatewayType=MessageHelper.createMessage(CreateNatGatewayType.class,action.info.getEffectiveUserId());
-  createNatGatewayType.setAllocationId(action.properties.getAllocationId());
-  createNatGatewayType.setSubnetId(action.properties.getSubnetId());
-  CreateNatGatewayResponseType createNatGatewayResponseType=AsyncRequests.sendSync(configuration,createNatGatewayType);
-  action.info.setPhysicalResourceId(createNatGatewayResponseType.getNatGateway().getNatGatewayId());
-  action.info.setCreatedEnoughToDelete(true);
-  action.info.setReferenceValueJson(JsonHelper.getStringFromJsonNode(new TextNode(action.info.getPhysicalResourceId())));
+  DescribeNatGatewaysType describeNatGatewaysType=MessageHelper.createMessage(DescribeNatGatewaysType.class,action.info.getEffectiveUserId());
+  describeNatGatewaysType.getFilterSet().add(Filter.filter("nat-gateway-id",action.info.getPhysicalResourceId()));
+  DescribeNatGatewaysResponseType describeNatGatewaysResponseType;
+  try {
+    describeNatGatewaysResponseType=AsyncRequests.sendSync(configuration,describeNatGatewaysType);
+  }
+ catch (  final Exception e) {
+    throw new ValidationErrorException("Error describing nat gateway " + action.info.getPhysicalResourceId() + ":"+ asWebServiceErrorMessage(e,e.getMessage()));
+  }
+  if (describeNatGatewaysResponseType.getNatGatewaySet() == null || describeNatGatewaysResponseType.getNatGatewaySet().getItem() == null || describeNatGatewaysResponseType.getNatGatewaySet().getItem().size() == 0) {
+    throw new RetryAfterConditionCheckFailedException("Nat gateway " + action.info.getPhysicalResourceId() + " not yet available");
+  }
+  if (!"available".equals(describeNatGatewaysResponseType.getNatGatewaySet().getItem().get(0).getState())) {
+    throw new RetryAfterConditionCheckFailedException("Nat gateway " + action.info.getPhysicalResourceId() + " not yet available");
+  }
   return action;
 }

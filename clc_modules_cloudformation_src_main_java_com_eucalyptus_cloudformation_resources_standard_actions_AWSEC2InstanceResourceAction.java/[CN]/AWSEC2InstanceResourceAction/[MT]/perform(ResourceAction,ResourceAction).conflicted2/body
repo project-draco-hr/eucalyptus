@@ -4,24 +4,13 @@
   ServiceConfiguration configuration=Topology.lookup(Compute.class);
   Map<String,String> oldVolumeDeviceMap=getVolumeDeviceMap(oldAction);
   Map<String,String> newVolumeDeviceMap=getVolumeDeviceMap(newAction);
-  Map<String,String> detachingVolumeDeviceMap=getDetachingVolumeDeviceMap(oldVolumeDeviceMap,newVolumeDeviceMap);
-  DescribeVolumesType describeVolumesType=MessageHelper.createMessage(DescribeVolumesType.class,newAction.info.getEffectiveUserId());
-  describeVolumesType.getFilterSet().add(Filter.filter("volume-id",detachingVolumeDeviceMap.keySet()));
-  DescribeVolumesResponseType describeVolumesResponseType=AsyncRequests.sendSync(configuration,describeVolumesType);
-  if (describeVolumesResponseType != null && describeVolumesResponseType.getVolumeSet() != null) {
-    for (    Volume volume : describeVolumesResponseType.getVolumeSet()) {
-      if (!detachingVolumeDeviceMap.containsKey(volume.getVolumeId()))       continue;
-      if (volume.getAttachmentSet() != null) {
-        for (        AttachedVolume attachedVolume : volume.getAttachmentSet()) {
-          if (detachingVolumeDeviceMap.containsKey(attachedVolume.getVolumeId()) && newAction.info.getPhysicalResourceId().equals(attachedVolume.getInstanceId()) && detachingVolumeDeviceMap.get(attachedVolume.getVolumeId()).equals(attachedVolume.getDevice())) {
-            DetachVolumeType detachVolumeType=MessageHelper.createMessage(DetachVolumeType.class,newAction.info.getEffectiveUserId());
-            detachVolumeType.setVolumeId(attachedVolume.getVolumeId());
-            detachVolumeType.setInstanceId(newAction.info.getPhysicalResourceId());
-            AsyncRequests.sendSync(configuration,detachVolumeType);
-          }
-        }
-      }
-    }
+  Map<String,String> attachingVolumeDeviceMap=getAttachingVolumeDeviceMap(oldVolumeDeviceMap,newVolumeDeviceMap);
+  for (  String volumeId : attachingVolumeDeviceMap.keySet()) {
+    AttachVolumeType attachVolumeType=MessageHelper.createMessage(AttachVolumeType.class,newAction.info.getEffectiveUserId());
+    attachVolumeType.setVolumeId(volumeId);
+    attachVolumeType.setInstanceId(newAction.info.getPhysicalResourceId());
+    attachVolumeType.setDevice(attachingVolumeDeviceMap.get(volumeId));
+    AsyncRequests.<AttachVolumeType,AttachVolumeResponseType>sendSync(configuration,attachVolumeType);
   }
   return newAction;
 }
