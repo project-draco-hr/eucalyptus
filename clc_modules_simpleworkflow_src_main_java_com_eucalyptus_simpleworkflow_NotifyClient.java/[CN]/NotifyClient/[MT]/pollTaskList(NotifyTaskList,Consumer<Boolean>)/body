@@ -2,7 +2,19 @@
   final Consumer<Boolean> consumer=Consumers.once(resultConsumer);
   final PollForNotificationType poll=new PollForNotificationType();
   poll.setChannel(taskList.getChannelName());
-  final ListenableFuture<PollForNotificationResponseType> dispatchFuture=AsyncRequests.dispatch(Topology.lookup(PolledNotifications.class),poll);
+  if (Bootstrap.isShuttingDown()) {
+    delayedPollFailure(1000L,consumer);
+    return;
+  }
+  final ServiceConfiguration polledNotificationsConfiguration;
+  try {
+    polledNotificationsConfiguration=Topology.lookup(PolledNotifications.class);
+  }
+ catch (  final NoSuchElementException e) {
+    delayedPollFailure(5000L,consumer);
+    return;
+  }
+  final ListenableFuture<PollForNotificationResponseType> dispatchFuture=AsyncRequests.dispatch(polledNotificationsConfiguration,poll);
   dispatchFuture.addListener(new Runnable(){
     @Override public void run(){
       try {
@@ -13,7 +25,12 @@
         logger.info("Interrupted while polling for task " + poll.getChannel(),e);
       }
 catch (      final ExecutionException e) {
-        handleExecutionExceptionForPolling(e,poll);
+        if (Bootstrap.isShuttingDown()) {
+          logger.info("Error polling for task " + poll.getChannel() + ": "+ Exceptions.getCauseMessage(e));
+        }
+ else {
+          handleExecutionExceptionForPolling(e,poll);
+        }
       }
 catch (      final Exception e) {
         logger.error("Error polling for task " + poll.getChannel(),e);
