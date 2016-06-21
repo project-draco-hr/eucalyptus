@@ -27,14 +27,26 @@
   }
  else   if (securityGroupIdsToNames.size() == 1) {
     if (securityGroupIdsToNames.values().contains(generateDefaultVPCSecurityGroupName(lb.getVpcId()))) {
-      final String groupId=Iterables.getOnlyElement(securityGroupIdsToNames.keySet());
-      for (      Listener listener : listeners) {
-        int port=listener.getLoadBalancerPort();
-        try {
-          EucalyptusActivityTasks.getInstance().authorizeSystemSecurityGroup(groupId,protocol,port,lb.useSystemAccount());
+      boolean isRuleEmpty=false;
+      try {
+        final SecurityGroupItemType defaultGroup=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsByName(evt.getContext().getAccount(),lb.getVpcId(),securityGroupIdsToNames.values().stream().findAny().get()).stream().findAny().get();
+        if (defaultGroup.getIpPermissions() == null || defaultGroup.getIpPermissions().isEmpty()) {
+          isRuleEmpty=true;
         }
- catch (        Exception ex) {
-          throw new EventHandlerException(String.format("failed to authorize %s, %s, %d",groupId,protocol,port),ex);
+      }
+ catch (      final Exception ex) {
+        isRuleEmpty=false;
+      }
+      if (isRuleEmpty) {
+        final String groupId=Iterables.getOnlyElement(securityGroupIdsToNames.keySet());
+        for (        Listener listener : listeners) {
+          int port=listener.getLoadBalancerPort();
+          try {
+            EucalyptusActivityTasks.getInstance().authorizeSystemSecurityGroup(groupId,protocol,port,lb.useSystemAccount());
+          }
+ catch (          Exception ex) {
+            throw new EventHandlerException(String.format("failed to authorize %s, %s, %d",groupId,protocol,port),ex);
+          }
         }
       }
     }
