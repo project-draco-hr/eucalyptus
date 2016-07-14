@@ -1,0 +1,22 @@
+{
+  try (final TransactionResource tx=Entities.transactionFor(PrivateAddress.class)){
+    final List<PrivateAddress> addresses=Entities.criteriaQuery(PrivateAddress.class).join(PrivateAddress_.instance).join(VmInstance_.networkConfig).join(VmNetworkConfig_.networkInterfaces).join(NetworkInterface_.attachment).whereEqual(NetworkInterfaceAttachment_.deviceIndex,0).list();
+    for (    final PrivateAddress address : addresses) {
+      final PrivateAddressReferrer referrer=address.getReference();
+      if (referrer instanceof VmInstance) {
+        final VmInstance instance=(VmInstance)referrer;
+        final NetworkInterface networkInterface=Iterables.get(instance.getNetworkInterfaces(),0,null);
+        if (networkInterface != null) {
+          LOG.info("Updating private ip " + address.getDisplayName() + " owner from "+ instance.getDisplayName()+ " to "+ networkInterface.getDisplayName());
+          try {
+            address.reclaim(networkInterface);
+          }
+ catch (          final ResourceAllocationException e) {
+            LOG.error("Error changing owner for private ip " + address.getDisplayName(),e);
+          }
+        }
+      }
+    }
+    tx.commit();
+  }
+ }
