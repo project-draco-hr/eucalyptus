@@ -1,0 +1,30 @@
+{
+  if (!OpenIdConnectProvider.isUrlValid(url))   throw new AuthException(AuthException.INVALID_OPENID_PROVIDER_URL);
+  try {
+    final EuareOpenIdConnectProvider found=lookupOpenIdConnectProvider(url);
+    if (found != null)     throw new AuthException(AuthException.OPENID_PROVIDER_ALREADY_EXISTS);
+    return found;
+  }
+ catch (  final NoSuchElementException ex) {
+    ;
+  }
+catch (  final AuthException ex) {
+    if (!AuthException.OPENID_PROVIDER_NO_SUCH_ENTITY.equals(ex.getMessage()))     throw ex;
+  }
+catch (  final Exception ex) {
+    throw ex;
+  }
+  try (final TransactionResource db=Entities.transactionFor(AccountEntity.class)){
+    final AccountEntity account=DatabaseAuthUtils.getUnique(AccountEntity.class,AccountEntity_.name,this.delegate.getName());
+    final OpenIdProviderEntity newOpenIdProvider=new OpenIdProviderEntity(url);
+    newOpenIdProvider.getClientIDs().addAll(clientIDList);
+    newOpenIdProvider.getThumbprints().addAll(thumbprintList);
+    final OpenIdProviderEntity persistedOpenIdProvider=Entities.persist(newOpenIdProvider);
+    db.commit();
+    return new DatabaseOpenIdProviderProxy(persistedOpenIdProvider);
+  }
+ catch (  Exception e) {
+    Debugging.logError(LOG,e,"Failed to add openid connect provider: " + url + " in "+ this.delegate.getName());
+    throw new AuthException(AuthException.OPENID_PROVIDER_CREATE_FAILURE,e);
+  }
+}

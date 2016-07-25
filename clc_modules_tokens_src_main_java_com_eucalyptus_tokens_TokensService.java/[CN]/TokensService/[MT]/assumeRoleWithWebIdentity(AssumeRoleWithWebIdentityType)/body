@@ -1,0 +1,24 @@
+{
+  final AssumeRoleWithWebIdentityResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final Subject subject=ctx.getSubject();
+  final Set<QueryIdCredential> queryIdCreds=subject == null ? Collections.<QueryIdCredential>emptySet() : subject.getPublicCredentials(QueryIdCredential.class);
+  if (queryIdCreds.size() == 1 && Iterables.get(queryIdCreds,0).getType().isPresent() && Iterables.get(queryIdCreds,0).getType().get() != TemporaryAccessKey.TemporaryKeyType.Access) {
+    throw new TokensException(TokensException.Code.MissingAuthenticationToken,"Temporary credential not permitted.");
+  }
+  rejectPasswordCredentials();
+  final BaseRole role=lookupRole(request.getRoleArn());
+  try {
+    final SecurityToken token=SecurityTokenManager.issueSecurityToken(role,Objects.firstNonNull(request.getDurationSeconds(),(int)TimeUnit.HOURS.toSeconds(1)));
+    reply.getAssumeRoleResult().setCredentials(new CredentialsType(token.getAccessKeyId(),token.getSecretKey(),token.getToken(),token.getExpires()));
+    reply.getAssumeRoleResult().setAssumedRoleUser(new AssumedRoleUserType(role.getRoleId() + ":" + request.getRoleSessionName(),assumedRoleArn(role,request.getRoleSessionName())));
+  }
+ catch (  final SecurityTokenValidationException e) {
+    throw new TokensException(TokensException.Code.ValidationError,e.getMessage());
+  }
+catch (  final AuthException e) {
+    throw new EucalyptusCloudException(e.getMessage(),e);
+  }
+  return reply;
+}
