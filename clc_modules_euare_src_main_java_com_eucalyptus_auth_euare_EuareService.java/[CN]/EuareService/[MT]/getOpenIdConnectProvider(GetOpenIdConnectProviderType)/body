@@ -1,0 +1,21 @@
+{
+  final GetOpenIdConnectProviderResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final AuthContext requestUser=getAuthContext(ctx);
+  final EuareAccount account=getRealAccount(ctx,request);
+  if (!Permissions.perhapsAuthorized(PolicySpec.VENDOR_IAM,PolicySpec.IAM_LISTOPENIDCONNECTPROVIDERS,ctx.getAuthContext())) {
+    throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to list openid connect providers");
+  }
+  try (final AutoCloseable euareTx=readonlyTx()){
+    EuareOpenIdConnectProvider provider=account.getOpenIdConnectProvider(openIdConnectProviderArnToUrl(request.getOpenIDConnectProviderArn()));
+    if (Privileged.allowListOpenIdConnectProviders(requestUser,account,request.getOpenIDConnectProviderArn())) {
+      fillOpenIdConnectProviderResult(reply.getGetOpenIdConnectProviderResult(),provider);
+    }
+  }
+ catch (  Exception e) {
+    LOG.error(e,e);
+    throw new EucalyptusCloudException(e);
+  }
+  return reply;
+}
