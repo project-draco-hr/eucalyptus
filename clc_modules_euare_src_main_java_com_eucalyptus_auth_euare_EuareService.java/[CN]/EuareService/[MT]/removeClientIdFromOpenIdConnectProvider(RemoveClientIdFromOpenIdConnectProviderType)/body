@@ -1,0 +1,21 @@
+{
+  final RemoveClientIdFromOpenIdConnectProviderResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final AuthContext requestUser=getAuthContext(ctx);
+  final EuareAccount account=getRealAccount(ctx,request);
+  final EuareOpenIdConnectProvider openIdConnectProviderFound=lookupOpenIdConnectProvider(account,openIdConnectProviderArnToUrl(request.getOpenIDConnectProviderArn()));
+  try {
+    Privileged.removeClientIdFromOpenIdConnectProvider(requestUser,account,openIdConnectProviderFound,request.getClientID());
+  }
+ catch (  Exception e) {
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.NOT_AUTHORIZED,"Not authorized to remove clientid from openid connect provider by " + ctx.getUser().getName());
+      }
+    }
+    LOG.error(e,e);
+    throw new EucalyptusCloudException(e);
+  }
+  return reply;
+}
