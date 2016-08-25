@@ -25,9 +25,9 @@
     final String jwks_n=(String)(keyData).get("n");
     final String jwks_e=(String)(keyData).get("e");
     final String jwks_alg=(String)(keyData).get("alg");
-    final String thumbprint=DigestUtils.sha1Hex(jwks_n);
-    if (!provider.getThumbprints().contains(thumbprint)) {
-      throw new TokensException(TokensException.Code.ValidationError,"thumbprint does not match");
+    final String thumbprint=getServerCertThumbprint((String)config.get("jwks_uri"));
+    if (!provider.getThumbprints().contains(thumbprint.toLowerCase())) {
+      throw new TokensException(TokensException.Code.ValidationError,"SSL Certificate thumbprint does not match");
     }
     final BigInteger modulus=new BigInteger(1,Base64.decodeBase64(jwks_n));
     final BigInteger publicExponent=new BigInteger(1,Base64.decodeBase64(jwks_e));
@@ -43,7 +43,7 @@
     if (!(provider.getClientIds().contains(jwtBody.get("aud")))) {
       throw new TokensException(TokensException.Code.ValidationError,"clientID does not match");
     }
-    final String expiration=(String)jwtBody.get("exp");
+    final long expiration=(long)jwtBody.getLong("exp") * 1000;
     if (new Date(expiration).compareTo(new Date()) < 0) {
       throw new TokensException(TokensException.Code.ValidationError,"web token has expired");
     }
@@ -51,28 +51,10 @@
     reply.getAssumeRoleWithWebIdentityResult().setCredentials(new CredentialsType(token.getAccessKeyId(),token.getSecretKey(),token.getToken(),token.getExpires()));
     reply.getAssumeRoleWithWebIdentityResult().setAssumedRoleUser(new AssumedRoleUserType(role.getRoleId() + ":" + request.getRoleSessionName(),assumedRoleArn(role,request.getRoleSessionName())));
   }
- catch (  final NoSuchProviderException e) {
+ catch (  CertificateEncodingException|NoSuchProviderException|NoSuchAlgorithmException|InvalidKeySpecException e) {
     throw new TokensException(TokensException.Code.ValidationError,e.getMessage());
   }
-catch (  final NoSuchAlgorithmException e) {
-    throw new TokensException(TokensException.Code.ValidationError,e.getMessage());
-  }
-catch (  final InvalidKeySpecException e) {
-    throw new TokensException(TokensException.Code.ValidationError,e.getMessage());
-  }
-catch (  final InvalidKeyException e) {
-    throw new TokensException(TokensException.Code.ValidationError,e.getMessage());
-  }
-catch (  final SignatureException e) {
-    throw new TokensException(TokensException.Code.ValidationError,e.getMessage());
-  }
-catch (  final IOException e) {
-    throw new TokensException(TokensException.Code.ValidationError,e.getMessage());
-  }
-catch (  final JSONException e) {
-    throw new TokensException(TokensException.Code.ValidationError,e.getMessage());
-  }
-catch (  final SecurityTokenValidationException e) {
+catch (  InvalidKeyException|SignatureException|IOException|JSONException|SecurityTokenValidationException e) {
     throw new TokensException(TokensException.Code.ValidationError,e.getMessage());
   }
 catch (  final AuthException e) {
