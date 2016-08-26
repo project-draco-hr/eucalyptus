@@ -1,11 +1,16 @@
 {
   boolean usePasswordAuth=false;
+  boolean isAnonymous=false;
   if (event.getMessage() instanceof MappingHttpRequest) {
     final MappingHttpRequest httpRequest=(MappingHttpRequest)event.getMessage();
+    isAnonymous="AssumeRoleWithWebIdentity".equals(OperationParameter.getParameter(httpRequest.getParameters()));
     usePasswordAuth=!httpRequest.getParameters().containsKey(SecurityParameter.SignatureVersion.parameter()) && !httpRequest.getParameters().containsKey(SecurityParameter.X_Amz_Algorithm.parameter()) && !SecurityHeader.Value.AWS4_HMAC_SHA256.matches(httpRequest.getHeader(HttpHeaders.Names.AUTHORIZATION));
   }
   final ChannelPipeline stagePipeline=Channels.pipeline();
-  if (usePasswordAuth) {
+  if (isAnonymous) {
+    stagePipeline.addLast("tokens-anonymous",new AnonymousRequestHandler());
+  }
+ else   if (usePasswordAuth) {
     stagePipeline.addLast("tokens-password-authentication",new AccountUsernamePasswordHandler());
   }
  else {
