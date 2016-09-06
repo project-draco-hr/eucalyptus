@@ -1,0 +1,46 @@
+{
+  if (LOG.isTraceEnabled()) {
+    LOG.trace("Message attribtues: " + messageAttributes);
+  }
+  List<String> sortedAttributeNames=new ArrayList<String>(messageAttributes.keySet());
+  Collections.sort(sortedAttributeNames);
+  MessageDigest md5Digest=null;
+  try {
+    md5Digest=MessageDigest.getInstance("MD5");
+    for (    String attrName : sortedAttributeNames) {
+      MessageAttributeValue attrValue=messageAttributes.get(attrName);
+      updateLengthAndBytes(md5Digest,attrName);
+      updateLengthAndBytes(md5Digest,attrValue.getDataType());
+      if (attrValue.getStringValue() != null) {
+        md5Digest.update(STRING_TYPE_FIELD_INDEX);
+        updateLengthAndBytes(md5Digest,attrValue.getStringValue());
+      }
+ else       if (attrValue.getBinaryValue() != null) {
+        md5Digest.update(BINARY_TYPE_FIELD_INDEX);
+        ByteBuffer byteBuffer=ByteBuffer.wrap(Base64.decode(attrValue.getBinaryValue()));
+        updateLengthAndBytes(md5Digest,byteBuffer);
+      }
+ else       if (attrValue.getStringListValue() != null && attrValue.getStringListValue().size() > 0) {
+        md5Digest.update(STRING_LIST_TYPE_FIELD_INDEX);
+        for (        String strListMember : attrValue.getStringListValue()) {
+          updateLengthAndBytes(md5Digest,strListMember);
+        }
+      }
+ else       if (attrValue.getBinaryListValue() != null && attrValue.getBinaryListValue().size() > 0) {
+        md5Digest.update(BINARY_LIST_TYPE_FIELD_INDEX);
+        for (        String byteListMember : attrValue.getBinaryListValue()) {
+          ByteBuffer byteBuffer=ByteBuffer.wrap(Base64.decode(byteListMember));
+          updateLengthAndBytes(md5Digest,byteBuffer);
+        }
+      }
+    }
+  }
+ catch (  Exception e) {
+    throw new EucalyptusCloudException("Unable to calculate the MD5 hash of the message attributes. " + e.getMessage(),e);
+  }
+  String expectedMd5Hex=BinaryUtils.toHex(md5Digest.digest());
+  if (LOG.isTraceEnabled()) {
+    LOG.trace("Expected  MD5 of message attributes: " + expectedMd5Hex);
+  }
+  return expectedMd5Hex;
+}
