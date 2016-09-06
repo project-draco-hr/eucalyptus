@@ -13,31 +13,18 @@
     final String identityToken=request.getWebIdentityToken();
     final String[] jwtParts=identityToken.split("\\.");
     final JSONObject jwtBody=JSONObject.fromObject(new String(Base64.decodeBase64(jwtParts[1])));
-    final String jwtSignature=jwtParts[2];
     final Ern roleArn=Ern.parse(request.getRoleArn());
     final String roleAccountId=roleArn.getAccount();
     final EuareOpenIdConnectProvider provider=lookupOpenIdConnectProvider(roleAccountId,(String)jwtBody.get("iss"));
-    final String configJson=readUrl((String)jwtBody.get("iss") + "/.well-known/openid-configuration");
+    final String configJson=readUrl((String)jwtBody.get("iss") + "/.well-known/openid-configuration").getLeft();
     final JSONObject config=JSONObject.fromObject(configJson);
-    final String keysJson=readUrl((String)config.get("jwks_uri"));
-    final JSONObject keys=JSONObject.fromObject(keysJson);
-    final JSONObject keyData=(JSONObject)((JSONArray)keys.get("keys")).get(0);
-    final String jwks_n=(String)(keyData).get("n");
-    final String jwks_e=(String)(keyData).get("e");
-    final String jwks_alg=(String)(keyData).get("alg");
-    final String thumbprint=getServerCertThumbprint((String)config.get("jwks_uri"));
+    final Pair<String,Certificate[]> readResult=readUrl((String)config.get("jwks_uri"));
+    final String thumbprint=getServerCertThumbprint(readResult.getRight()[0]);
     if (!provider.getThumbprints().contains(thumbprint)) {
       throw new TokensException(TokensException.Code.ValidationError,"SSL Certificate thumbprint does not match");
     }
-    final BigInteger modulus=new BigInteger(1,Base64.decodeBase64(jwks_n));
-    final BigInteger publicExponent=new BigInteger(1,Base64.decodeBase64(jwks_e));
-    final PublicKey key=KeyFactory.getInstance("RSA").generatePublic(new RSAPublicKeySpec(modulus,publicExponent));
-    final byte[] sigBytes=new Base64(true).decode(jwtParts[2]);
-    final byte[] bytesToSign=(jwtParts[0] + "." + jwtParts[1]).getBytes();
-    final Signature sig=Signature.getInstance("SHA512withRSA","BC");
-    sig.initVerify(key);
-    sig.update(bytesToSign);
-    if (!sig.verify(sigBytes)) {
+    final String keysJson=readResult.getLeft();
+    if (isSignatureVerified(jwtParts,keysJson)) {
       throw new TokensException(TokensException.Code.ValidationError,"signature not valid");
     }
     if (!(provider.getClientIds().contains(jwtBody.get("aud")))) {
