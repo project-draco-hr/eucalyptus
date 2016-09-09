@@ -1,26 +1,31 @@
 {
   Debugging.logError(LOG,null,"in Database layer: createOpenIdConnectProvider()");
-  if (!OpenIdConnectProvider.isUrlValid(url))   throw new AuthException(AuthException.INVALID_OPENID_PROVIDER_URL);
+  final OIDCIssuerIdentifier issuerIdentifier;
+  final String issuerUrl;
   try {
-    final EuareOpenIdConnectProvider found=lookupOpenIdConnectProvider(url);
-    if (found != null)     throw new AuthException(AuthException.OPENID_PROVIDER_ALREADY_EXISTS);
-    return found;
+    issuerIdentifier=OIDCUtils.parseIssuerIdentifier(url);
+    issuerUrl=issuerIdentifier.getHost() + issuerIdentifier.getPath();
+    if (issuerUrl.length() > 255) {
+      throw new AuthException(AuthException.INVALID_OPENID_PROVIDER_URL);
+    }
   }
- catch (  final NoSuchElementException ex) {
-    ;
+ catch (  final IllegalArgumentException e) {
+    throw new AuthException(AuthException.INVALID_OPENID_PROVIDER_URL);
   }
-catch (  final AuthException ex) {
-    if (!AuthException.OPENID_PROVIDER_NO_SUCH_ENTITY.equals(ex.getMessage()))     throw ex;
+  try {
+    lookupOpenIdConnectProvider(issuerUrl);
+    throw new AuthException(AuthException.OPENID_PROVIDER_ALREADY_EXISTS);
   }
-catch (  final Exception ex) {
-    throw ex;
+ catch (  final AuthException ex) {
+    if (!AuthException.OPENID_PROVIDER_NO_SUCH_ENTITY.equals(ex.getMessage())) {
+      throw ex;
+    }
   }
   try (final TransactionResource db=Entities.transactionFor(AccountEntity.class)){
     final AccountEntity account=DatabaseAuthUtils.getUnique(AccountEntity.class,AccountEntity_.name,this.delegate.getName());
-    final OpenIdProviderEntity newOpenIdProvider=new OpenIdProviderEntity(url);
+    final OpenIdProviderEntity newOpenIdProvider=OpenIdProviderEntity.create(account,issuerIdentifier.getHost(),issuerIdentifier.getPort(),issuerIdentifier.getPath());
     newOpenIdProvider.getClientIDs().addAll(clientIDList);
     newOpenIdProvider.getThumbprints().addAll(thumbprintList);
-    newOpenIdProvider.setAccount(account);
     final OpenIdProviderEntity persistedOpenIdProvider=Entities.persist(newOpenIdProvider);
     db.commit();
     return new DatabaseOpenIdProviderProxy(persistedOpenIdProvider);
