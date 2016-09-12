@@ -1,0 +1,21 @@
+{
+  final EucalyptusWebServiceException webServiceException=Exceptions.findCause(messagingEx,EucalyptusWebServiceException.class);
+  Object payload=messagingEx.getFailedMessage().getPayload();
+  BaseMessage msg=convert(payload);
+  if (msg != null) {
+    if (webServiceException != null) {
+      final Optional<Integer> statusCodeOptional=ErrorHandlerSupport.getHttpResponseStatus(webServiceException);
+      final HttpResponseStatus status=!statusCodeOptional.isPresent() ? HttpResponseStatus.INTERNAL_SERVER_ERROR : new HttpResponseStatus(statusCodeOptional.get(),"");
+      Contexts.response(new ExceptionResponseType(msg,webServiceException.getCode(),webServiceException.getMessage(),status,webServiceException));
+    }
+ else {
+      final Throwable cause=messagingEx.getCause();
+      Contexts.response(new ExceptionResponseType(msg,cause.getMessage(),HttpResponseStatus.NOT_ACCEPTABLE,cause));
+    }
+  }
+ else {
+    LOG.error("Failed to identify request context for received error: " + messagingEx.toString());
+    final Throwable cause=messagingEx.getCause();
+    Contexts.responseError(new WebServicesException("Failed to identify request context for received error: " + messagingEx.toString() + " while handling error: "+ cause.getMessage(),cause,HttpResponseStatus.NOT_ACCEPTABLE));
+  }
+}
