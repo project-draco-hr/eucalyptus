@@ -1,3 +1,37 @@
 {
-  return VmState.RUNNING.apply(arg0) && (System.currentTimeMillis() > arg0.getExpiration().getTime());
+  try {
+    final VmInstance vm=Entities.uniqueResult(VmInstance.named(null,v.getInstanceId()));
+    final boolean pendingTimeout=Timeout.PENDING.apply(vm);
+    final boolean unreportedTimeout=Timeout.UNREPORTED.apply(vm);
+    final Pair<VmState,VmInstance.Reason> stateAndReason;
+    if (VmStateSet.RUN.apply(vm) && unreportedTimeout) {
+      stateAndReason=Pair.pair(VmState.SHUTTING_DOWN,VmInstance.Reason.EXPIRED);
+    }
+ else     if (VmStateSet.RUN.apply(vm) && pendingTimeout) {
+      stateAndReason=Pair.pair(VmState.TERMINATED,VmInstance.Reason.FAILED);
+    }
+ else     if (VmStateSet.RUN.apply(vm)) {
+      stateAndReason=Pair.pair(VmState.SHUTTING_DOWN,VmInstance.Reason.USER_TERMINATED);
+    }
+ else     if (VmState.SHUTTING_DOWN.equals(vm.getState()) && (Timeout.SHUTTING_DOWN.apply(vm) || VmInstance.Reason.EXPIRED.apply(vm))) {
+      stateAndReason=Pair.pair(VmState.TERMINATED,VmInstance.Reason.EXPIRED);
+    }
+ else     if (VmState.SHUTTING_DOWN.equals(vm.getState())) {
+      stateAndReason=Pair.pair(VmState.TERMINATED,VmInstance.Reason.USER_TERMINATED);
+    }
+ else     if (VmState.STOPPED.equals(vm.getState())) {
+      stateAndReason=Pair.pair(VmState.TERMINATED,VmInstance.Reason.USER_TERMINATED);
+    }
+ else {
+      stateAndReason=null;
+    }
+    if (stateAndReason != null) {
+      setState(vm,stateAndReason.getLeft(),stateAndReason.getRight());
+    }
+    return vm;
+  }
+ catch (  final Exception ex) {
+    Logs.extreme().trace(ex,ex);
+    throw new NoSuchElementException("Failed to lookup instance: " + v);
+  }
 }
