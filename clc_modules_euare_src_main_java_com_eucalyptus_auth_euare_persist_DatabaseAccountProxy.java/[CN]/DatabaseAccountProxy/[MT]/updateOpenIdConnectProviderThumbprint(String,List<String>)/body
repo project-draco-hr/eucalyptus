@@ -3,6 +3,12 @@
   if (url == null) {
     throw new AuthException(AuthException.EMPTY_OPENID_PROVIDER_URL);
   }
+  if (thumbprintList == null || thumbprintList.isEmpty() || !thumbprintList.stream().allMatch(EuareOpenIdConnectProvider.THUMPRINT_PATTERN.asPredicate())) {
+    throw new AuthException(AuthException.INVALID_OPENID_PROVIDER_THUMBPRINT);
+  }
+  if (thumbprintList.size() > AuthenticationLimitProvider.Values.getOpenIdConnectProviderThumprintLimit()) {
+    throw new AuthException(AuthException.QUOTA_EXCEEDED);
+  }
   try (final TransactionResource db=Entities.transactionFor(OpenIdProviderEntity.class)){
     final OpenIdProviderEntity provider=DatabaseAuthUtils.getUniqueOpenIdConnectProvider(url,accountName);
     provider.getThumbprints().clear();
@@ -11,7 +17,7 @@
     return;
   }
  catch (  Exception e) {
-    Debugging.logError(LOG,e,"Failed to delete openid connect provider: " + url + " in "+ accountName);
+    Debugging.logError(LOG,e,"Failed to update openid connect provider: " + url + " in "+ accountName);
     throw new AuthException(AuthException.NO_SUCH_OPENID_CONNECT_PROVIDER,e);
   }
 }
