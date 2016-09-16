@@ -1,0 +1,24 @@
+{
+  final DeleteOpenIdConnectProviderResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final AuthContext requestUser=getAuthContext(ctx);
+  final EuareAccount account=getRealAccount(ctx,request);
+  final EuareOpenIdConnectProvider openIdConnectProviderFound=lookupOpenIdConnectProvider(account,openIdConnectProviderArnToUrl(request.getOpenIDConnectProviderArn()));
+  try {
+    Privileged.deleteOpenIdConnectProvider(requestUser,account,openIdConnectProviderFound);
+  }
+ catch (  Exception e) {
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.ACCESS_DENIED,"Not authorized to delete openid connect provider by " + ctx.getUser().getName());
+      }
+ else       if (AuthException.NO_SUCH_OPENID_CONNECT_PROVIDER.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.VALIDATION_ERROR,"Provider not found : " + request.getOpenIDConnectProviderArn());
+      }
+    }
+    LOG.error(e,e);
+    throw new EucalyptusCloudException(e);
+  }
+  return reply;
+}

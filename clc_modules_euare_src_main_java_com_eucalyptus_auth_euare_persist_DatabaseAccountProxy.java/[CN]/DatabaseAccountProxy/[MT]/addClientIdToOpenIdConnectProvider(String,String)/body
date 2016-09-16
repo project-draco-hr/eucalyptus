@@ -1,0 +1,24 @@
+{
+  final String accountName=this.delegate.getName();
+  if (url == null) {
+    throw new AuthException(AuthException.EMPTY_OPENID_PROVIDER_URL);
+  }
+  if (clientId == null || !EuareOpenIdConnectProvider.CLIENT_ID_PATTERN.matcher(clientId).matches()) {
+    throw new AuthException(AuthException.INVALID_OPENID_PROVIDER_CLIENT_ID);
+  }
+  try (final TransactionResource db=Entities.transactionFor(OpenIdProviderEntity.class)){
+    final OpenIdProviderEntity provider=DatabaseAuthUtils.getUniqueOpenIdConnectProvider(url,accountName);
+    if (!provider.getClientIDs().contains(clientId)) {
+      provider.getClientIDs().add(clientId);
+    }
+    if (provider.getClientIDs().size() > AuthenticationLimitProvider.Values.getOpenIdConnectProviderClientIdLimit()) {
+      throw new AuthException(AuthException.QUOTA_EXCEEDED);
+    }
+    db.commit();
+    return;
+  }
+ catch (  Exception e) {
+    Debugging.logError(LOG,e,"Failed to delete openid connect provider: " + url + " in "+ accountName);
+    throw new AuthException(AuthException.NO_SUCH_OPENID_CONNECT_PROVIDER,e);
+  }
+}

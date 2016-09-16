@@ -1,0 +1,49 @@
+{
+  Debugging.logError(LOG,null,"in Database layer: createOpenIdConnectProvider()");
+  final OIDCIssuerIdentifier issuerIdentifier;
+  final String issuerUrl;
+  try {
+    issuerIdentifier=OIDCUtils.parseIssuerIdentifier(url);
+    issuerUrl=issuerIdentifier.getHost() + issuerIdentifier.getPath();
+    if (issuerUrl.length() > 255) {
+      throw new AuthException(AuthException.INVALID_OPENID_PROVIDER_URL);
+    }
+  }
+ catch (  final IllegalArgumentException e) {
+    throw new AuthException(AuthException.INVALID_OPENID_PROVIDER_URL);
+  }
+  if (thumbprintList == null || thumbprintList.isEmpty() || !thumbprintList.stream().allMatch(EuareOpenIdConnectProvider.THUMPRINT_PATTERN.asPredicate())) {
+    throw new AuthException(AuthException.INVALID_OPENID_PROVIDER_THUMBPRINT);
+  }
+  if (thumbprintList.size() > AuthenticationLimitProvider.Values.getOpenIdConnectProviderThumprintLimit()) {
+    throw new AuthException(AuthException.QUOTA_EXCEEDED);
+  }
+  if (clientIDList != null && !clientIDList.stream().allMatch(EuareOpenIdConnectProvider.CLIENT_ID_PATTERN.asPredicate())) {
+    throw new AuthException(AuthException.INVALID_OPENID_PROVIDER_CLIENT_ID);
+  }
+  if (clientIDList != null && clientIDList.size() > AuthenticationLimitProvider.Values.getOpenIdConnectProviderClientIdLimit()) {
+    throw new AuthException(AuthException.QUOTA_EXCEEDED);
+  }
+  try {
+    lookupOpenIdConnectProvider(issuerUrl);
+    throw new AuthException(AuthException.OPENID_PROVIDER_ALREADY_EXISTS);
+  }
+ catch (  final AuthException ex) {
+    if (!AuthException.NO_SUCH_OPENID_CONNECT_PROVIDER.equals(ex.getMessage())) {
+      throw ex;
+    }
+  }
+  try (final TransactionResource db=Entities.transactionFor(AccountEntity.class)){
+    final AccountEntity account=DatabaseAuthUtils.getUnique(AccountEntity.class,AccountEntity_.name,this.delegate.getName());
+    final OpenIdProviderEntity newOpenIdProvider=OpenIdProviderEntity.create(account,issuerIdentifier.getHost(),issuerIdentifier.getPort(),issuerIdentifier.getPath());
+    newOpenIdProvider.getClientIDs().addAll(clientIDList);
+    newOpenIdProvider.getThumbprints().addAll(thumbprintList);
+    final OpenIdProviderEntity persistedOpenIdProvider=Entities.persist(newOpenIdProvider);
+    db.commit();
+    return new DatabaseOpenIdProviderProxy(persistedOpenIdProvider);
+  }
+ catch (  Exception e) {
+    Debugging.logError(LOG,e,"Failed to add openid connect provider: " + url + " in "+ this.delegate.getName());
+    throw new AuthException(AuthException.OPENID_PROVIDER_CREATE_FAILURE,e);
+  }
+}

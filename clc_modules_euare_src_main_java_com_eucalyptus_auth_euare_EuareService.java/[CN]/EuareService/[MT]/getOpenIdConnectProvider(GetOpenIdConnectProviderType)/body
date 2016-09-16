@@ -1,0 +1,29 @@
+{
+  final GetOpenIdConnectProviderResponseType reply=request.getReply();
+  reply.getResponseMetadata().setRequestId(reply.getCorrelationId());
+  final Context ctx=Contexts.lookup();
+  final AuthContext requestUser=getAuthContext(ctx);
+  final EuareAccount account=getRealAccount(ctx,request);
+  final String url=openIdConnectProviderArnToUrl(request.getOpenIDConnectProviderArn());
+  try (final AutoCloseable euareTx=readonlyTx()){
+    if (!Privileged.allowGetOpenIdConnectProvider(requestUser,account,url)) {
+      throw new AuthException(AuthException.ACCESS_DENIED);
+    }
+    EuareOpenIdConnectProvider provider=account.getOpenIdConnectProvider(url);
+    fillOpenIdConnectProviderResult(reply.getGetOpenIdConnectProviderResult(),provider);
+  }
+ catch (  Exception e) {
+    Exceptions.findAndRethrow(e,EuareException.class);
+    if (e instanceof AuthException) {
+      if (AuthException.ACCESS_DENIED.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.FORBIDDEN,EuareException.ACCESS_DENIED,"Not authorized to get openid connect provider by " + ctx.getUser().getName());
+      }
+ else       if (AuthException.NO_SUCH_OPENID_CONNECT_PROVIDER.equals(e.getMessage())) {
+        throw new EuareException(HttpResponseStatus.BAD_REQUEST,EuareException.VALIDATION_ERROR,"Provider not found : " + request.getOpenIDConnectProviderArn());
+      }
+    }
+    LOG.error(e,e);
+    throw new EucalyptusCloudException(e);
+  }
+  return reply;
+}
