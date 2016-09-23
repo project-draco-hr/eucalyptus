@@ -1,11 +1,76 @@
 {
   SendMessageResponseType reply=request.getReply();
-  reply.getSendMessageResult().setMessageId(UUID.randomUUID().toString());
-  if (request.getMessageBody() != null) {
-    reply.getSendMessageResult().setmD5OfMessageBody(calculateMessageBodyMd5(request.getMessageBody()));
+  try {
+    Message message=new Message();
+    final Context ctx=Contexts.lookup();
+    final String accountId=ctx.getAccountNumber();
+    QueueUrlParts queueUrlParts=getQueueUrlParts(request.getQueueUrl());
+    if (!queueUrlParts.getAccountId().equals(accountId)) {
+      throw new AccessDeniedException("Access to the resource " + request.getQueueUrl() + " is denied.");
+    }
+    String queueName=queueUrlParts.getQueueName();
+    Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(accountId,queueName);
+    if (queue == null) {
+      throw new QueueDoesNotExistException("The specified queue does not exist.");
+    }
+    int delaySeconds;
+    if (request.getDelaySeconds() != null) {
+      if (request.getDelaySeconds() < 0 || request.getDelaySeconds() > MAX_DELAY_SECONDS) {
+        throw new InvalidParameterValueException("DelaySeconds must be a number between 0 and " + MAX_DELAY_SECONDS);
+      }
+      delaySeconds=request.getDelaySeconds();
+    }
+ else {
+      delaySeconds=queue.getDelaySeconds();
+    }
+    String md5OfMessageAttributes=null;
+    String md5OfMessageBody;
+    int messageLength=0;
+    if (request.getMessageAttribute() != null) {
+      Set<String> usedAttributeNames=Sets.newHashSet();
+      for (      MessageAttribute messageAttribute : request.getMessageAttribute()) {
+        if (messageAttribute == null) {
+          throw new InvalidParameterValueException("Message attribute can not be null");
+        }
+        messageLength+=validateMessageAttributeNameAndCalculateLength(messageAttribute.getName(),usedAttributeNames);
+        messageLength+=validateMessageAttributeValueAndCalculateLength(messageAttribute.getValue(),messageAttribute.getName());
+      }
+      md5OfMessageAttributes=calculateMessageAttributesMd5(convertMessageAttributesToMap(request.getMessageAttribute()));
+    }
+    if (Strings.isNullOrEmpty(request.getMessageBody())) {
+      throw new MissingParameterException("The request must contain the parameter MessageBody.");
+    }
+    for (    int codePoint : request.getMessageBody().codePoints().toArray()) {
+      if (!validMessageBodyCodePoints.contains(codePoint)) {
+        throw new InvalidParameterValueException("Invalid binary character '#x" + Integer.toHexString(codePoint) + "' was "+ "found in the message body, the set of allowed characters is #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]");
+      }
+    }
+    messageLength+=request.getMessageBody().getBytes(UTF8).length;
+    if (messageLength > queue.getMaximumMessageSize()) {
+      throw new InvalidParameterValueException("The message exceeds the maximum message length of the queue, which is " + queue.getMaximumMessageSize() + " bytes");
+    }
+    md5OfMessageBody=calculateMessageBodyMd5(request.getMessageBody());
+    message.setBody(request.getMessageBody());
+    if (request.getMessageAttribute() != null) {
+      message.getMessageAttribute().addAll(request.getMessageAttribute());
+    }
+    message.setmD5OfMessageAttributes(md5OfMessageAttributes);
+    message.setmD5OfBody(md5OfMessageBody);
+    message.getAttribute().add(new Attribute(MessageAttributeName.ApproximateReceiveCount.toString(),"0"));
+    message.getAttribute().add(new Attribute(MessageAttributeName.SenderId.toString(),accountId));
+    message.getAttribute().add(new Attribute(MessageAttributeName.SentTimestamp.toString(),"" + System.currentTimeMillis()));
+    message.getAttribute().add(new Attribute(EucaInternalMessageAttributeName.EucaLocalReceiveCount.toString(),"0"));
+    message.getAttribute().add(new Attribute(EucaInternalMessageAttributeName.EucaDelaySeconds.toString(),"" + delaySeconds));
+    message.getAttribute().add(new Attribute(EucaInternalMessageAttributeName.EucaMessageRetentionPeriod.toString(),"" + queue.getMessageRetentionPeriod()));
+    String messageId=UUID.randomUUID().toString();
+    message.setMessageId(messageId);
+    PersistenceFactory.getMessagePersistence().sendMessage(accountId,queueName,message);
+    reply.getSendMessageResult().setmD5OfMessageAttributes(md5OfMessageAttributes);
+    reply.getSendMessageResult().setMessageId(messageId);
+    reply.getSendMessageResult().setmD5OfMessageBody(md5OfMessageBody);
   }
-  if (request.getMessageAttribute() != null) {
-    reply.getSendMessageResult().setmD5OfMessageAttributes(calculateMessageAttributesMd5(convertMessageAttributesToMap(request.getMessageAttribute())));
+ catch (  Exception ex) {
+    handleException(ex);
   }
   return reply;
 }

@@ -1,4 +1,39 @@
 {
   ReceiveMessageResponseType reply=request.getReply();
+  try {
+    final Context ctx=Contexts.lookup();
+    final String accountId=ctx.getAccountNumber();
+    QueueUrlParts queueUrlParts=getQueueUrlParts(request.getQueueUrl());
+    if (!queueUrlParts.getAccountId().equals(accountId)) {
+      throw new AccessDeniedException("Access to the resource " + request.getQueueUrl() + " is denied.");
+    }
+    String queueName=queueUrlParts.getQueueName();
+    Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(accountId,queueName);
+    if (queue == null) {
+      throw new QueueDoesNotExistException("The specified queue does not exist.");
+    }
+    Collection<Message> messages=PersistenceFactory.getMessagePersistence().receiveMessages(accountId,queueName);
+    if (messages != null) {
+      Set<String> reservedEucaAttributes=Sets.newHashSet();
+      for (      EucaInternalMessageAttributeName eucaInternalMessageAttributeName : EucaInternalMessageAttributeName.values()) {
+        reservedEucaAttributes.add(eucaInternalMessageAttributeName.toString());
+      }
+      for (      Message message : messages) {
+        if (message.getAttribute() != null) {
+          Iterator<Attribute> iter=message.getAttribute().iterator();
+          while (iter.hasNext()) {
+            Attribute attribute=iter.next();
+            if (reservedEucaAttributes.contains(attribute.getName())) {
+              iter.remove();
+            }
+          }
+        }
+      }
+      reply.getReceiveMessageResult().getMessage().addAll(messages);
+    }
+  }
+ catch (  Exception ex) {
+    handleException(ex);
+  }
   return reply;
 }
