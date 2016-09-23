@@ -1,0 +1,75 @@
+{
+  int attributeValueLength=0;
+  if (value == null) {
+    throw new InvalidParameterValueException("The message attribute '" + name + "' must contain non-empty message attribute value.");
+  }
+  String type=value.getDataType();
+  if (Strings.isNullOrEmpty(type)) {
+    throw new InvalidParameterValueException("The message attribute '" + name + "' must contain non-empty message attribute type.");
+  }
+  boolean isStringType=type.equals("String") || type.startsWith("String.");
+  boolean isBinaryType=type.equals("Binary") || type.startsWith("Binary.");
+  boolean isNumberType=type.equals("Number") || type.startsWith("Number.");
+  if (!isStringType && !isBinaryType && !isNumberType) {
+    throw new InvalidParameterValueException("The message attribute '" + name + "' has an invalid message attribute type, the set of supported type prefixes is Binary, Number, and String.");
+  }
+  int typeLengthBytes=type.getBytes(UTF8).length;
+  if (typeLengthBytes > MAX_MESSAGE_ATTRIBUTE_TYPE_LENGTH) {
+    throw new InvalidParameterValueException("Message attribute type can not be longer than " + MAX_MESSAGE_ATTRIBUTE_TYPE_LENGTH + " bytes");
+  }
+  attributeValueLength+=typeLengthBytes;
+  if (value.getBinaryListValue() != null && !value.getBinaryListValue().isEmpty()) {
+    throw new UnsupportedOperationException("Message attribute list values are not supported.");
+  }
+  if (value.getStringListValue() != null && !value.getStringListValue().isEmpty()) {
+    throw new UnsupportedOperationException("Message attribute list values are not supported.");
+  }
+  int numberOfNonNullAndNonEmptyFields=0;
+  byte[] binaryValueByteArray=null;
+  if (value.getBinaryValue() != null) {
+    try {
+      binaryValueByteArray=Base64.decode(value.getBinaryValue());
+    }
+ catch (    Base64DecodingException e) {
+      throw new InvalidParameterValueException("The message attribute '" + name + "' contains an invalid Base64 Encoded String as a binary value");
+    }
+    if ((binaryValueByteArray != null || binaryValueByteArray.length > 0)) {
+      numberOfNonNullAndNonEmptyFields++;
+    }
+  }
+  if (!Strings.isNullOrEmpty(value.getStringValue())) {
+    numberOfNonNullAndNonEmptyFields++;
+  }
+  if (numberOfNonNullAndNonEmptyFields == 0) {
+    throw new InvalidParameterValueException("The message attribute '" + name + "' must contain non-empty message attribute value for message attribute type '"+ type+ "'.");
+  }
+  if (numberOfNonNullAndNonEmptyFields > 1) {
+    throw new InvalidParameterValueException("Message attribute '" + name + "' has multiple values.");
+  }
+  if (isNumberType || isStringType) {
+    if (Strings.isNullOrEmpty(value.getStringValue())) {
+      throw new InvalidParameterValueException("The message attribute '" + name + "' with type '"+ (isNumberType ? "Number" : "String")+ "' must use field 'String'.");
+    }
+    for (    int codePoint : value.getStringValue().codePoints().toArray()) {
+      if (!validMessageBodyCodePoints.contains(codePoint)) {
+        throw new InvalidParameterValueException("Invalid binary character '#x" + Integer.toHexString(codePoint) + "' was found in the message attribute '"+ name+ "' value, the set of allowed characters is #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]");
+      }
+    }
+    if (isNumberType) {
+      try {
+        Double.parseDouble(value.getStringValue());
+      }
+ catch (      NumberFormatException e) {
+        throw new InvalidParameterValueException("Could not cast message attribute '" + name + "' value to number.");
+      }
+    }
+    attributeValueLength+=value.getStringValue().getBytes(UTF8).length;
+  }
+ else {
+    if (binaryValueByteArray == null || binaryValueByteArray.length == 0) {
+      throw new InvalidParameterValueException("The message attribute '" + name + "' with type 'Binary' must use field 'Binary'.");
+    }
+    attributeValueLength+=binaryValueByteArray.length;
+  }
+  return attributeValueLength;
+}
