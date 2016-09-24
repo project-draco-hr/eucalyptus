@@ -1,0 +1,27 @@
+{
+  if (result.getCreatedGroupName() == null || !result.getShouldRollback())   return;
+  LoadBalancer lb;
+  try {
+    lb=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+  }
+ catch (  Exception ex) {
+    return;
+  }
+  try {
+    EucalyptusActivityTasks.getInstance().deleteSystemSecurityGroup(result.getCreatedGroupName());
+  }
+ catch (  Exception ex) {
+  }
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancerSecurityGroup.class)){
+    final LoadBalancerSecurityGroup group=Entities.uniqueResult(LoadBalancerSecurityGroup.named(lb,result.getGroupOwnerAccountId(),result.getCreatedGroupName()));
+    group.setState(LoadBalancerSecurityGroup.STATE.OutOfService);
+    group.setLoadBalancer(null);
+    Entities.persist(group);
+    db.commit();
+  }
+ catch (  NoSuchElementException ex) {
+  }
+catch (  Exception ex) {
+    LOG.error("failed to mark the security group OutOfService",ex);
+  }
+}

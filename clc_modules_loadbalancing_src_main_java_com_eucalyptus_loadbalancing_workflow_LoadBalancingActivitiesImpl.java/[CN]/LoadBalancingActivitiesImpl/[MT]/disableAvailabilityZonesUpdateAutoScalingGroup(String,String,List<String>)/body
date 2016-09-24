@@ -1,0 +1,39 @@
+{
+  final List<String> updatedZones=Lists.newArrayList();
+  LoadBalancer lb;
+  try {
+    lb=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+  }
+ catch (  NoSuchElementException ex) {
+    throw new LoadBalancingActivityException("Could not find the loadbalancer with name=" + lbName,ex);
+  }
+catch (  Exception ex) {
+    throw new LoadBalancingActivityException("Error while looking for loadbalancer with name=" + lbName,ex);
+  }
+  final Collection<LoadBalancerAutoScalingGroupCoreView> groups=lb.getAutoScaleGroups();
+  for (  final LoadBalancerAutoScalingGroupCoreView group : groups) {
+    if (!zonesToDisable.contains(group.getAvailabilityZone()))     continue;
+    final String groupName=group.getName();
+    final int capacity=0;
+    try {
+      EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(groupName,null,capacity,lb.useSystemAccount());
+    }
+ catch (    final Exception ex) {
+      LOG.error("Failed to change the capacity of ELB's autoscaling group",ex);
+    }
+    try (final TransactionResource db=Entities.transactionFor(LoadBalancerAutoScalingGroup.class)){
+      final LoadBalancerAutoScalingGroup update=Entities.uniqueResult(LoadBalancerAutoScalingGroup.named(lb,group.getAvailabilityZone()));
+      update.setCapacity(capacity);
+      Entities.persist(update);
+      db.commit();
+    }
+ catch (    NoSuchElementException ex) {
+      LOG.error("failed to find the autoscaling group record",ex);
+    }
+catch (    Exception ex) {
+      LOG.error("failed to update the autoscaling group record",ex);
+    }
+    updatedZones.add(group.getAvailabilityZone());
+  }
+  return updatedZones;
+}

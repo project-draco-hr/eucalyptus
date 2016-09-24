@@ -1,0 +1,82 @@
+{
+  final DisableAvailabilityZonesForLoadBalancerResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String lbName=request.getLoadBalancerName();
+  final Collection<String> zones=request.getAvailabilityZones().getMember();
+  LoadBalancer lb;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ctx,lbName);
+  }
+ catch (  final Exception ex) {
+    throw new AccessPointNotFoundException();
+  }
+  if (!LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
+    throw new AccessPointNotFoundException();
+  }
+  final Optional<VpcType> vpcOptional=EucalyptusActivityTasks.getInstance().defaultVpc(ctx.getAccount());
+  final Map<String,String> zoneToSubnetIdMap=Maps.newHashMap();
+  if (vpcOptional.isPresent() && Objects.equals(lb.getVpcId(),vpcOptional.get().getVpcId())) {
+    final List<SubnetType> subnets=EucalyptusActivityTasks.getInstance().describeSubnetsByZone(lb.getVpcId(),true,zones);
+    CollectionUtils.putAll(subnets,zoneToSubnetIdMap,SubnetType.zone(),SubnetType.id());
+    if (zones.size() != zoneToSubnetIdMap.size()) {
+      throw new InvalidConfigurationRequestException("Cannot disable zone for VPC loadbalancer, default subnet not found.");
+    }
+  }
+ else   if (lb.getVpcId() != null) {
+    throw new InvalidConfigurationRequestException("Cannot disable zone for VPC loadbalancer");
+  }
+  LoadBalancers.checkVersion(lb,DeploymentVersion.v4_2_0);
+  if (lb.getVpcId() != null) {
+    LoadBalancers.checkVersion(lb,DeploymentVersion.v4_3_0);
+  }
+  final List<LoadBalancerZoneCoreView> availableZones=Lists.newArrayList(Collections2.filter(lb.getZones(),new Predicate<LoadBalancerZoneCoreView>(){
+    @Override public boolean apply(    @Nullable LoadBalancerZoneCoreView arg0){
+      return arg0.getState().equals(LoadBalancerZone.STATE.InService);
+    }
+  }
+));
+  List<String> availableZoneNames=Lists.newArrayList(Collections2.transform(availableZones,new Function<LoadBalancerZoneCoreView,String>(){
+    @Override public String apply(    @Nullable LoadBalancerZoneCoreView arg0){
+      return arg0.getName();
+    }
+  }
+));
+  final Set<String> unavailableZoneNames=Sets.newHashSet();
+  for (  final String requested : zones) {
+    if (!availableZoneNames.contains(requested)) {
+      unavailableZoneNames.add(requested);
+    }
+  }
+  zones.removeAll(unavailableZoneNames);
+  if (zones != null && zones.size() > 0) {
+    try {
+      if (!LoadBalancingWorkflows.disableZonesSync(ctx.getAccountNumber(),lbName,Lists.newArrayList(zones)))       throw new Exception("Workflow for disabling availability zone has failed");
+    }
+ catch (    final Exception e) {
+      final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
+      throw new InternalFailure400Exception(String.format("Failed to disable zones: %s",reason),e);
+    }
+ finally {
+      if (lb != null)       LoadBalancingServoCache.getInstance().invalidate(lb);
+    }
+  }
+  availableZoneNames=Lists.newArrayList();
+  try {
+    final LoadBalancer updatedLb=LoadBalancers.getLoadbalancer(ctx,lbName);
+    availableZoneNames=Lists.transform(LoadBalancers.findZonesInService(updatedLb),new Function<LoadBalancerZoneCoreView,String>(){
+      @Override public String apply(      @Nullable LoadBalancerZoneCoreView arg0){
+        return arg0.getName();
+      }
+    }
+);
+  }
+ catch (  Exception ex) {
+  }
+  final DisableAvailabilityZonesForLoadBalancerResult result=new DisableAvailabilityZonesForLoadBalancerResult();
+  final AvailabilityZones availZones=new AvailabilityZones();
+  availZones.setMember(Lists.newArrayList(availableZoneNames));
+  result.setAvailabilityZones(availZones);
+  reply.setDisableAvailabilityZonesForLoadBalancerResult(result);
+  reply.set_return(true);
+  return reply;
+}

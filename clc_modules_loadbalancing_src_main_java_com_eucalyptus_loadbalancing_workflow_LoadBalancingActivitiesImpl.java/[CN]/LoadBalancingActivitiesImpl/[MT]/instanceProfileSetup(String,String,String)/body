@@ -1,0 +1,46 @@
+{
+  InstanceProfileType instanceProfile=null;
+  final String instanceProfileName=getInstanceProfileName(accountNumber,lbName);
+  try {
+    List<InstanceProfileType> instanceProfiles=EucalyptusActivityTasks.getInstance().listInstanceProfiles(DEFAULT_INSTANCE_PROFILE_PATH_PREFIX);
+    for (    InstanceProfileType ip : instanceProfiles) {
+      if (instanceProfileName.equals(ip.getInstanceProfileName())) {
+        instanceProfile=ip;
+        break;
+      }
+    }
+  }
+ catch (  Exception ex) {
+    throw new LoadBalancingActivityException("Failed to list instance profiles",ex);
+  }
+  if (instanceProfile == null) {
+    try {
+      instanceProfile=EucalyptusActivityTasks.getInstance().createInstanceProfile(instanceProfileName,DEFAULT_INSTANCE_PROFILE_PATH_PREFIX);
+    }
+ catch (    Exception ex) {
+      throw new LoadBalancingActivityException("Failed to create instance profile",ex);
+    }
+  }
+  if (instanceProfile == null)   throw new LoadBalancingActivityException("No instance profile for loadbalancer VM is found");
+  try {
+    List<RoleType> roles=instanceProfile.getRoles().getMember();
+    boolean roleFound=false;
+    for (    RoleType role : roles) {
+      if (role.getRoleName().equals(roleName)) {
+        roleFound=true;
+        break;
+      }
+    }
+    if (!roleFound)     throw new NoSuchElementException();
+  }
+ catch (  Exception ex) {
+    if (roleName == null)     throw new LoadBalancingActivityException("No role name is found for loadbalancer VMs");
+    try {
+      EucalyptusActivityTasks.getInstance().addRoleToInstanceProfile(instanceProfile.getInstanceProfileName(),roleName);
+    }
+ catch (    Exception ex2) {
+      throw new LoadBalancingActivityException("Failed to add role to the instance profile",ex2);
+    }
+  }
+  return instanceProfile.getInstanceProfileName();
+}

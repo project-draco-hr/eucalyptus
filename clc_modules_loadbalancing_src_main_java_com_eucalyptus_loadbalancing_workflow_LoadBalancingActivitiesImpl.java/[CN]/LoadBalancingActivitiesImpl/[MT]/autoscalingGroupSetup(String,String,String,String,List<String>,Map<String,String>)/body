@@ -1,0 +1,130 @@
+{
+  if (LoadBalancingWorkerProperties.IMAGE == null)   throw new LoadBalancingActivityException("Loadbalancer's EMI is not configured");
+  final AutoscalingGroupSetupActivityResult activityResult=new AutoscalingGroupSetupActivityResult();
+  final LoadBalancer lbEntity;
+  final LoadBalancer.LoadBalancerCoreView lb;
+  try {
+    lbEntity=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+    lb=lbEntity.getCoreView();
+    if (zoneToSubnetIdMap == null) {
+      zoneToSubnetIdMap=CollectionUtils.putAll(Iterables.filter(lbEntity.getZones(),Predicates.compose(Predicates.notNull(),subnetId())),Maps.<String,String>newHashMap(),name(),subnetId());
+    }
+  }
+ catch (  NoSuchElementException ex) {
+    throw new LoadBalancingActivityException("Failed to find the loadbalancer " + lbName,ex);
+  }
+catch (  Exception ex) {
+    throw new LoadBalancingActivityException("Failed due to query exception",ex);
+  }
+  if (zones == null)   return null;
+  for (  final String availabilityZone : zones) {
+    final String groupName=getAutoScalingGroupName(accountNumber,lbName,availabilityZone);
+    String launchConfigName=null;
+    boolean asgFound=false;
+    try {
+      final DescribeAutoScalingGroupsResponseType response=EucalyptusActivityTasks.getInstance().describeAutoScalingGroups(Lists.newArrayList(groupName),lb.useSystemAccount());
+      final List<AutoScalingGroupType> groups=response.getDescribeAutoScalingGroupsResult().getAutoScalingGroups().getMember();
+      if (groups.size() > 0 && groups.get(0).getAutoScalingGroupName().equals(groupName)) {
+        asgFound=true;
+        launchConfigName=groups.get(0).getLaunchConfigurationName();
+      }
+    }
+ catch (    final Exception ex) {
+      asgFound=false;
+    }
+    activityResult.setGroupNames(Sets.<String>newHashSet());
+    activityResult.setLaunchConfigNames(Sets.<String>newHashSet());
+    activityResult.setCreatedGroupNames(Sets.<String>newHashSet());
+    activityResult.setCreatedLaunchConfigNames(Sets.<String>newHashSet());
+    final List<String> availabilityZones=Lists.newArrayList(availabilityZone);
+    String vpcZoneIdentifier=null;
+    String systemVpcZoneIdentifier=null;
+    if (!asgFound) {
+      try {
+        vpcZoneIdentifier=zoneToSubnetIdMap.isEmpty() ? null : Strings.emptyToNull(Joiner.on(',').skipNulls().join(Iterables.transform(availabilityZones,Functions.forMap(zoneToSubnetIdMap))));
+        if (vpcZoneIdentifier != null)         systemVpcZoneIdentifier=LoadBalancingSystemVpcs.getSystemVpcSubnetId(vpcZoneIdentifier);
+ else         systemVpcZoneIdentifier=null;
+      }
+ catch (      final Exception ex) {
+        throw new LoadBalancingActivityException("Failed to look up subnet ID",ex);
+      }
+      try {
+        Set<String> securityGroupNamesOrIds=null;
+        if (systemVpcZoneIdentifier == null) {
+          securityGroupNamesOrIds=Sets.newHashSet();
+          if (!lb.getSecurityGroupIdsToNames().isEmpty()) {
+            securityGroupNamesOrIds.addAll(lb.getSecurityGroupIdsToNames().keySet());
+          }
+ else {
+            if (securityGroupName != null) {
+              securityGroupNamesOrIds.add(securityGroupName);
+            }
+          }
+        }
+ else {
+          securityGroupNamesOrIds=Sets.newHashSet();
+          securityGroupNamesOrIds.add(LoadBalancingSystemVpcs.getSecurityGroupId(systemVpcZoneIdentifier));
+        }
+        final String KEYNAME=LoadBalancingWorkerProperties.KEYNAME;
+        final String keyName=KEYNAME != null && KEYNAME.length() > 0 ? KEYNAME : null;
+        final String userData=B64.standard.encString(String.format("%s\n%s",getCredentialsString(),getLoadBalancerUserData(LoadBalancingWorkerProperties.INIT_SCRIPT,lb.getOwnerAccountNumber())));
+        launchConfigName=getLaunchConfigName(lb.getOwnerAccountNumber(),lb.getDisplayName(),availabilityZone);
+        EucalyptusActivityTasks.getInstance().createLaunchConfiguration(LoadBalancingWorkerProperties.IMAGE,LoadBalancingWorkerProperties.INSTANCE_TYPE,instanceProfileName,launchConfigName,securityGroupNamesOrIds,keyName,userData,zoneToSubnetIdMap.isEmpty() ? null : false,lb.useSystemAccount());
+        activityResult.getLaunchConfigNames().add(launchConfigName);
+        activityResult.getCreatedLaunchConfigNames().add(launchConfigName);
+      }
+ catch (      Exception ex) {
+        throw new LoadBalancingActivityException("Failed to create launch configuration",ex);
+      }
+    }
+    activityResult.getLaunchConfigNames().add(launchConfigName);
+    Integer capacity=LoadBalancingServiceProperties.getCapacityPerZone();
+    if (!asgFound) {
+      try {
+        EucalyptusActivityTasks.getInstance().createAutoScalingGroup(groupName,availabilityZones,systemVpcZoneIdentifier,capacity,launchConfigName,TAG_KEY,TAG_VALUE,lb.useSystemAccount());
+        activityResult.getGroupNames().add(groupName);
+        activityResult.getCreatedGroupNames().add(groupName);
+        if (activityResult.getNumVMsPerZone() == null || activityResult.getNumVMsPerZone() == 0) {
+          activityResult.setNumVMsPerZone(capacity);
+        }
+ else {
+          activityResult.setNumVMsPerZone(activityResult.getNumVMsPerZone() + capacity);
+        }
+      }
+ catch (      Exception ex) {
+        throw new LoadBalancingActivityException("Failed to create autoscaling group",ex);
+      }
+    }
+ else {
+      try {
+        EucalyptusActivityTasks.getInstance().updateAutoScalingGroup(groupName,availabilityZones,capacity,launchConfigName,lb.useSystemAccount());
+      }
+ catch (      Exception ex) {
+        throw new LoadBalancingActivityException("Failed to update the autoscaling group",ex);
+      }
+    }
+    activityResult.getGroupNames().add(groupName);
+    if (activityResult.getNumVMsPerZone() == null || activityResult.getNumVMsPerZone() == 0) {
+      activityResult.setNumVMsPerZone(capacity);
+    }
+ else {
+      activityResult.setNumVMsPerZone(activityResult.getNumVMsPerZone() + capacity);
+    }
+    try (final TransactionResource db=Entities.transactionFor(LoadBalancerAutoScalingGroup.class)){
+      try {
+        final LoadBalancerAutoScalingGroup group=Entities.uniqueResult(LoadBalancerAutoScalingGroup.named(lbEntity,availabilityZone));
+        if (capacity != null)         group.setCapacity(capacity);
+      }
+ catch (      NoSuchElementException ex) {
+        final LoadBalancerAutoScalingGroup group=LoadBalancerAutoScalingGroup.newInstance(lbEntity,availabilityZone,vpcZoneIdentifier,systemVpcZoneIdentifier,groupName,launchConfigName);
+        if (capacity != null)         group.setCapacity(capacity);
+        Entities.persist(group);
+      }
+      db.commit();
+    }
+ catch (    final Exception ex) {
+      throw new LoadBalancingActivityException("Failed to commit the database",ex);
+    }
+  }
+  return activityResult;
+}

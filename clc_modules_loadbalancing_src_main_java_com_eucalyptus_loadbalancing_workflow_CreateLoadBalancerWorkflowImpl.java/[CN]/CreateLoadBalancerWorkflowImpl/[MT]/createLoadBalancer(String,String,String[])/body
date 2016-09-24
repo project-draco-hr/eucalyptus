@@ -1,0 +1,32 @@
+{
+  task=new TryCatchFinally(){
+    @Override protected void doTry() throws Throwable {
+      admission=doAdmission(client.createLbAdmissionControl(accountId,loadbalancer,availabilityZones));
+      roleName=client.iamRoleSetup(accountId,loadbalancer,admission);
+      instanceProfile=client.instanceProfileSetup(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),roleName);
+      iamPolicy=client.iamPolicySetup(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),roleName);
+      securityGroup=client.securityGroupSetup(accountId,loadbalancer,admission);
+      tag=client.createLbTagCreator(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),getSecurityGroupId(securityGroup));
+    }
+    @Override protected void doCatch(    Throwable e) throws Throwable {
+      if (e instanceof CancellationException) {
+        LOG.warn("Creating loadbalancer stops due to failed admission control");
+        state=ElbWorkflowState.WORKFLOW_CANCELLED;
+        return;
+      }
+      Promise<Void> tagRollback=null;
+      if (tag != null && tag.isReady()) {
+        tagRollback=client.createLbTagCreatorRollback(tag);
+      }
+      if (securityGroup != null && securityGroup.isReady()) {
+        client.securityGroupSetupRollback(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),securityGroup,tagRollback);
+      }
+      state=ElbWorkflowState.WORKFLOW_FAILED;
+      LOG.error("Failed to create the loadbalancer. Rollback completed",e);
+    }
+    @Override protected void doFinally() throws Throwable {
+      if (state == ElbWorkflowState.WORKFLOW_RUNNING)       state=ElbWorkflowState.WORKFLOW_SUCCESS;
+    }
+  }
+;
+}

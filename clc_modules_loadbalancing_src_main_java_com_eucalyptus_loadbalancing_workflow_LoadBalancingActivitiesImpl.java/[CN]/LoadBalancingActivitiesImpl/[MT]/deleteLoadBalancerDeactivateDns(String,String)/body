@@ -1,0 +1,46 @@
+{
+  LoadBalancer lb;
+  final List<LoadBalancerServoInstanceCoreView> servos=Lists.newArrayList();
+  try {
+    lb=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+    if (lb.getZones() != null) {
+      for (      final LoadBalancerZoneCoreView zoneView : lb.getZones()) {
+        LoadBalancerZone zone;
+        try {
+          zone=LoadBalancerZoneEntityTransform.INSTANCE.apply(zoneView);
+        }
+ catch (        final Exception ex) {
+          continue;
+        }
+        servos.addAll(zone.getServoInstances());
+      }
+    }
+  }
+ catch (  NoSuchElementException ex) {
+    return;
+  }
+catch (  Exception ex) {
+    LOG.warn("Failed to find the loadbalancer",ex);
+    return;
+  }
+  for (  final LoadBalancerServoInstanceCoreView instance : servos) {
+    final String address=instance.getAddress();
+    if (address == null || address.length() <= 0)     continue;
+    try {
+      try (final TransactionResource db=Entities.transactionFor(LoadBalancerServoInstance.class)){
+        try {
+          final LoadBalancerServoInstance entity=Entities.uniqueResult(LoadBalancerServoInstance.named(instance.getInstanceId()));
+          entity.setDnsState(LoadBalancerServoInstance.DNS_STATE.Deregistered);
+          Entities.persist(entity);
+          db.commit();
+        }
+ catch (        final Exception ex) {
+          LOG.error(String.format("failed to set servo instance(%s)'s dns state to deregistered",instance.getInstanceId()),ex);
+        }
+      }
+     }
+ catch (    Exception ex) {
+      LOG.error("Error updating DNS registration state for balancer " + lbName,ex);
+    }
+  }
+}

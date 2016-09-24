@@ -1,0 +1,51 @@
+{
+  final Map<String,String> instanceToStatus=Maps.newHashMap();
+  final Set<String> validStates=Sets.newHashSet(LoadBalancerBackendInstance.STATE.InService.name(),LoadBalancerBackendInstance.STATE.OutOfService.name());
+  for (  final String encodedStatus : statusList) {
+    try {
+      final Map<String,String> statusMap=VmWorkflowMarshaller.unmarshalInstances(encodedStatus);
+      for (      final String instanceId : statusMap.keySet()) {
+        final String instanceStatus=statusMap.get(instanceId);
+        if (!validStates.contains(instanceStatus))         continue;
+        if (!instanceToStatus.containsKey(instanceId))         instanceToStatus.put(instanceId,instanceStatus);
+ else {
+          if (!LoadBalancerBackendInstance.STATE.InService.name().equals(instanceStatus))           instanceToStatus.put(instanceId,instanceStatus);
+        }
+      }
+    }
+ catch (    final Exception ex) {
+      throw new LoadBalancingActivityException("Failed unmarshalling instance status message",ex);
+    }
+  }
+  if (instanceToStatus.isEmpty())   return;
+  boolean updated=false;
+  final LoadBalancer lb=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
+    for (    final String instanceId : instanceToStatus.keySet()) {
+      final LoadBalancerBackendInstance sample=LoadBalancerBackendInstance.named(lb,instanceId);
+      final LoadBalancerBackendInstance update=Entities.uniqueResult(sample);
+      final String newStatus=instanceToStatus.get(instanceId);
+      final LoadBalancerBackendInstance.STATE oldState=update.getBackendState();
+      final LoadBalancerBackendInstance.STATE newState=LoadBalancerBackendInstance.STATE.valueOf(newStatus);
+      if (!oldState.equals(newState))       updated=true;
+      update.setBackendState(newState);
+      if (LoadBalancerBackendInstance.STATE.InService.equals(newState)) {
+        update.setReasonCode("");
+        update.setDescription("");
+      }
+ else       if (LoadBalancerBackendInstance.STATE.OutOfService.equals(newState)) {
+        update.setReasonCode("Instance");
+        update.setDescription("Instance has failed at least the UnhealthyThreshold number of health checks consecutively.");
+      }
+      update.updateInstanceStateTimestamp();
+      Entities.persist(update);
+    }
+    db.commit();
+  }
+ catch (  final Exception ex) {
+    throw new LoadBalancingActivityException("Failed to persist instance status",ex);
+  }
+  if (updated) {
+    LoadBalancingWorkflows.updateLoadBalancer(accountNumber,lbName);
+  }
+}

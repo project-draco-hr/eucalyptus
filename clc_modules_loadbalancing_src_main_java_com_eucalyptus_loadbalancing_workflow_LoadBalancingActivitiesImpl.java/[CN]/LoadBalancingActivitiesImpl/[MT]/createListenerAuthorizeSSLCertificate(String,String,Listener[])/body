@@ -1,0 +1,38 @@
+{
+  final AuthorizeSSLCertificateActivityResult result=new AuthorizeSSLCertificateActivityResult();
+  final Set<String> certArns=Sets.newHashSet();
+  final List<String> policyNames=Lists.newArrayList();
+  for (  final Listener listener : listeners) {
+    final PROTOCOL protocol=PROTOCOL.valueOf(listener.getProtocol().toUpperCase());
+    if (protocol.equals(PROTOCOL.HTTPS) || protocol.equals(PROTOCOL.SSL)) {
+      certArns.add(listener.getSSLCertificateId());
+    }
+  }
+  if (certArns.size() <= 0)   return result;
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+  }
+ catch (  Exception ex) {
+    throw new LoadBalancingActivityException("could not find the loadbalancer",ex);
+  }
+  final String roleName=String.format("%s-%s-%s",ROLE_NAME_PREFIX,accountNumber,lbName);
+  final String prefix=String.format("arn:aws:iam::%s:server-certificate",accountNumber);
+  for (  final String arn : certArns) {
+    if (!arn.startsWith(prefix))     continue;
+    String pathAndName=arn.replace(prefix,"");
+    String certName=pathAndName.substring(pathAndName.lastIndexOf("/") + 1);
+    String policyName=String.format("%s-%s-%s-%s",SERVER_CERT_ROLE_POLICY_NAME_PREFIX,accountNumber,lbName,certName);
+    final String rolePolicyDoc=ROLE_SERVER_CERT_POLICY_DOCUMENT.replace("CERT_ARN_PLACEHOLDER",arn);
+    try {
+      EucalyptusActivityTasks.getInstance().putRolePolicy(roleName,policyName,rolePolicyDoc,lb.useSystemAccount());
+      policyNames.add(policyName);
+    }
+ catch (    final Exception ex) {
+      throw new LoadBalancingActivityException("failed to authorize server certificate for SSL listener",ex);
+    }
+  }
+  result.setPolicyNames(policyNames);
+  result.setRoleName(roleName);
+  return result;
+}

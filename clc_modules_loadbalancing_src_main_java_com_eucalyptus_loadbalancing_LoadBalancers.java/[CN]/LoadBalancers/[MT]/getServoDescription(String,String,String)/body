@@ -1,0 +1,31 @@
+{
+  final LoadBalancer lb=getLoadbalancer(accountId,lbName);
+  final LoadBalancerZone lbZone;
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancerZone.class)){
+    try {
+      final LoadBalancerZone sample=LoadBalancerZone.named(lb,zone);
+      lbZone=Entities.uniqueResult(sample);
+    }
+ catch (    final Exception ex) {
+      throw new LoadBalancingException("No such availability zone is found in database");
+    }
+  }
+   List<LoadBalancerListener> lbListeners=Lists.newArrayList();
+  List<LoadBalancerBackendServerDescription> backendServers=Lists.newArrayList();
+  List<LoadBalancerPolicyDescription> lbPolicies=Lists.newArrayList();
+  try {
+    for (    final LoadBalancerListenerCoreView listenerView : lb.getListeners()) {
+      lbListeners.add(LoadBalancerListenerEntityTransform.INSTANCE.apply(listenerView));
+    }
+    for (    final LoadBalancerBackendServerDescriptionCoreView backendView : lb.getBackendServers()) {
+      backendServers.add(LoadBalancerBackendServerDescriptionEntityTransform.INSTANCE.apply(backendView));
+    }
+    for (    final LoadBalancerPolicyDescriptionCoreView policyView : lb.getPolicies()) {
+      lbPolicies.add(LoadBalancerPolicyDescriptionEntityTransform.INSTANCE.apply(policyView));
+    }
+  }
+ catch (  final Exception ex) {
+    throw new LoadBalancingException("Unexpected error while preparing loadbalancer description",ex);
+  }
+  return getServoDescription(lb,lbZone,lbListeners,backendServers,lbPolicies);
+}

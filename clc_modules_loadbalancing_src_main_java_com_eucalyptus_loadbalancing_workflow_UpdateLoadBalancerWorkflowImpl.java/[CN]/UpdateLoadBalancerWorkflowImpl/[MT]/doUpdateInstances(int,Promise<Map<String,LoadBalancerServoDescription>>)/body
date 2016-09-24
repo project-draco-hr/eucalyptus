@@ -1,0 +1,17 @@
+{
+  final Map<String,LoadBalancerServoDescription> description=lookup.get();
+  final List<Promise<Void>> results=Lists.newArrayList();
+  for (  final String instanceId : description.keySet()) {
+    final LoadBalancerServoDescription desc=description.get(instanceId);
+    final String message=prepareMessage(desc);
+    final ActivitySchedulingOptions scheduler=new ActivitySchedulingOptions();
+    scheduler.setTaskList(instanceId);
+    scheduler.setScheduleToCloseTimeoutSeconds(120L);
+    scheduler.setStartToCloseTimeoutSeconds(10L);
+    results.add(vmClient.setLoadBalancer(message,scheduler));
+  }
+  final Promise<List<Void>> updated=Promises.listOfPromisesToPromise(results);
+  final Promise<Void> timer=startDaemonTimer(UPDATE_PERIOD_SEC);
+  final OrPromise waitOrSignal=new OrPromise(timer,signalReceived);
+  updateInstancesPeriodic(count + 1,new AndPromise(waitOrSignal,updated));
+}

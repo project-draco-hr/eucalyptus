@@ -1,0 +1,31 @@
+{
+  task=new TryCatchFinally(){
+    @Override protected void doTry() throws Throwable {
+      Promise<String> iamRole=client.iamRoleSetup(Promise.asPromise(accountId),Promise.asPromise(loadbalancer));
+      Promise<String> instanceProfile=client.instanceProfileSetup(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),iamRole);
+      Promise<String> securityGroupName=getSecurityGroup(client.securityGroupSetup(Promise.asPromise(accountId),Promise.asPromise(loadbalancer)));
+      autoscaleGroup=client.autoscalingGroupSetup(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),instanceProfile,securityGroupName,Promise.asPromise(availabilityZones),Promise.asPromise(zoneToSubnetIdMap));
+      persistedZones=client.enableAvailabilityZonesPersistUpdatedZones(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),Promise.asPromise(availabilityZones),Promise.asPromise(zoneToSubnetIdMap),autoscaleGroup);
+      client.enableAvailabilityZonesPersistBackendInstanceState(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),persistedZones);
+    }
+    @Override protected void doCatch(    Throwable e) throws Throwable {
+      if (e instanceof CancellationException) {
+        LOG.warn("Workflow for enabling availability zones is cancelled");
+        state=ElbWorkflowState.WORKFLOW_CANCELLED;
+        return;
+      }
+      if (persistedZones != null && persistedZones.isReady()) {
+        client.enableAvailabilityZonesPersistUpdatedZonesRollback(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),persistedZones);
+      }
+      if (autoscaleGroup != null && autoscaleGroup.isReady()) {
+        client.autoscalingGroupSetupRollback(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),autoscaleGroup);
+      }
+      state=ElbWorkflowState.WORKFLOW_FAILED;
+      LOG.error("Workflow for enabling availability zone has failed",e);
+    }
+    @Override protected void doFinally() throws Throwable {
+      if (state == ElbWorkflowState.WORKFLOW_RUNNING)       state=ElbWorkflowState.WORKFLOW_SUCCESS;
+    }
+  }
+;
+}

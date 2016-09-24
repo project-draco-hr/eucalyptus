@@ -1,0 +1,16 @@
+{
+  final Map<String,Promise<String>> metrics=Maps.newHashMap();
+  final List<String> instances=servoInstances.get();
+  for (  final String instanceId : instances) {
+    final ActivitySchedulingOptions scheduler=new ActivitySchedulingOptions();
+    scheduler.setTaskList(instanceId);
+    scheduler.setScheduleToCloseTimeoutSeconds(10L);
+    metrics.put(instanceId,vmClient.getCloudWatchMetrics(scheduler));
+  }
+  final Promise<Map<String,String>> metricMap=Promises.mapOfPromisesToPromise(metrics);
+  client.putCloudWatchMetrics(Promise.asPromise(this.accountId),Promise.asPromise(this.loadbalancer),metricMap);
+  client.putCloudWatchInstanceHealth(this.accountId,this.loadbalancer);
+  final WorkflowClock clock=contextProvider.getDecisionContext().getWorkflowClock();
+  final Promise<Void> timer=clock.createTimer(PUT_PERIOD_SEC);
+  putCloudWatchMetricPeriodic(count + 1,timer);
+}

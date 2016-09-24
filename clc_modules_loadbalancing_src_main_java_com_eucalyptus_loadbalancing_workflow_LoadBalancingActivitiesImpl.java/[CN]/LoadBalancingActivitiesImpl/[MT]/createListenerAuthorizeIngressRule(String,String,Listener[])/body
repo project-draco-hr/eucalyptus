@@ -1,0 +1,56 @@
+{
+  final AuthorizeIngressRuleActivityResult result=new AuthorizeIngressRuleActivityResult();
+  result.setListeners(Lists.<Listener>newArrayList());
+  LoadBalancer lb;
+  String groupName=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+    final LoadBalancerSecurityGroupCoreView group=lb.getGroup();
+    if (group != null)     groupName=group.getName();
+  }
+ catch (  Exception ex) {
+    throw new LoadBalancingActivityException("could not find the loadbalancer",ex);
+  }
+  final Map<String,String> securityGroupIdsToNames=lb.getCoreView().getSecurityGroupIdsToNames();
+  String protocol="tcp";
+  if (lb.getVpcId() == null) {
+    if (groupName == null)     throw new LoadBalancingActivityException("Group name is not found");
+    for (    Listener listener : listeners) {
+      int port=listener.getLoadBalancerPort();
+      try {
+        EucalyptusActivityTasks.getInstance().authorizeSystemSecurityGroup(groupName,protocol,port,lb.useSystemAccount());
+        result.getListeners().add(listener);
+      }
+ catch (      Exception ex) {
+        throw new LoadBalancingActivityException(String.format("failed to authorize %s, %s, %d",groupName,protocol,port),ex);
+      }
+    }
+  }
+ else   if (securityGroupIdsToNames.size() == 1) {
+    if (securityGroupIdsToNames.values().contains(generateDefaultVPCSecurityGroupName(lb.getVpcId()))) {
+      boolean isRuleEmpty=false;
+      try {
+        final SecurityGroupItemType defaultGroup=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsByName(AccountFullName.getInstance(accountNumber),lb.getVpcId(),securityGroupIdsToNames.values().stream().findAny().get()).stream().findAny().get();
+        if (defaultGroup.getIpPermissions() == null || defaultGroup.getIpPermissions().isEmpty()) {
+          isRuleEmpty=true;
+        }
+      }
+ catch (      final Exception ex) {
+        isRuleEmpty=false;
+      }
+      if (isRuleEmpty) {
+        final String groupId=Iterables.getOnlyElement(securityGroupIdsToNames.keySet());
+        for (        Listener listener : listeners) {
+          int port=listener.getLoadBalancerPort();
+          try {
+            EucalyptusActivityTasks.getInstance().authorizeSystemSecurityGroup(groupId,protocol,port,lb.useSystemAccount());
+          }
+ catch (          Exception ex) {
+            throw new LoadBalancingActivityException(String.format("failed to authorize %s, %s, %d",groupId,protocol,port),ex);
+          }
+        }
+      }
+    }
+  }
+  return result;
+}

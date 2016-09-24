@@ -1,0 +1,49 @@
+{
+  final String emi=LoadBalancingWorkerProperties.IMAGE;
+  List<ImageDetails> images;
+  try {
+    images=EucalyptusActivityTasks.getInstance().describeImagesWithVerbose(Lists.newArrayList(emi));
+    if (images == null || images.size() <= 0 || !images.get(0).getImageId().toLowerCase().equals(emi.toLowerCase()))     throw new Exception("No loadbalancer EMI is found");
+  }
+ catch (  final Exception ex) {
+    throw new LoadBalancingActivityException("failed to validate the loadbalancer EMI",ex);
+  }
+  final List<String> requestedZones=Lists.newArrayList(zones);
+  List<ClusterInfoType> clusters;
+  try {
+    clusters=EucalyptusActivityTasks.getInstance().describeAvailabilityZonesWithVerbose();
+    for (    final ClusterInfoType cc : clusters) {
+      requestedZones.remove(cc.getZoneName());
+    }
+  }
+ catch (  final Exception ex) {
+    throw new LoadBalancingActivityException("failed to validate the requested zones",ex);
+  }
+  if (requestedZones.size() > 0) {
+    throw new LoadBalancingActivityException("unknown zone is requested");
+  }
+  final String instanceType=LoadBalancingWorkerProperties.INSTANCE_TYPE;
+  int numVm=1;
+  try {
+    numVm=Integer.parseInt(LoadBalancingServiceProperties.VM_PER_ZONE);
+  }
+ catch (  final NumberFormatException ex) {
+    LOG.warn("unable to parse loadbalancer_num_vm");
+  }
+  for (  final String zone : zones) {
+    final int capacity=findAvailableResources(clusters,zone,instanceType);
+    if (numVm > capacity) {
+      throw new LoadBalancingActivityException(String.format("Not enough resources in %s",zone));
+    }
+  }
+  final String keyName=LoadBalancingWorkerProperties.KEYNAME;
+  if (keyName != null && !keyName.isEmpty()) {
+    try {
+      Ec2Client.getInstance().describeKeyPairs(Accounts.lookupSystemAccountByAlias(AccountIdentifiers.ELB_SYSTEM_ACCOUNT).getUserId(),Lists.newArrayList(keyName));
+    }
+ catch (    Exception ex) {
+      throw new LoadBalancingActivityException("The configured keyname is not found." + " Do you have keypair " + keyName + " that belongs to "+ AccountIdentifiers.ELB_SYSTEM_ACCOUNT+ " account?");
+    }
+  }
+  return true;
+}

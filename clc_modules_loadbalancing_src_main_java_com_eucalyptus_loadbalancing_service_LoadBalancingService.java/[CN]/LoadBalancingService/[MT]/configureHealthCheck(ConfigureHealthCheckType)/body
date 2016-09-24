@@ -1,0 +1,60 @@
+{
+  ConfigureHealthCheckResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String lbName=request.getLoadBalancerName();
+  final HealthCheck hc=request.getHealthCheck();
+  final Integer healthyThreshold=hc.getHealthyThreshold();
+  if (healthyThreshold == null)   throw new InvalidConfigurationRequestException("Healthy tresholds must be specified");
+  final Integer interval=hc.getInterval();
+  if (interval == null)   throw new InvalidConfigurationRequestException("Interval must be specified");
+  final String target=hc.getTarget();
+  if (target == null)   throw new InvalidConfigurationRequestException("Target must be specified");
+  final Integer timeout=hc.getTimeout();
+  if (timeout == null)   throw new InvalidConfigurationRequestException("Timeout must be specified");
+  final Integer unhealthyThreshold=hc.getUnhealthyThreshold();
+  if (unhealthyThreshold == null)   throw new InvalidConfigurationRequestException("Unhealthy tresholds must be specified");
+  if (interval < MIN_HEALTHCHECK_INTERVAL_SEC) {
+    throw new InvalidConfigurationRequestException(String.format("Interval must be longer than %d seconds",MIN_HEALTHCHECK_INTERVAL_SEC));
+  }
+  if (healthyThreshold < MIN_HEALTHCHECK_THRESHOLDS) {
+    throw new InvalidConfigurationRequestException(String.format("Healthy thresholds must be larger than %d",MIN_HEALTHCHECK_THRESHOLDS));
+  }
+  if (unhealthyThreshold < MIN_HEALTHCHECK_THRESHOLDS) {
+    throw new InvalidConfigurationRequestException(String.format("Unhealthy thresholds must be larger than %d",MIN_HEALTHCHECK_THRESHOLDS));
+  }
+  LoadBalancer lb;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ctx,lbName);
+  }
+ catch (  NoSuchElementException ex) {
+    throw new AccessPointNotFoundException();
+  }
+catch (  Exception ex) {
+    throw new InternalFailure400Exception("Failed to find the loadbalancer");
+  }
+  if (lb != null && !LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
+    throw new AccessPointNotFoundException();
+  }
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancer.class)){
+    final LoadBalancer update=Entities.uniqueResult(lb);
+    update.setHealthCheck(healthyThreshold,interval,target,timeout,unhealthyThreshold);
+    hc.setTarget(update.getHealthCheckTarget());
+    Entities.persist(update);
+    db.commit();
+  }
+ catch (  final IllegalArgumentException ex) {
+    throw new InvalidConfigurationRequestException(ex.getMessage());
+  }
+catch (  final Exception ex) {
+    LOG.error("failed to persist health check config",ex);
+    throw new InternalFailure400Exception("Failed to persist the health check config",ex);
+  }
+ finally {
+    if (lb != null)     LoadBalancingServoCache.getInstance().invalidate(lb);
+  }
+  LoadBalancingWorkflows.updateLoadBalancer(ctx.getAccountNumber(),lbName);
+  ConfigureHealthCheckResult result=new ConfigureHealthCheckResult();
+  result.setHealthCheck(hc);
+  reply.setConfigureHealthCheckResult(result);
+  return reply;
+}

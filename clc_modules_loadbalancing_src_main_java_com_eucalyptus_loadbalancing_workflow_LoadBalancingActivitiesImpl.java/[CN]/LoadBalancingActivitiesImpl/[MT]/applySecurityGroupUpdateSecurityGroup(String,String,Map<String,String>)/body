@@ -1,0 +1,35 @@
+{
+  final LoadBalancer lb;
+  try {
+    lb=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+  }
+ catch (  NoSuchElementException ex) {
+    throw new LoadBalancingActivityException("Failed to find the loadbalancer " + lbName,ex);
+  }
+catch (  Exception ex) {
+    throw new LoadBalancingActivityException("Unable to access loadbalancer metadata",ex);
+  }
+  for (  final LoadBalancerAutoScalingGroupCoreView group : lb.getAutoScaleGroups()) {
+    final String groupName=group.getName();
+    final DescribeAutoScalingGroupsResponseType response=EucalyptusActivityTasks.getInstance().describeAutoScalingGroups(Lists.newArrayList(groupName),lb.useSystemAccount());
+    final DescribeAutoScalingGroupsResult describeAutoScalingGroupsResult=response.getDescribeAutoScalingGroupsResult();
+    if (describeAutoScalingGroupsResult != null) {
+      final AutoScalingGroupsType autoScalingGroupsType=describeAutoScalingGroupsResult.getAutoScalingGroups();
+      if (autoScalingGroupsType != null && autoScalingGroupsType.getMember() != null && !autoScalingGroupsType.getMember().isEmpty() && autoScalingGroupsType.getMember().get(0).getInstances() != null) {
+        for (        final Instance instance : autoScalingGroupsType.getMember().get(0).getInstances().getMember()) {
+          final String userVpcEni=lookupSecondaryNetworkInterface(instance.getInstanceId());
+          if (userVpcEni == null) {
+            throw new LoadBalancingActivityException("Failed to lookup user VPC network interface");
+          }
+          try {
+            final List<String> sgroupIds=Lists.newArrayList(groupIdToNames.keySet());
+            EucalyptusActivityTasks.getInstance().modifyNetworkInterfaceSecurityGroups(userVpcEni,sgroupIds);
+          }
+ catch (          final Exception ex) {
+            throw new LoadBalancingActivityException("Failed to set security groups to network interface",ex);
+          }
+        }
+      }
+    }
+  }
+}

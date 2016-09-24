@@ -1,0 +1,36 @@
+{
+  LoadBalancer lb;
+  try {
+    lb=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+  }
+ catch (  NoSuchElementException ex) {
+    LOG.warn("Could not find the loadbalancer with name=" + lbName,ex);
+    return;
+  }
+catch (  Exception ex) {
+    LOG.warn("Error while looking for loadbalancer with name=" + lbName,ex);
+    return;
+  }
+  try {
+    for (    final String enabledZone : enabledZones) {
+      final LoadBalancerZone zone=LoadBalancers.findZone(lb,enabledZone);
+      for (      final LoadBalancerBackendInstanceCoreView instance : zone.getBackendInstances()) {
+        try (final TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
+          final LoadBalancerBackendInstance update=Entities.uniqueResult(LoadBalancerBackendInstance.named(lb,instance.getInstanceId()));
+          update.setReasonCode("");
+          update.setDescription("");
+          db.commit();
+        }
+ catch (        final NoSuchElementException ex) {
+          LOG.warn("failed to find the backend instance");
+        }
+catch (        final Exception ex) {
+          LOG.warn("failed to query the backend instance",ex);
+        }
+      }
+    }
+  }
+ catch (  final Exception ex) {
+    LOG.warn("unable to update backend instances after enabling zone",ex);
+  }
+}

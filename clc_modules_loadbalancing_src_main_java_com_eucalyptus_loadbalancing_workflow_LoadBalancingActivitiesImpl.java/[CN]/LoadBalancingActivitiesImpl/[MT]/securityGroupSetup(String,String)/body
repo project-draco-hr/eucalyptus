@@ -1,0 +1,102 @@
+{
+  final SecurityGroupSetupActivityResult result=new SecurityGroupSetupActivityResult();
+  LoadBalancer lbEntity;
+  LoadBalancerCoreView lb;
+  try {
+    lbEntity=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+    lb=lbEntity.getCoreView();
+  }
+ catch (  NoSuchElementException ex) {
+    throw new LoadBalancingActivityException("Could not find the loadbalancer with name=" + lbName,ex);
+  }
+catch (  Exception ex) {
+    throw new LoadBalancingActivityException("Error while looking for loadbalancer with name=" + lbName,ex);
+  }
+  if (lb.getVpcId() == null) {
+    final String groupName=getSecurityGroupName(lb.getOwnerAccountNumber(),lb.getDisplayName());
+    final String groupDesc=String.format("group for loadbalancer %s",lbName);
+    boolean groupFound=false;
+    try {
+      List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeSystemSecurityGroups(Lists.newArrayList(groupName));
+      if (groups != null)       for (      final SecurityGroupItemType group : groups) {
+        if (groupName.equals(group.getGroupName()) && group.getVpcId() == null) {
+          groupFound=true;
+          result.setGroupName(groupName);
+          result.setGroupId(group.getGroupId());
+          result.setGroupOwnerAccountId(group.getAccountId());
+          break;
+        }
+      }
+    }
+ catch (    Exception ex) {
+      groupFound=false;
+    }
+    if (!groupFound) {
+      try {
+        EucalyptusActivityTasks.getInstance().createSystemSecurityGroup(groupName,groupDesc);
+        result.setCreatedGroupName(groupName);
+        result.setGroupName(groupName);
+        List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeSystemSecurityGroups(Lists.newArrayList(groupName));
+        if (groups != null)         for (        final SecurityGroupItemType group : groups) {
+          if (groupName.equals(group.getGroupName()) && group.getVpcId() == null) {
+            result.setCreatedGroupId(group.getGroupId());
+            result.setGroupId(group.getGroupId());
+            result.setGroupOwnerAccountId(group.getAccountId());
+            break;
+          }
+        }
+      }
+ catch (      Exception ex) {
+        throw new LoadBalancingActivityException("Failed to create the security group for loadbalancer",ex);
+      }
+    }
+    if (result.getGroupName() == null || result.getGroupOwnerAccountId() == null)     throw new LoadBalancingActivityException("Failed to create the security group for loadbalancer");
+    try (final TransactionResource db=Entities.transactionFor(LoadBalancerSecurityGroup.class)){
+      try {
+        Entities.uniqueResult(LoadBalancerSecurityGroup.named(lbEntity,result.getGroupOwnerAccountId(),result.getGroupName()));
+      }
+ catch (      NoSuchElementException ex) {
+        Entities.persist(LoadBalancerSecurityGroup.create(lbEntity,result.getGroupOwnerAccountId(),result.getGroupName()));
+      }
+      db.commit();
+    }
+ catch (    Exception ex) {
+      throw new LoadBalancingActivityException("Error while persisting security group",ex);
+    }
+  }
+ else   if (lb.getSecurityGroupIdsToNames().isEmpty()) {
+    final String groupName=generateDefaultVPCSecurityGroupName(lb.getVpcId());
+    final String groupDesc=String.format("ELB created security group used when no security group is specified during ELB creation - modifications could impact traffic to future ELBs");
+    final AccountFullName accountFullName=AccountFullName.getInstance(accountNumber);
+    final List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsByName(accountFullName,lb.getVpcId(),groupName);
+    final SecurityGroupItemType elbVpcGroup;
+    if (groups.isEmpty()) {
+      EucalyptusActivityTasks.getInstance().createUserSecurityGroup(accountFullName,groupName,groupDesc);
+      final List<SecurityGroupItemType> createdGroupList=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsByName(accountFullName,lb.getVpcId(),groupName);
+      elbVpcGroup=Iterables.getOnlyElement(createdGroupList);
+      result.setCreatedGroupId(elbVpcGroup.getGroupId());
+      result.setCreatedGroupName(elbVpcGroup.getGroupName());
+    }
+ else {
+      elbVpcGroup=Iterables.get(groups,0);
+    }
+    Entities.asDistinctTransaction(LoadBalancer.class,new Predicate<String>(){
+      @Override public boolean apply(      @Nullable final String loadBalancerName){
+        try {
+          final LoadBalancer lb=Entities.uniqueResult(LoadBalancer.namedByAccountId(accountFullName.getAccountNumber(),loadBalancerName));
+          lb.setSecurityGroupRefs(Lists.newArrayList(new LoadBalancerSecurityGroupRef(elbVpcGroup.getGroupId(),elbVpcGroup.getGroupName())));
+        }
+ catch (        TransactionException e) {
+          throw Exceptions.toUndeclared(e);
+        }
+        return true;
+      }
+    }
+).apply(lb.getDisplayName());
+    result.setShouldRollback(false);
+    result.setGroupId(elbVpcGroup.getGroupId());
+    result.setGroupName(elbVpcGroup.getGroupName());
+    result.setGroupOwnerAccountId(elbVpcGroup.getAccountId());
+  }
+  return result;
+}

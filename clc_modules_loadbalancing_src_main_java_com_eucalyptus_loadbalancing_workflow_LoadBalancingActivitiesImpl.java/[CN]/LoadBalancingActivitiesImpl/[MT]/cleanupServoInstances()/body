@@ -1,0 +1,46 @@
+{
+  List<LoadBalancerServoInstance> retired=null;
+  try (final TransactionResource db=Entities.transactionFor(LoadBalancerServoInstance.class)){
+    LoadBalancerServoInstance sample=LoadBalancerServoInstance.withState(LoadBalancerServoInstance.STATE.Retired.name());
+    retired=Entities.query(sample);
+    sample=LoadBalancerServoInstance.withState(LoadBalancerServoInstance.STATE.Error.name());
+    retired.addAll(Entities.query(sample));
+  }
+ catch (  Exception ex) {
+    LOG.warn("Failed to query loadbalancer servo instance",ex);
+  }
+  if (retired == null || retired.size() <= 0)   return;
+  final List<String> param=Lists.newArrayList();
+  final Map<String,String> latestState=Maps.newHashMap();
+  for (  final LoadBalancerServoInstance instance : retired) {
+    String instanceId=instance.getInstanceId();
+    if (instanceId == null)     continue;
+    param.clear();
+    param.add(instanceId);
+    String instanceState;
+    try {
+      List<RunningInstancesItemType> result=null;
+      result=EucalyptusActivityTasks.getInstance().describeSystemInstancesWithVerbose(param);
+      if (result.isEmpty())       instanceState="terminated";
+ else       instanceState=result.get(0).getStateName();
+    }
+ catch (    final Exception ex) {
+      LOG.warn("Failed to query instances",ex);
+      continue;
+    }
+    latestState.put(instanceId,instanceState);
+  }
+  for (  String instanceId : latestState.keySet()) {
+    String state=latestState.get(instanceId);
+    if (state.equals("terminated")) {
+      try (final TransactionResource db2=Entities.transactionFor(LoadBalancerServoInstance.class)){
+        LoadBalancerServoInstance toDelete=Entities.uniqueResult(LoadBalancerServoInstance.named(instanceId));
+        Entities.delete(toDelete);
+        db2.commit();
+      }
+ catch (      Exception ex) {
+        LOG.warn("Unable to delete load balancer servo instance: ",ex);
+      }
+    }
+  }
+}

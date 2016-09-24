@@ -1,0 +1,81 @@
+{
+  DeleteLoadBalancerResponseType reply=request.getReply();
+  final String candidateLB=request.getLoadBalancerName();
+  final Context ctx=Contexts.lookup();
+  Function<String,LoadBalancer> findLoadBalancer=new Function<String,LoadBalancer>(){
+    @Override @Nullable public LoadBalancer apply(    @Nullable String lbName){
+      try {
+        return LoadBalancers.getLoadbalancer(ctx,lbName);
+      }
+ catch (      NoSuchElementException ex) {
+        if (ctx.isAdministrator()) {
+          try {
+            return LoadBalancers.getLoadBalancerByDnsName(lbName);
+          }
+ catch (          Exception ex2) {
+            if (ex2 instanceof NoSuchElementException)             throw Exceptions.toUndeclared(new LoadBalancingException("Unable to find the loadbalancer (use DNS name if you are an administrator)"));
+            throw Exceptions.toUndeclared(ex2);
+          }
+        }
+        throw ex;
+      }
+    }
+  }
+;
+  LoadBalancer lb=null;
+  try {
+    if (candidateLB != null) {
+      String lbToDelete=null;
+      try {
+        lb=findLoadBalancer.apply(candidateLB);
+        lbToDelete=lb.getDisplayName();
+      }
+ catch (      NoSuchElementException ex) {
+      }
+catch (      Exception ex) {
+        if (ex.getCause() != null && ex.getCause() instanceof LoadBalancingException)         throw (LoadBalancingException)ex.getCause();
+ else         throw ex;
+      }
+      if (lb != null && !LoadBalancingMetadatas.filterPrivileged().apply(lb))       throw new AccessPointNotFoundException();
+      List<Integer> ports=null;
+      if (lb != null) {
+        Collection<LoadBalancerListenerCoreView> listeners=lb.getListeners();
+        ports=Lists.newArrayList(Collections2.transform(listeners,new Function<LoadBalancerListenerCoreView,Integer>(){
+          @Override public Integer apply(          @Nullable LoadBalancerListenerCoreView arg0){
+            return arg0.getLoadbalancerPort();
+          }
+        }
+));
+        if (!LoadBalancingWorkflows.deleteListenersSync(ctx.getAccountNumber(),candidateLB,Lists.newArrayList(ports))) {
+          throw new Exception("Workflow for deleting listeners has failed");
+        }
+ else         if (!LoadBalancingWorkflows.deleteLoadBalancerSync(ctx.getAccountNumber(),candidateLB)) {
+          throw new Exception("Workflow for deleting loadbalancer has failed");
+        }
+ else {
+          LoadBalancingWorkflows.cancelInstanceStatusPolling(ctx.getAccountNumber(),candidateLB);
+          LoadBalancingWorkflows.cancelCloudWatchPutMetric(ctx.getAccountNumber(),candidateLB);
+          LoadBalancingWorkflows.cancelUpdateLoadBalancer(ctx.getAccountNumber(),candidateLB);
+          LoadBalancers.deleteLoadbalancer(UserFullName.getInstance(lb.getOwnerUserId()),lbToDelete);
+        }
+      }
+    }
+  }
+ catch (  LoadBalancingException e) {
+    throw new InternalFailure400Exception(e.getMessage());
+  }
+catch (  Exception e) {
+    if (!(e.getCause() instanceof NoSuchElementException)) {
+      LOG.error("Error deleting the loadbalancer: " + e.getMessage(),e);
+      final String reason="internal error";
+      throw new InternalFailure400Exception(String.format("Failed to delete the loadbalancer: %s",reason),e);
+    }
+  }
+ finally {
+    if (lb != null)     LoadBalancingServoCache.getInstance().invalidate(lb);
+  }
+  DeleteLoadBalancerResult result=new DeleteLoadBalancerResult();
+  reply.setDeleteLoadBalancerResult(result);
+  reply.set_return(true);
+  return reply;
+}

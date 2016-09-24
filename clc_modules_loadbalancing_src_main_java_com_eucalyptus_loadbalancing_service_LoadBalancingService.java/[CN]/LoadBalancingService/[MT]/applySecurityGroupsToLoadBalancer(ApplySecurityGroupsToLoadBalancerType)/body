@@ -1,0 +1,61 @@
+{
+  final ApplySecurityGroupsToLoadBalancerResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String accountNumber=ctx.getAccountNumber();
+  final Set<String> securityGroupIds=Sets.newHashSet(request.getSecurityGroups().getMember());
+  final List<SecurityGroupItemType> groups=EucalyptusActivityTasks.getInstance().describeUserSecurityGroupsById(ctx.getAccount(),null,securityGroupIds);
+  if (groups.size() != securityGroupIds.size()) {
+    throw new LoadBalancingClientException("InvalidSecurityGroup","Invalid security group(s)");
+  }
+  final Function<String,Map<String,String>> updateSecurityGroups=new Function<String,Map<String,String>>(){
+    @Override public Map<String,String> apply(    final String identifier){
+      try {
+        final LoadBalancer example=LoadBalancer.namedByAccountId(accountNumber,identifier);
+        final LoadBalancer loadBalancer=Entities.uniqueResult(example);
+        if (RestrictedTypes.filterPrivileged().apply(loadBalancer)) {
+          if (loadBalancer.getVpcId() == null) {
+            throw Exceptions.toUndeclared(new InvalidConfigurationRequestException("VPC only"));
+          }
+          LoadBalancers.checkVersion(loadBalancer,DeploymentVersion.v4_3_0);
+          for (          final SecurityGroupItemType group : groups) {
+            if (!loadBalancer.getVpcId().equals(group.getVpcId()))             throw Exceptions.toUndeclared(new InvalidConfigurationRequestException(String.format("Security group \"%s\" does not belong to VPC \"%s\"",group.getGroupId(),loadBalancer.getVpcId())));
+          }
+          final List<SecurityGroupItemType> sortedGroups=Ordering.natural().onResultOf(SecurityGroupItemType.groupId()).sortedCopy(groups);
+          loadBalancer.setSecurityGroupRefs(Lists.newArrayList(Iterables.transform(sortedGroups,TypeMappers.lookup(SecurityGroupItemType.class,LoadBalancerSecurityGroupRef.class))));
+          final Map<String,String> groupIdToNameMap=CollectionUtils.putAll(sortedGroups,Maps.<String,String>newLinkedHashMap(),SecurityGroupItemType.groupId(),SecurityGroupItemType.groupName());
+          return groupIdToNameMap;
+        }
+ else {
+          throw new NoSuchElementException();
+        }
+      }
+ catch (      NoSuchElementException e) {
+        throw Exceptions.toUndeclared(new AccessPointNotFoundException());
+      }
+catch (      TransactionException e) {
+        throw Exceptions.toUndeclared(e);
+      }
+catch (      LoadBalancerVersionException e) {
+        throw Exceptions.toUndeclared(e);
+      }
+    }
+  }
+;
+  final Map<String,String> groupIdToNameMap;
+  try {
+    groupIdToNameMap=Entities.asTransaction(LoadBalancer.class,updateSecurityGroups).apply(request.getLoadBalancerName());
+  }
+ catch (  Exception e) {
+    throw handleException(e);
+  }
+  try {
+    if (!LoadBalancingWorkflows.applySecurityGroupsSync(accountNumber,request.getLoadBalancerName(),groupIdToNameMap))     ;
+  }
+ catch (  final Exception ex) {
+    LOG.error("Workflow for applying security groups failed",ex);
+    final String reason=Optional.fromNullable(ex.getCause()).transform(Exceptions.message()).or("internal error");
+    throw new InternalFailure400Exception(String.format("Failed to apply security groups to loadbalancer: %s",reason),ex);
+  }
+  reply.getApplySecurityGroupsToLoadBalancerResult().setSecurityGroups(new SecurityGroups(Collections2.transform(groups,SecurityGroupItemType.groupId())));
+  return reply;
+}

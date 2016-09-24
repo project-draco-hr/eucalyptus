@@ -1,0 +1,51 @@
+{
+  LoadBalancer lb;
+  try {
+    lb=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+  }
+ catch (  NoSuchElementException ex) {
+    throw new LoadBalancingActivityException("Could not find the loadbalancer with name=" + lbName,ex);
+  }
+catch (  Exception ex) {
+    throw new LoadBalancingActivityException("Error while looking for loadbalancer with name=" + lbName,ex);
+  }
+  List<String> retiredInstances=Lists.newArrayList();
+  final List<LoadBalancerZoneCoreView> currentZones=Lists.newArrayList(lb.getZones());
+  for (  final LoadBalancerZoneCoreView zoneView : currentZones) {
+    if (zonesToDisable.contains(zoneView.getName())) {
+      LoadBalancerZone zone;
+      try {
+        zone=LoadBalancerZoneEntityTransform.INSTANCE.apply(zoneView);
+      }
+ catch (      final Exception ex) {
+        LOG.error("unable to transform zone from the view",ex);
+        continue;
+      }
+      for (      final LoadBalancerServoInstanceCoreView instanceView : zone.getServoInstances()) {
+        LoadBalancerServoInstance instance;
+        try {
+          instance=LoadBalancerServoInstanceEntityTransform.INSTANCE.apply(instanceView);
+        }
+ catch (        final Exception ex) {
+          LOG.error("unable to transfrom servo-instance from the view",ex);
+          continue;
+        }
+        try (final TransactionResource db=Entities.transactionFor(LoadBalancerServoInstance.class)){
+          final LoadBalancerServoInstance update=Entities.uniqueResult(instance);
+          update.setState(LoadBalancerServoInstance.STATE.Retired);
+          update.setDnsState(LoadBalancerServoInstance.DNS_STATE.Deregistered);
+          Entities.persist(update);
+          db.commit();
+          retiredInstances.add(update.getInstanceId());
+        }
+ catch (        final NoSuchElementException ex) {
+          LOG.warn("Failed to update the servo instance's state: no such instance found");
+        }
+catch (        final Exception ex) {
+          LOG.warn("Failed to update the servo instance's state",ex);
+        }
+      }
+    }
+  }
+  return retiredInstances;
+}

@@ -1,0 +1,26 @@
+{
+  if (metrics != null) {
+    for (    final String instanceId : metrics.keySet()) {
+      final MetricData data=VmWorkflowMarshaller.unmarshalMetrics(metrics.get(instanceId));
+      if (data.getMember() == null || data.getMember().size() <= 0)       continue;
+      LoadBalancerZone zone=null;
+      try (final TransactionResource db=Entities.transactionFor(LoadBalancerServoInstance.class)){
+        final LoadBalancerServoInstance sample=LoadBalancerServoInstance.named(instanceId);
+        final LoadBalancerServoInstance entity=Entities.uniqueResult(sample);
+        zone=LoadBalancerZoneEntityTransform.INSTANCE.apply(entity.getAvailabilityZone());
+      }
+ catch (      final Exception ex) {
+        LOG.error("Failed to lookup servo instance named: " + instanceId);
+        ;
+      }
+      if (zone != null) {
+        try {
+          LoadBalancerCwatchMetrics.getInstance().addMetric(zone,data);
+        }
+ catch (        Exception ex) {
+          LOG.error("Failed to add ELB cloudwatch metric",ex);
+        }
+      }
+    }
+  }
+}

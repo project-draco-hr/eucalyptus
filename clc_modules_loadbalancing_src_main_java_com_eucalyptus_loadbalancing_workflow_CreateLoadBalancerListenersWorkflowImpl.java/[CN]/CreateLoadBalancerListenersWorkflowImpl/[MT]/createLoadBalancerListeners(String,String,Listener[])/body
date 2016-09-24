@@ -1,0 +1,30 @@
+{
+  task=new TryCatchFinally(){
+    @Override protected void doTry() throws Throwable {
+      Promise<Void> checkSSL=client.createListenerCheckSSLCertificateId(accountId,loadbalancer,listeners);
+      authCert=client.createListenerAuthorizeSSLCertificate(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),Promise.asPromise(listeners),checkSSL);
+      ingressRule=client.createListenerAuthorizeIngressRule(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),Promise.asPromise(listeners),checkSSL);
+      Promise<Void> healthCheck=client.createListenerUpdateHealthCheckConfig(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),Promise.asPromise(listeners),checkSSL);
+      Promise<Void> sslDefaultPolicy=client.createListenerAddDefaultSSLPolicy(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),Promise.asPromise(listeners),checkSSL);
+    }
+    @Override protected void doCatch(    Throwable e) throws Throwable {
+      if (e instanceof CancellationException) {
+        LOG.warn("Workflow for creating ELB listener is cancelled");
+        state=ElbWorkflowState.WORKFLOW_CANCELLED;
+        return;
+      }
+      if (authCert != null && authCert.isReady()) {
+        client.createListenerAuthorizeSSLCertificateRollback(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),authCert);
+      }
+      if (ingressRule != null && ingressRule.isReady()) {
+        client.createListenerAuthorizeIngressRuleRollback(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),ingressRule);
+      }
+      state=ElbWorkflowState.WORKFLOW_FAILED;
+      LOG.error("Workflow for creating loadbalancer listener failed",e);
+    }
+    @Override protected void doFinally() throws Throwable {
+      if (state == ElbWorkflowState.WORKFLOW_RUNNING)       state=ElbWorkflowState.WORKFLOW_SUCCESS;
+    }
+  }
+;
+}

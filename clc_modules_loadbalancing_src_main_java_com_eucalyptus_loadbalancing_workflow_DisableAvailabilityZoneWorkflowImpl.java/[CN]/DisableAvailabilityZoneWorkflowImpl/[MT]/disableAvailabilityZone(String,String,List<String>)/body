@@ -1,0 +1,29 @@
+{
+  task=new TryCatchFinally(){
+    @Override protected void doTry() throws Throwable {
+      updatedServos=client.disableAvailabilityZonesPersistRetiredServoInstances(accountId,loadbalancer,availabilityZones);
+      updatedZones=client.disableAvailabilityZonesUpdateAutoScalingGroup(accountId,loadbalancer,availabilityZones);
+      Promise<Void> zoneUpdateActivity=client.disableAvailabilityZonesPersistUpdatedZones(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),updatedZones);
+      Promise<Void> backendUpdateActivity=client.disableAvailabilityZonesPersistBackendInstanceState(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),updatedZones);
+    }
+    @Override protected void doCatch(    Throwable e) throws Throwable {
+      if (e instanceof CancellationException) {
+        LOG.warn("Workflow for disabling ELB availability zone is cancelled");
+        state=ElbWorkflowState.WORKFLOW_CANCELLED;
+        return;
+      }
+      if (updatedServos != null && updatedServos.isReady()) {
+        client.disableAvailabilityZonesPersistRetiredServoInstancesRollback(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),updatedServos);
+      }
+      if (updatedZones != null && updatedZones.isReady()) {
+        client.disableAvailabilityZonesUpdateAutoScalingGroupRollback(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),updatedZones);
+      }
+      state=ElbWorkflowState.WORKFLOW_FAILED;
+      LOG.error("Failed to disable ELB availability zone. Rollback complete.",e);
+    }
+    @Override protected void doFinally() throws Throwable {
+      if (state == ElbWorkflowState.WORKFLOW_RUNNING)       state=ElbWorkflowState.WORKFLOW_SUCCESS;
+    }
+  }
+;
+}

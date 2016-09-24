@@ -1,0 +1,28 @@
+{
+  if (zonesToRollback == null || zonesToRollback.size() <= 0)   return;
+  LoadBalancer lb;
+  try {
+    lb=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+  }
+ catch (  NoSuchElementException ex) {
+    LOG.warn("Could not find the loadbalancer with name=" + lbName,ex);
+    return;
+  }
+catch (  Exception ex) {
+    LOG.warn("Error while looking for loadbalancer with name=" + lbName,ex);
+    return;
+  }
+  for (  final LoadBalancerZoneCoreView zoneView : lb.getZones()) {
+    if (zonesToRollback.contains(zoneView.getName())) {
+      try (final TransactionResource db=Entities.transactionFor(LoadBalancerZone.class)){
+        final LoadBalancerZone sample=LoadBalancerZone.named(lb,zoneView.getName());
+        final LoadBalancerZone update=Entities.uniqueResult(sample);
+        update.setState(LoadBalancerZone.STATE.OutOfService);
+        db.commit();
+      }
+ catch (      final Exception ex) {
+        LOG.error("could not mark out of state for the zone",ex);
+      }
+    }
+  }
+}

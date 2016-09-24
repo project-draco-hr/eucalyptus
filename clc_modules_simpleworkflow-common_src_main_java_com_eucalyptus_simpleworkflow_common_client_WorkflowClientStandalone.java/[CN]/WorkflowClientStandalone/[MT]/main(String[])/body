@@ -1,0 +1,49 @@
+{
+  final WorkflowClientStandalone instance=WorkflowClientStandalone.getInstance();
+  final Options opts=buildOptions();
+  final GnuParser cliParser=new GnuParser();
+  CommandLine cmd=null;
+  try {
+    cmd=cliParser.parse(opts,args);
+  }
+ catch (  final ParseException ex) {
+    printHelp(opts,null);
+    System.exit(1);
+  }
+  try {
+    instance.readOptions(cmd);
+  }
+ catch (  final NumberFormatException ex) {
+    printHelp(opts,"Some number format arguents are not recognizable");
+    System.exit(1);
+  }
+  initLogs();
+  LOG.debug("Starting Workflow Standalone Host");
+  try {
+    instance.discoverWorkflows();
+  }
+ catch (  final Exception ex) {
+    LOG.debug("Failed to discover workflow and activities implementation");
+    printHelp(opts,"Failed to discover implementation classes");
+    System.exit(1);
+  }
+  try {
+    final AmazonSimpleWorkflow swfClient=instance.getAWSClient();
+    addShutdownHook(swfClient);
+    final WorkflowClient workflowClient=new WorkflowClient(instance.workflowClasses.toArray(new Class<?>[instance.workflowClasses.size()]),instance.activityClasses.toArray(new Class<?>[instance.activityClasses.size()]),false,swfClient,instance.domain,instance.taskList,instance.buildWorkflowWorkerConfig(),instance.buildActivityWorkerConfig());
+    workflowClient.start();
+    instance.clients.add(workflowClient);
+  }
+ catch (  final Exception ex) {
+    LOG.debug("Failed to create workflow clients",ex);
+    System.exit(1);
+  }
+  do {
+    try {
+      Thread.sleep(1000);
+    }
+ catch (    final Exception ex) {
+    }
+  }
+ while (true);
+}

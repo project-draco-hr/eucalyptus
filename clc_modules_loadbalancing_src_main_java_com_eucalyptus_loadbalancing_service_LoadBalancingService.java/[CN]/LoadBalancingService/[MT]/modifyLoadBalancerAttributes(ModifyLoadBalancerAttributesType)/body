@@ -1,0 +1,75 @@
+{
+  final ModifyLoadBalancerAttributesResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String accountNumber=ctx.getAccount().getAccountNumber();
+  final Function<String,LoadBalancerAttributes> modifyAttributes=new Function<String,LoadBalancerAttributes>(){
+    @Override public LoadBalancerAttributes apply(    final String identifier){
+      try {
+        final LoadBalancer example=LoadBalancer.namedByAccountId(accountNumber,identifier);
+        final LoadBalancer loadBalancer=Entities.uniqueResult(example);
+        if (RestrictedTypes.filterPrivileged().apply(loadBalancer)) {
+          final ConnectionSettings connectionSettings=request.getLoadBalancerAttributes().getConnectionSettings();
+          if (connectionSettings != null) {
+            loadBalancer.setConnectionIdleTimeout(connectionSettings.getIdleTimeout());
+          }
+          final CrossZoneLoadBalancing crossZoneLb=request.getLoadBalancerAttributes().getCrossZoneLoadBalancing();
+          if (crossZoneLb != null)           loadBalancer.setCrossZoneLoadbalancingEnabled(crossZoneLb.getEnabled());
+          return TypeMappers.transform(loadBalancer,LoadBalancerAttributes.class);
+        }
+ else {
+          throw new NoSuchElementException();
+        }
+      }
+ catch (      NoSuchElementException e) {
+        throw Exceptions.toUndeclared(new AccessPointNotFoundException());
+      }
+catch (      TransactionException e) {
+        throw Exceptions.toUndeclared(e);
+      }
+    }
+  }
+;
+  final AccessLog accessLog=request.getLoadBalancerAttributes().getAccessLog();
+  if (accessLog != null) {
+    final boolean accessLogEnabled=accessLog.getEnabled();
+    if (accessLogEnabled) {
+      final String bucketName=accessLog.getS3BucketName();
+      final Integer emitInterval=com.google.common.base.Objects.firstNonNull(accessLog.getEmitInterval(),60);
+      if (!ObjectStorageGateway.checkBucketNameValidity(bucketName)) {
+        throw new InvalidConfigurationRequestException("Invalid bucket name specified");
+      }
+      if (emitInterval < 5 || emitInterval > 60) {
+        throw new InvalidConfigurationRequestException("Access log's emit interval must be between 5 and 60 minutes");
+      }
+    }
+    if (accessLog.getS3BucketPrefix() != null) {
+      try {
+        String escapedPrefix=new ObjectMapper().writeValueAsString(accessLog.getS3BucketPrefix());
+        escapedPrefix=escapedPrefix.replaceAll("^\"|\"$","");
+        accessLog.setS3BucketPrefix(escapedPrefix);
+      }
+ catch (      final Exception ex) {
+        throw new InvalidConfigurationRequestException("Invalid characters in bucket prefix text string");
+      }
+    }
+  }
+  try {
+    if (!LoadBalancingWorkflows.modifyLoadBalancerAttributesSync(accountNumber,request.getLoadBalancerName(),request.getLoadBalancerAttributes()))     throw new Exception("Workflow for modifying attributes has failed");
+    LoadBalancingWorkflows.updateLoadBalancer(accountNumber,request.getLoadBalancerName());
+  }
+ catch (  final Exception e) {
+    final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage() : "internal error";
+    throw new InternalFailure400Exception(String.format("Failed to modify attributes: %s",reason),e);
+  }
+  final LoadBalancerAttributes attributes=Entities.asTransaction(LoadBalancer.class,modifyAttributes).apply(request.getLoadBalancerName());
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ctx,request.getLoadBalancerName());
+    if (lb != null)     LoadBalancingServoCache.getInstance().invalidate(lb);
+  }
+ catch (  final Exception ex) {
+    ;
+  }
+  reply.getModifyLoadBalancerAttributesResult().setLoadBalancerAttributes(attributes);
+  return reply;
+}

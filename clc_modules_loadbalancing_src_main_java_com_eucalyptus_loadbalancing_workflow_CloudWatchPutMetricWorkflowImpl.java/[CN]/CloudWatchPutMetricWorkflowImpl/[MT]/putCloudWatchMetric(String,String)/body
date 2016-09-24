@@ -1,0 +1,32 @@
+{
+  this.accountId=accountId;
+  this.loadbalancer=loadbalancer;
+  final Settable<Boolean> exception=new Settable<Boolean>();
+  task=new TryCatchFinally(){
+    @Override protected void doTry() throws Throwable {
+      putCloudWatchMetricPeriodic(0);
+    }
+    @Override protected void doCatch(    Throwable ex) throws Throwable {
+      if (ex instanceof ActivityTaskTimedOutException) {
+        LOG.warn("Put metric activity timed out");
+      }
+ else       if (ex instanceof CancellationException) {
+        ;
+      }
+ else {
+        LOG.warn("Put metric workflow failed",ex);
+      }
+      exception.set(true);
+      throw ex;
+    }
+    @Override protected void doFinally() throws Throwable {
+      if (exception.isReady() && exception.get())       return;
+ else       if (task.isCancelRequested())       return;
+ else {
+        selfClient.getSchedulingOptions().setTagList(Lists.newArrayList(String.format("account:%s",accountId),String.format("loadbalancer:%s",loadbalancer)));
+        selfClient.putCloudWatchMetric(accountId,loadbalancer);
+      }
+    }
+  }
+;
+}

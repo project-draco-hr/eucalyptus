@@ -1,0 +1,32 @@
+{
+  LoadBalancer lb;
+  try {
+    lb=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+  }
+ catch (  NoSuchElementException ex) {
+    throw new LoadBalancingActivityException("Could not find the loadbalancer with name=" + lbName,ex);
+  }
+catch (  Exception ex) {
+    throw new LoadBalancingActivityException("Error while looking for loadbalancer with name=" + lbName,ex);
+  }
+  if (zonesToDisable == null || zonesToDisable.size() <= 0)   return;
+  for (  final String removedZone : zonesToDisable) {
+    final LoadBalancerZone zone=LoadBalancers.findZone(lb,removedZone);
+    for (    final LoadBalancerBackendInstanceCoreView instance : zone.getBackendInstances()) {
+      try (TransactionResource db=Entities.transactionFor(LoadBalancerBackendInstance.class)){
+        final LoadBalancerBackendInstance update=Entities.uniqueResult(LoadBalancerBackendInstance.named(lb,instance.getInstanceId()));
+        update.setState(LoadBalancerBackendInstance.STATE.OutOfService);
+        update.setReasonCode("ELB");
+        update.setDescription("Zone disabled");
+        Entities.persist(update);
+        db.commit();
+      }
+ catch (      final NoSuchElementException ex) {
+        LOG.warn("failed to find the backend instance");
+      }
+catch (      final Exception ex) {
+        LOG.warn("failed to query the backend instance",ex);
+      }
+    }
+  }
+}

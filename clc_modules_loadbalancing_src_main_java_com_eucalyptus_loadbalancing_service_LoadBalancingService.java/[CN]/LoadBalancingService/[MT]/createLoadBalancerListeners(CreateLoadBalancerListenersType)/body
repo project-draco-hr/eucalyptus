@@ -1,0 +1,68 @@
+{
+  final CreateLoadBalancerListenersResponseType reply=request.getReply();
+  final Context ctx=Contexts.lookup();
+  final String lbName=request.getLoadBalancerName();
+  final List<Listener> listeners=request.getListeners().getMember();
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(ctx,lbName);
+  }
+ catch (  Exception ex) {
+    throw new AccessPointNotFoundException();
+  }
+  if (!LoadBalancingMetadatas.filterPrivileged().apply(lb)) {
+    throw new AccessPointNotFoundException();
+  }
+  if (listeners != null)   LoadBalancers.validateListener(lb,listeners);
+  try {
+    for (    final Listener l : listeners) {
+      if ("HTTPS".equals(l.getProtocol().toUpperCase()) || "SSL".equals(l.getProtocol().toUpperCase())) {
+        final String certArn=l.getSSLCertificateId();
+        if (certArn == null || certArn.length() <= 0)         throw new InvalidConfigurationRequestException("SSLCertificateId is required for HTTPS or SSL protocol");
+        LoadBalancers.checkSSLCertificate(ctx.getAccountNumber(),certArn);
+      }
+    }
+  }
+ catch (  Exception ex) {
+    if (!(ex instanceof LoadBalancingException)) {
+      LOG.error("failed to check SSL certificate Id",ex);
+      ex=new InternalFailure400Exception("failed to check SSL certificate Id",ex);
+    }
+    throw (LoadBalancingException)ex;
+  }
+  LoadBalancers.checkWorkerCertificateExpiration(lb);
+  try {
+    LoadBalancers.createLoadbalancerListener(lbName,ctx,listeners);
+  }
+ catch (  final LoadBalancingException ex) {
+    throw ex;
+  }
+catch (  final Exception e) {
+    final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getMessage() : "internal error";
+    throw new InternalFailure400Exception(String.format("Failed to create listener: %s",reason),e);
+  }
+  try {
+    if (!LoadBalancingWorkflows.createListenersSync(ctx.getAccountNumber(),lbName,listeners))     throw new Exception("Workflow for creating listeners failed");
+  }
+ catch (  final Exception e) {
+    try (final TransactionResource db=Entities.transactionFor(LoadBalancerListener.class)){
+      for (      final Listener l : listeners) {
+        try {
+          final LoadBalancerListener exist=Entities.uniqueResult(LoadBalancerListener.named(lb,l.getLoadBalancerPort()));
+          Entities.delete(exist);
+        }
+ catch (        final Exception ex) {
+          ;
+        }
+      }
+    }
+     final String reason=e.getCause() != null && e.getCause().getMessage() != null ? e.getMessage() : "internal error";
+    throw new InternalFailure400Exception(String.format("Failed to create listener: %s",reason),e);
+  }
+ finally {
+    if (lb != null)     LoadBalancingServoCache.getInstance().invalidate(lb);
+  }
+  LoadBalancingWorkflows.updateLoadBalancer(ctx.getAccountNumber(),lbName);
+  reply.set_return(true);
+  return reply;
+}

@@ -1,0 +1,39 @@
+{
+  LoadBalancer lb;
+  try {
+    lb=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+  }
+ catch (  final NoSuchElementException ex) {
+    throw new LoadBalancingActivityException("Could not find the loadbalancer with name=" + lbName,ex);
+  }
+catch (  final Exception ex) {
+    throw new LoadBalancingActivityException("Error while looking for loadbalancer with name=" + lbName,ex);
+  }
+  final int DEFAULT_HEALTHY_THRESHOLD=3;
+  final int DEFAULT_INTERVAL=30;
+  final int DEFAULT_TIMEOUT=5;
+  final int DEFAULT_UNHEALTHY_THRESHOLD=3;
+  try {
+    lb.getHealthCheckTarget();
+    lb.getHealthCheckInterval();
+    lb.getHealthCheckTimeout();
+    lb.getHealthCheckUnhealthyThreshold();
+    lb.getHealthyThreshold();
+  }
+ catch (  final IllegalStateException ex) {
+    if (listeners == null || listeners.length <= 0)     throw new LoadBalancingActivityException("No listener requested");
+    final Listener firstListener=listeners[0];
+    final String target=String.format("TCP:%d",firstListener.getInstancePort());
+    try (final TransactionResource db=Entities.transactionFor(LoadBalancer.class)){
+      final LoadBalancer update=Entities.uniqueResult(lb);
+      update.setHealthCheck(DEFAULT_HEALTHY_THRESHOLD,DEFAULT_INTERVAL,target,DEFAULT_TIMEOUT,DEFAULT_UNHEALTHY_THRESHOLD);
+      db.commit();
+    }
+ catch (    final NoSuchElementException exx) {
+      LOG.warn("Loadbalancer not found in the database");
+    }
+catch (    final Exception exx) {
+      LOG.warn("Unable to query the loadbalancer",ex);
+    }
+  }
+}

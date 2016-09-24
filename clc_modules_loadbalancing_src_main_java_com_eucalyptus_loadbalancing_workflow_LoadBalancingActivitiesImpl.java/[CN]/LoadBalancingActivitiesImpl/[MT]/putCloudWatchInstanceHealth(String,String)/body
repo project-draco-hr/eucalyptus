@@ -1,0 +1,21 @@
+{
+  List<LoadBalancerBackendInstance> backendInstances=Lists.newArrayList();
+  LoadBalancer lb=null;
+  try {
+    lb=LoadBalancers.getLoadbalancer(accountNumber,lbName);
+    backendInstances=Lists.transform(Lists.newArrayList(lb.getBackendInstances()),LoadBalancerBackendInstanceEntityTransform.INSTANCE);
+  }
+ catch (  final Exception ex) {
+    LOG.error("failed to retrieve loadbalancer's backend instances",ex);
+    return;
+  }
+  for (  final LoadBalancerBackendInstance backend : backendInstances) {
+    final String zoneName=backend.getAvailabilityZone().getName();
+    if (backend.getState().equals(LoadBalancerBackendInstance.STATE.InService)) {
+      LoadBalancerCwatchMetrics.getInstance().updateHealthy(lb.getCoreView(),zoneName,backend.getInstanceId());
+    }
+ else     if (backend.getState().equals(LoadBalancerBackendInstance.STATE.OutOfService)) {
+      LoadBalancerCwatchMetrics.getInstance().updateUnHealthy(lb.getCoreView(),zoneName,backend.getInstanceId());
+    }
+  }
+}
