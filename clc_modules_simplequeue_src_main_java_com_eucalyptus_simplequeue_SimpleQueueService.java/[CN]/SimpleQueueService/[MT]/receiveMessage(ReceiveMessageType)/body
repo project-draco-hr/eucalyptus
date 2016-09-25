@@ -12,22 +12,36 @@
     if (queue == null) {
       throw new QueueDoesNotExistException("The specified queue does not exist.");
     }
-    Collection<Message> messages=PersistenceFactory.getMessagePersistence().receiveMessages(accountId,queueName);
+    int visibilityTimeout=queue.getVisibilityTimeout();
+    if (request.getVisibilityTimeout() != null) {
+      if (request.getVisibilityTimeout() < 0 || request.getVisibilityTimeout() > MAX_VISIBILITY_TIMEOUT) {
+        throw new InvalidParameterValueException("VisibilityTimeout must be between 0 and " + MAX_VISIBILITY_TIMEOUT);
+      }
+      visibilityTimeout=request.getVisibilityTimeout();
+    }
+    int waitTimeSeconds=queue.getReceiveMessageWaitTimeSeconds();
+    if (request.getWaitTimeSeconds() != null) {
+      if (request.getWaitTimeSeconds() < 0 || request.getWaitTimeSeconds() > MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS) {
+        throw new InvalidParameterValueException("WaitTimeSeconds must be between 0 and " + MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS);
+      }
+      waitTimeSeconds=request.getWaitTimeSeconds();
+    }
+    int maxNumberOfMessages=1;
+    if (request.getMaxNumberOfMessages() != null) {
+      if (request.getMaxNumberOfMessages() < 1 || request.getMaxNumberOfMessages() > MAX_RECEIVE_MESSAGE_MAX_NUMBER_OF_MESSAGES) {
+        throw new InvalidParameterValueException("WaitTimeSeconds must be between 1 and " + MAX_RECEIVE_MESSAGE_MAX_NUMBER_OF_MESSAGES);
+      }
+      maxNumberOfMessages=request.getMaxNumberOfMessages();
+    }
+    Collection<Message> messages=PersistenceFactory.getMessagePersistence().receiveMessages(accountId,queueName,visibilityTimeout,maxNumberOfMessages);
     if (messages != null) {
       Set<String> reservedEucaAttributes=Sets.newHashSet();
       for (      EucaInternalMessageAttributeName eucaInternalMessageAttributeName : EucaInternalMessageAttributeName.values()) {
         reservedEucaAttributes.add(eucaInternalMessageAttributeName.toString());
       }
       for (      Message message : messages) {
-        if (message.getAttribute() != null) {
-          Iterator<Attribute> iter=message.getAttribute().iterator();
-          while (iter.hasNext()) {
-            Attribute attribute=iter.next();
-            if (reservedEucaAttributes.contains(attribute.getName())) {
-              iter.remove();
-            }
-          }
-        }
+        filterReceiveAttributes(message,request.getAttributeName(),reservedEucaAttributes);
+        filterReceiveMessageAttributes(message,request.getMessageAttributeName());
       }
       reply.getReceiveMessageResult().getMessage().addAll(messages);
     }
