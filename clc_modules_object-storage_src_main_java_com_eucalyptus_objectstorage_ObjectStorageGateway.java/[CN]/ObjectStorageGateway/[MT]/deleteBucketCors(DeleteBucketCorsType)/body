@@ -1,13 +1,19 @@
 {
-  Bucket bucket=getBucketAndCheckAuthorization(request);
-  DeleteBucketCorsResponseType response=request.getReply();
+  String bucketName="nullBucket";
+  DeleteBucketCorsResponseType response=null;
   try {
+    Bucket bucket=getBucketAndCheckAuthorization(request);
+    bucketName=request.getBucket();
+    response=(DeleteBucketCorsResponseType)request.getReply();
     BucketCorsManagers.getInstance().deleteCorsRules(bucket.getBucketUuid());
   }
- catch (  Exception e) {
-    InternalErrorException ex=new InternalErrorException(bucket.getBucketName() + "?cors");
-    ex.setMessage("An exception was caught while deleting the CORS configuration for bucket <" + bucket.getBucketName() + ">, error: "+ ex.getMessage());
-    throw ex;
+ catch (  S3Exception s3e) {
+    LOG.warn("Caught S3Exception while deleting the CORS configuration for bucket <" + bucketName + ">, CorrelationId: "+ Contexts.lookup().getCorrelationId()+ ", responding to client with: ",s3e);
+    throw s3e;
+  }
+catch (  Exception ex) {
+    LOG.warn("Caught general exception while deleting the CORS configuration for bucket <" + bucketName + ">, CorrelationId: "+ Contexts.lookup().getCorrelationId()+ ", responding to client with 500 InternalError because of: ",ex);
+    throw new InternalErrorException(bucketName,ex);
   }
   return response;
 }
