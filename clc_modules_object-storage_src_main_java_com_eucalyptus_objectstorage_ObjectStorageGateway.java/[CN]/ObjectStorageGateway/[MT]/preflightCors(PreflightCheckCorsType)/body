@@ -1,0 +1,50 @@
+{
+  String bucketName="nullBucket";
+  PreflightCheckCorsResponseType response=null;
+  try {
+    bucketName=request.getBucket();
+    Bucket bucket=ensureBucketExists(bucketName);
+    String key=request.getKey();
+    PreflightRequest preflightRequest=request.getPreflightRequest();
+    response=request.getReply();
+    String requestOrigin=preflightRequest.getOrigin();
+    if (requestOrigin == null || requestOrigin.isEmpty()) {
+      CorsPreflightNoOriginException s3e=new CorsPreflightNoOriginException();
+      throw s3e;
+    }
+    String requestMethod=preflightRequest.getMethod();
+    if (requestMethod == null || !AllowedCorsMethods.methodList.contains(HttpMethod.valueOf(requestMethod))) {
+      CorsPreflightInvalidMethodException s3e=new CorsPreflightInvalidMethodException(requestMethod);
+      throw s3e;
+    }
+    List<CorsRule> corsRules=BucketCorsManagers.getInstance().getCorsRules(bucket.getBucketUuid());
+    if (corsRules == null || corsRules.isEmpty()) {
+      CorsPreflightNoConfigException s3e=new CorsPreflightNoConfigException(requestMethod,key == null ? "BUCKET" : "OBJECT");
+      throw s3e;
+    }
+    List<String> requestHeaders=preflightRequest.getRequestHeaders();
+    CorsMatchResult corsMatchResult=OSGUtil.matchCorsRules(corsRules,requestOrigin,requestMethod,requestHeaders);
+    CorsRule corsRuleMatch=corsMatchResult.getCorsRuleMatch();
+    if (corsRuleMatch == null) {
+      CorsPreflightNotAllowedException s3e=new CorsPreflightNotAllowedException(requestMethod,key == null ? "BUCKET" : "OBJECT");
+      throw s3e;
+    }
+    PreflightResponse responseFields=new PreflightResponse();
+    response.setPreflightResponse(responseFields);
+    responseFields.setOrigin(corsMatchResult.getAnyOrigin() ? "*" : requestOrigin);
+    responseFields.setMethods(corsRuleMatch.getAllowedMethods());
+    responseFields.setAllowedHeaders(preflightRequest.getRequestHeaders());
+    responseFields.setExposeHeaders(corsRuleMatch.getExposeHeaders());
+    responseFields.setMaxAgeSeconds(corsRuleMatch.getMaxAgeSeconds());
+    response.setStatus(HttpResponseStatus.OK);
+  }
+ catch (  S3Exception s3e) {
+    LOG.warn("Caught S3Exception while processing the preflight CORS request for bucket <" + bucketName + ">, CorrelationId: "+ Contexts.lookup().getCorrelationId()+ ", responding to client with: ",s3e);
+    throw s3e;
+  }
+catch (  Exception ex) {
+    LOG.warn("Caught general exception while processing the preflight CORS request for bucket <" + bucketName + ">, CorrelationId: "+ Contexts.lookup().getCorrelationId()+ ", responding to client with 500 InternalError because of: ",ex);
+    throw new InternalErrorException(bucketName,ex);
+  }
+  return response;
+}

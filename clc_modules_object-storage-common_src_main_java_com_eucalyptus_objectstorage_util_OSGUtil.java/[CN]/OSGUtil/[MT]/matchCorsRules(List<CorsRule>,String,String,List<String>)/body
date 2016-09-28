@@ -1,0 +1,83 @@
+{
+  CorsMatchResult corsMatchResult=new CorsMatchResult();
+  boolean found=false;
+  boolean anyOrigin=false;
+  CorsRule corsRuleMatch=null;
+  Predicate<String> originMatch=new Predicate<String>(){
+    @Override public boolean apply(    String allowedOrigin){
+      String allowedOriginRegex="\\Q" + allowedOrigin.replace("*","\\E.*?\\Q") + "\\E";
+      return Pattern.matches(allowedOriginRegex,requestOrigin);
+    }
+  }
+;
+  Predicate<String> methodMatch=new Predicate<String>(){
+    @Override public boolean apply(    String allowedMethod){
+      return requestMethod.equals(allowedMethod);
+    }
+  }
+;
+  Function<String,Pattern> generatePattern=new Function<String,Pattern>(){
+    @Override public Pattern apply(    String allowedHeader){
+      String allowedHeaderRegex="\\Q" + allowedHeader.replace("*","\\E.*?\\Q") + "\\E";
+      return Pattern.compile(allowedHeaderRegex,Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    }
+  }
+;
+  for (  CorsRule corsRule : corsRules) {
+    if (corsRule == null) {
+      continue;
+    }
+    corsRuleMatch=corsRule;
+    List<String> allowedOrigins=corsRule.getAllowedOrigins();
+    if (allowedOrigins == null || allowedOrigins.isEmpty()) {
+      continue;
+    }
+    String matchingOrigin=Iterables.tryFind(corsRule.getAllowedOrigins(),originMatch).orNull();
+    if (matchingOrigin == null) {
+      continue;
+    }
+    anyOrigin=(matchingOrigin.equals("*"));
+    List<String> allowedMethods=corsRule.getAllowedMethods();
+    if (allowedMethods == null || allowedMethods.isEmpty() || !Iterables.any(corsRule.getAllowedMethods(),methodMatch)) {
+      continue;
+    }
+    if (requestHeaders == null || requestHeaders.isEmpty() || corsRule.getAllowedHeaders() == null || corsRule.getAllowedHeaders().isEmpty()) {
+      found=true;
+      break;
+    }
+    List<String> allowedHeaders=corsRule.getAllowedHeaders();
+    List<Pattern> allowedHeaderPatternList=new ArrayList<Pattern>(allowedHeaders.size());
+    Predicate<String> headerMatch=new Predicate<String>(){
+      @Override public boolean apply(      String requestHeader){
+        for (int idx=0; idx < allowedHeaders.size(); idx++) {
+          Pattern allowedHeaderPattern;
+          if (idx >= allowedHeaderPatternList.size()) {
+            allowedHeaderPattern=generatePattern.apply(allowedHeaders.get(idx));
+            allowedHeaderPatternList.add(allowedHeaderPattern);
+          }
+ else {
+            allowedHeaderPattern=allowedHeaderPatternList.get(idx);
+          }
+          Matcher matcher=allowedHeaderPattern.matcher(requestHeader);
+          if (matcher.matches()) {
+            return true;
+          }
+ else {
+            continue;
+          }
+        }
+        return false;
+      }
+    }
+;
+    if (Iterables.all(requestHeaders,headerMatch)) {
+      found=true;
+      break;
+    }
+  }
+  if (found) {
+    corsMatchResult.setCorsRuleMatch(corsRuleMatch);
+    corsMatchResult.setAnyOrigin(anyOrigin);
+  }
+  return corsMatchResult;
+}
