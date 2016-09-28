@@ -7,9 +7,9 @@
     scheduler.setScheduleToCloseTimeoutSeconds(10L);
     activities.add(client.filterInstanceStatus(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),Promise.asPromise(instanceId),vmClient.getInstanceStatus(scheduler)));
   }
-  final WorkflowClock clock=contextProvider.getDecisionContext().getWorkflowClock();
-  final Promise<Void> timer=clock.createTimer(POLLING_PERIOD_SEC);
   final Promise<List<Map<String,String>>> allActivities=Promises.listOfPromisesToPromise(activities);
+  final Promise<Void> timer=startDaemonTimer(POLLING_PERIOD_SEC);
   final Promise<Void> merge=client.updateInstanceStatus(Promise.asPromise(accountId),Promise.asPromise(loadbalancer),allActivities);
-  pollInstanceStatusPeriodic(count + 1,new AndPromise(merge,timer));
+  final OrPromise waitOrSignal=new OrPromise(timer,signalReceived);
+  pollInstanceStatusPeriodic(count + 1,new AndPromise(merge,waitOrSignal));
 }
