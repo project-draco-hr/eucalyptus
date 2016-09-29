@@ -8,12 +8,20 @@
     cipher.init(Cipher.DECRYPT_MODE,key,new IvParameterSpec(securityTokenBytes,TOKEN_PREFIX.length,32),randomSupplier.get());
     final int offset=TOKEN_PREFIX.length + 32;
     final SecurityTokenInput in=new SecurityTokenInput(cipher.doFinal(securityTokenBytes,offset,securityTokenBytes.length - offset));
-    if (in.readInt() != 2)     throw new GeneralSecurityException("Invalid token format");
+    final int version=in.readInt();
+    if (version != 2 && version != 3)     throw new GeneralSecurityException("Invalid token format");
     final String originatingAccessKeyIdOrUserId=in.readString();
     final String nonce=in.readString();
     final long created=in.readLong();
     final long expires=in.readLong();
-    return new EncryptedSecurityToken(accessKeyId,originatingAccessKeyIdOrUserId,nonce,created,expires);
+    final Map<String,String> attributes=Maps.newHashMap();
+    if (version >= 3) {
+      final int entries=in.readInt();
+      for (int i=0; i < entries; i++) {
+        attributes.put(in.readString(),in.readString());
+      }
+    }
+    return new EncryptedSecurityToken(accessKeyId,originatingAccessKeyIdOrUserId,nonce,created,expires,attributes);
   }
  catch (  IOException e) {
     throw Exceptions.toUndeclared(e);
