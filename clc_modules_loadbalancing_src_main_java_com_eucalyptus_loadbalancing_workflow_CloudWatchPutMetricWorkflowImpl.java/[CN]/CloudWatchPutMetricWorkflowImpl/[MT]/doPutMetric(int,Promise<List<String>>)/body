@@ -4,13 +4,14 @@
   for (  final String instanceId : instances) {
     final ActivitySchedulingOptions scheduler=new ActivitySchedulingOptions();
     scheduler.setTaskList(instanceId);
-    scheduler.setScheduleToCloseTimeoutSeconds(10L);
+    scheduler.setScheduleToCloseTimeoutSeconds(120L);
+    scheduler.setStartToCloseTimeoutSeconds(10L);
     metrics.put(instanceId,vmClient.getCloudWatchMetrics(scheduler));
   }
   final Promise<Map<String,String>> metricMap=Promises.mapOfPromisesToPromise(metrics);
-  client.putCloudWatchMetrics(Promise.asPromise(this.accountId),Promise.asPromise(this.loadbalancer),metricMap);
-  client.putCloudWatchInstanceHealth(this.accountId,this.loadbalancer);
-  final WorkflowClock clock=contextProvider.getDecisionContext().getWorkflowClock();
-  final Promise<Void> timer=clock.createTimer(PUT_PERIOD_SEC);
-  putCloudWatchMetricPeriodic(count + 1,timer);
+  final List<Promise<Void>> activities=Lists.newArrayList();
+  activities.add(client.putCloudWatchMetrics(Promise.asPromise(this.accountId),Promise.asPromise(this.loadbalancer),metricMap));
+  activities.add(client.putCloudWatchInstanceHealth(this.accountId,this.loadbalancer));
+  final Promise<Void> timer=startDaemonTimer(PUT_PERIOD_SEC);
+  putCloudWatchMetricPeriodic(count + 1,new AndPromise(timer,Promises.listOfPromisesToPromise(activities)));
 }
