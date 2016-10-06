@@ -14,124 +14,38 @@
       throw new InvalidParameterValueException("Queue name can only include alphanumeric characters, hyphens, or " + "underscores. 1 to " + MAX_QUEUE_NAME_LENGTH_CHARS + " in length");
     }
     Map<String,String> attributeMap=Maps.newTreeMap();
-    attributeMap.put(AttributeName.DelaySeconds.toString(),"0");
-    attributeMap.put(AttributeName.MaximumMessageSize.toString(),"262144");
-    attributeMap.put(AttributeName.MessageRetentionPeriod.toString(),"345600");
-    attributeMap.put(AttributeName.ReceiveMessageWaitTimeSeconds.toString(),"0");
-    attributeMap.put(AttributeName.VisibilityTimeout.toString(),"30");
+    attributeMap.put(Constants.DELAY_SECONDS,"0");
+    attributeMap.put(Constants.MAXIMUM_MESSAGE_SIZE,"262144");
+    attributeMap.put(Constants.MESSAGE_RETENTION_PERIOD,"345600");
+    attributeMap.put(Constants.RECEIVE_MESSAGE_WAIT_TIME_SECONDS,"0");
+    attributeMap.put(Constants.VISIBILITY_TIMEOUT,"30");
     if (request.getAttribute() != null) {
-      for (      Attribute attribute : request.getAttribute()) {
-        AttributeName attributeName;
-        try {
-          attributeName=AttributeName.valueOf(attribute.getName());
-        }
- catch (        NullPointerException|IllegalArgumentException e) {
-          throw new InvalidParameterValueException("Attribute.Name must be one of " + Joiner.on(" | ").join(AttributeName.values()));
-        }
-switch (attributeName) {
-case DelaySeconds:
-          checkAttributeIntMinMax(attribute,0,MAX_DELAY_SECONDS);
-        attributeMap.put(attribute.getName(),attribute.getValue());
-      break;
-case MaximumMessageSize:
-    checkAttributeIntMinMax(attribute,1024,MAX_MAXIMUM_MESSAGE_SIZE);
-  attributeMap.put(attribute.getName(),attribute.getValue());
-break;
-case MessageRetentionPeriod:
-checkAttributeIntMinMax(attribute,60,MAX_MESSAGE_RETENTION_PERIOD);
-attributeMap.put(attribute.getName(),attribute.getValue());
-break;
-case ReceiveMessageWaitTimeSeconds:
-checkAttributeIntMinMax(attribute,0,MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS);
-attributeMap.put(attribute.getName(),attribute.getValue());
-break;
-case VisibilityTimeout:
-checkAttributeIntMinMax(attribute,0,MAX_VISIBILITY_TIMEOUT);
-attributeMap.put(attribute.getName(),attribute.getValue());
-break;
-case Policy:
-if (Strings.isNullOrEmpty(attribute.getValue())) continue;
-try {
-PolicyParser.getResourceInstance().parse(attribute.getValue());
-}
- catch (PolicyParseException e) {
-throw new InvalidParameterValueException("Invalid value for the parameter Policy. ");
-}
-attributeMap.put(attribute.getName(),attribute.getValue());
-break;
-case RedrivePolicy:
-if (Strings.isNullOrEmpty(attribute.getValue())) continue;
-JsonNode redrivePolicyJsonNode;
-try {
-redrivePolicyJsonNode=new ObjectMapper().readTree(attribute.getValue());
-}
- catch (IOException e) {
-throw new InvalidParameterValueException("Invalid value for the parameter RedrivePolicy. Reason: Redrive policy is not a valid JSON map.");
-}
-if (redrivePolicyJsonNode == null || !redrivePolicyJsonNode.isObject()) {
-throw new InvalidParameterValueException("Invalid value for the parameter RedrivePolicy. Reason: Redrive policy is not a valid JSON map.");
-}
-if (!redrivePolicyJsonNode.has("maxReceiveCount")) {
-throw new InvalidParameterValueException("Value " + attribute.getValue() + " for parameter "+ "RedrivePolicy is invalid. Reason: Redrive policy does not contain mandatory attribute: maxReceiveCount.");
-}
-if (!redrivePolicyJsonNode.has("deadLetterTargetArn")) {
-throw new InvalidParameterValueException("Value " + attribute.getValue() + " for parameter "+ "RedrivePolicy is invalid. Reason: Redrive policy does not contain mandatory attribute: deadLetterTargetArn.");
-}
-if (redrivePolicyJsonNode.size() > 2) {
-throw new InvalidParameterValueException("Value " + attribute.getValue() + " for parameter "+ "RedrivePolicy is invalid. Reason: Only following attributes are supported: [deadLetterTargetArn, maxReceiveCount].");
-}
-JsonNode maxReceiveCountJsonNode=redrivePolicyJsonNode.get("maxReceiveCount");
-if (maxReceiveCountJsonNode == null || (maxReceiveCountJsonNode.asInt() < 1) || (maxReceiveCountJsonNode.asInt() > MAX_MAX_RECEIVE_COUNT)) {
-throw new InvalidParameterValueException("Value " + attribute.getValue() + " for parameter "+ "RedrivePolicy is invalid. Reason: Invalid value for maxReceiveCount: "+ maxReceiveCountJsonNode+ ", valid values are from 1 to"+ MAX_MAX_RECEIVE_COUNT+ " both "+ "inclusive.");
-}
-JsonNode deadLetterTargetArnJsonNode=redrivePolicyJsonNode.get("deadLetterTargetArn");
-if (deadLetterTargetArnJsonNode == null || !(deadLetterTargetArnJsonNode.isTextual())) {
-throw new InvalidParameterValueException("Value " + attribute.getValue() + " for parameter "+ "RedrivePolicy is invalid. Reason: Invalid value for deadLetterTargetArn.");
-}
-Ern simpleQueueArn;
-try {
-simpleQueueArn=Ern.parse(deadLetterTargetArnJsonNode.textValue());
-}
- catch (JSONException e) {
-throw new InvalidParameterValueException("Value " + attribute.getValue() + " for parameter "+ "RedrivePolicy is invalid. Reason: Invalid value for deadLetterTargetArn.");
-}
-if (!simpleQueueArn.getRegion().equals(RegionConfigurations.getRegionNameOrDefault())) {
-throw new InvalidParameterValueException("Value " + attribute.getValue() + " for parameter "+ "RedrivePolicy is invalid. Reason: Dead-letter target must be in same region as the source.");
-}
-if (!simpleQueueArn.getAccount().equals(accountId)) {
-throw new InvalidParameterValueException("Value " + attribute.getValue() + " for parameter "+ "RedrivePolicy is invalid. Reason: Dead-letter target owner should be same as the source.");
-}
-if (PersistenceFactory.getQueuePersistence().lookupQueue(simpleQueueArn.getAccount(),simpleQueueArn.getResourceName()) == null) {
-throw new InvalidParameterValueException("Value " + attribute.getValue() + " for parameter "+ "RedrivePolicy is invalid. Reason: Dead letter target does not exist.");
-}
-attributeMap.put(attribute.getName(),attribute.getValue());
-break;
-default :
-continue;
-}
-}
-Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(accountId,request.getQueueName());
-if (queue == null) {
-queue=PersistenceFactory.getQueuePersistence().createQueue(accountId,request.getQueueName(),attributeMap);
-}
+      setAndValidateAttributes(accountId,request.getAttribute(),attributeMap);
+      String nowSecs="" + currentTimeSeconds();
+      attributeMap.put(Constants.CREATED_TIMESTAMP,nowSecs);
+      attributeMap.put(Constants.LAST_MODIFIED_TIMESTAMP,nowSecs);
+      Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(accountId,request.getQueueName());
+      if (queue == null) {
+        queue=PersistenceFactory.getQueuePersistence().createQueue(accountId,request.getQueueName(),attributeMap);
+      }
  else {
-Set<String> keysWeCareAbout=Sets.newHashSet(AttributeName.DelaySeconds.toString(),AttributeName.MaximumMessageSize.toString(),AttributeName.MessageRetentionPeriod.toString(),AttributeName.ReceiveMessageWaitTimeSeconds.toString(),AttributeName.VisibilityTimeout.toString(),AttributeName.Policy.toString(),AttributeName.RedrivePolicy.toString());
-Map<String,String> requestAttributeMap=Maps.newTreeMap();
-requestAttributeMap.putAll(attributeMap);
-Map<String,String> queueAttributeMap=Maps.newTreeMap();
-queueAttributeMap.putAll(queue.getAttributes());
-requestAttributeMap.keySet().retainAll(keysWeCareAbout);
-queueAttributeMap.keySet().retainAll(keysWeCareAbout);
-if (!Objects.equals(requestAttributeMap,queueAttributeMap)) {
-throw new QueueAlreadyExistsException(request.getQueueName() + " already exists.");
-}
-}
-String queueUrl=getQueueUrlFromQueueUrlParts(new QueueUrlParts(accountId,request.getQueueName()));
-reply.getCreateQueueResult().setQueueUrl(queueUrl);
-}
-}
- catch (Exception ex) {
-handleException(ex);
-}
-return reply;
+        Set<String> keysWeCareAbout=Sets.newHashSet(Constants.DELAY_SECONDS,Constants.MAXIMUM_MESSAGE_SIZE,Constants.MESSAGE_RETENTION_PERIOD,Constants.RECEIVE_MESSAGE_WAIT_TIME_SECONDS,Constants.VISIBILITY_TIMEOUT,Constants.POLICY,Constants.REDRIVE_POLICY);
+        Map<String,String> requestAttributeMap=Maps.newTreeMap();
+        requestAttributeMap.putAll(attributeMap);
+        Map<String,String> queueAttributeMap=Maps.newTreeMap();
+        queueAttributeMap.putAll(queue.getAttributes());
+        requestAttributeMap.keySet().retainAll(keysWeCareAbout);
+        queueAttributeMap.keySet().retainAll(keysWeCareAbout);
+        if (!Objects.equals(requestAttributeMap,queueAttributeMap)) {
+          throw new QueueAlreadyExistsException(request.getQueueName() + " already exists.");
+        }
+      }
+      String queueUrl=getQueueUrlFromQueueUrlParts(new QueueUrlParts(accountId,request.getQueueName()));
+      reply.getCreateQueueResult().setQueueUrl(queueUrl);
+    }
+  }
+ catch (  Exception ex) {
+    handleException(ex);
+  }
+  return reply;
 }

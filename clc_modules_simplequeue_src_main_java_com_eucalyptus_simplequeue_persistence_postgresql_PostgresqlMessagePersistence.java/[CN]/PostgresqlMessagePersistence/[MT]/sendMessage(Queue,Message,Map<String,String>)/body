@@ -1,0 +1,26 @@
+{
+  try (TransactionResource db=Entities.transactionFor(MessageEntity.class)){
+    MessageEntity messageEntity=new MessageEntity();
+    messageEntity.setMessageId(message.getMessageId());
+    messageEntity.setAccountId(queue.getAccountId());
+    messageEntity.setQueueName(queue.getQueueName());
+    Map<String,String> attributeMap=Maps.newHashMap();
+    if (message.getAttribute() != null) {
+      for (      Attribute attribute : message.getAttribute()) {
+        attributeMap.put(attribute.getName(),attribute.getValue());
+      }
+    }
+    messageEntity.setReceiveCount(0);
+    messageEntity.setLocalReceiveCount(0);
+    messageEntity.setSentTimestampSecs(SimpleQueueService.currentTimeSeconds());
+    messageEntity.setExpiredTimestampSecs(messageEntity.getSentTimestampSecs() + queue.getMessageRetentionPeriod());
+    int delaySeconds=queue.getDelaySeconds();
+    if (sendAttributes.containsKey(Constants.DELAY_SECONDS)) {
+      delaySeconds=Integer.parseInt(sendAttributes.get(Constants.DELAY_SECONDS));
+    }
+    messageEntity.setVisibleTimestampSecs(messageEntity.getSentTimestampSecs() + delaySeconds);
+    messageEntity.setMessageJson(messageToJson(message));
+    Entities.persist(messageEntity);
+    db.commit();
+  }
+ }

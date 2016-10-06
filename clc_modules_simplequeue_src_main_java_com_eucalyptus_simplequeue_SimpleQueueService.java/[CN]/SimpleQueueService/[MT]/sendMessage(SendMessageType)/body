@@ -13,15 +13,12 @@
     if (queue == null) {
       throw new QueueDoesNotExistException("The specified queue does not exist.");
     }
-    int delaySeconds;
+    Map<String,String> sendAttributes=Maps.newHashMap();
     if (request.getDelaySeconds() != null) {
       if (request.getDelaySeconds() < 0 || request.getDelaySeconds() > MAX_DELAY_SECONDS) {
         throw new InvalidParameterValueException("DelaySeconds must be a number between 0 and " + MAX_DELAY_SECONDS);
       }
-      delaySeconds=request.getDelaySeconds();
-    }
- else {
-      delaySeconds=queue.getDelaySeconds();
+      sendAttributes.put(Constants.DELAY_SECONDS,"" + request.getDelaySeconds());
     }
     String md5OfMessageAttributes=null;
     String md5OfMessageBody;
@@ -56,15 +53,10 @@
     }
     message.setmD5OfMessageAttributes(md5OfMessageAttributes);
     message.setmD5OfBody(md5OfMessageBody);
-    message.getAttribute().add(new Attribute(MessageAttributeName.ApproximateReceiveCount.toString(),"0"));
-    message.getAttribute().add(new Attribute(MessageAttributeName.SenderId.toString(),accountId));
-    message.getAttribute().add(new Attribute(MessageAttributeName.SentTimestamp.toString(),"" + System.currentTimeMillis()));
-    message.getAttribute().add(new Attribute(EucaInternalMessageAttributeName.EucaLocalReceiveCount.toString(),"0"));
-    message.getAttribute().add(new Attribute(EucaInternalMessageAttributeName.EucaDelaySeconds.toString(),"" + delaySeconds));
-    message.getAttribute().add(new Attribute(EucaInternalMessageAttributeName.EucaMessageRetentionPeriod.toString(),"" + queue.getMessageRetentionPeriod()));
+    message.getAttribute().add(new Attribute(Constants.SENDER_ID,accountId));
     String messageId=UUID.randomUUID().toString();
     message.setMessageId(messageId);
-    PersistenceFactory.getMessagePersistence().sendMessage(accountId,queueName,message);
+    PersistenceFactory.getMessagePersistence().sendMessage(queue,message,sendAttributes);
     reply.getSendMessageResult().setmD5OfMessageAttributes(md5OfMessageAttributes);
     reply.getSendMessageResult().setMessageId(messageId);
     reply.getSendMessageResult().setmD5OfMessageBody(md5OfMessageBody);

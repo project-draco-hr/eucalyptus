@@ -1,0 +1,34 @@
+{
+  StringTokenizer stok=new StringTokenizer(receiptHandle,":");
+  if (stok.countTokens() != 4) {
+    throw new ReceiptHandleIsInvalidException("The input receipt handle \"" + receiptHandle + "\" is not a valid receipt handle.");
+  }
+  String receiptHandleAccountId=stok.nextToken();
+  String receiptHandleQueueName=stok.nextToken();
+  String messageId=stok.nextToken();
+  int receiveCount=0;
+  try {
+    receiveCount=Integer.parseInt(stok.nextToken());
+  }
+ catch (  NumberFormatException e) {
+    throw new ReceiptHandleIsInvalidException("The input receipt handle \"" + receiptHandle + "\" is not a valid receipt handle.");
+  }
+  if (!receiptHandleAccountId.equals(queue.getAccountId()) || !receiptHandleQueueName.equals(queue.getQueueName())) {
+    throw new ReceiptHandleIsInvalidException("The input receipt handle \"" + receiptHandle + "\" is not a valid for this queue.");
+  }
+  try (TransactionResource db=Entities.transactionFor(MessageEntity.class)){
+    long now=SimpleQueueService.currentTimeSeconds();
+    List<MessageEntity> messageEntityList=Entities.criteriaQuery(MessageEntity.class).whereEqual(MessageEntity_.accountId,queue.getAccountId()).whereEqual(MessageEntity_.queueName,queue.getQueueName()).whereEqual(MessageEntity_.messageId,messageId).whereEqual(MessageEntity_.receiveCount,receiveCount).list();
+    int countedResults=0;
+    if (messageEntityList != null) {
+      for (      MessageEntity messageEntity : messageEntityList) {
+        countedResults++;
+        messageEntity.setVisibleTimestampSecs(now + visibilityTimeout);
+      }
+    }
+    if (countedResults == 0) {
+      throw new InvalidParameterValueException("Value " + receiptHandle + " for parameter ReceiptHandle is invalid. Reason: Message does not exist or is not available for visibility timeout change.");
+    }
+    db.commit();
+  }
+ }

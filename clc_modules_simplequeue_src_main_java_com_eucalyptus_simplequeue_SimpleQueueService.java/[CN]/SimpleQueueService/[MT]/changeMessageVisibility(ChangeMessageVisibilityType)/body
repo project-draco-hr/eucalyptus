@@ -1,4 +1,24 @@
 {
   ChangeMessageVisibilityResponseType reply=request.getReply();
+  try {
+    final Context ctx=Contexts.lookup();
+    final String accountId=ctx.getAccountNumber();
+    QueueUrlParts queueUrlParts=getQueueUrlParts(request.getQueueUrl());
+    if (!queueUrlParts.getAccountId().equals(accountId)) {
+      throw new AccessDeniedException("Access to the resource " + request.getQueueUrl() + " is denied.");
+    }
+    String queueName=queueUrlParts.getQueueName();
+    Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(accountId,queueName);
+    if (queue == null) {
+      throw new QueueDoesNotExistException("The specified queue does not exist.");
+    }
+    if (request.getVisibilityTimeout() < 0 || request.getVisibilityTimeout() > MAX_VISIBILITY_TIMEOUT) {
+      throw new InvalidParameterValueException("VisibilityTimeout must be between 0 and " + MAX_VISIBILITY_TIMEOUT);
+    }
+    PersistenceFactory.getMessagePersistence().changeMessageVisibility(queue,request.getReceiptHandle(),request.getVisibilityTimeout());
+  }
+ catch (  Exception ex) {
+    handleException(ex);
+  }
   return reply;
 }

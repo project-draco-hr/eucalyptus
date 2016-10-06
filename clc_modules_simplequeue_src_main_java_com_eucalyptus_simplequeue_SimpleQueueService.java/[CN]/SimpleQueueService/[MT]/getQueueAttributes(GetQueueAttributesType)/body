@@ -1,4 +1,42 @@
 {
   GetQueueAttributesResponseType reply=request.getReply();
+  try {
+    final Context ctx=Contexts.lookup();
+    final String accountId=ctx.getAccountNumber();
+    QueueUrlParts queueUrlParts=getQueueUrlParts(request.getQueueUrl());
+    if (!queueUrlParts.getAccountId().equals(accountId)) {
+      throw new AccessDeniedException("Access to the resource " + request.getQueueUrl() + " is denied.");
+    }
+    String queueName=queueUrlParts.getQueueName();
+    Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(accountId,queueName);
+    if (queue == null) {
+      throw new QueueDoesNotExistException("The specified queue does not exist.");
+    }
+    Map<String,String> attributes=Maps.newHashMap();
+    if (queue.getAttributes() != null) {
+      attributes.putAll(queue.getAttributes());
+    }
+    attributes.putAll(PersistenceFactory.getMessagePersistence().getApproximateMessageCounts(queue));
+    attributes.put(Constants.QUEUE_ARN,"arn:aws:sqs:" + RegionConfigurations.getRegionNameOrDefault() + ":"+ accountId+ ":"+ queueName);
+    Set<String> validAttributes=ImmutableSet.of(Constants.ALL,Constants.APPROXIMATE_NUMBER_OF_MESSAGES,Constants.APPROXIMATE_NUMBER_OF_MESSAGES_NOT_VISIBLE,Constants.VISIBILITY_TIMEOUT,Constants.CREATED_TIMESTAMP,Constants.LAST_MODIFIED_TIMESTAMP,Constants.POLICY,Constants.MAXIMUM_MESSAGE_SIZE,Constants.MESSAGE_RETENTION_PERIOD,Constants.QUEUE_ARN,Constants.APPROXIMATE_NUMBER_OF_MESSAGES_DELAYED,Constants.DELAY_SECONDS,Constants.RECEIVE_MESSAGE_WAIT_TIME_SECONDS,Constants.REDRIVE_POLICY);
+    Set<String> passedInAttributes=Sets.newHashSet();
+    if (request.getAttributeName() != null) {
+      for (      String passedInAttribute : request.getAttributeName()) {
+        if (!validAttributes.contains(passedInAttribute)) {
+          throw new InvalidAttributeNameException("Invalid attribute " + passedInAttribute);
+        }
+        passedInAttributes.add(passedInAttribute);
+      }
+    }
+    if (!passedInAttributes.contains(Constants.ALL)) {
+      attributes.keySet().retainAll(passedInAttributes);
+    }
+    for (    Map.Entry<String,String> attributeEntry : attributes.entrySet()) {
+      reply.getGetQueueAttributesResult().getAttribute().add(new Attribute(attributeEntry.getKey(),attributeEntry.getValue()));
+    }
+  }
+ catch (  Exception ex) {
+    handleException(ex);
+  }
   return reply;
 }

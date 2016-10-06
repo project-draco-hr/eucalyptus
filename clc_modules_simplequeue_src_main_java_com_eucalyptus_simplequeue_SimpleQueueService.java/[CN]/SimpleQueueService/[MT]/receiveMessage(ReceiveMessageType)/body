@@ -12,19 +12,18 @@
     if (queue == null) {
       throw new QueueDoesNotExistException("The specified queue does not exist.");
     }
-    int visibilityTimeout=queue.getVisibilityTimeout();
+    Map<String,String> receiveAttributes=Maps.newHashMap();
     if (request.getVisibilityTimeout() != null) {
       if (request.getVisibilityTimeout() < 0 || request.getVisibilityTimeout() > MAX_VISIBILITY_TIMEOUT) {
         throw new InvalidParameterValueException("VisibilityTimeout must be between 0 and " + MAX_VISIBILITY_TIMEOUT);
       }
-      visibilityTimeout=request.getVisibilityTimeout();
+      receiveAttributes.put(Constants.VISIBILITY_TIMEOUT,"" + request.getVisibilityTimeout());
     }
-    int waitTimeSeconds=queue.getReceiveMessageWaitTimeSeconds();
     if (request.getWaitTimeSeconds() != null) {
       if (request.getWaitTimeSeconds() < 0 || request.getWaitTimeSeconds() > MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS) {
         throw new InvalidParameterValueException("WaitTimeSeconds must be between 0 and " + MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS);
       }
-      waitTimeSeconds=request.getWaitTimeSeconds();
+      receiveAttributes.put(Constants.WAIT_TIME_SECONDS,"" + request.getWaitTimeSeconds());
     }
     int maxNumberOfMessages=1;
     if (request.getMaxNumberOfMessages() != null) {
@@ -33,14 +32,11 @@
       }
       maxNumberOfMessages=request.getMaxNumberOfMessages();
     }
-    Collection<Message> messages=PersistenceFactory.getMessagePersistence().receiveMessages(accountId,queueName,visibilityTimeout,maxNumberOfMessages);
+    receiveAttributes.put(Constants.MAX_NUMBER_OF_MESSAGES,"" + maxNumberOfMessages);
+    Collection<Message> messages=PersistenceFactory.getMessagePersistence().receiveMessages(queue,receiveAttributes);
     if (messages != null) {
-      Set<String> reservedEucaAttributes=Sets.newHashSet();
-      for (      EucaInternalMessageAttributeName eucaInternalMessageAttributeName : EucaInternalMessageAttributeName.values()) {
-        reservedEucaAttributes.add(eucaInternalMessageAttributeName.toString());
-      }
       for (      Message message : messages) {
-        filterReceiveAttributes(message,request.getAttributeName(),reservedEucaAttributes);
+        filterReceiveAttributes(message,request.getAttributeName());
         filterReceiveMessageAttributes(message,request.getMessageAttributeName());
       }
       reply.getReceiveMessageResult().getMessage().addAll(messages);
