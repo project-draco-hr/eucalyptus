@@ -1,0 +1,19 @@
+{
+  final Pair<JoseHeader,byte[]> decoded=decode(jsonHeaderB64,jsonBodyB64,signatureB64);
+  final JoseHeader header=decoded.getLeft();
+  final byte[] signature=decoded.getRight();
+  final Pair<JsonWebSignatureAlgorithm,JsonWebKey> resolved=resolve(header,keyResolver,signatureAlgorithmPredicate);
+  final JsonWebSignatureAlgorithm algorithm=resolved.getLeft();
+  final JsonWebKey key=resolved.getRight();
+  final byte[] bytesToSign=(jsonHeaderB64 + "." + jsonBodyB64).getBytes(StandardCharsets.UTF_8);
+  final String sigAlgorithm=algorithm.getJcaSignatureAlgorithm();
+  final Option<String> sigProvider=algorithm.getJcaSignatureProvider();
+  final Signature jcaSignature=sigProvider.isDefined() ? Signature.getInstance(sigAlgorithm,sigProvider.get()) : Signature.getInstance(sigAlgorithm);
+  final Option<AlgorithmParameterSpec> sigAlgorithmParameterSpec=algorithm.getJcaSignatureAlgorithmParameterSpec();
+  if (sigAlgorithmParameterSpec.isDefined()) {
+    jcaSignature.setParameter(sigAlgorithmParameterSpec.get());
+  }
+  jcaSignature.initVerify(algorithm.publicKey(key));
+  jcaSignature.update(bytesToSign);
+  return jcaSignature.verify(algorithm.signature(signature));
+}
