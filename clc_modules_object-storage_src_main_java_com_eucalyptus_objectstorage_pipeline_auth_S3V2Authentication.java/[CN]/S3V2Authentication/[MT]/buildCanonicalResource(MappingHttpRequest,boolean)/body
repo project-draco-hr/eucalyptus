@@ -1,0 +1,70 @@
+{
+  try {
+    String addr=httpRequest.getUri();
+    String osgServicePath=ComponentIds.lookup(ObjectStorage.class).getServicePath();
+    String key;
+    StringBuilder addrString=new StringBuilder();
+    boolean foundName=false;
+    String hostBucket;
+    if ((hostBucket=OSGUtil.getBucketFromHostHeader(httpRequest)) != null) {
+      foundName=true;
+      addrString.append("/").append(hostBucket);
+    }
+    if (!foundName) {
+      if (excludePath) {
+        if (addr.startsWith(osgServicePath)) {
+          addr=addr.substring(osgServicePath.length(),addr.length());
+        }
+ else         if (addr.startsWith(ObjectStorageProperties.LEGACY_WALRUS_SERVICE_PATH)) {
+          addr=addr.substring(ObjectStorageProperties.LEGACY_WALRUS_SERVICE_PATH.length(),addr.length());
+        }
+      }
+    }
+    key=addr.split("\\?",2)[0];
+    if (!Strings.isNullOrEmpty(key)) {
+      addrString.append(key);
+    }
+ else {
+      addrString.append("/");
+    }
+    List<String> canonicalSubresources=new ArrayList<>();
+    for (    String queryParam : httpRequest.getParameters().keySet()) {
+      try {
+        ObjectStorageProperties.SubResource.valueOf(queryParam);
+        canonicalSubresources.add(queryParam);
+      }
+ catch (      IllegalArgumentException e) {
+      }
+      try {
+        if (ObjectStorageProperties.ResponseHeaderOverrides.fromString(queryParam) != null) {
+          canonicalSubresources.add(queryParam);
+        }
+      }
+ catch (      IllegalArgumentException e) {
+      }
+    }
+    if (canonicalSubresources.size() > 0) {
+      Collections.sort(canonicalSubresources);
+      String value;
+      addrString.append("?");
+      for (      String subResource : canonicalSubresources) {
+        value=httpRequest.getParameters().get(subResource);
+        addrString.append(subResource);
+        if (!Strings.isNullOrEmpty(value)) {
+          addrString.append("=").append(value);
+        }
+        addrString.append("&");
+      }
+      if (addrString.charAt(addrString.length() - 1) == '&') {
+        addrString.deleteCharAt(addrString.length() - 1);
+      }
+    }
+    return addrString.toString();
+  }
+ catch (  S3Exception e) {
+    throw e;
+  }
+catch (  Exception e) {
+    throw new InternalErrorException(e);
+  }
+}
