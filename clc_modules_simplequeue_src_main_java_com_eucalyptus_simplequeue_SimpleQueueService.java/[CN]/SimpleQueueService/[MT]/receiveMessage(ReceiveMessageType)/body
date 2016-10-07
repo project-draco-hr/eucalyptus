@@ -33,13 +33,32 @@
       maxNumberOfMessages=request.getMaxNumberOfMessages();
     }
     receiveAttributes.put(Constants.MAX_NUMBER_OF_MESSAGES,"" + maxNumberOfMessages);
-    Collection<Message> messages=PersistenceFactory.getMessagePersistence().receiveMessages(queue,receiveAttributes);
-    if (messages != null) {
-      for (      Message message : messages) {
-        filterReceiveAttributes(message,request.getAttributeName());
-        filterReceiveMessageAttributes(message,request.getMessageAttributeName());
+    Collection<MessagePersistence.MessageWithReceiveCounts> messagesWithReceiveCounts=PersistenceFactory.getMessagePersistence().receiveMessages(queue,receiveAttributes);
+    boolean hasActiveLegalRedrivePolicy=false;
+    Queue deadLetterQueue=null;
+    int maxReceiveCount=0;
+    try {
+      if (queue.getRedrivePolicy() != null && queue.getRedrivePolicy().isObject()) {
+        Ern deadLetterQueueArn=Ern.parse(queue.getRedrivePolicy().get(Constants.DEAD_LETTER_TARGET_ARN).textValue());
+        maxReceiveCount=queue.getRedrivePolicy().get(Constants.MAX_RECEIVE_COUNT).asInt();
+        deadLetterQueue=PersistenceFactory.getQueuePersistence().lookupQueue(deadLetterQueueArn.getAccount(),deadLetterQueueArn.getResourceName());
+        hasActiveLegalRedrivePolicy=(deadLetterQueue != null && maxReceiveCount > 0);
       }
-      reply.getReceiveMessageResult().getMessage().addAll(messages);
+    }
+ catch (    Exception ignore) {
+    }
+    if (messagesWithReceiveCounts != null) {
+      for (      MessagePersistence.MessageWithReceiveCounts messageWithReceiveCounts : messagesWithReceiveCounts) {
+        Message message=messageWithReceiveCounts.getMessage();
+        if (hasActiveLegalRedrivePolicy && messageWithReceiveCounts.getLocalReceiveCount() > maxReceiveCount) {
+          PersistenceFactory.getMessagePersistence().moveMessageToDeadLetterQueue(queue,message,deadLetterQueue);
+        }
+ else {
+          filterReceiveAttributes(message,request.getAttributeName());
+          filterReceiveMessageAttributes(message,request.getMessageAttributeName());
+          reply.getReceiveMessageResult().getMessage().add(message);
+        }
+      }
     }
   }
  catch (  Exception ex) {

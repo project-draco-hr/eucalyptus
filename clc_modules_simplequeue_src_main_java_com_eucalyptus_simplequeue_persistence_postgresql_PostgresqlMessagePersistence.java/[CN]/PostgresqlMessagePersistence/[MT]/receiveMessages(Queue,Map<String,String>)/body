@@ -1,5 +1,5 @@
 {
-  List<Message> messages=Lists.newArrayList();
+  List<MessageWithReceiveCounts> messagesWithExtraInfo=Lists.newArrayList();
   long now=SimpleQueueService.currentTimeSeconds();
   try (TransactionResource db=Entities.transactionFor(MessageEntity.class)){
     List<MessageEntity> messageEntityList=Entities.criteriaQuery(MessageEntity.class).whereEqual(MessageEntity_.accountId,queue.getAccountId()).whereEqual(MessageEntity_.queueName,queue.getQueueName()).where(Entities.restriction(MessageEntity.class).gt(MessageEntity_.expiredTimestampSecs,now)).where(Entities.restriction(MessageEntity.class).le(MessageEntity_.visibleTimestampSecs,now)).list();
@@ -21,10 +21,14 @@
         message.getAttribute().add(new Attribute(Constants.APPROXIMATE_RECEIVE_COUNT,"" + messageEntity.getReceiveCount()));
         message.getAttribute().add(new Attribute(Constants.SENT_TIMESTAMP,"" + (messageEntity.getSentTimestampSecs())));
         message.setReceiptHandle(messageEntity.getAccountId() + ":" + messageEntity.getQueueName()+ ":"+ messageEntity.getMessageId()+ ":"+ messageEntity.getLocalReceiveCount());
-        messages.add(message);
+        MessageWithReceiveCounts messageWithReceiveCounts=new MessageWithReceiveCounts();
+        messageWithReceiveCounts.setMessage(message);
+        messageWithReceiveCounts.setLocalReceiveCount(messageEntity.getLocalReceiveCount());
+        messageWithReceiveCounts.setReceiveCount(messageEntity.getReceiveCount());
+        messagesWithExtraInfo.add(messageWithReceiveCounts);
       }
     }
     db.commit();
-    return messages;
+    return messagesWithExtraInfo;
   }
  }
