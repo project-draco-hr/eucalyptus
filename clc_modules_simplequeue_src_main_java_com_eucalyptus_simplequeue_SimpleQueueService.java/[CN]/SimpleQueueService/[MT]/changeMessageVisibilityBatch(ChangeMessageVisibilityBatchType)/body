@@ -1,4 +1,61 @@
 {
   ChangeMessageVisibilityBatchResponseType reply=request.getReply();
+  try {
+    final Context ctx=Contexts.lookup();
+    final String accountId=ctx.getAccountNumber();
+    QueueUrlParts queueUrlParts=getQueueUrlParts(request.getQueueUrl());
+    if (!queueUrlParts.getAccountId().equals(accountId)) {
+      throw new AccessDeniedException("Access to the resource " + request.getQueueUrl() + " is denied.");
+    }
+    String queueName=queueUrlParts.getQueueName();
+    Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(accountId,queueName);
+    if (queue == null) {
+      throw new QueueDoesNotExistException("The specified queue does not exist.");
+    }
+    if (request.getChangeMessageVisibilityBatchRequestEntry() == null || request.getChangeMessageVisibilityBatchRequestEntry().isEmpty()) {
+      throw new EmptyBatchRequestException("There should be at least one ChangeMessageVisibilityBatchRequestEntry in the request.");
+    }
+    if (request.getChangeMessageVisibilityBatchRequestEntry().size() > MAX_NUM_BATCH_ENTRIES) {
+      throw new TooManyEntriesInBatchRequestException("Maximum number of entries per request are " + MAX_NUM_BATCH_ENTRIES + ". You have sent "+ request.getChangeMessageVisibilityBatchRequestEntry().size()+ ".");
+    }
+    Set<String> previousIds=Sets.newHashSet();
+    Pattern batchIdPattern=Pattern.compile("[A-Za-z0-9_-]+");
+    for (    ChangeMessageVisibilityBatchRequestEntry batchRequestEntry : request.getChangeMessageVisibilityBatchRequestEntry()) {
+      if (batchRequestEntry.getId() == null || batchRequestEntry.getId().isEmpty()) {
+        throw new MissingParameterException("A batch entry id is a required field");
+      }
+      if (batchRequestEntry.getId().length() > MAX_BATCH_ID_LENGTH || !batchIdPattern.matcher(batchRequestEntry.getId()).matches()) {
+        throw new InvalidBatchEntryIdException("A batch entry id can only contain alphanumeric characters, hyphens and underscores. It can be at most " + MAX_BATCH_ID_LENGTH + " letters long.");
+      }
+      if (previousIds.contains(batchRequestEntry.getId())) {
+        throw new BatchEntryIdsNotDistinctException("A batch entry id is duplicated in this request");
+      }
+      previousIds.add(batchRequestEntry.getId());
+    }
+    for (    ChangeMessageVisibilityBatchRequestEntry batchRequestEntry : request.getChangeMessageVisibilityBatchRequestEntry()) {
+      try {
+        handleChangeMessageVisibility(batchRequestEntry.getVisibilityTimeout(),batchRequestEntry.getReceiptHandle(),queue);
+        ChangeMessageVisibilityBatchResultEntry success=new ChangeMessageVisibilityBatchResultEntry();
+        success.setId(batchRequestEntry.getId());
+        reply.getChangeMessageVisibilityBatchResult().getChangeMessageVisibilityBatchResultEntry().add(success);
+      }
+ catch (      Exception ex) {
+        try {
+          handleException(ex);
+        }
+ catch (        SimpleQueueException ex1) {
+          BatchResultErrorEntry failure=new BatchResultErrorEntry();
+          failure.setId(batchRequestEntry.getId());
+          failure.setCode(ex1.getCode());
+          failure.setMessage(ex1.getMessage());
+          failure.setSenderFault(ex1.getRole() != null && ex1.getRole().equals(Role.Sender));
+          reply.getChangeMessageVisibilityBatchResult().getBatchResultErrorEntry().add(failure);
+        }
+      }
+    }
+  }
+ catch (  Exception ex) {
+    handleException(ex);
+  }
   return reply;
 }

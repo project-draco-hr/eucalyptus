@@ -1,0 +1,43 @@
+{
+  int messageLength=0;
+  Map<String,String> sendAttributes=Maps.newHashMap();
+  Message message=new Message();
+  if (delaySeconds != null) {
+    if (delaySeconds < 0 || delaySeconds > MAX_DELAY_SECONDS) {
+      throw new InvalidParameterValueException("DelaySeconds must be a number between 0 and " + MAX_DELAY_SECONDS);
+    }
+    sendAttributes.put(Constants.DELAY_SECONDS,"" + delaySeconds);
+  }
+  if (messageAttributes != null) {
+    Set<String> usedAttributeNames=Sets.newHashSet();
+    for (    MessageAttribute messageAttribute : messageAttributes) {
+      if (messageAttribute == null) {
+        throw new InvalidParameterValueException("Message attribute can not be null");
+      }
+      messageLength+=validateMessageAttributeNameAndCalculateLength(messageAttribute.getName(),usedAttributeNames);
+      messageLength+=validateMessageAttributeValueAndCalculateLength(messageAttribute.getValue(),messageAttribute.getName());
+    }
+    message.setmD5OfMessageAttributes(calculateMessageAttributesMd5(convertMessageAttributesToMap(messageAttributes)));
+  }
+  if (Strings.isNullOrEmpty(body)) {
+    throw new MissingParameterException("The request must contain the parameter MessageBody.");
+  }
+  for (  int codePoint : body.codePoints().toArray()) {
+    if (!validMessageBodyCodePoints.contains(codePoint)) {
+      throw new InvalidParameterValueException("Invalid binary character '#x" + Integer.toHexString(codePoint) + "' was "+ "found in the message body, the set of allowed characters is #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]");
+    }
+  }
+  messageLength+=body.getBytes(UTF8).length;
+  if (messageLength > queue.getMaximumMessageSize()) {
+    throw new InvalidParameterValueException("The message exceeds the maximum message length of the queue, which is " + queue.getMaximumMessageSize() + " bytes");
+  }
+  message.setmD5OfBody(calculateMessageBodyMd5(body));
+  message.setBody(body);
+  if (messageAttributes != null) {
+    message.getMessageAttribute().addAll(messageAttributes);
+  }
+  message.getAttribute().add(new Attribute(Constants.SENDER_ID,accountId));
+  String messageId=UUID.randomUUID().toString();
+  message.setMessageId(messageId);
+  return new MessageInfo(message,messageLength,sendAttributes);
+}
