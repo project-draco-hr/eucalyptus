@@ -1,4 +1,80 @@
 {
   RemovePermissionResponseType reply=request.getReply();
+  try {
+    final Context ctx=Contexts.lookup();
+    final String accountId=ctx.getAccountNumber();
+    QueueUrlParts queueUrlParts=getQueueUrlParts(request.getQueueUrl());
+    if (!queueUrlParts.getAccountId().equals(accountId)) {
+      throw new AccessDeniedException("Access to the resource " + request.getQueueUrl() + " is denied.");
+    }
+    String queueName=queueUrlParts.getQueueName();
+    Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(accountId,queueName);
+    if (queue == null) {
+      throw new QueueDoesNotExistException("The specified queue does not exist.");
+    }
+    String queueArn="arn:aws:sqs:" + RegionConfigurations.getRegionNameOrDefault() + ":"+ queue.getAccountId()+ ":"+ queue.getQueueName();
+    if (request.getLabel() == null) {
+      throw new InvalidParameterValueException("Value for parameter Label is invalid. Reason: Must specify a label.");
+    }
+    if (request.getLabel().isEmpty()) {
+      throw new InvalidParameterValueException("Label cannot be empty.");
+    }
+    Pattern labelPattern=Pattern.compile("[A-Za-z0-9_-]+");
+    if (!labelPattern.matcher(request.getLabel()).matches() || request.getLabel().length() < 1 || request.getLabel().length() > MAX_LABEL_LENGTH_CHARS) {
+      throw new InvalidParameterValueException("Label can only include alphanumeric characters, hyphens, or " + "underscores. 1 to " + MAX_LABEL_LENGTH_CHARS + " in length");
+    }
+    String policy=queue.getPolicy();
+    if (policy == null || policy.isEmpty()) {
+      throw new InvalidParameterValueException("Value " + request.getLabel() + " for parameter Label is invalid. Reason: can't find label.");
+    }
+    ObjectNode policyNode=null;
+    try {
+      policyNode=(ObjectNode)new ObjectMapper().readTree(queue.getPolicy());
+      if (!policyNode.has("Statement") || !policyNode.get("Statement").isContainerNode()) {
+        throw new IOException("Invalid existing policy");
+      }
+      if (policyNode.get("Statement").isObject()) {
+        ObjectNode statementNodeIndividual=(ObjectNode)policyNode.get("Statement");
+        policyNode.remove("Statement");
+        ArrayNode statementArrayNode=policyNode.putArray("Statement");
+        statementArrayNode.add(statementNodeIndividual);
+      }
+      ArrayNode statementArrayNode=(ArrayNode)policyNode.get("Statement");
+      boolean foundLabel=false;
+      for (int i=0; i < statementArrayNode.size(); i++) {
+        JsonNode statementNode=statementArrayNode.get(i);
+        if (!statementNode.isObject()) {
+          throw new IOException("Invalid existing policy");
+        }
+        if (statementNode.has("Sid") && !statementNode.isTextual()) {
+          throw new IOException("Invalid existing policy");
+        }
+        if (statementNode.has("Sid") && request.getLabel().equals(statementNode.textValue())) {
+          statementArrayNode.remove(i);
+          i--;
+          foundLabel=true;
+        }
+      }
+      if (!foundLabel) {
+        throw new IOException("didn't find label");
+      }
+      if (statementArrayNode.size() == 0) {
+        policy="";
+      }
+ else {
+        policy=policyNode.toString();
+      }
+    }
+ catch (    ClassCastException|IOException e) {
+      throw new InvalidParameterValueException("Value " + request.getLabel() + " for parameter Label is invalid. Reason: can't find label.");
+    }
+    Map<String,String> existingAttributes=queue.getAttributes();
+    setAndValidateAttributes(accountId,Collections.singletonList(new Attribute(Constants.POLICY,policy)),existingAttributes);
+    existingAttributes.put(Constants.LAST_MODIFIED_TIMESTAMP,String.valueOf(currentTimeSeconds()));
+    PersistenceFactory.getQueuePersistence().updateQueueAttributes(accountId,queueName,existingAttributes);
+  }
+ catch (  Exception ex) {
+    handleException(ex);
+  }
   return reply;
 }

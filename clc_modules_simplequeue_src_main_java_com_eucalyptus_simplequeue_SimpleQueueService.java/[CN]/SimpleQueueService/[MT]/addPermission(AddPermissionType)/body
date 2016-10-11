@@ -1,4 +1,103 @@
 {
   AddPermissionResponseType reply=request.getReply();
+  try {
+    final Context ctx=Contexts.lookup();
+    final String accountId=ctx.getAccountNumber();
+    QueueUrlParts queueUrlParts=getQueueUrlParts(request.getQueueUrl());
+    if (!queueUrlParts.getAccountId().equals(accountId)) {
+      throw new AccessDeniedException("Access to the resource " + request.getQueueUrl() + " is denied.");
+    }
+    String queueName=queueUrlParts.getQueueName();
+    Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(accountId,queueName);
+    if (queue == null) {
+      throw new QueueDoesNotExistException("The specified queue does not exist.");
+    }
+    String queueArn="arn:aws:sqs:" + RegionConfigurations.getRegionNameOrDefault() + ":"+ queue.getAccountId()+ ":"+ queue.getQueueName();
+    ArrayList<String> principalIds=Lists.newArrayList();
+    if (request.getAwsAccountId() == null || request.getAwsAccountId().isEmpty()) {
+      throw new MissingParameterException("The request must contain the parameter PrincipalId.");
+    }
+    for (    String awsAccountId : request.getAwsAccountId()) {
+      try {
+        Accounts.lookupAccountById(awsAccountId).getAccountNumber();
+        principalIds.add("arn:aws:iam::" + awsAccountId + ":root");
+      }
+ catch (      AuthException ignore) {
+      }
+    }
+    if (principalIds.isEmpty()) {
+      throw new InvalidParameterValueException("Value " + request.getAwsAccountId() + " for parameter PrincipalId is invalid. Reason: Unable to verify.");
+    }
+    ArrayList<String> actionNames=Lists.newArrayList();
+    if (request.getActionName() == null || request.getActionName().isEmpty()) {
+      throw new MissingParameterException("The request must contain the parameter Actions.");
+    }
+    Set<String> validActionNames=Sets.newHashSet("*","SendMessage","ReceiveMessage","DeleteMessage","ChangeMessageVisibility","GetQueueAttributes","GetQueueUrl");
+    for (    String actionName : request.getActionName()) {
+      if (validActionNames.contains(actionNames)) {
+        actionNames.add("SQS:" + actionName);
+      }
+ else {
+        throw new InvalidParameterValueException("Value SQS:" + actionName + " for parameter ActionName is invalid. Reason: Please refer to the appropriate WSDL for a list of valid actions.");
+      }
+    }
+    if (request.getLabel() == null) {
+      throw new InvalidParameterValueException("Value for parameter Label is invalid. Reason: Must specify a label.");
+    }
+    if (request.getLabel().isEmpty()) {
+      throw new InvalidParameterValueException("Label cannot be empty.");
+    }
+    Pattern labelPattern=Pattern.compile("[A-Za-z0-9_-]+");
+    if (!labelPattern.matcher(request.getLabel()).matches() || request.getLabel().length() < 1 || request.getLabel().length() > MAX_LABEL_LENGTH_CHARS) {
+      throw new InvalidParameterValueException("Label can only include alphanumeric characters, hyphens, or " + "underscores. 1 to " + MAX_LABEL_LENGTH_CHARS + " in length");
+    }
+    String policy=queue.getPolicy();
+    if (policy == null || policy.isEmpty()) {
+      ObjectNode policyNode=new ObjectMapper().createObjectNode();
+      policyNode.put("Version","2008-10-17");
+      policyNode.put("Id",queueArn + "/SQSDefaultPolicy");
+      ArrayNode statementArrayNode=policyNode.putArray("Statement");
+      addStatementToPolicy(request.getLabel(),principalIds,actionNames,queueArn,statementArrayNode);
+      policy=policyNode.toString();
+    }
+ else {
+      ObjectNode policyNode=null;
+      try {
+        policyNode=(ObjectNode)new ObjectMapper().readTree(queue.getPolicy());
+        if (!policyNode.has("Statement") || !policyNode.get("Statement").isContainerNode()) {
+          throw new IOException("Invalid existing policy");
+        }
+        if (policyNode.get("Statement").isObject()) {
+          ObjectNode statementNodeIndividual=(ObjectNode)policyNode.get("Statement");
+          policyNode.remove("Statement");
+          ArrayNode statementArrayNode=policyNode.putArray("Statement");
+          statementArrayNode.add(statementNodeIndividual);
+        }
+        for (        JsonNode statementNode : Lists.newArrayList(policyNode.get("Statement").elements())) {
+          if (!statementNode.isObject()) {
+            throw new IOException("Invalid existing policy");
+          }
+          if (statementNode.has("Sid") && !statementNode.isTextual()) {
+            throw new IOException("Invalid existing policy");
+          }
+          if (statementNode.has("Sid") && request.getLabel().equals(statementNode.textValue())) {
+            throw new InvalidParameterValueException(request.getLabel() + " already used as an Sid in the Queue Policy");
+          }
+        }
+        addStatementToPolicy(request.getLabel(),principalIds,actionNames,queueArn,(ArrayNode)policyNode.get("Statement"));
+        policy=policyNode.toString();
+      }
+ catch (      ClassCastException|IOException e) {
+        throw new InternalFailureException("Invalid existing queue policy");
+      }
+    }
+    Map<String,String> existingAttributes=queue.getAttributes();
+    setAndValidateAttributes(accountId,Collections.singletonList(new Attribute(Constants.POLICY,policy)),existingAttributes);
+    existingAttributes.put(Constants.LAST_MODIFIED_TIMESTAMP,String.valueOf(currentTimeSeconds()));
+    PersistenceFactory.getQueuePersistence().updateQueueAttributes(accountId,queueName,existingAttributes);
+  }
+ catch (  Exception ex) {
+    handleException(ex);
+  }
   return reply;
 }
