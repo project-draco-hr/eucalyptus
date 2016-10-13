@@ -1,0 +1,24 @@
+{
+  SslSetup.configureHttpsUrlConnection(conn);
+  try (final InputStream istr=conn.getInputStream()){
+    final int statusCode=conn.getResponseCode();
+    if (statusCode == 304) {
+      return new OidcResource(statusCode);
+    }
+ else {
+      Certificate[] certs=new Certificate[0];
+      if (conn instanceof HttpsURLConnection) {
+        certs=((HttpsURLConnection)conn).getServerCertificates();
+      }
+      final long contentLength=conn.getContentLengthLong();
+      if (contentLength > MAX_LENGTH) {
+        throw new IOException(conn.getURL() + " content exceeds maximum size, " + MAX_LENGTH);
+      }
+      final byte[] content=ByteStreams.toByteArray(new BoundedInputStream(istr,MAX_LENGTH + 1));
+      if (content.length > MAX_LENGTH) {
+        throw new IOException(conn.getURL() + " content exceeds maximum size, " + MAX_LENGTH);
+      }
+      return new OidcResource(statusCode,conn.getHeaderField(HttpHeaders.LAST_MODIFIED),conn.getHeaderField(HttpHeaders.ETAG),certs,content);
+    }
+  }
+ }
