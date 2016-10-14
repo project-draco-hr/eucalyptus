@@ -2,17 +2,7 @@
   RemovePermissionResponseType reply=request.getReply();
   try {
     final Context ctx=Contexts.lookup();
-    final String accountId=ctx.getAccountNumber();
-    QueueUrlParts queueUrlParts=getQueueUrlParts(request.getQueueUrl());
-    if (!queueUrlParts.getAccountId().equals(accountId)) {
-      throw new AccessDeniedException("Access to the resource " + request.getQueueUrl() + " is denied.");
-    }
-    String queueName=queueUrlParts.getQueueName();
-    Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(accountId,queueName);
-    if (queue == null) {
-      throw new QueueDoesNotExistException("The specified queue does not exist.");
-    }
-    String queueArn="arn:aws:sqs:" + RegionConfigurations.getRegionNameOrDefault() + ":"+ queue.getAccountId()+ ":"+ queue.getQueueName();
+    Queue queue=getAndCheckPermissionOnQueue(request.getQueueUrl());
     if (request.getLabel() == null) {
       throw new InvalidParameterValueException("Value for parameter Label is invalid. Reason: Must specify a label.");
     }
@@ -69,9 +59,9 @@
       throw new InvalidParameterValueException("Value " + request.getLabel() + " for parameter Label is invalid. Reason: can't find label.");
     }
     Map<String,String> existingAttributes=queue.getAttributes();
-    setAndValidateAttributes(accountId,Collections.singletonList(new Attribute(Constants.POLICY,policy)),existingAttributes);
+    setAndValidateAttributes(queue.getAccountId(),Collections.singletonList(new Attribute(Constants.POLICY,policy)),existingAttributes);
     existingAttributes.put(Constants.LAST_MODIFIED_TIMESTAMP,String.valueOf(currentTimeSeconds()));
-    PersistenceFactory.getQueuePersistence().updateQueueAttributes(accountId,queueName,existingAttributes);
+    PersistenceFactory.getQueuePersistence().updateQueueAttributes(queue.getAccountId(),queue.getQueueName(),existingAttributes);
   }
  catch (  Exception ex) {
     handleException(ex);
