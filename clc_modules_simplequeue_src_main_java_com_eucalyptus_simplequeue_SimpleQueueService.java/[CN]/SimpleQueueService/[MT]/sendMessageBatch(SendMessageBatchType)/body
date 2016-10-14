@@ -2,16 +2,7 @@
   SendMessageBatchResponseType reply=request.getReply();
   try {
     final Context ctx=Contexts.lookup();
-    final String accountId=ctx.getAccountNumber();
-    QueueUrlParts queueUrlParts=getQueueUrlParts(request.getQueueUrl());
-    if (!queueUrlParts.getAccountId().equals(accountId)) {
-      throw new AccessDeniedException("Access to the resource " + request.getQueueUrl() + " is denied.");
-    }
-    String queueName=queueUrlParts.getQueueName();
-    Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(accountId,queueName);
-    if (queue == null) {
-      throw new QueueDoesNotExistException("The specified queue does not exist.");
-    }
+    Queue queue=getAndCheckPermissionOnQueue(request.getQueueUrl());
     if (request.getSendMessageBatchRequestEntry() == null || request.getSendMessageBatchRequestEntry().isEmpty()) {
       throw new EmptyBatchRequestException("There should be at least one SendMessageBatchRequestEntry in the request.");
     }
@@ -35,7 +26,7 @@
     Map<String,MessageInfo> messageInfoMap=Maps.newLinkedHashMap();
     int totalMessageLength=0;
     for (    SendMessageBatchRequestEntry batchRequestEntry : request.getSendMessageBatchRequestEntry()) {
-      MessageInfo messageInfo=validateAndGetMessageInfo(queue,accountId,batchRequestEntry.getMessageBody(),batchRequestEntry.getDelaySeconds(),batchRequestEntry.getMessageAttribute());
+      MessageInfo messageInfo=validateAndGetMessageInfo(queue,ctx.getAccountNumber(),batchRequestEntry.getMessageBody(),batchRequestEntry.getDelaySeconds(),batchRequestEntry.getMessageAttribute());
       totalMessageLength+=messageInfo.getMessageLength();
       if (totalMessageLength > queue.getMaximumMessageSize()) {
         throw new InvalidParameterValueException("The combined message lengths exceed the maximum message length of the queue, which is " + queue.getMaximumMessageSize() + " bytes");

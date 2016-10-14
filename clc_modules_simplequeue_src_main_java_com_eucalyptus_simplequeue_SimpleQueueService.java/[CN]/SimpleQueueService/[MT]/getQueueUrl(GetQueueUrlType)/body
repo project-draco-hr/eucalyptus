@@ -2,24 +2,15 @@
   GetQueueUrlResponseType reply=request.getReply();
   try {
     final Context ctx=Contexts.lookup();
-    final String accountId=ctx.getAccountNumber();
-    if (request.getQueueOwnerAWSAccountId() != null) {
-      try {
-        Accounts.lookupAccountById(request.getQueueOwnerAWSAccountId()).getAccountNumber();
-      }
- catch (      AuthException e) {
-        throw new InvalidAddressException("The address is not valid for this endpoint.");
-      }
-      if (!request.getQueueOwnerAWSAccountId().equals(accountId)) {
-        throw new AccessDeniedException("Access to the resource " + request.getQueueName() + " is denied.");
-      }
+    final String accountId=request.getQueueOwnerAWSAccountId() != null ? request.getQueueOwnerAWSAccountId() : ctx.getAccountNumber();
+    String queueUrl=getQueueUrlFromQueueUrlParts(new QueueUrlParts(accountId,request.getQueueName()));
+    try {
+      Queue queue=getAndCheckPermissionOnQueue(queueUrl);
+      reply.getGetQueueUrlResult().setQueueUrl(queueUrl);
     }
-    Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(accountId,request.getQueueName());
-    if (queue == null) {
+ catch (    AccessDeniedException ex) {
       throw new QueueDoesNotExistException("The specified queue does not exist.");
     }
-    String queueUrl=getQueueUrlFromQueueUrlParts(new QueueUrlParts(accountId,request.getQueueName()));
-    reply.getGetQueueUrlResult().setQueueUrl(queueUrl);
   }
  catch (  Exception ex) {
     handleException(ex);
