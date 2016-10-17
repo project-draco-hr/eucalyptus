@@ -1,29 +1,29 @@
 {
-  Boolean isEmpty=false;
-  String bucketName="nullBucket";
   GetBucketCorsResponseType response=null;
+  Bucket bucket=null;
+  if (request == null) {
+    throw new InternalErrorException("Null request passed to getBucketCors()");
+  }
   try {
-    Bucket bucket=getBucketAndCheckAuthorization(request);
-    bucketName=request.getBucket();
-    response=(GetBucketCorsResponseType)request.getReply();
-    CorsConfiguration corsConfiguration=new CorsConfiguration();
-    List<CorsRule> responseRules=BucketCorsManagers.getInstance().getCorsRules(bucket.getBucketUuid());
-    isEmpty=responseRules.isEmpty();
-    if (!isEmpty) {
-      corsConfiguration.setRules(responseRules);
-      response.setCorsConfiguration(corsConfiguration);
-    }
+    bucket=getBucketAndCheckAuthorization(request);
   }
  catch (  S3Exception s3e) {
-    LOG.warn("Caught S3Exception while getting the CORS configuration for bucket <" + bucketName + ">, CorrelationId: "+ Contexts.lookup().getCorrelationId()+ ", responding to client with: ",s3e);
+    LOG.warn("Caught S3Exception while getting the bucket <" + request.getBucket() + ">, CorrelationId: "+ Contexts.lookup().getCorrelationId()+ ", responding to client with: ",s3e);
     throw s3e;
   }
-catch (  Exception ex) {
-    LOG.warn("Caught general exception while getting the CORS configuration for bucket <" + bucketName + ">, CorrelationId: "+ Contexts.lookup().getCorrelationId()+ ", responding to client with 500 InternalError because of: ",ex);
-    throw new InternalErrorException(bucketName,ex);
+  if (bucket == null) {
+    throw new InternalErrorException("Null bucket returned by getBucketAndCheckAuthorization()");
   }
-  if (isEmpty) {
-    NoSuchCorsConfigurationException nscc=new NoSuchCorsConfigurationException(bucketName);
+  response=(GetBucketCorsResponseType)request.getReply();
+  setCorsInfo(request,response,bucket);
+  CorsConfiguration corsConfiguration=new CorsConfiguration();
+  List<CorsRule> responseRules=BucketCorsManagers.getInstance().getCorsRules(bucket.getBucketUuid());
+  if (responseRules != null && !responseRules.isEmpty()) {
+    corsConfiguration.setRules(responseRules);
+    response.setCorsConfiguration(corsConfiguration);
+  }
+ else {
+    NoSuchCorsConfigurationException nscc=new NoSuchCorsConfigurationException(bucket.getBucketName());
     throw nscc;
   }
   return response;

@@ -1,0 +1,89 @@
+{
+  if (request == null) {
+    throw new InternalErrorException("setCorsInfo called with a null request, bucket " + bucketName);
+  }
+  if (response == null) {
+    throw new InternalErrorException("setCorsInfo called with a null response, bucket " + bucketName);
+  }
+  response.setAllowedOrigin(null);
+  if (bucketUuid == null || bucketUuid.isEmpty()) {
+    LOG.debug("No bucket UUID, so no CORS headers");
+    return;
+  }
+ else {
+    response.setBucketUuid(bucketUuid);
+  }
+  String origin=request.getOrigin();
+  if (origin == null || origin.isEmpty()) {
+    LOG.debug("No origin header, so no CORS headers");
+    return;
+  }
+ else {
+    response.setOrigin(origin);
+  }
+  String httpMethod=request.getHttpMethod();
+  if (httpMethod == null || httpMethod.isEmpty()) {
+    LOG.debug("No method header, so no CORS headers");
+    return;
+  }
+ else {
+    response.setHttpMethod(httpMethod);
+  }
+  response.setBucketName(bucketName);
+  List<CorsRule> corsRules;
+  try {
+    corsRules=BucketCorsManagers.getInstance().getCorsRules(bucketUuid);
+  }
+ catch (  Exception ex) {
+    LOG.warn("Caught general exception while getting the CORS configuration for bucket <" + bucketName + ">, CorrelationId: "+ Contexts.lookup().getCorrelationId()+ ", responding to client with 500 InternalError because of: ",ex);
+    throw new InternalErrorException("Bucket " + bucketName,ex);
+  }
+  CorsMatchResult corsMatchResult=OSGUtil.matchCorsRules(corsRules,origin,httpMethod);
+  CorsRule corsRuleMatch=corsMatchResult.getCorsRuleMatch();
+  if (corsRuleMatch != null) {
+    response.setAllowedOrigin(corsMatchResult.getAnyOrigin() ? "*" : origin);
+    List<String> methodList=corsRuleMatch.getAllowedMethods();
+    if (methodList != null) {
+      String methods=methodList.toString();
+      if (methods.length() > 2) {
+        methods=methods.substring(1,methods.length() - 1);
+        response.setAllowedMethods(methods);
+      }
+    }
+ else {
+      response.setAllowedMethods(null);
+    }
+    List<String> exposeHeadersList=corsRuleMatch.getExposeHeaders();
+    if (exposeHeadersList != null) {
+      String exposeHeaders=exposeHeadersList.toString();
+      if (exposeHeaders.length() > 2) {
+        exposeHeaders=exposeHeaders.substring(1,exposeHeaders.length() - 1);
+        response.setExposeHeaders(exposeHeaders);
+      }
+    }
+ else {
+      response.setExposeHeaders(null);
+    }
+    if (corsRuleMatch.getMaxAgeSeconds() > 0) {
+      response.setMaxAgeSeconds(String.valueOf(corsRuleMatch.getMaxAgeSeconds()));
+    }
+ else {
+      response.setMaxAgeSeconds(null);
+    }
+    if (!corsMatchResult.getAnyOrigin()) {
+      response.setAllowCredentials("true");
+    }
+ else {
+      response.setAllowCredentials(null);
+    }
+    if (response.getAllowedOrigin() != null) {
+      response.setVary(HttpHeaders.ORIGIN + ", " + HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS+ ", "+ HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
+    }
+ else {
+      response.setVary(null);
+    }
+  }
+ else {
+    LOG.debug("Has origin but no matching CORS rule, therefore no CORS info stored");
+  }
+}
