@@ -1,11 +1,30 @@
 {
-  QueueUrlParts queueUrlParts=getQueueUrlParts(queueUrl);
-  Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(queueUrlParts.getAccountId(),queueUrlParts.getQueueName());
-  if (queue == null) {
-    throw new QueueDoesNotExistException("The specified queue does not exist.");
+  try {
+    final QueueUrlParts queueUrlParts=getQueueUrlParts(queueUrl);
+    final Queue queue=PersistenceFactory.getQueuePersistence().lookupQueue(queueUrlParts.getAccountId(),queueUrlParts.getQueueName());
+    boolean actionIsASharedQueueAction=SimpleQueueMetadata.sharedQueueActions().contains(RestrictedTypes.getIamActionByMessageType());
+    boolean requestAccountMatchesQueueAccount=queueUrlParts.getAccountId().equals(Contexts.lookup().getAccountNumber());
+    if (queue == null) {
+      if (requestAccountMatchesQueueAccount) {
+        throw new QueueDoesNotExistException("The specified queue does not exist.");
+      }
+ else       if (actionIsASharedQueueAction) {
+        throw new QueueDoesNotExistException("The specified queue does not exist or you do not have access to it.");
+      }
+ else {
+        throw new AccessDeniedException("Not authorized.");
+      }
+    }
+    final QueueResolver resolver=new QueueResolver(queue);
+    return actionIsASharedQueueAction && !requestAccountMatchesQueueAccount ? RestrictedTypes.doPrivilegedWithoutOwner(queue.getDisplayName(),resolver) : RestrictedTypes.doPrivileged(queue.getDisplayName(),resolver);
   }
-  if (!RestrictedTypes.filterPrivileged().apply(queue)) {
+ catch (  AuthException ex) {
     throw new AccessDeniedException("Not authorized.");
   }
-  return queue;
+catch (  NoSuchElementException ex) {
+    throw new QueueDoesNotExistException("The specified queue does not exist.");
+  }
+catch (  PersistenceException ex) {
+    throw new InternalFailureException(ex.getMessage());
+  }
 }
