@@ -45,11 +45,33 @@
       receiveAttributes.put(Constants.MAX_RECEIVE_COUNT,"" + maxReceiveCount);
     }
     Collection<Message> messages=PersistenceFactory.getMessagePersistence().receiveMessages(queue,receiveAttributes);
-    if (messages != null) {
+    ServiceConfiguration cwConfiguration=Topology.lookup(CloudWatch.class);
+    Date now=new Date();
+    if (messages != null && !messages.isEmpty()) {
       for (      Message message : messages) {
         filterReceiveAttributes(message,request.getAttributeName());
         filterReceiveMessageAttributes(message,request.getMessageAttributeName());
         reply.getReceiveMessageResult().getMessage().add(message);
+        if (!"false".equalsIgnoreCase(SimpleQueueService.ENABLE_METRICS_COLLECTION)) {
+          PutMetricDataType putMetricDataType=getSQSPutMetricDataType(queue);
+          MetricDatum messagesSentMetricDatum=getSQSMetricDatum(queue,now);
+          messagesSentMetricDatum.setMetricName(Constants.NUMBER_OF_MESSAGES_RECEIVED);
+          messagesSentMetricDatum.setValue(1.0);
+          messagesSentMetricDatum.setUnit("Count");
+          putMetricDataType.getMetricData().getMember().add(messagesSentMetricDatum);
+          AsyncRequests.sendSync(cwConfiguration,putMetricDataType);
+        }
+      }
+    }
+ else {
+      if (!"false".equalsIgnoreCase(SimpleQueueService.ENABLE_METRICS_COLLECTION)) {
+        PutMetricDataType putMetricDataType=getSQSPutMetricDataType(queue);
+        MetricDatum messagesSentMetricDatum=getSQSMetricDatum(queue,now);
+        messagesSentMetricDatum.setMetricName(Constants.NUMBER_OF_EMPTY_RECEIVES);
+        messagesSentMetricDatum.setValue(1.0);
+        messagesSentMetricDatum.setUnit("Count");
+        putMetricDataType.getMetricData().getMember().add(messagesSentMetricDatum);
+        AsyncRequests.sendSync(cwConfiguration,putMetricDataType);
       }
     }
   }

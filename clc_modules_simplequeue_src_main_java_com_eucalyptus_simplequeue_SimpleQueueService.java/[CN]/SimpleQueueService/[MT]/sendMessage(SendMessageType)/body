@@ -8,6 +8,22 @@
     reply.getSendMessageResult().setmD5OfMessageAttributes(messageInfo.getMessage().getmD5OfMessageAttributes());
     reply.getSendMessageResult().setMessageId(messageInfo.getMessage().getMessageId());
     reply.getSendMessageResult().setmD5OfMessageBody(messageInfo.getMessage().getmD5OfBody());
+    if (!"false".equalsIgnoreCase(SimpleQueueService.ENABLE_METRICS_COLLECTION)) {
+      ServiceConfiguration cwConfiguration=Topology.lookup(CloudWatch.class);
+      PutMetricDataType putMetricDataType=getSQSPutMetricDataType(queue);
+      Date now=new Date();
+      MetricDatum messagesSentMetricDatum=getSQSMetricDatum(queue,now);
+      messagesSentMetricDatum.setMetricName(Constants.NUMBER_OF_MESSAGES_SENT);
+      messagesSentMetricDatum.setValue(1.0);
+      messagesSentMetricDatum.setUnit("Count");
+      putMetricDataType.getMetricData().getMember().add(messagesSentMetricDatum);
+      MetricDatum sentMessageSizeMetricDatum=getSQSMetricDatum(queue,now);
+      sentMessageSizeMetricDatum.setMetricName(Constants.SENT_MESSAGE_SIZE);
+      sentMessageSizeMetricDatum.setValue((double)messageInfo.getMessageLength());
+      sentMessageSizeMetricDatum.setUnit("Bytes");
+      putMetricDataType.getMetricData().getMember().add(sentMessageSizeMetricDatum);
+      AsyncRequests.sendSync(cwConfiguration,putMetricDataType);
+    }
   }
  catch (  Exception ex) {
     handleException(ex);
