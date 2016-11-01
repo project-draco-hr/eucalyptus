@@ -24,9 +24,12 @@
       previousIds.add(batchRequestEntry.getId());
     }
     Date now=new Date();
+    int numSuccessfulRealDeletes=0;
     for (    DeleteMessageBatchRequestEntry batchRequestEntry : request.getDeleteMessageBatchRequestEntry()) {
       try {
-        handleDeleteMessage(queue,batchRequestEntry.getReceiptHandle(),now);
+        if (PersistenceFactory.getMessagePersistence().deleteMessage(queue,batchRequestEntry.getReceiptHandle())) {
+          numSuccessfulRealDeletes++;
+        }
         DeleteMessageBatchResultEntry success=new DeleteMessageBatchResultEntry();
         success.setId(batchRequestEntry.getId());
         reply.getDeleteMessageBatchResult().getDeleteMessageBatchResultEntry().add(success);
@@ -44,6 +47,11 @@
           reply.getDeleteMessageBatchResult().getBatchResultErrorEntry().add(failure);
         }
       }
+    }
+    if (SimpleQueueProperties.ENABLE_METRICS_COLLECTION && numSuccessfulRealDeletes > 0) {
+      PutMetricDataType putMetricDataType=CloudWatchClient.getSQSPutMetricDataType(queue);
+      CloudWatchClient.addSQSMetricDatum(putMetricDataType,queue,new Date(),Constants.NUMBER_OF_MESSAGES_DELETED,numSuccessfulRealDeletes,1.0,1.0,numSuccessfulRealDeletes,"Count");
+      CloudWatchClient.putMetricData(putMetricDataType);
     }
   }
  catch (  Exception ex) {
