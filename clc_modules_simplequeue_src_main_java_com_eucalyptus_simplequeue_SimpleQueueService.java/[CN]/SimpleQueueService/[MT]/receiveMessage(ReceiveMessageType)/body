@@ -2,24 +2,24 @@
   ReceiveMessageResponseType reply=request.getReply();
   try {
     final Context ctx=Contexts.lookup();
-    Queue queue=getAndCheckPermissionOnQueue(request.getQueueUrl());
-    Map<String,String> receiveAttributes=Maps.newHashMap();
+    final Queue queue=getAndCheckPermissionOnQueue(request.getQueueUrl());
+    final Map<String,String> receiveAttributes=Maps.newHashMap();
     if (request.getVisibilityTimeout() != null) {
-      if (request.getVisibilityTimeout() < 0 || request.getVisibilityTimeout() > MAX_VISIBILITY_TIMEOUT) {
-        throw new InvalidParameterValueException("VisibilityTimeout must be between 0 and " + MAX_VISIBILITY_TIMEOUT);
+      if (request.getVisibilityTimeout() < 0 || request.getVisibilityTimeout() > SimpleQueueProperties.MAX_VISIBILITY_TIMEOUT) {
+        throw new InvalidParameterValueException("VisibilityTimeout must be between 0 and " + SimpleQueueProperties.MAX_VISIBILITY_TIMEOUT);
       }
       receiveAttributes.put(Constants.VISIBILITY_TIMEOUT,"" + request.getVisibilityTimeout());
     }
     if (request.getWaitTimeSeconds() != null) {
-      if (request.getWaitTimeSeconds() < 0 || request.getWaitTimeSeconds() > MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS) {
-        throw new InvalidParameterValueException("WaitTimeSeconds must be between 0 and " + MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS);
+      if (request.getWaitTimeSeconds() < 0 || request.getWaitTimeSeconds() > SimpleQueueProperties.MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS) {
+        throw new InvalidParameterValueException("WaitTimeSeconds must be between 0 and " + SimpleQueueProperties.MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS);
       }
       receiveAttributes.put(Constants.WAIT_TIME_SECONDS,"" + request.getWaitTimeSeconds());
     }
     int maxNumberOfMessages=1;
     if (request.getMaxNumberOfMessages() != null) {
-      if (request.getMaxNumberOfMessages() < 1 || request.getMaxNumberOfMessages() > MAX_RECEIVE_MESSAGE_MAX_NUMBER_OF_MESSAGES) {
-        throw new InvalidParameterValueException("WaitTimeSeconds must be between 1 and " + MAX_RECEIVE_MESSAGE_MAX_NUMBER_OF_MESSAGES);
+      if (request.getMaxNumberOfMessages() < 1 || request.getMaxNumberOfMessages() > SimpleQueueProperties.MAX_RECEIVE_MESSAGE_MAX_NUMBER_OF_MESSAGES) {
+        throw new InvalidParameterValueException("WaitTimeSeconds must be between 1 and " + SimpleQueueProperties.MAX_RECEIVE_MESSAGE_MAX_NUMBER_OF_MESSAGES);
       }
       maxNumberOfMessages=request.getMaxNumberOfMessages();
     }
@@ -44,34 +44,33 @@
       receiveAttributes.put(Constants.MESSAGE_RETENTION_PERIOD,"" + deadLetterQueue.getMessageRetentionPeriod());
       receiveAttributes.put(Constants.MAX_RECEIVE_COUNT,"" + maxReceiveCount);
     }
+    int waitTimeSeconds=request.getWaitTimeSeconds() != null ? request.getWaitTimeSeconds() : queue.getReceiveMessageWaitTimeSeconds();
     Collection<Message> messages=PersistenceFactory.getMessagePersistence().receiveMessages(queue,receiveAttributes);
-    ServiceConfiguration cwConfiguration=Topology.lookup(CloudWatch.class);
-    Date now=new Date();
     if (messages != null && !messages.isEmpty()) {
-      for (      Message message : messages) {
-        filterReceiveAttributes(message,request.getAttributeName());
-        filterReceiveMessageAttributes(message,request.getMessageAttributeName());
-        reply.getReceiveMessageResult().getMessage().add(message);
-        if (!"false".equalsIgnoreCase(SimpleQueueService.ENABLE_METRICS_COLLECTION)) {
-          PutMetricDataType putMetricDataType=getSQSPutMetricDataType(queue);
-          MetricDatum messagesSentMetricDatum=getSQSMetricDatum(queue,now);
-          messagesSentMetricDatum.setMetricName(Constants.NUMBER_OF_MESSAGES_RECEIVED);
-          messagesSentMetricDatum.setValue(1.0);
-          messagesSentMetricDatum.setUnit("Count");
-          putMetricDataType.getMetricData().getMember().add(messagesSentMetricDatum);
-          AsyncRequests.sendSync(cwConfiguration,putMetricDataType);
-        }
-      }
+      sendReceivedMessagesCW(queue,messages,request.getAttributeName(),request.getMessageAttributeName());
+      reply.getReceiveMessageResult().getMessage().addAll(messages);
     }
  else {
-      if (!"false".equalsIgnoreCase(SimpleQueueService.ENABLE_METRICS_COLLECTION)) {
-        PutMetricDataType putMetricDataType=getSQSPutMetricDataType(queue);
-        MetricDatum messagesSentMetricDatum=getSQSMetricDatum(queue,now);
-        messagesSentMetricDatum.setMetricName(Constants.NUMBER_OF_EMPTY_RECEIVES);
-        messagesSentMetricDatum.setValue(1.0);
-        messagesSentMetricDatum.setUnit("Count");
-        putMetricDataType.getMetricData().getMember().add(messagesSentMetricDatum);
-        AsyncRequests.sendSync(cwConfiguration,putMetricDataType);
+      if (!"false".equalsIgnoreCase(SimpleQueueProperties.ENABLE_LONG_POLLING) && waitTimeSeconds > 0) {
+        handleQueuePollingForReceive(queue,request.getCorrelationId(),reply,new Callable<ReceiveMessageResponseType>(){
+          @Override public ReceiveMessageResponseType call() throws Exception {
+            Collection<Message> messages=PersistenceFactory.getMessagePersistence().receiveMessages(queue,receiveAttributes);
+            if (messages != null && !messages.isEmpty()) {
+              sendReceivedMessagesCW(queue,messages,request.getAttributeName(),request.getMessageAttributeName());
+              ReceiveMessageResponseType receiveMessageResponseType=reply;
+              receiveMessageResponseType.getReceiveMessageResult().getMessage().addAll(messages);
+              return receiveMessageResponseType;
+            }
+ else {
+              return null;
+            }
+          }
+        }
+,System.currentTimeMillis() + waitTimeSeconds * 1000L);
+        return null;
+      }
+ else {
+        sendEmptyReceiveCW(queue);
       }
     }
   }

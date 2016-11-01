@@ -1,65 +1,80 @@
 {
-  List<Message> messages=Lists.newArrayList();
-  long now=SimpleQueueService.currentTimeSeconds();
-  try (TransactionResource db=Entities.transactionFor(MessageEntity.class)){
-    List<MessageEntity> messageEntityList=Entities.criteriaQuery(MessageEntity.class).whereEqual(MessageEntity_.accountId,queue.getAccountId()).whereEqual(MessageEntity_.queueName,queue.getQueueName()).where(Entities.restriction(MessageEntity.class).le(MessageEntity_.visibleTimestampSecs,now)).orderBy(MessageEntity_.visibleTimestampSecs).list();
-    boolean deadLetterQueue=false;
-    String deadLetterQueueAccountId=null;
-    String deadLetterQueueName=null;
-    int maxReceiveCount=0;
-    long deadLetterQueueMessageRetentionPeriod=0;
-    try {
-      Ern deadLetterQueueErn=Ern.parse(receiveAttributes.get(Constants.DEAD_LETTER_TARGET_ARN));
-      deadLetterQueueAccountId=deadLetterQueueErn.getAccount();
-      deadLetterQueueName=deadLetterQueueErn.getResourceName();
-      maxReceiveCount=Integer.parseInt(receiveAttributes.get(Constants.MAX_RECEIVE_COUNT));
-      deadLetterQueueMessageRetentionPeriod=Long.parseLong(receiveAttributes.get(Constants.MESSAGE_RETENTION_PERIOD));
-      deadLetterQueue=true;
-    }
- catch (    Exception ignore) {
-    }
-    int numMessages=0;
-    int maxNumMessages=1;
-    try {
-      maxNumMessages=Integer.parseInt(receiveAttributes.get(Constants.MAX_NUMBER_OF_MESSAGES));
-    }
- catch (    Exception ignore) {
-    }
-    if (messageEntityList != null) {
-      for (      MessageEntity messageEntity : messageEntityList) {
-        if (messageEntity.getExpiredTimestampSecs() <= now) {
-          Entities.delete(messageEntity);
-          continue;
+  Pair<Optional<SimpleQueueException>,List<Message>> returnValue=Entities.asDistinctTransaction(MessageEntity.class,new Function<Void,Pair<Optional<SimpleQueueException>,List<Message>>>(){
+    @Nullable @Override public Pair apply(    @Nullable Void aVoid){
+      long now=SimpleQueueService.currentTimeSeconds();
+      List<Message> messages=Lists.newArrayList();
+      Optional<SimpleQueueException> simpleQueueExceptionOptional;
+      try {
+        List<MessageEntity> messageEntityList=Entities.criteriaQuery(MessageEntity.class).whereEqual(MessageEntity_.accountId,queue.getAccountId()).whereEqual(MessageEntity_.queueName,queue.getQueueName()).where(Entities.restriction(MessageEntity.class).le(MessageEntity_.visibleTimestampSecs,now)).orderBy(MessageEntity_.visibleTimestampSecs).list();
+        boolean deadLetterQueue=false;
+        String deadLetterQueueAccountId=null;
+        String deadLetterQueueName=null;
+        int maxReceiveCount=0;
+        long deadLetterQueueMessageRetentionPeriod=0;
+        try {
+          Ern deadLetterQueueErn=Ern.parse(receiveAttributes.get(Constants.DEAD_LETTER_TARGET_ARN));
+          deadLetterQueueAccountId=deadLetterQueueErn.getAccount();
+          deadLetterQueueName=deadLetterQueueErn.getResourceName();
+          maxReceiveCount=Integer.parseInt(receiveAttributes.get(Constants.MAX_RECEIVE_COUNT));
+          deadLetterQueueMessageRetentionPeriod=Long.parseLong(receiveAttributes.get(Constants.MESSAGE_RETENTION_PERIOD));
+          deadLetterQueue=true;
         }
-        if (deadLetterQueue && messageEntity.getLocalReceiveCount() >= maxReceiveCount) {
-          messageEntity.setLocalReceiveCount(0);
-          messageEntity.setAccountId(deadLetterQueueAccountId);
-          messageEntity.setQueueName(deadLetterQueueName);
-          messageEntity.setExpiredTimestampSecs(messageEntity.getSentTimestampSecs() + deadLetterQueueMessageRetentionPeriod);
-          continue;
+ catch (        Exception ignore) {
         }
-        Message message=jsonToMessage(messageEntity.getMessageJson());
-        message.setMessageId(messageEntity.getMessageId());
-        if (messageEntity.getReceiveCount() == 0) {
-          message.getAttribute().add(new Attribute(Constants.APPROXIMATE_FIRST_RECEIVE_TIMESTAMP,"" + now));
-          messageEntity.setMessageJson(messageToJson(message));
+        int numMessages=0;
+        int maxNumMessages=1;
+        try {
+          maxNumMessages=Integer.parseInt(receiveAttributes.get(Constants.MAX_NUMBER_OF_MESSAGES));
         }
-        int visibilityTimeout=queue.getVisibilityTimeout();
-        if (receiveAttributes.containsKey(Constants.VISIBILITY_TIMEOUT)) {
-          visibilityTimeout=Integer.parseInt(receiveAttributes.get(Constants.VISIBILITY_TIMEOUT));
+ catch (        Exception ignore) {
         }
-        messageEntity.setVisibleTimestampSecs(now + visibilityTimeout);
-        messageEntity.setLocalReceiveCount(messageEntity.getLocalReceiveCount() + 1);
-        messageEntity.setReceiveCount(messageEntity.getReceiveCount() + 1);
-        message.getAttribute().add(new Attribute(Constants.APPROXIMATE_RECEIVE_COUNT,"" + messageEntity.getReceiveCount()));
-        message.getAttribute().add(new Attribute(Constants.SENT_TIMESTAMP,"" + (messageEntity.getSentTimestampSecs())));
-        message.setReceiptHandle(messageEntity.getAccountId() + ":" + messageEntity.getQueueName()+ ":"+ messageEntity.getMessageId()+ ":"+ messageEntity.getLocalReceiveCount());
-        messages.add(message);
-        numMessages++;
-        if (numMessages >= maxNumMessages)         break;
+        if (messageEntityList != null) {
+          for (          MessageEntity messageEntity : messageEntityList) {
+            if (messageEntity.getExpiredTimestampSecs() <= now) {
+              Entities.delete(messageEntity);
+              continue;
+            }
+            if (deadLetterQueue && messageEntity.getLocalReceiveCount() >= maxReceiveCount) {
+              messageEntity.setLocalReceiveCount(0);
+              messageEntity.setAccountId(deadLetterQueueAccountId);
+              messageEntity.setQueueName(deadLetterQueueName);
+              messageEntity.setExpiredTimestampSecs(messageEntity.getSentTimestampSecs() + deadLetterQueueMessageRetentionPeriod);
+              continue;
+            }
+            Message message=jsonToMessage(messageEntity.getMessageJson());
+            message.setMessageId(messageEntity.getMessageId());
+            if (messageEntity.getReceiveCount() == 0) {
+              message.getAttribute().add(new Attribute(Constants.APPROXIMATE_FIRST_RECEIVE_TIMESTAMP,"" + now));
+              messageEntity.setMessageJson(messageToJson(message));
+            }
+            int visibilityTimeout=queue.getVisibilityTimeout();
+            if (receiveAttributes.containsKey(Constants.VISIBILITY_TIMEOUT)) {
+              visibilityTimeout=Integer.parseInt(receiveAttributes.get(Constants.VISIBILITY_TIMEOUT));
+            }
+            messageEntity.setVisibleTimestampSecs(now + visibilityTimeout);
+            messageEntity.setLocalReceiveCount(messageEntity.getLocalReceiveCount() + 1);
+            messageEntity.setReceiveCount(messageEntity.getReceiveCount() + 1);
+            message.getAttribute().add(new Attribute(Constants.APPROXIMATE_RECEIVE_COUNT,"" + messageEntity.getReceiveCount()));
+            message.getAttribute().add(new Attribute(Constants.SENT_TIMESTAMP,"" + (messageEntity.getSentTimestampSecs())));
+            message.setReceiptHandle(messageEntity.getAccountId() + ":" + messageEntity.getQueueName()+ ":"+ messageEntity.getMessageId()+ ":"+ messageEntity.getLocalReceiveCount());
+            messages.add(message);
+            numMessages++;
+            if (numMessages >= maxNumMessages)             break;
+          }
+        }
+        simpleQueueExceptionOptional=Optional.absent();
       }
+ catch (      SimpleQueueException ex) {
+        simpleQueueExceptionOptional=Optional.of(ex);
+      }
+      return new Pair<Optional<SimpleQueueException>,List<Message>>(simpleQueueExceptionOptional,messages);
     }
-    db.commit();
-    return messages;
   }
- }
+).apply(null);
+  if (returnValue.getLeft().isPresent()) {
+    throw returnValue.getLeft().get();
+  }
+ else {
+    return returnValue.getRight();
+  }
+}
