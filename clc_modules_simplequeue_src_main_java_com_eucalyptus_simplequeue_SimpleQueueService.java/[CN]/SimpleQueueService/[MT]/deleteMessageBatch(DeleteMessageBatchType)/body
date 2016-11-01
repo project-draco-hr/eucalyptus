@@ -6,8 +6,8 @@
     if (request.getDeleteMessageBatchRequestEntry() == null || request.getDeleteMessageBatchRequestEntry().isEmpty()) {
       throw new EmptyBatchRequestException("There should be at least one DeleteMessageBatchRequestEntry in the request.");
     }
-    if (request.getDeleteMessageBatchRequestEntry().size() > MAX_NUM_BATCH_ENTRIES) {
-      throw new TooManyEntriesInBatchRequestException("Maximum number of entries per request are " + MAX_NUM_BATCH_ENTRIES + ". You have sent "+ request.getDeleteMessageBatchRequestEntry().size()+ ".");
+    if (request.getDeleteMessageBatchRequestEntry().size() > SimpleQueueProperties.MAX_NUM_BATCH_ENTRIES) {
+      throw new TooManyEntriesInBatchRequestException("Maximum number of entries per request are " + SimpleQueueProperties.MAX_NUM_BATCH_ENTRIES + ". You have sent "+ request.getDeleteMessageBatchRequestEntry().size()+ ".");
     }
     Set<String> previousIds=Sets.newHashSet();
     Pattern batchIdPattern=Pattern.compile("[A-Za-z0-9_-]+");
@@ -15,8 +15,8 @@
       if (batchRequestEntry.getId() == null || batchRequestEntry.getId().isEmpty()) {
         throw new MissingParameterException("A batch entry id is a required field");
       }
-      if (batchRequestEntry.getId().length() > MAX_BATCH_ID_LENGTH || !batchIdPattern.matcher(batchRequestEntry.getId()).matches()) {
-        throw new InvalidBatchEntryIdException("A batch entry id can only contain alphanumeric characters, hyphens and underscores. It can be at most " + MAX_BATCH_ID_LENGTH + " letters long.");
+      if (batchRequestEntry.getId().length() > SimpleQueueProperties.MAX_BATCH_ID_LENGTH || !batchIdPattern.matcher(batchRequestEntry.getId()).matches()) {
+        throw new InvalidBatchEntryIdException("A batch entry id can only contain alphanumeric characters, hyphens and underscores. It can be at most " + SimpleQueueProperties.MAX_BATCH_ID_LENGTH + " letters long.");
       }
       if (previousIds.contains(batchRequestEntry.getId())) {
         throw new BatchEntryIdsNotDistinctException("A batch entry id is duplicated in this request");
@@ -24,9 +24,12 @@
       previousIds.add(batchRequestEntry.getId());
     }
     Date now=new Date();
+    int numSuccessfulRealDeletes=0;
     for (    DeleteMessageBatchRequestEntry batchRequestEntry : request.getDeleteMessageBatchRequestEntry()) {
       try {
-        handleDeleteMessage(queue,batchRequestEntry.getReceiptHandle(),now);
+        if (PersistenceFactory.getMessagePersistence().deleteMessage(queue,batchRequestEntry.getReceiptHandle())) {
+          numSuccessfulRealDeletes++;
+        }
         DeleteMessageBatchResultEntry success=new DeleteMessageBatchResultEntry();
         success.setId(batchRequestEntry.getId());
         reply.getDeleteMessageBatchResult().getDeleteMessageBatchResultEntry().add(success);
@@ -44,6 +47,11 @@
           reply.getDeleteMessageBatchResult().getBatchResultErrorEntry().add(failure);
         }
       }
+    }
+    if (SimpleQueueProperties.ENABLE_METRICS_COLLECTION && numSuccessfulRealDeletes > 0) {
+      PutMetricDataType putMetricDataType=CloudWatchClient.getSQSPutMetricDataType(queue);
+      CloudWatchClient.addSQSMetricDatum(putMetricDataType,queue,new Date(),Constants.NUMBER_OF_MESSAGES_DELETED,numSuccessfulRealDeletes,1.0,1.0,numSuccessfulRealDeletes,"Count");
+      CloudWatchClient.putMetricData(putMetricDataType);
     }
   }
  catch (  Exception ex) {
